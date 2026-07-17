@@ -1,15 +1,44 @@
 from __future__ import annotations
 
+import base64
+from datetime import datetime, timezone
 import hashlib
+import json
 import logging
 import uuid
 import xml.etree.ElementTree as ET
-import base64
-import json
-from typing import Optional
+from typing import Any, Optional
 
+from fastapi import APIRouter, Depends, Request, Response, status
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+
+from app.api.dingtalk_utils import dingtalk_verify_signature
+from app.api.error_utils import error_response, get_request_id
+from app.api.feishu_utils import feishu_clean_message_text, feishu_decrypt_message, feishu_verify_signature
+from app.api.schemas import ErrorResponse
+from app.api.telegram_utils import (
+    extract_message_from_update,
+    extract_text_from_message,
+    get_chat_type,
+    get_sender_info,
+    telegram_verify_secret_token,
+)
+from app.api.wecom_utils import build_xml_raw_payload
+from app.db.base import get_db
+from app.db.error_utils import is_expected_unique_violation
+from app.db.models import (
+    DingTalkInbox,
+    FeishuInbox,
+    Platform,
+    TelegramInbox,
+    WeComInbox,
+    WeComSyncJob,
+    WuKongIMInbox,
+)
 
 
 def _pkcs7_unpad(data: bytes) -> bytes:
@@ -47,28 +76,6 @@ def _wecom_decrypt_message(encrypt_b64: str, encoding_aes_key: str, receiveid_ex
     except Exception:
         return None
 
-from typing import Any
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, Request, Depends, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-
-from app.db.base import get_db
-from app.db.models import Platform, WeComInbox, WuKongIMInbox, FeishuInbox, DingTalkInbox, TelegramInbox
-from app.api.error_utils import error_response, get_request_id
-from app.api.schemas import ErrorResponse
-from app.api.feishu_utils import feishu_verify_signature, feishu_decrypt_message, feishu_clean_message_text
-from app.api.dingtalk_utils import dingtalk_verify_signature
-from app.api.telegram_utils import (
-    telegram_verify_secret_token,
-    extract_message_from_update,
-    extract_text_from_message,
-    get_chat_type,
-    get_sender_info,
-)
-
 router = APIRouter()
 
 
@@ -88,9 +95,6 @@ def compute_msg_signature(token: str, timestamp: str, nonce: str, msg: str | Non
 
 
 
-# --- WeCom helpers (moved to dedicated module) ---
-from app.api.wecom_utils import build_xml_raw_payload, sync_kf_messages
-
 async def _handle_wecom_webhook(platform: Platform, request: Request, db: AsyncSession) -> dict[str, Any] | Response:
     """Handle WeCom webhook POST callback for a given platform.
 
@@ -106,6 +110,14 @@ async def _handle_wecom_webhook(platform: Platform, request: Request, db: AsyncS
     msg_signature = query.get("msg_signature")
     timestamp = query.get("timestamp") or ""
     nonce = query.get("nonce") or ""
+
+    if not (timestamp and nonce):
+        return error_response(
+            status.HTTP_400_BAD_REQUEST,
+            code="INVALID_SIGNATURE",
+            message="Missing or invalid signature parameters",
+            request_id=get_request_id(request),
+        )
 
     raw_body = await request.body()
     body_text = raw_body.decode("utf-8") if raw_body else ""
@@ -169,24 +181,81 @@ async def _handle_wecom_webhook(platform: Platform, request: Request, db: AsyncS
     # Handle event-type callbacks (currently focusing on kf_msg_or_event)
 
     if (msg_type or "").lower() == "event":
-        # Specifically handle KF event notification: kf_msg_or_event -> trigger sync, do not store event itself
+        event_type = (xml_root.findtext("Event") or "").lower()
+        if event_type != "kf_msg_or_event":
+            return {"ok": True}
+
+        # Persist the trigger before acknowledging. The listener performs remote sync asynchronously.
         token_val = xml_root.findtext("Token") or ""
         open_kf_id_for_cursor = xml_root.findtext("OpenKfId") or ""
         open_kf_id_for_cursor = open_kf_id_for_cursor or (xml_root.findtext("ToUserName") or "")
+        cfg = platform.config or {}
+        corp_id = (cfg.get("corp_id") or "").strip()
+        app_secret = (cfg.get("app_secret") or "").strip()
+        if not (token_val and open_kf_id_for_cursor):
+            return error_response(
+                status.HTTP_400_BAD_REQUEST,
+                code="INVALID_PAYLOAD",
+                message="WeCom KF event is missing token or open_kfid",
+                request_id=get_request_id(request),
+            )
+        if not (corp_id and app_secret):
+            return error_response(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                code="PLATFORM_CONFIG_INVALID",
+                message="WeCom platform is missing corp_id or app_secret",
+                request_id=get_request_id(request),
+            )
 
         try:
-            cfg = platform.config or {}
-            corp_id = (cfg.get("corp_id") or "").strip()
-            app_secret = (cfg.get("app_secret") or "").strip()
-            # Fire-and-forget style sync; but await to complete current batch with a safety loop
-            if token_val and corp_id and app_secret and open_kf_id_for_cursor:
-                await sync_kf_messages(corp_id=corp_id, app_secret=app_secret, event_token=token_val, open_kf_id=open_kf_id_for_cursor, platform_id=platform.id, db=db)
-            else:
-                logging.warning("[WECOM] KF event missing required fields (token/corp_id/app_secret/open_kf_id)")
-        except Exception as e:
-            logging.error("[WECOM] KF event sync failed: %s", e)
-        # Always acknowledge the event quickly
+            canonical_callback = decrypted_xml_text or ET.tostring(
+                xml_root,
+                encoding="unicode",
+            )
+            fingerprint_source = f"{platform.id}:{canonical_callback}"
+            db.add(
+                WeComSyncJob(
+                    platform_id=platform.id,
+                    event_token=token_val,
+                    open_kfid=open_kf_id_for_cursor,
+                    callback_fingerprint=hashlib.sha256(
+                        fingerprint_source.encode("utf-8")
+                    ).hexdigest(),
+                    status="pending",
+                )
+            )
+            await db.commit()
+        except IntegrityError as exc:
+            await db.rollback()
+            if not is_expected_unique_violation(
+                exc,
+                "uq_wecom_sync_job_callback",
+            ):
+                logging.error("[WECOM] Sync job integrity error: %s", exc)
+                return error_response(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    code="SYNC_JOB_ENQUEUE_FAILED",
+                    message="Failed to enqueue WeCom sync job",
+                    request_id=get_request_id(request),
+                )
+        except Exception as exc:
+            logging.error("[WECOM] Failed to enqueue KF sync job: %s", exc)
+            await db.rollback()
+            return error_response(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                code="SYNC_JOB_ENQUEUE_FAILED",
+                message="Failed to enqueue WeCom sync job",
+                request_id=get_request_id(request),
+            )
         return {"ok": True}
+
+    if not message_id:
+        return error_response(
+            status.HTTP_400_BAD_REQUEST,
+            code="MESSAGE_ID_MISSING",
+            message="WeCom business message is missing MsgId",
+            request_id=get_request_id(request),
+        )
 
     # Store inbound message into wecom_inbox (producer stage)
     try:
@@ -208,7 +277,7 @@ async def _handle_wecom_webhook(platform: Platform, request: Request, db: AsyncS
         # Store inbound text message
         inbox_record = WeComInbox(
             platform_id=platform.id,
-            message_id=message_id or "",
+            message_id=message_id,
             source_type="wecom_kf",  # WeCom Customer Service (客服)
             from_user=from_user,
             open_kfid=open_kfid_val,
@@ -873,7 +942,7 @@ async def _handle_wukongim_webhook(
             from_uid = str(message.get("from_uid") or "")
             channel_id = str(message.get("channel_id") or "")
             channel_type = int(message.get("channel_type") or 0)
-            message_seq = int(message.get("message_seq")) if message.get("message_seq") is not None else 0
+            message_seq = int(message.get("message_seq") or 0)
             timestamp = int(message.get("timestamp") or 0)
             payload_b64 = str(message.get("payload") or "")
             platform_open_id = message.get("platform_open_id")  # Extract platform_open_id
@@ -1093,8 +1162,11 @@ async def platforms_callback(platform_api_key: str, request: Request, db: AsyncS
         return error_response(status.HTTP_404_NOT_FOUND, code="PLATFORM_NOT_FOUND", message="Platform not found", request_id=get_request_id(request))
 
     platform_type = (platform.type or "").lower()
-    logging.info("[CALLBACK] Routing callback for platform_id=%s, type=%s, api_key=%s",
-                 platform.id, platform_type, platform_api_key[:20] + "...")
+    logging.info(
+        "[CALLBACK] Routing callback for platform_id=%s, type=%s",
+        platform.id,
+        platform_type,
+    )
 
     # Platform-type-specific routing
     if platform_type == "wecom":

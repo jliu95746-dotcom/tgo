@@ -1,5 +1,4 @@
 from __future__ import annotations
-import asyncio
 import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,16 +90,21 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
         is_from_colleague = bool(wc.get("is_from_colleague", True))
         open_kfid = wc.get("open_kfid")
         external_userid = wc.get("external_userid") or msg.from_uid
-        if not (corp_id and agent_id and app_secret and to_user):
-            return SimpleStdoutAdapter()
+        if not (corp_id and app_secret and to_user):
+            raise RuntimeError("WeCom adapter requires corp_id, app_secret, and recipient")
+        if is_from_colleague and not agent_id:
+            raise RuntimeError("WeCom colleague reply requires agent_id")
+        if not is_from_colleague and not (open_kfid and external_userid):
+            raise RuntimeError("WeCom KF reply requires open_kfid and external_userid")
         return WeComAdapter(
             corp_id=corp_id,
-            agent_id=str(agent_id),
+            agent_id=str(agent_id) if agent_id is not None else None,
             app_secret=app_secret,
             to_user=to_user,
             is_from_colleague=is_from_colleague,
             open_kfid=open_kfid,
             external_userid=external_userid,
+            source_message_id=(msg.extra or {}).get("message_id"),
         )
     if ptype == "wecom_bot":
         # Get wecom context which contains response_url from the incoming message
@@ -153,6 +157,55 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
     return SimpleStdoutAdapter()
 
 
+def _normalize_message_type(value: object) -> int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip().lower()
+        if stripped.isdigit():
+            return int(stripped)
+        return {
+            "text": 1,
+            "image": 2,
+            "file": 3,
+            "voice": 4,
+            "video": 5,
+        }.get(stripped, 1)
+    return 1
+
+
+def _extract_text_value(value: object, depth: int = 0) -> str | None:
+    if depth > 4 or not isinstance(value, dict):
+        return None
+    for key in ("content_chunk", "content", "text"):
+        candidate = value.get(key)
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    nested = value.get("data")
+    return _extract_text_value(nested, depth + 1)
+
+
+def _extract_named_value(
+    value: object,
+    name: str,
+    depth: int = 0,
+) -> object | None:
+    if depth > 4 or not isinstance(value, dict):
+        return None
+    if name in value:
+        return value[name]
+    return _extract_named_value(value.get("data"), name, depth + 1)
+
+
+def _upstream_extra(extra: dict | None) -> dict[str, object] | None:
+    if not extra:
+        return None
+    message_id = extra.get("message_id")
+    if isinstance(message_id, str) and message_id:
+        return {"message_id": message_id}
+    return None
+
+
 async def process_message(
     msg: NormalizedMessage,
     db: AsyncSession,
@@ -165,89 +218,96 @@ async def process_message(
     """
     if not getattr(msg, "platform_api_key", None):
         raise RuntimeError("platform_api_key missing on NormalizedMessage")
-    for attempt in range(3):
-        try:
-            # Fetch platform by id only if needed for adapter selection/config
-            platform = await db.scalar(select(Platform).where(Platform.id == msg.platform_id))
+    platform = await db.scalar(select(Platform).where(Platform.id == msg.platform_id))
+    if platform is None:
+        raise RuntimeError(f"Platform {msg.platform_id} not found")
 
-            # Choose platform-specific expected output format for tgo-api
-            ptype = ((platform.type if platform else msg.platform_type) or "").lower()
-            expected_output = _expected_output_for(ptype)
+    ptype = ((platform.type or msg.platform_type) or "").lower()
+    expected_output = _expected_output_for(ptype)
+    default_system_message = _default_system_message_for(ptype)
+    system_message = (msg.extra or {}).get("system_message") or default_system_message
+    request = ChatCompletionRequest(
+        api_key=msg.platform_api_key,
+        message=msg.content,
+        from_uid=msg.from_uid or "",
+        msg_type=_normalize_message_type((msg.extra or {}).get("msg_type")),
+        system_message=system_message,
+        expected_output=expected_output,
+        extra=_upstream_extra(msg.extra),
+        timeout_seconds=settings.request_timeout_seconds,
+    )
+    frames = tgo_api_client.chat_completion(request)
+    events = sse_manager.stream_events(frames)
+    adapter = await select_adapter_for_target(msg, platform=platform)
 
-            # Default system message by platform; allow explicit override via msg.extra["system_message"]
-            default_system_message = _default_system_message_for(ptype)
-            try:
-                system_message = ((msg.extra or {}).get("system_message")) or default_system_message
-            except Exception:
-                system_message = default_system_message
-            req = ChatCompletionRequest(
-                api_key=msg.platform_api_key,
-                message=msg.content,
-                from_uid=msg.from_uid or "",
-                msg_type=(msg.extra or {}).get("msg_type") or 1,
-                system_message=system_message,
-                expected_output=expected_output,
-                extra=msg.extra,
-                timeout_seconds=settings.request_timeout_seconds,
+    if adapter.supports_stream:
+        async for event in events:
+            await adapter.send_incremental(event)
+        return None
+
+    chunk_events = {"agent_content_chunk"}
+    success_events = {"workflow_completed"}
+    failure_events = {
+        "error",
+        "disconnected",
+        "workflow_failed",
+        "agent_run_failed",
+        "agent_response_error",
+        "team_run_failed",
+        "team_member_failed",
+        "stream.error",
+    }
+    no_reply_events = {"ai_disabled", "assist_mode", "queued"}
+    chunks: list[str] = []
+    final_content: str | None = None
+    completed = False
+
+    async for event in events:
+        payload = event.payload or {}
+        event_type = str(payload.get("event_type") or event.event or "")
+        if event_type in no_reply_events:
+            logging.info(
+                "[DISPATCH] No automatic reply for event=%s platform_id=%s",
+                event_type,
+                msg.platform_id,
             )
-            frames = tgo_api_client.chat_completion(req)
-            events = sse_manager.stream_events(frames)
-
-            adapter = await select_adapter_for_target(msg, platform=platform) if platform else SimpleStdoutAdapter()
-
-            if adapter.supports_stream:
-                async for ev in events:
-                    payload = ev.payload or {}
-                    if payload.get("event_type") == "ai_disabled":
-                        logging.info("[DISPATCH] AI disabled; skipping reply (platform_id=%s)", msg.platform_id)
-                        return None
-                    await adapter.send_incremental(ev)
-                return None
-            else:
-                # Aggregate manually to detect ai_disabled early
-                chunks: list[str] = []
-                async for ev in events:
-                    payload = ev.payload or {}
-                    et = payload.get("event_type")
-                    if et == "ai_disabled":
-                        logging.info("[DISPATCH] AI disabled; skipping reply (platform_id=%s)", msg.platform_id)
-                        return None
-                    if ev.event in {"error", "disconnected"}:
-                        break
-                    
-                    # Debug: print all event types and data
-                    # print(f"[DISPATCH DEBUG] event={ev.event} type={et} payload={payload}")
-                    
-                    if et in {"team_run_content", "agent_run_content", "workflow_content", "workflow_run_content"}:
-                        data = payload.get("data", {})
-                        # Try flat content first, then nested data.content (level 3)
-                        text = data.get("content") or data.get("text")
-                        if not text and isinstance(data, dict):
-                            inner_data = data.get("data", {})
-                            if isinstance(inner_data, dict):
-                                text = inner_data.get("content") or inner_data.get("text")
-                        
-                        if text:
-                            chunks.append(text)
-                    elif ev.event == "message" and not et:
-                        # Fallback for plain message events
-                        text = payload.get("text") or payload.get("content")
-                        if not text and isinstance(payload.get("data"), dict):
-                            text = payload["data"].get("text") or payload["data"].get("content")
-                        
-                        if text:
-                            chunks.append(text)
-                    
-                    if et in {"workflow_completed", "team_run_completed", "workflow_failed", "agent_run_completed"}:
-                        break
-                final = {"text": "".join(chunks)}
-                await adapter.send_final(final)
-                return (final.get("text") if isinstance(final, dict) else None)
-        except Exception as e:
-            if attempt == 2:
-                raise
-            logging.warning(
-                "[DISPATCH] attempt %s failed for platform_id=%s: %s", attempt + 1, msg.platform_id, e, exc_info=True
+            return None
+        if event_type in failure_events or event.event in failure_events:
+            raise RuntimeError(f"AI stream failed with event {event_type or event.event}")
+        if event_type == "agent_response_complete":
+            success = _extract_named_value(payload.get("data"), "success")
+            if success is False:
+                error_detail = _extract_named_value(payload.get("data"), "error")
+                raise RuntimeError(
+                    f"AI agent response failed: {error_detail or 'unknown error'}"
+                )
+            final_value = _extract_named_value(
+                payload.get("data"),
+                "final_content",
             )
-            await asyncio.sleep(2 ** attempt)
+            if isinstance(final_value, str) and final_value:
+                final_content = final_value
+        if event_type in chunk_events:
+            text = _extract_text_value(payload.get("data"))
+            if text:
+                chunks.append(text)
+        elif event.event == "message" and not payload.get("event_type"):
+            text = _extract_text_value(payload)
+            if text:
+                chunks.append(text)
+        if event_type in success_events:
+            success = _extract_named_value(payload.get("data"), "success")
+            if success is False:
+                raise RuntimeError("AI workflow completed with success=false")
+            completed = True
+            break
+
+    if not completed:
+        raise RuntimeError("AI stream ended without a success event")
+    reply_text = "".join(chunks) or final_content or ""
+    if not reply_text:
+        raise RuntimeError("AI stream completed without reply text")
+    final = {"text": reply_text}
+    await adapter.send_final(final)
+    return reply_text
 

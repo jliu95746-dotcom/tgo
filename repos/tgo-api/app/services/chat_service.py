@@ -2,37 +2,27 @@
 
 import json
 import asyncio
-from datetime import datetime, timedelta
+import hashlib
+from datetime import datetime
 from typing import Optional, Dict, Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.logging import get_logger
 from app.models import (
     Platform,
     Project,
     Visitor,
     VisitorServiceStatus,
-    VisitorWaitingQueue,
-    VisitorAssignmentRule,
-    QueueSource,
-    WaitingStatus,
     Staff,
 )
 import app.services.visitor_service as visitor_service
-from app.tasks.process_waiting_queue import trigger_process_entry
 from app.services.wukongim_client import wukongim_client
 from app.services.ai_client import AIServiceClient
-from app.utils.encoding import build_project_staff_channel_id
-from app.utils.const import (
-    CHANNEL_TYPE_PROJECT_STAFF,
-    CHANNEL_TYPE_CUSTOMER_SERVICE,
-    MessageType,
-)
+from app.utils.const import MessageType
 from app.schemas.chat import (
     OpenAIChatMessage,
     OpenAIChatCompletionResponse,
@@ -533,12 +523,20 @@ async def send_user_message_to_wukongim(
         if extra:
             payload["extra"] = extra
 
+        source_message_id = extra.get("message_id") if extra else None
+        if isinstance(source_message_id, str) and source_message_id:
+            correlation_source = f"{channel_id}:{from_uid}:{source_message_id}"
+            correlation_hash = hashlib.sha256(correlation_source.encode("utf-8")).hexdigest()
+            client_msg_no = f"platform_{correlation_hash[:32]}"
+        else:
+            client_msg_no = f"user_{uuid4().hex}"
+
         await wukongim_client.send_message(
             payload=payload,
             from_uid=from_uid,
             channel_id=channel_id,
             channel_type=channel_type,
-            client_msg_no=f"user_{uuid4().hex}",
+            client_msg_no=client_msg_no,
         )
     except Exception:
         # Do not fail main flow on WuKongIM send failure

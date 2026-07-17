@@ -23,19 +23,19 @@ SUPPORTED_PLATFORM_TYPES = {"email", "website", "wechat", "wecom"}
 EMAIL_CONFIG_EXAMPLE = {
     "imap_host": "imap.qq.com",
     "imap_port": 993,
-    "imap_username": "412145540@qq.com",
-    "imap_password": "bgokziotncvtbjee",
+    "imap_username": "your-email@example.com",
+    "imap_password": "replace-with-imap-app-password",
     "imap_use_ssl": True,
     "mailbox": "INBOX",
     "poll_interval_seconds": 60
 }
 
 WECOM_CONFIG_EXAMPLE = {
-    "corp_id": "ww568541fa62117139",
-    "agent_id": "1000003",
-    "app_secret": "A8qLzHwTBuNoJMYCVcOo6YFsHkjZL7nrCIrm-kRMN9w",
-    "token": "123456",
-    "encoding_aes_key": "",
+    "corp_id": "your-corp-id",
+    "agent_id": "your-agent-id",
+    "app_secret": "replace-with-app-secret",
+    "token": "replace-with-callback-token",
+    "encoding_aes_key": "replace-with-encoding-aes-key",
     "processing_batch_size": 10,
     "max_retry_attempts": 3,
     "consumer_poll_interval_seconds": 5

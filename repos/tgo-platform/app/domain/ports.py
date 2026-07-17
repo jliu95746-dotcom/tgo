@@ -15,12 +15,12 @@ class MessageNormalizer(Protocol):
 
 
 class TgoApiClient(Protocol):
-    async def chat_completion(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
+    def chat_completion(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
         """Open SSE stream by POSTing to tgo-api and yield raw event lines as bytes."""
 
 
 class SSEManager(Protocol):
-    async def stream_events(self, frames: AsyncIterator[bytes]) -> AsyncIterator[StreamEvent]: ...
+    def stream_events(self, frames: AsyncIterator[bytes]) -> AsyncIterator[StreamEvent]: ...
     async def aggregate(self, events: AsyncIterator[StreamEvent]) -> dict: ...
 
 

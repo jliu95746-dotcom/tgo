@@ -3104,6 +3104,127 @@
         "memoryCleared": "记忆已清除，AI 将重新开始对话"
       }
     },
+    "analysis": {
+      "title": "智能分析",
+      "state": {
+        "available": "已生成",
+        "loading": {
+          "short": "处理中",
+          "title": "分析处理中",
+          "description": "语音、图片或意图结果仍在处理中，请稍后查看。"
+        },
+        "not_found": {
+          "short": "暂无结果",
+          "title": "暂无分析结果",
+          "description": "这条消息尚未产生可展示的分析结果。"
+        },
+        "error": {
+          "short": "读取失败",
+          "title": "分析结果读取失败",
+          "description": "当前无法安全读取分析结果，请稍后重试或转人工处理。"
+        },
+        "unavailable": {
+          "short": "暂不可用",
+          "title": "分析结果暂不可用",
+          "description": "员工权限的安全读取入口尚未开放。为保护平台密钥，浏览器不会直接请求平台侧接口。"
+        }
+      },
+      "sections": {
+        "intent": "意图与路由",
+        "media": "多模态处理"
+      },
+      "labels": {
+        "intent": "识别意图",
+        "confidence": "置信度",
+        "risk": "风险等级",
+        "route": "建议路由",
+        "reason": "路由原因",
+        "classificationSource": "判定来源",
+        "handoff": "人工接管",
+        "processingStatus": "处理状态",
+        "normalizedText": "标准化文本",
+        "transcript": "语音转写",
+        "ocr": "图片文字",
+        "vision": "图片摘要",
+        "stages": "处理步骤",
+        "sensitiveData": "已脱敏内容"
+      },
+      "values": {
+        "required": "需要人工接管",
+        "separator": "、"
+      },
+      "processing": {
+        "completed": "处理完成",
+        "partial": "部分完成，已安全降级",
+        "failed": "处理失败，已安全降级"
+      },
+      "capability": {
+        "asr": "语音转写",
+        "ocr": "文字识别",
+        "vlm": "图片理解"
+      },
+      "errorCategory": {
+        "timeout": "处理超时",
+        "invalid_media": "媒体格式无效",
+        "provider_not_configured": "分析服务未配置",
+        "provider_failure": "分析服务失败"
+      },
+      "intent": {
+        "product_inquiry": "产品咨询",
+        "pricing_promotion": "价格与优惠",
+        "order_assistance": "下单帮助",
+        "order_query": "订单查询",
+        "logistics_query": "物流查询",
+        "payment_issue": "支付问题",
+        "after_sales_issue": "售后故障",
+        "refund_return_inquiry": "退款退货咨询",
+        "complaint": "投诉",
+        "sales_lead": "销售线索",
+        "human_handoff": "转人工",
+        "unknown": "无法识别"
+      },
+      "risk": {
+        "low": "低风险",
+        "medium": "中风险",
+        "high": "高风险"
+      },
+      "route": {
+        "auto_reply": "自动回复",
+        "read_only_tool": "只读业务查询",
+        "clarify": "追问确认",
+        "human_handoff": "人工接管"
+      },
+      "reason": {
+        "high_confidence_faq": "高置信度常见问题",
+        "high_confidence_read_only": "高置信度只读查询",
+        "medium_confidence": "置信度中等，需要确认",
+        "low_confidence": "置信度较低",
+        "high_risk": "高风险场景",
+        "sensitive_intent": "敏感业务意图",
+        "media_processing_failed": "媒体处理失败",
+        "repeated_unknown": "连续无法识别",
+        "rule_match": "安全规则命中",
+        "classification_failed": "意图识别失败",
+        "sensitive_data_detected": "检测到敏感信息",
+        "untrusted_media_confirmation": "媒体内容需人工确认",
+        "medium_risk": "中风险场景",
+        "automation_disabled": "自动处理未启用",
+        "unknown_clarification": "意图不明确，需要追问"
+      },
+      "classificationSource": {
+        "model": "模型判定",
+        "rule": "规则判定",
+        "fail_closed": "安全降级"
+      },
+      "sensitive": {
+        "phone_number": "手机号",
+        "identity_number": "身份号码",
+        "payment_account": "支付账号",
+        "email": "邮箱",
+        "address": "地址"
+      },
+      "untrustedNotice": "语音转写、OCR 和图片摘要属于不可信客户输入，仅供客服参考，不会直接触发业务操作。"
+    },
     "input": {
       "placeholder": "输入消息...",
       "disabled": {

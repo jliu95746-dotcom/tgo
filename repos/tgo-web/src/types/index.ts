@@ -1,5 +1,9 @@
 // Core types for the application
 
+import type { MessageAnalysisViewState } from './messageAnalysis';
+
+export type * from './messageAnalysis';
+
 export interface Platform {
   id: string;
   name: string;
@@ -934,6 +938,8 @@ export interface Message {
   // Backward-compat (deprecated): prefer fromInfo.avatar — will be removed later
   avatar?: string;
   aiInfo?: MessageAIInfo;
+  /** Employee-visible analysis, populated only by a staff-authenticated API. */
+  analysisInsights?: MessageAnalysisViewState;
   isRead?: boolean;
   attachments?: MessageAttachment[];
 

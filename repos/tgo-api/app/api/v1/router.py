@@ -39,6 +39,7 @@ from app.api.v1.endpoints import (
     system,
     store,
     utils,
+    message_analysis,
 )
 
 api_router = APIRouter()
@@ -267,6 +268,13 @@ api_router.include_router(
     device_control.router,
     prefix="/device-control",
     tags=["Device Control"],
+)
+
+# Platform-authenticated media and intent result persistence
+api_router.include_router(
+    message_analysis.router,
+    prefix="/message-analysis",
+    tags=["Message Analysis"],
 )
 
 # Remote Agents endpoints (manage remote agents from AgentOS)

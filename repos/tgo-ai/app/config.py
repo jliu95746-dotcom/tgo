@@ -160,6 +160,19 @@ class Settings(BaseSettings):
     health_check_enabled: bool = Field(
         default=True, description="Enable health check endpoint"
     )
+    intent_automation_enabled: bool = Field(
+        default=False,
+        description="Enable calibrated automatic reply and read-only tool routes",
+    )
+    intent_provider_timeout_seconds: float = Field(
+        default=12.0,
+        gt=0,
+        le=120,
+        description="Intent structured-output provider deadline",
+    )
+    intent_max_input_characters: int = Field(default=8192, ge=1, le=65536)
+    intent_max_response_characters: int = Field(default=65536, ge=256, le=262144)
+    intent_max_output_tokens: int = Field(default=1024, ge=64, le=8192)
     metrics_enabled: bool = Field(
         default=True, description="Enable metrics collection"
     )

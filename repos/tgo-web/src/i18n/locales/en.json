@@ -2228,6 +2228,127 @@
         "memoryCleared": "Memory cleared, AI will restart the conversation"
       }
     },
+    "analysis": {
+      "title": "AI Analysis",
+      "state": {
+        "available": "Ready",
+        "loading": {
+          "short": "Processing",
+          "title": "Analysis in progress",
+          "description": "Voice, image, or intent analysis is still being processed."
+        },
+        "not_found": {
+          "short": "No result",
+          "title": "No analysis result",
+          "description": "This message does not have an analysis result to display yet."
+        },
+        "error": {
+          "short": "Read failed",
+          "title": "Unable to read analysis",
+          "description": "The result cannot be read safely right now. Try again later or hand off to an agent."
+        },
+        "unavailable": {
+          "short": "Unavailable",
+          "title": "Analysis is unavailable",
+          "description": "A staff-authorized read endpoint is not available yet. The browser will not call the platform endpoint or expose its integration key."
+        }
+      },
+      "sections": {
+        "intent": "Intent and routing",
+        "media": "Multimodal processing"
+      },
+      "labels": {
+        "intent": "Intent",
+        "confidence": "Confidence",
+        "risk": "Risk",
+        "route": "Recommended route",
+        "reason": "Routing reason",
+        "classificationSource": "Decision source",
+        "handoff": "Human handoff",
+        "processingStatus": "Processing status",
+        "normalizedText": "Normalized text",
+        "transcript": "Transcript",
+        "ocr": "Image text",
+        "vision": "Image summary",
+        "stages": "Processing stages",
+        "sensitiveData": "Redacted categories"
+      },
+      "values": {
+        "required": "Human handoff required",
+        "separator": ", "
+      },
+      "processing": {
+        "completed": "Completed",
+        "partial": "Partially completed; safely degraded",
+        "failed": "Failed; safely degraded"
+      },
+      "capability": {
+        "asr": "Speech transcription",
+        "ocr": "Text recognition",
+        "vlm": "Image understanding"
+      },
+      "errorCategory": {
+        "timeout": "Processing timed out",
+        "invalid_media": "Invalid media",
+        "provider_not_configured": "Analysis provider is not configured",
+        "provider_failure": "Analysis provider failed"
+      },
+      "intent": {
+        "product_inquiry": "Product inquiry",
+        "pricing_promotion": "Pricing and promotion",
+        "order_assistance": "Order assistance",
+        "order_query": "Order query",
+        "logistics_query": "Logistics query",
+        "payment_issue": "Payment issue",
+        "after_sales_issue": "After-sales issue",
+        "refund_return_inquiry": "Refund or return inquiry",
+        "complaint": "Complaint",
+        "sales_lead": "Sales lead",
+        "human_handoff": "Human handoff",
+        "unknown": "Unknown"
+      },
+      "risk": {
+        "low": "Low risk",
+        "medium": "Medium risk",
+        "high": "High risk"
+      },
+      "route": {
+        "auto_reply": "Automatic reply",
+        "read_only_tool": "Read-only business query",
+        "clarify": "Ask for clarification",
+        "human_handoff": "Human handoff"
+      },
+      "reason": {
+        "high_confidence_faq": "High-confidence FAQ",
+        "high_confidence_read_only": "High-confidence read-only query",
+        "medium_confidence": "Medium confidence; confirmation required",
+        "low_confidence": "Low confidence",
+        "high_risk": "High-risk scenario",
+        "sensitive_intent": "Sensitive business intent",
+        "media_processing_failed": "Media processing failed",
+        "repeated_unknown": "Repeated unknown intent",
+        "rule_match": "Safety rule matched",
+        "classification_failed": "Intent classification failed",
+        "sensitive_data_detected": "Sensitive data detected",
+        "untrusted_media_confirmation": "Media content requires confirmation",
+        "medium_risk": "Medium-risk scenario",
+        "automation_disabled": "Automation is disabled",
+        "unknown_clarification": "Unknown intent; clarification required"
+      },
+      "classificationSource": {
+        "model": "Model decision",
+        "rule": "Rule decision",
+        "fail_closed": "Safe fallback"
+      },
+      "sensitive": {
+        "phone_number": "Phone number",
+        "identity_number": "Identity number",
+        "payment_account": "Payment account",
+        "email": "Email",
+        "address": "Address"
+      },
+      "untrustedNotice": "Transcripts, OCR text, and image summaries are untrusted customer input. They are for agent reference only and cannot directly trigger business operations."
+    },
     "input": {
       "placeholder": "Type a message...",
       "disabled": {

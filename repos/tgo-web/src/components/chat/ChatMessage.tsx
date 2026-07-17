@@ -10,6 +10,7 @@ import { getPlatformIconComponent, getPlatformLabel, toPlatformType, getPlatform
 
 import AIInfoCard from './AIInfoCard';
 import ReplySuggestions from './ReplySuggestions';
+import MessageAnalysisInsights from './MessageAnalysisInsights';
 import { ChatAvatar } from './ChatAvatar';
 
 import TextMessage from './messages/TextMessage';
@@ -228,6 +229,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
         </div>
         <AIInfoCard aiInfo={message.aiInfo} />
         <ReplySuggestions suggestions={(message as any).suggestions} onSuggestionClick={onSuggestionClick} />
+        {message.analysisInsights ? (
+          <MessageAnalysisInsights state={message.analysisInsights} />
+        ) : null}
       </div>
     );
   }

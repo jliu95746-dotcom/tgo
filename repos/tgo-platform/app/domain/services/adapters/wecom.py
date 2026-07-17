@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import asyncio
+import hashlib
+import logging
 from typing import Optional
 
 
@@ -13,6 +14,17 @@ from app.api.wecom_utils import (
     wecom_kf_send_msg,
     wecom_send_app_message,
 )  # centralized API wrappers
+
+
+def _truncate_utf8(text: str, max_bytes: int = 2048) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    logging.warning(
+        "[WECOM] Reply exceeded %s UTF-8 bytes and was truncated",
+        max_bytes,
+    )
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
 class WeComAdapter(BasePlatformAdapter):
@@ -28,13 +40,14 @@ class WeComAdapter(BasePlatformAdapter):
     def __init__(
         self,
         corp_id: str,
-        agent_id: str,
+        agent_id: str | None,
         app_secret: str,
         to_user: str,
         is_from_colleague: bool = True,
         open_kfid: Optional[str] | None = None,
         external_userid: Optional[str] | None = None,
         http_timeout: int | None = None,
+        source_message_id: str | None = None,
     ) -> None:
         self.corp_id = corp_id
         self.agent_id = agent_id
@@ -44,6 +57,7 @@ class WeComAdapter(BasePlatformAdapter):
         self.open_kfid = open_kfid
         self.external_userid = external_userid
         self.http_timeout = http_timeout or settings.request_timeout_seconds
+        self.source_message_id = source_message_id
 
     async def _get_access_token(self) -> str:
         return await wecom_get_access_token(self.corp_id, self.app_secret, timeout=self.http_timeout)
@@ -59,15 +73,18 @@ class WeComAdapter(BasePlatformAdapter):
             return
 
         access_token = await self._get_access_token()
+        bounded_text = _truncate_utf8(text)
 
         if self.is_from_colleague:
             # Send via standard app message API to internal colleague (touser = UserID)
+            if not self.agent_id:
+                raise RuntimeError("WeCom colleague reply requires agent_id")
             await wecom_send_app_message(
                 access_token=access_token,
                 to_user=self.to_user,
                 agent_id=self.agent_id,
                 msgtype="text",
-                content={"content": text[:2048]},
+                content={"content": bounded_text},
                 duplicate_check_interval=10,
                 timeout=self.http_timeout,
             )
@@ -76,12 +93,17 @@ class WeComAdapter(BasePlatformAdapter):
             if not (self.open_kfid and (self.external_userid or self.to_user)):
                 raise RuntimeError("WeCom KF send requires open_kfid and external_userid")
             ext_uid = self.external_userid or self.to_user
+            reply_message_id = None
+            if self.source_message_id:
+                digest = hashlib.sha256(self.source_message_id.encode("utf-8")).hexdigest()
+                reply_message_id = f"tgo_{digest[:28]}"
             await wecom_kf_send_msg(
                 access_token=access_token,
                 open_kfid=self.open_kfid,
                 external_userid=ext_uid,
                 msgtype="text",
-                content={"content": text[:2048]},
+                content={"content": bounded_text},
+                message_id=reply_message_id,
             )
 
 

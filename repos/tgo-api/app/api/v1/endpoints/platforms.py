@@ -1,7 +1,12 @@
 """Platform endpoints."""
 
 from datetime import datetime
-from typing import List, Any
+import mimetypes
+import os
+from pathlib import Path
+import re
+import time
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header, UploadFile, File
@@ -9,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload, contains_eager
 
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.core.security import generate_api_key, get_current_active_user, require_permission
+from app.core.security import generate_api_key, require_permission
 from app.models import Platform, PlatformTypeDefinition, Staff
 from app.schemas import (
     PlatformAPIKeyResponse,
@@ -23,19 +28,11 @@ from app.schemas import (
 )
 import httpx
 from app.core.config import settings
+from app.utils.wecom_crypto import decrypt_wecom_echostr
 
 
 logger = get_logger("endpoints.platforms")
 router = APIRouter()
-
-
-# Reuse a simple filename sanitizer (similar to chat upload)
-import re
-import os
-import time
-import secrets
-import mimetypes
-from pathlib import Path
 
 
 def _sanitize_filename(name: str, limit: int = 100) -> str:
@@ -901,15 +898,21 @@ async def wecom_callback_verify(
     timestamp = qp.get("timestamp")
     nonce = qp.get("nonce")
     echostr = qp.get("echostr")
-    if not all([msg_signature, timestamp, nonce, echostr]):
+    if not (msg_signature and timestamp and nonce and echostr):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing required query parameters")
 
     # 3) Load WeCom config
     cfg = platform.config or {}
     token = cfg.get("token")
     encoding_aes_key = (cfg.get("encoding_aes_key") or "").strip()
+    corp_id = (cfg.get("corp_id") or "").strip()
     if not token:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="WeCom token not configured")
+    if encoding_aes_key and not corp_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="WeCom corp_id not configured",
+        )
 
     # 4) Verify signature (SHA1 of sorted token,timestamp,nonce,echostr)
     import hashlib
@@ -926,33 +929,11 @@ async def wecom_callback_verify(
     # 5) Decrypt echostr if AES key provided; otherwise echo as-is
     try:
         if encoding_aes_key and len(encoding_aes_key) >= 43:
-            import base64
-            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
-            # Build AES key and IV
-            aes_key = base64.b64decode(encoding_aes_key + "=")
-            iv = aes_key[:16]
-            cipher_text = base64.b64decode(echostr)
-
-            cipher = Cipher(algorithms.AES(aes_key), modes.CBC(iv))
-            decryptor = cipher.decryptor()
-            plain_padded = decryptor.update(cipher_text) + decryptor.finalize()
-
-            # PKCS#7 unpad
-            pad = plain_padded[-1]
-            if isinstance(pad, str):
-                pad = ord(pad)
-            if pad < 1 or pad > 32:
-                raise ValueError("Invalid padding")
-            plain = plain_padded[:-pad]
-
-            # Plain format: 16 random bytes + 4 bytes msg_len (network order) + msg + corp_id
-            if len(plain) < 20:
-                raise ValueError("Plaintext too short")
-            msg_len = int.from_bytes(plain[16:20], byteorder="big")
-            msg = plain[20 : 20 + msg_len]
-            # corp_id = plain[20 + msg_len : ]  # not used here
-            result = msg.decode("utf-8", errors="ignore")
+            result = decrypt_wecom_echostr(
+                echostr,
+                encoding_aes_key,
+                corp_id,
+            )
         else:
             result = echostr
 
@@ -960,7 +941,11 @@ async def wecom_callback_verify(
         return Response(content=result, media_type="text/plain")
     except Exception as exc:  # pragma: no cover
         logger.error("WeCom URL verify failed: %s", exc, extra={"platform_id": str(platform.id)})
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Verification failed")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification failed",
+        ) from exc
+
 
 @router.post("/callback/{platform_api_key}")
 async def platform_callback_forward(
@@ -974,7 +959,6 @@ async def platform_callback_forward(
     - Forwards body and query parameters to Platform Service
     - Returns Platform Service response verbatim (status, headers, body)
     """
-    print("platform_api_key: %s", platform_api_key)
     # Validate platform_api_key
     platform = (
         db.query(Platform)

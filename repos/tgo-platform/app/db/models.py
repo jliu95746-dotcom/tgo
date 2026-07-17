@@ -121,6 +121,9 @@ class WeComInbox(Base):
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     # Processing status
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
@@ -133,6 +136,209 @@ class WeComInbox(Base):
         Index("ix_wecom_inbox_status_fetched", "status", "fetched_at"),
     )
 
+
+class WeComSyncJob(Base):
+    """Durable trigger for pulling messages after a WeCom KF callback event."""
+
+    __tablename__ = "pt_wecom_sync_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    platform_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pt_platforms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_token: Mapped[str] = mapped_column(String(128), nullable=False)
+    open_kfid: Mapped[str] = mapped_column(String(128), nullable=False)
+    callback_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "platform_id",
+            "callback_fingerprint",
+            name="uq_wecom_sync_job_callback",
+        ),
+        Index("ix_wecom_sync_job_platform_status", "platform_id", "status"),
+    )
+
+
+class WeComSyncCursor(Base):
+    """Durable cursor for a WeCom customer-service account."""
+
+    __tablename__ = "pt_wecom_sync_cursors"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    platform_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pt_platforms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    open_kfid: Mapped[str] = mapped_column(String(128), nullable=False)
+    cursor: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "platform_id",
+            "open_kfid",
+            name="uq_wecom_sync_cursor_account",
+        ),
+    )
+
+
+
+class MessageMedia(Base):
+    """Durable metadata for one inbound channel media object."""
+
+    __tablename__ = "pt_message_media"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    platform_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pt_platforms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    inbox_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pt_wecom_inbox.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_media_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="pending"
+    )
+    storage_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    object_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    declared_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    byte_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    encryption_mode: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    encryption_key_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    retention_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    downloaded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "inbox_id",
+            name="uq_message_media_inbox",
+        ),
+        Index("ix_message_media_status_created", "status", "created_at"),
+        Index(
+            "ix_message_media_status_retention",
+            "status",
+            "retention_until",
+        ),
+    )
+
+
+class MediaProcessingJob(Base):
+    """Recoverable processing job for a single media object."""
+
+    __tablename__ = "pt_media_processing_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    media_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pt_message_media.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    job_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="download"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="pending"
+    )
+    retry_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    max_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="3"
+    )
+    claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    staging_object_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "media_id",
+            "job_type",
+            name="uq_media_processing_job_type",
+        ),
+        Index(
+            "ix_media_processing_job_status_attempt",
+            "status",
+            "next_attempt_at",
+        ),
+    )
 
 
 class WuKongIMInbox(Base):

@@ -2,17 +2,39 @@ from __future__ import annotations
 
 import logging
 import json
+import hashlib
+from enum import Enum
+import uuid
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple, cast
 
 import httpx
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.config import settings
-from app.db.models import WeComInbox
+from app.db.models import (
+    MediaProcessingJob,
+    MessageMedia,
+    WeComInbox,
+    WeComSyncCursor,
+)
+from app.db.error_utils import is_expected_unique_violation
+from app.domain.services.media.types import MediaType, WeComMediaReference
+
+
+class InboxStoreResult(str, Enum):
+    STORED = "stored"
+    DUPLICATE = "duplicate"
+    ERROR = "error"
+
+
+class WeComSyncContinuation(RuntimeError):
+    """The page budget was exhausted while more messages remain."""
+
 
 try:
     from redis import asyncio as aioredis  # type: ignore
@@ -31,11 +53,23 @@ async def get_redis_client():
         return _redis_client
     if not aioredis or not settings.redis_url:
         return None
+    client = None
     try:
-        _redis_client = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
-        await _redis_client.ping()
-        return _redis_client
+        client = aioredis.from_url(
+            settings.redis_url,
+            encoding="utf-8",
+            decode_responses=True,
+        )
+        await client.ping()
+        _redis_client = client
+        return client
     except Exception as e:  # pragma: no cover
+        _redis_client = None
+        if client is not None:
+            try:
+                await client.aclose()
+            except Exception:
+                pass
         logging.warning("[WECOM] Redis unavailable: %s", e)
         return None
 
@@ -46,15 +80,74 @@ async def wecom_get_access_token(corp_id: str, app_secret: str, timeout: Optiona
 
     Raises RuntimeError if WeCom returns an error.
     """
+    cache_key = _wecom_token_cache_key(corp_id, app_secret)
+    redis = await get_redis_client()
+    if redis is not None:
+        try:
+            cached = await redis.get(cache_key)
+            if cached:
+                return str(cached)
+        except Exception as exc:
+            logging.warning("[WECOM] Access-token cache read failed: %s", exc)
+
     url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
     params = {"corpid": corp_id, "corpsecret": app_secret}
-    async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
-        resp = await client.get(url, params=params)
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("errcode") != 0:
-            raise RuntimeError(f"WeCom gettoken failed: {data}")
-        return data["access_token"]
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout or settings.request_timeout_seconds
+        ) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"WeCom gettoken failed with HTTP {exc.response.status_code}"
+        ) from None
+    except httpx.HTTPError:
+        raise RuntimeError("WeCom gettoken failed due to a network error") from None
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise RuntimeError("WeCom gettoken returned an invalid response") from None
+
+    if not isinstance(data, dict):
+        raise RuntimeError("WeCom gettoken returned an invalid response")
+    try:
+        errcode = int(data.get("errcode") or 0)
+    except (TypeError, ValueError):
+        raise RuntimeError("WeCom gettoken returned an invalid errcode") from None
+    if errcode != 0:
+        raise RuntimeError(f"WeCom gettoken returned errcode {errcode}")
+    access_token = str(data.get("access_token") or "")
+    if not access_token:
+        raise RuntimeError("WeCom gettoken response is missing access_token")
+    if redis is not None:
+        try:
+            expires_in = max(60, int(data.get("expires_in") or 7200) - 60)
+        except (TypeError, ValueError):
+            expires_in = 7140
+        try:
+            await redis.set(cache_key, access_token, ex=expires_in)
+        except Exception as exc:
+            logging.warning("[WECOM] Access-token cache write failed: %s", exc)
+    return access_token
+
+
+def _wecom_token_cache_key(corp_id: str, app_secret: str) -> str:
+    credential_digest = hashlib.sha256(
+        f"{corp_id}\0{app_secret}".encode("utf-8")
+    ).hexdigest()[:24]
+    return f"wecom:access-token:{credential_digest}"
+
+
+async def invalidate_wecom_access_token(corp_id: str, app_secret: str) -> None:
+    """Invalidate a cached WeCom token after an authentication response."""
+    redis = await get_redis_client()
+    if redis is None:
+        return
+    cache_key = _wecom_token_cache_key(corp_id, app_secret)
+    try:
+        await redis.delete(cache_key)
+    except Exception as exc:
+        logging.warning("[WECOM] Access-token cache invalidation failed: %s", exc)
 
 
 async def wecom_upload_temp_media(access_token: str, file_bytes: bytes, media_type: str = "image", filename: Optional[str] = None, content_type: Optional[str] = None) -> str:
@@ -86,12 +179,14 @@ async def wecom_kf_sync_msg(access_token: str, open_kf_id: str, cursor: str, eve
     See: https://developer.work.weixin.qq.com/document/path/94670
     """
     url = f"https://qyapi.weixin.qq.com/cgi-bin/kf/sync_msg?access_token={access_token}"
-    payload = {
+    payload: dict[str, object] = {
         "open_kfid": open_kf_id,
         "cursor": cursor or "",
-        "token": event_token,
         "limit": int(limit),
+        "voice_format": 0,
     }
+    if event_token:
+        payload["token"] = event_token
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         r = await client.post(url, json=payload)
         r.raise_for_status()
@@ -99,9 +194,6 @@ async def wecom_kf_sync_msg(access_token: str, open_kf_id: str, cursor: str, eve
 
 
 # --- Visitor profile APIs (KF + ExternalContact) ---------------------------------
-from typing import Sequence, Dict, Any
-
-
 async def _wecom_kf_batch_get_customer_basic(access_token: str, external_userids: Sequence[str]) -> Dict[str, Dict[str, Any]]:
     """Call KF batchget to retrieve basic customer info (nickname, avatar).
 
@@ -115,7 +207,6 @@ async def _wecom_kf_batch_get_customer_basic(access_token: str, external_userids
         r = await client.post(url, json=payload)
         r.raise_for_status()
         data = r.json()
-        print("data---->", data)
         if data.get("errcode") != 0:
             raise RuntimeError(f"kf customer batchget failed: {data}")
         result: Dict[str, Dict[str, Any]] = {}
@@ -189,6 +280,7 @@ async def wecom_kf_send_msg(
     external_userid: str,
     msgtype: str,
     content: dict,
+    message_id: str | None = None,
 ) -> dict:
     """Send a KF message to an external user.
 
@@ -203,6 +295,8 @@ async def wecom_kf_send_msg(
         "msgtype": msgtype,
         msgtype: content,
     }
+    if message_id:
+        payload["msgid"] = message_id
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         resp = await client.post(url, json=payload)
         resp.raise_for_status()
@@ -427,22 +521,144 @@ def build_xml_raw_payload(raw_xml: str, decrypted_xml: Optional[str], parsed: Di
     return payload
 
 
-async def try_store_wecom_inbox(db: AsyncSession, **kwargs) -> bool:
-    """Persist a WeComInbox row. Returns True if stored, False if duplicate or failed."""
+async def try_store_wecom_inbox(
+    db: AsyncSession,
+    *,
+    media_reference: WeComMediaReference | None = None,
+    **kwargs: Any,
+) -> InboxStoreResult:
+    """Persist inbox, media metadata, and download job in one transaction."""
     try:
-        rec = WeComInbox(**kwargs)
-        db.add(rec)
+        inbox_id = uuid.uuid4()
+        record = WeComInbox(id=inbox_id, **kwargs)
+        db.add(record)
+        if media_reference is not None:
+            media_id = uuid.uuid4()
+            media = MessageMedia(
+                id=media_id,
+                platform_id=kwargs["platform_id"],
+                inbox_id=inbox_id,
+                source_media_id=media_reference.source_media_id,
+                media_type=media_reference.media_type,
+                status="pending" if media_reference.supported else "unsupported",
+                original_filename=media_reference.original_filename,
+                declared_size=media_reference.declared_size,
+            )
+            db.add(media)
+            if media_reference.supported:
+                db.add(
+                    MediaProcessingJob(
+                        id=uuid.uuid4(),
+                        media_id=media_id,
+                        job_type="download",
+                        status="pending",
+                        max_attempts=settings.media_job_max_attempts,
+                    )
+                )
+        await db.commit()
+        return InboxStoreResult.STORED
+    except IntegrityError as exc:
+        await db.rollback()
+        if is_expected_unique_violation(
+            exc,
+            "uq_wecom_inbox_platform_message",
+        ):
+            if media_reference is not None:
+                repaired = await _ensure_duplicate_media_state(
+                    db,
+                    platform_id=kwargs["platform_id"],
+                    message_id=kwargs["message_id"],
+                    media_reference=media_reference,
+                )
+                if not repaired:
+                    return InboxStoreResult.ERROR
+            return InboxStoreResult.DUPLICATE
+        logging.error("[WECOM] Inbox integrity error: %s", exc)
+        return InboxStoreResult.ERROR
+    except Exception as exc:  # pragma: no cover
+        await db.rollback()
+        logging.error("[WECOM] Failed to store inbox record: %s", exc)
+        return InboxStoreResult.ERROR
+
+
+async def _ensure_duplicate_media_state(
+    db: AsyncSession,
+    *,
+    platform_id: object,
+    message_id: str,
+    media_reference: WeComMediaReference,
+) -> bool:
+    """Repair a legacy/partial duplicate that lacks media metadata or a job."""
+    try:
+        inbox_id = await db.scalar(
+            select(WeComInbox.id).where(
+                WeComInbox.platform_id == platform_id,
+                WeComInbox.message_id == message_id,
+            )
+        )
+        if inbox_id is None:
+            return False
+
+        existing_media = await db.scalar(
+            select(MessageMedia).where(MessageMedia.inbox_id == inbox_id)
+        )
+        if existing_media is not None and (
+            existing_media.source_media_id != media_reference.source_media_id
+            or existing_media.media_type != media_reference.media_type
+        ):
+            logging.warning(
+                "[WECOM] Duplicate message %s changed immutable media fields; "
+                "keeping the canonical inbox media",
+                message_id,
+            )
+            return True
+        if existing_media is None:
+            candidate_media_id = uuid.uuid4()
+            media_insert = (
+                pg_insert(MessageMedia)
+                .values(
+                    id=candidate_media_id,
+                    platform_id=platform_id,
+                    inbox_id=inbox_id,
+                    source_media_id=media_reference.source_media_id,
+                    media_type=media_reference.media_type,
+                    status="pending" if media_reference.supported else "unsupported",
+                    original_filename=media_reference.original_filename,
+                    declared_size=media_reference.declared_size,
+                )
+                .on_conflict_do_nothing(index_elements=["inbox_id"])
+            )
+            await db.execute(media_insert)
+        media_id = await db.scalar(
+            select(MessageMedia.id).where(MessageMedia.inbox_id == inbox_id)
+        )
+        if media_id is None:
+            await db.rollback()
+            return False
+        if media_reference.supported:
+            job_insert = (
+                pg_insert(MediaProcessingJob)
+                .values(
+                    id=uuid.uuid4(),
+                    media_id=media_id,
+                    job_type="download",
+                    status="pending",
+                    max_attempts=settings.media_job_max_attempts,
+                )
+                .on_conflict_do_nothing(
+                    index_elements=["media_id", "job_type"],
+                )
+            )
+            await db.execute(job_insert)
         await db.commit()
         return True
-    except IntegrityError:
+    except Exception as exc:
         await db.rollback()
+        logging.error(
+            "[WECOM] Failed to repair media state for duplicate message: %s",
+            exc,
+        )
         return False
-    except Exception as e:  # pragma: no cover
-        await db.rollback()
-        logging.error("[WECOM] Failed to store inbox record: %s", e)
-        return False
-
-
 def _extract_kf_content(msg: Dict[str, Any]) -> Tuple[str, str, str, Optional[datetime]]:
     """Extract minimal fields from a KF message for inbox storage.
 
@@ -490,6 +706,115 @@ def _extract_kf_content(msg: Dict[str, Any]) -> Tuple[str, str, str, Optional[da
     return external_userid, msgtype, content, received_at
 
 
+def _extract_kf_media_reference(msg: Dict[str, Any]) -> WeComMediaReference | None:
+    """Extract one typed media reference from a WeCom KF message."""
+    msgtype = str(msg.get("msgtype") or "").lower()
+    if msgtype not in {"image", "voice", "video", "file"}:
+        return None
+    media_payload = msg.get(msgtype) or {}
+    if not isinstance(media_payload, dict):
+        return None
+    source_media_id = str(media_payload.get("media_id") or "").strip()
+    if not source_media_id or len(source_media_id) > 255:
+        return None
+    declared_size_raw = media_payload.get("file_size")
+    declared_size = None
+    if isinstance(declared_size_raw, (int, str)):
+        declared_size_text = str(declared_size_raw)
+        if declared_size_text.isdigit():
+            parsed_size = int(declared_size_text)
+            if parsed_size <= 9_223_372_036_854_775_807:
+                declared_size = parsed_size
+    return WeComMediaReference(
+        source_media_id=source_media_id,
+        media_type=cast(MediaType, msgtype),
+        supported=msgtype in {"image", "voice"},
+        original_filename=(
+            str(media_payload.get("file_name") or "").strip()[:255] or None
+        ),
+        declared_size=declared_size,
+    )
+
+
+async def get_wecom_sync_cursor(
+    db: AsyncSession,
+    platform_id: object,
+    open_kf_id: str,
+    corp_id: str,
+) -> str:
+    """Load the durable cursor, importing a legacy Redis cursor once if present."""
+    cursor_row = await db.scalar(
+        select(WeComSyncCursor).where(
+            WeComSyncCursor.platform_id == platform_id,
+            WeComSyncCursor.open_kfid == open_kf_id,
+        )
+    )
+    if cursor_row is not None:
+        return cursor_row.cursor or ""
+
+    redis = await get_redis_client()
+    legacy_cursor = ""
+    if redis:
+        cursor_key = f"wecom:kf:cursor:{corp_id}:{open_kf_id}".lower()
+        try:
+            legacy_cursor = await redis.get(cursor_key) or ""
+        except Exception as exc:
+            logging.warning("[WECOM] Failed to read legacy Redis cursor: %s", exc)
+
+    if legacy_cursor:
+        statement = (
+            pg_insert(WeComSyncCursor)
+            .values(
+                id=uuid.uuid4(),
+                platform_id=platform_id,
+                open_kfid=open_kf_id,
+                cursor=legacy_cursor,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["platform_id", "open_kfid"],
+            )
+        )
+        await db.execute(statement)
+        await db.commit()
+    return legacy_cursor
+
+
+async def persist_wecom_sync_cursor(
+    db: AsyncSession,
+    platform_id: object,
+    open_kf_id: str,
+    corp_id: str,
+    cursor: str,
+    cursor_ttl_seconds: int,
+) -> None:
+    """Persist the sync cursor in PostgreSQL; Redis remains a best-effort cache."""
+    now = datetime.now(timezone.utc)
+    statement = (
+        pg_insert(WeComSyncCursor)
+        .values(
+            id=uuid.uuid4(),
+            platform_id=platform_id,
+            open_kfid=open_kf_id,
+            cursor=cursor,
+            updated_at=now,
+        )
+        .on_conflict_do_update(
+            index_elements=["platform_id", "open_kfid"],
+            set_={"cursor": cursor, "updated_at": now},
+        )
+    )
+    await db.execute(statement)
+    await db.commit()
+
+    redis = await get_redis_client()
+    if redis:
+        cursor_key = f"wecom:kf:cursor:{corp_id}:{open_kf_id}".lower()
+        try:
+            await redis.set(cursor_key, cursor, ex=cursor_ttl_seconds)
+        except Exception as exc:
+            logging.warning("[WECOM] Failed to cache cursor in Redis: %s", exc)
+
+
 # --- KF sync driver ---------------------------------------------------------------
 async def sync_kf_messages(
     corp_id: str,
@@ -505,51 +830,59 @@ async def sync_kf_messages(
 ) -> None:
     """Sync actual KF messages upon receiving kf_msg_or_event.
 
-    - Manages cursor in Redis: wecom:kf:cursor:{corp_id}:{open_kf_id}
+    - Persists the cursor in PostgreSQL and mirrors it to Redis as a cache
     - Paginates until has_more == 0 or max_iters reached
     - Stores each message into wecom_inbox with enriched content placeholder
     - Logs metrics per page
     """
-    # Token
-    try:
-        access_token = await wecom_get_access_token(corp_id, app_secret)
-    except Exception as e:
-        logging.error("[WECOM] KF sync: failed to get access token: %s", e)
-        return
+    access_token = await wecom_get_access_token(corp_id, app_secret)
 
-    # Cursor
-    cursor_key = f"wecom:kf:cursor:{corp_id}:{open_kf_id}".lower()
-    redis = await get_redis_client()
-    cursor = ""
-    if redis:
-        try:
-            cursor = await redis.get(cursor_key) or ""
-        except Exception as e:
-            logging.warning("[WECOM] KF sync: redis get cursor failed: %s", e)
+    cursor = await get_wecom_sync_cursor(db, platform_id, open_kf_id, corp_id)
 
+    has_more = 0
     for page in range(1, max_iters + 1):
         # Call sync
-        try:
-            data = await wecom_kf_sync_msg(access_token, open_kf_id, cursor, event_token=event_token, limit=batch_limit)
-        except Exception as e:
-            logging.error("[WECOM] KF sync: sync_msg call failed (open_kfid=%s): %s", open_kf_id, e)
-            break
+        data = await wecom_kf_sync_msg(
+            access_token,
+            open_kf_id,
+            cursor,
+            event_token=event_token,
+            limit=batch_limit,
+        )
 
         if data.get("errcode") not in (0, None):
-            logging.error("[WECOM] KF sync: API returned error: %s", data)
-            break
+            raise RuntimeError(f"WeCom KF sync API returned error: {data}")
 
         msg_list = data.get("msg_list") or []
         stored_count = 0
         for msg in msg_list:
             if not isinstance(msg, dict):
                 continue
+            try:
+                origin = int(msg.get("origin") or 0)
+            except (TypeError, ValueError):
+                origin = 0
+            if origin != 3:
+                # Only customer-originated messages enter the AI pipeline.
+                continue
             msgid = str(msg.get("msgid") or "")
             if not msgid:
-                continue  # no idempotency key
+                raise RuntimeError("WeCom KF customer message is missing msgid")
             ext_uid, msgtype, content, received_at = _extract_kf_content(msg)
-            stored = await try_store_wecom_inbox(
+            media_reference = _extract_kf_media_reference(msg)
+            media_error_message = None
+            if msgtype == "text":
+                message_status = "pending"
+            elif media_reference is not None and media_reference.supported:
+                message_status = "pending_media"
+            elif msgtype in {"image", "voice"}:
+                message_status = "media_failed"
+                media_error_message = f"WeCom {msgtype} message is missing media_id"
+            else:
+                message_status = "unsupported_media"
+            store_result = await try_store_wecom_inbox(
                 db,
+                media_reference=media_reference,
                 platform_id=platform_id,
                 message_id=msgid,
                 source_type="wecom_kf",  # WeCom Customer Service (客服)
@@ -558,20 +891,27 @@ async def sync_kf_messages(
                 msg_type=msgtype,
                 content=content,
                 is_from_colleague=False,
-                raw_payload={"kf_sync_token": event_token, "kf_sync_msg": msg},
-                status="pending",
+                raw_payload={"kf_sync_msg": msg},
+                status=message_status,
+                error_message=media_error_message,
                 received_at=received_at,
             )
-            if stored:
+            if store_result == InboxStoreResult.ERROR:
+                raise RuntimeError(f"Failed to persist WeCom KF message {msgid}")
+            if store_result == InboxStoreResult.STORED:
                 stored_count += 1
 
         # Update cursor and metrics
         cursor = data.get("next_cursor") or cursor
-        if redis and cursor is not None:
-            try:
-                await redis.set(cursor_key, cursor, ex=cursor_ttl_seconds)
-            except Exception as e:
-                logging.warning("[WECOM] KF sync: redis set cursor failed: %s", e)
+        if cursor:
+            await persist_wecom_sync_cursor(
+                db,
+                platform_id,
+                open_kf_id,
+                corp_id,
+                cursor,
+                cursor_ttl_seconds,
+            )
 
         has_more = int(data.get("has_more") or 0)
         logging.info(
@@ -583,4 +923,8 @@ async def sync_kf_messages(
         )
         if not has_more:
             break
+    if has_more:
+        raise WeComSyncContinuation(
+            "WeCom KF sync page budget exhausted; continue from durable cursor"
+        )
 

@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
-from app.db.models import Platform, WeComInbox
+from app.db.models import Platform, WeComInbox, WeComSyncJob
 from app.domain.entities import NormalizedMessage
 from app.domain.ports import MessageNormalizer, TgoApiClient, SSEManager
 from app.domain.services.dispatcher import process_message
 from app.infra.visitor_client import VisitorService
-from app.api.wecom_utils import get_wecom_visitor_profile
+from app.api.wecom_utils import (
+    WeComSyncContinuation,
+    get_wecom_visitor_profile,
+    sync_kf_messages,
+)
 
 
 class WeComPlatformConfig(BaseModel):
@@ -32,6 +37,7 @@ class WeComPlatformConfig(BaseModel):
     processing_batch_size: int = 10
     max_retry_attempts: int = 3
     consumer_poll_interval_seconds: int = 5
+    processing_lease_seconds: int = 300
 
 
 @dataclass
@@ -68,9 +74,19 @@ class WeComChannelListener:
             cache_ttl_seconds=300,
             redis_url=settings.redis_url,
         )
+        self._visitor_service_closed = False
 
     async def start(self) -> None:
         if self._consumer_task is None or self._consumer_task.done():
+            if self._stop_event.is_set():
+                self._stop_event = asyncio.Event()
+            if self._visitor_service_closed:
+                self._visitor_service = VisitorService(
+                    base_url=settings.api_base_url,
+                    cache_ttl_seconds=300,
+                    redis_url=settings.redis_url,
+                )
+                self._visitor_service_closed = False
             self._consumer_task = asyncio.create_task(self._consumer_loop())
 
     async def stop(self) -> None:
@@ -81,6 +97,10 @@ class WeComChannelListener:
                 await self._consumer_task
             except asyncio.CancelledError:
                 pass
+        self._consumer_task = None
+        if not self._visitor_service_closed:
+            await self._visitor_service.aclose()
+            self._visitor_service_closed = True
 
     async def _load_active_wecom_platforms(self) -> list[_PlatformEntry]:
         """Load all active WeCom platforms (both wecom_kf and wecom_bot types)."""
@@ -112,80 +132,116 @@ class WeComChannelListener:
                 platforms = await self._load_active_wecom_platforms()
                 for p in platforms:
                     try:
+                        await self._process_sync_jobs_for_platform(p)
                         await self._process_pending_for_platform(p)
                     except Exception as e:
-                        print(f"[WECOM] Consumer error for platform {p.id}: {e}")
+                        logging.exception("[WECOM] Consumer error for platform %s: %s", p.id, e)
                 # Sleep using first platform's interval or default
                 interval = platforms[0].cfg.consumer_poll_interval_seconds if platforms else 5
                 await asyncio.sleep(max(1, int(interval)))
             except Exception as e:
-                print(f"[WECOM] Consumer supervisor error: {e}")
+                logging.exception("[WECOM] Consumer supervisor error: %s", e)
                 await asyncio.sleep(5)
 
 
     # ---- Internal helper methods (refactor for clarity and reuse) ----
-    async def _select_candidates(
+    async def _claim_next_record(
         self,
         session: AsyncSession,
         platform: _PlatformEntry,
-        batch_size: int,
         max_retries: int,
-    ) -> list[WeComInbox]:
-        """Select a batch of candidate records to process for the given platform.
-
-        Strategy:
-        - Fetch 'pending' first (oldest fetched_at first), FOR UPDATE SKIP LOCKED
-        - If under-filled, add eligible 'failed' with exponential backoff, SKIP LOCKED
-        """
-        # Pending first
-        pending = (
-            await session.execute(
+    ) -> WeComInbox | None:
+        """Atomically claim one eligible record and establish a recovery lease."""
+        now = datetime.now(timezone.utc)
+        eligible = or_(
+            WeComInbox.status == "pending",
+            and_(
+                WeComInbox.status == "failed",
+                WeComInbox.retry_count <= max_retries,
+                or_(
+                    WeComInbox.next_attempt_at.is_(None),
+                    WeComInbox.next_attempt_at <= now,
+                ),
+            ),
+            and_(
+                WeComInbox.status == "processing",
+                or_(
+                    WeComInbox.lease_expires_at.is_(None),
+                    WeComInbox.lease_expires_at <= now,
+                ),
+            ),
+        )
+        try:
+            record = await session.scalar(
                 select(WeComInbox)
-                .where(WeComInbox.platform_id == platform.id, WeComInbox.status == "pending")
+                .where(WeComInbox.platform_id == platform.id, eligible)
                 .order_by(WeComInbox.fetched_at.asc())
                 .with_for_update(skip_locked=True)
-                .limit(batch_size)
+                .limit(1)
             )
-        ).scalars().all()
-
-        remaining = batch_size - len(pending)
-        candidates: list[WeComInbox] = list(pending)
-
-        if remaining > 0:
-            failed = (
-                await session.execute(
-                    select(WeComInbox)
-                    .where(
-                        WeComInbox.platform_id == platform.id,
-                        WeComInbox.status == "failed",
-                        WeComInbox.retry_count < max_retries,
-                    )
-                    .order_by(WeComInbox.processed_at.asc().nullsfirst())
-                    .with_for_update(skip_locked=True)
-                    .limit(batch_size * 3)
-                )
-            ).scalars().all()
-            now = datetime.now(timezone.utc)
-            for record in failed:
-                delay = max(1, 2 ** int(record.retry_count or 0))
-                if not record.processed_at or (now - record.processed_at).total_seconds() >= delay:
-                    candidates.append(record)
-                    if len(candidates) >= batch_size:
-                        break
-
-        return candidates
-
-    async def _claim_record(self, session: AsyncSession, record: WeComInbox) -> bool:
-        """Attempt to mark a record as processing. Returns True if claimed successfully."""
-        try:
+            if record is None:
+                return None
+            lease_seconds = max(
+                int(platform.cfg.processing_lease_seconds),
+                int(settings.request_timeout_seconds) + 60,
+            )
             record.status = "processing"
             record.error_message = None
+            record.processing_started_at = now
+            record.lease_expires_at = now + timedelta(seconds=lease_seconds)
+            record.next_attempt_at = None
             await session.commit()
-            return True
+            return record
         except Exception as e:
-            print(f"[WECOM] Claiming record failed (skip): {e}")
+            logging.exception("[WECOM] Claiming record failed: %s", e)
             await session.rollback()
-            return False
+            raise
+
+    async def _claim_next_sync_job(
+        self,
+        session: AsyncSession,
+        platform: _PlatformEntry,
+        max_retries: int,
+    ) -> WeComSyncJob | None:
+        now = datetime.now(timezone.utc)
+        eligible = or_(
+            WeComSyncJob.status == "pending",
+            and_(
+                WeComSyncJob.status == "failed",
+                WeComSyncJob.retry_count <= max_retries,
+                or_(
+                    WeComSyncJob.next_attempt_at.is_(None),
+                    WeComSyncJob.next_attempt_at <= now,
+                ),
+            ),
+            and_(
+                WeComSyncJob.status == "processing",
+                or_(
+                    WeComSyncJob.lease_expires_at.is_(None),
+                    WeComSyncJob.lease_expires_at <= now,
+                ),
+            ),
+        )
+        job = await session.scalar(
+            select(WeComSyncJob)
+            .where(WeComSyncJob.platform_id == platform.id, eligible)
+            .order_by(WeComSyncJob.created_at.asc())
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+        if job is None:
+            return None
+        lease_seconds = max(
+            int(platform.cfg.processing_lease_seconds),
+            int(settings.request_timeout_seconds) + 60,
+        )
+        job.status = "processing"
+        job.error_message = None
+        job.processing_started_at = now
+        job.lease_expires_at = now + timedelta(seconds=lease_seconds)
+        job.next_attempt_at = None
+        await session.commit()
+        return job
 
     def _build_mapped_message(self, platform: _PlatformEntry, record: WeComInbox) -> dict[str, Any]:
         """Build the NormalizedMessage-like raw dict for downstream normalization."""
@@ -226,6 +282,15 @@ class WeComChannelListener:
             except Exception:
                 pass
 
+        message_type_map = {
+            "text": 1,
+            "image": 2,
+            "file": 3,
+            "voice": 4,
+            "video": 5,
+        }
+        normalized_message_type = message_type_map.get((record.msg_type or "").lower(), 1)
+
         return {
             "source": "wecom",
             "from_uid": record.from_user,
@@ -235,7 +300,8 @@ class WeComChannelListener:
             "platform_id": str(platform.id),
             "extra": {
                 "project_id": str(platform.project_id),
-                "msg_type": record.msg_type,
+                "message_id": record.message_id,
+                "msg_type": normalized_message_type,
                 "source_type": source_type,  # "wecom_kf" or "wecom_bot"
                 "wecom": wecom_ctx,
             },
@@ -316,27 +382,43 @@ class WeComChannelListener:
     async def _finalize_success(self, session: AsyncSession, record: WeComInbox, reply_text: str | None) -> None:
         """Mark record as completed with optional reply text."""
         record.ai_reply = reply_text
-        record.status = "completed"
+        record.status = "completed" if reply_text else "completed_no_reply"
         record.processed_at = datetime.now(timezone.utc)
+        record.processing_started_at = None
+        record.lease_expires_at = None
+        record.next_attempt_at = None
         record.error_message = None
-        try:
-            await session.commit()
-        except Exception as e2:
-            print(f"[WECOM] Commit completed status failed (ignore): {e2}")
-            await session.rollback()
+        await session.commit()
 
-    async def _finalize_failure(self, session: AsyncSession, platform: _PlatformEntry, record: WeComInbox, error: Exception) -> None:
+    async def _finalize_failure(
+        self,
+        session: AsyncSession,
+        platform: _PlatformEntry,
+        record: WeComInbox,
+        error: Exception,
+        max_retries: int,
+    ) -> None:
         """Mark record as failed with retry increment and error message, preserving logs."""
-        print(f"[WECOM] Processing failed for {platform.id}: {error}")
-        record.status = "failed"
-        record.processed_at = datetime.now(timezone.utc)
-        record.retry_count = int((record.retry_count or 0)) + 1
+        logging.error(
+            "[WECOM] Processing failed for platform_id=%s message_id=%s: %s",
+            platform.id,
+            record.message_id,
+            error,
+        )
+        now = datetime.now(timezone.utc)
+        retry_count = int(record.retry_count or 0) + 1
+        record.status = "dead" if retry_count > max_retries else "failed"
+        record.processed_at = now
+        record.processing_started_at = None
+        record.lease_expires_at = None
+        record.retry_count = retry_count
+        record.next_attempt_at = (
+            None
+            if record.status == "dead"
+            else now + timedelta(seconds=max(1, 2 ** (retry_count - 1)))
+        )
         record.error_message = str(error)[:2000]
-        try:
-            await session.commit()
-        except Exception as e2:
-            print(f"[WECOM] Commit failed status failed (ignore): {e2}")
-            await session.rollback()
+        await session.commit()
 
     async def _get_or_register_visitor(
         self,
@@ -409,40 +491,145 @@ class WeComChannelListener:
         return visitor, display_name, avatar_url
 
 
-    async def _process_pending_for_platform(self, p: _PlatformEntry) -> None:
-        batch_size = max(1, int(getattr(p.cfg, "processing_batch_size", 10) or 10))
-        max_retries = max(0, int(getattr(p.cfg, "max_retry_attempts", 3) or 3))
+    async def _finalize_sync_job(
+        self,
+        job_id: uuid.UUID,
+        error: Exception | None,
+        max_retries: int,
+    ) -> None:
+        async with self._session_factory() as session:
+            job = await session.get(WeComSyncJob, job_id)
+            if job is None:
+                raise RuntimeError(f"WeCom sync job {job_id} disappeared")
+            now = datetime.now(timezone.utc)
+            job.processing_started_at = None
+            job.lease_expires_at = None
+            if error is None:
+                job.status = "completed"
+                job.completed_at = now
+                job.next_attempt_at = None
+                job.error_message = None
+            elif isinstance(error, WeComSyncContinuation):
+                job.status = "pending"
+                job.next_attempt_at = now
+                job.error_message = None
+            else:
+                retry_count = int(job.retry_count or 0) + 1
+                job.retry_count = retry_count
+                job.status = "dead" if retry_count > max_retries else "failed"
+                job.next_attempt_at = (
+                    None
+                    if job.status == "dead"
+                    else now + timedelta(seconds=max(1, 2 ** (retry_count - 1)))
+                )
+                job.error_message = str(error)[:2000]
+            await session.commit()
+
+    async def _process_sync_jobs_for_platform(self, platform: _PlatformEntry) -> None:
+        if platform.platform_type != "wecom":
+            return
+        batch_size = max(1, int(platform.cfg.processing_batch_size))
+        max_retries = max(0, int(platform.cfg.max_retry_attempts))
+
+        for _ in range(batch_size):
+            async with self._session_factory() as claim_session:
+                job = await self._claim_next_sync_job(
+                    claim_session,
+                    platform,
+                    max_retries,
+                )
+                if job is None:
+                    return
+                job_id = job.id
+                event_token = job.event_token
+                open_kfid = job.open_kfid
+                job_created_at = job.created_at
+
+            try:
+                if not (platform.cfg.corp_id and platform.cfg.app_secret):
+                    raise RuntimeError("WeCom platform is missing corp_id or app_secret")
+                if job_created_at.tzinfo is None:
+                    job_created_at = job_created_at.replace(tzinfo=timezone.utc)
+                token_age_seconds = (
+                    datetime.now(timezone.utc) - job_created_at
+                ).total_seconds()
+                effective_event_token = (
+                    event_token if token_age_seconds < 9 * 60 else ""
+                )
+                async with self._session_factory() as sync_session:
+                    await sync_kf_messages(
+                        corp_id=platform.cfg.corp_id,
+                        app_secret=platform.cfg.app_secret,
+                        event_token=effective_event_token,
+                        open_kf_id=open_kfid,
+                        platform_id=platform.id,
+                        db=sync_session,
+                    )
+            except asyncio.CancelledError:
+                await self._finalize_sync_job(
+                    job_id,
+                    RuntimeError("WeCom sync job was cancelled"),
+                    max_retries,
+                )
+                raise
+            except WeComSyncContinuation as exc:
+                logging.info(
+                    "[WECOM] KF sync will continue for platform_id=%s open_kfid=%s",
+                    platform.id,
+                    open_kfid,
+                )
+                await self._finalize_sync_job(job_id, exc, max_retries)
+            except Exception as exc:
+                logging.exception(
+                    "[WECOM] KF sync job failed for platform_id=%s open_kfid=%s: %s",
+                    platform.id,
+                    open_kfid,
+                    exc,
+                )
+                await self._finalize_sync_job(job_id, exc, max_retries)
+            else:
+                await self._finalize_sync_job(job_id, None, max_retries)
+
+    async def _process_pending_for_platform(self, platform: _PlatformEntry) -> None:
+        batch_size = max(1, int(platform.cfg.processing_batch_size))
+        max_retries = max(0, int(platform.cfg.max_retry_attempts))
 
         async with self._session_factory() as db:
-            # Select candidate records for this platform (pending + eligible failed)
-            candidates: list[WeComInbox] = await self._select_candidates(db, p, batch_size, max_retries)
-            if not candidates:
-                return
-
-            for rec in candidates:
-                # Claim record for processing
-                if not await self._claim_record(db, rec):
-                    continue
+            for _ in range(batch_size):
+                record = await self._claim_next_record(db, platform, max_retries)
+                if record is None:
+                    return
 
                 try:
-                    # Build mapped message
-                    mapped_raw: dict[str, Any] = self._build_mapped_message(p, rec)
-
-                    # Unified visitor retrieval/registration with cache-first + optional profile
-                    visitor, display_name, avatar_url = await self._get_or_register_visitor(p, rec)
+                    mapped_raw: dict[str, Any] = self._build_mapped_message(platform, record)
+                    _, display_name, avatar_url = await self._get_or_register_visitor(
+                        platform,
+                        record,
+                    )
                     self._attach_profile_to_extra(mapped_raw, display_name, avatar_url)
 
-                    # Normalize and process
-                    msg: NormalizedMessage = await self._normalizer.normalize(mapped_raw)
+                    message: NormalizedMessage = await self._normalizer.normalize(mapped_raw)
                     reply_text = await process_message(
-                        msg=msg,
+                        msg=message,
                         db=db,
                         tgo_api_client=self._tgo_api_client,
                         sse_manager=self._sse_manager,
                     )
-
-                    # Finalize success
-                    await self._finalize_success(db, rec, reply_text)
-                except Exception as e:
-                    # Finalize failure with retry increment
-                    await self._finalize_failure(db, p, rec, e)
+                    await self._finalize_success(db, record, reply_text)
+                except asyncio.CancelledError:
+                    await self._finalize_failure(
+                        db,
+                        platform,
+                        record,
+                        RuntimeError("WeCom message processing was cancelled"),
+                        max_retries,
+                    )
+                    raise
+                except Exception as exc:
+                    await self._finalize_failure(
+                        db,
+                        platform,
+                        record,
+                        exc,
+                        max_retries,
+                    )

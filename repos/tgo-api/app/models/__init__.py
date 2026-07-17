@@ -32,6 +32,8 @@ from app.models.visitor_waiting_queue import (
 )
 from app.models.channel_memory_clearance import ChannelMemoryClearance, ClearanceUserType
 from app.models.store_credential import StoreCredential
+from app.models.media_analysis_result import MediaAnalysisResult
+from app.models.message_intent_result import MessageIntentResult
 
 __all__ = [
     # Models
@@ -68,6 +70,8 @@ __all__ = [
     "URGENCY_PRIORITY_MAP",
     "ChannelMemoryClearance",
     "StoreCredential",
+    "MediaAnalysisResult",
+    "MessageIntentResult",
     # Enums
     "PlatformType",
     "StaffRole",

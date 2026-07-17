@@ -510,8 +510,11 @@ class ChatService:
                         ),
                     )
                 )
-        except Exception as e:
-            self._logger.warning("Failed to create RAG tool definitions", error=str(e))
+        except Exception as exc:
+            self._logger.warning(
+                "Failed to create RAG tool definitions",
+                error_type=type(exc).__name__,
+            )
             # Fallback to generic definitions if RAG service call fails
             for cid in collection_ids:
                 tool_name = f"rag_search_{cid.replace('-', '')[:8]}"
@@ -604,12 +607,15 @@ class ChatService:
                 ) if response.usage else None,
                 system_fingerprint=response.system_fingerprint,
             )
-        except Exception as e:
-            self._logger.error("OpenAI completion failed", error=str(e))
+        except Exception as exc:
+            self._logger.error(
+                "OpenAI completion failed",
+                error_type=type(exc).__name__,
+            )
             raise ChatCompletionError(
-                f"OpenAI completion failed: {e}",
+                "OpenAI completion failed",
                 details={"provider_kind": "openai", "model": request.model},
-            ) from e
+            ) from exc
 
     async def _openai_stream(
         self,
@@ -646,9 +652,12 @@ class ChatService:
                 yield f"data: {chunk_data.model_dump_json()}\n\n"
 
             yield "data: [DONE]\n\n"
-        except Exception as e:
-            self._logger.error("OpenAI streaming failed", error=str(e))
-            yield f"data: {json.dumps({'error': {'message': str(e), 'type': 'api_error'}})}\n\n"
+        except Exception as exc:
+            self._logger.error(
+                "OpenAI streaming failed",
+                error_type=type(exc).__name__,
+            )
+            yield f"data: {json.dumps({'error': {'message': 'OpenAI streaming failed', 'type': 'api_error'}})}\n\n"
 
     def _convert_openai_tool_calls(self, openai_tool_calls: Optional[List[Any]]) -> Optional[List[ToolCall]]:
         """Convert OpenAI SDK tool calls to internal ToolCall schema."""
@@ -774,12 +783,15 @@ class ChatService:
                     total_tokens=response.usage.input_tokens + response.usage.output_tokens,
                 ),
             )
-        except Exception as e:
-            self._logger.error("Anthropic completion failed", error=str(e))
+        except Exception as exc:
+            self._logger.error(
+                "Anthropic completion failed",
+                error_type=type(exc).__name__,
+            )
             raise ChatCompletionError(
-                f"Anthropic completion failed: {e}",
+                "Anthropic completion failed",
                 details={"provider_kind": "anthropic", "model": request.model},
-            ) from e
+            ) from exc
 
     async def _anthropic_stream(
         self,
@@ -811,9 +823,12 @@ class ChatService:
             )
             yield f"data: {final_chunk.model_dump_json()}\n\n"
             yield "data: [DONE]\n\n"
-        except Exception as e:
-            self._logger.error("Anthropic streaming failed", error=str(e))
-            yield f"data: {json.dumps({'error': {'message': str(e), 'type': 'api_error'}})}\n\n"
+        except Exception as exc:
+            self._logger.error(
+                "Anthropic streaming failed",
+                error_type=type(exc).__name__,
+            )
+            yield f"data: {json.dumps({'error': {'message': 'Anthropic streaming failed', 'type': 'api_error'}})}\n\n"
 
     def _build_anthropic_params(
         self,
@@ -932,12 +947,15 @@ class ChatService:
                     total_tokens=prompt_tokens + completion_tokens,
                 ),
             )
-        except Exception as e:
-            self._logger.error("Google completion failed", error=str(e))
+        except Exception as exc:
+            self._logger.error(
+                "Google completion failed",
+                error_type=type(exc).__name__,
+            )
             raise ChatCompletionError(
-                f"Google completion failed: {e}",
+                "Google completion failed",
                 details={"provider_kind": "google", "model": request.model},
-            ) from e
+            ) from exc
 
     async def _google_stream(
         self,
@@ -992,9 +1010,12 @@ class ChatService:
             )
             yield f"data: {final_chunk.model_dump_json()}\n\n"
             yield "data: [DONE]\n\n"
-        except Exception as e:
-            self._logger.error("Google streaming failed", error=str(e))
-            yield f"data: {json.dumps({'error': {'message': str(e), 'type': 'api_error'}})}\n\n"
+        except Exception as exc:
+            self._logger.error(
+                "Google streaming failed",
+                error_type=type(exc).__name__,
+            )
+            yield f"data: {json.dumps({'error': {'message': 'Google streaming failed', 'type': 'api_error'}})}\n\n"
 
     @staticmethod
     def _build_gemini_config(request: ChatCompletionRequest) -> Dict[str, Any]:

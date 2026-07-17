@@ -220,6 +220,7 @@ dump.rdb
 # Test files (temporary)
 test_*.py
 *_test.py
+!tests/test_knowledge_governance.py
 
 # Coverage reports
 .coverage

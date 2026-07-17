@@ -4,6 +4,7 @@ x-backend-env: &backend-env
   ENVIRONMENT: ${ENVIRONMENT:-development}
   DEBUG: ${DEBUG:-true}
   WATCHFILES_FORCE_POLLING: "true"
+  WATCHFILES_IGNORE_PERMISSION_DENIED: "true"
   POSTGRES_HOST: postgres
   REDIS_HOST: redis
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tgo}:${POSTGRES_PASSWORD:-tgo}@postgres:5432/${POSTGRES_DB:-tgo}
@@ -152,8 +153,14 @@ services:
       <<: *backend-env
       REDIS_URL: redis://redis:6379/0
       API_BASE_URL: http://tgo-api:8000
+      MEDIA_INGESTION_ENABLED: ${MEDIA_INGESTION_ENABLED:-false}
+      MEDIA_CLEANUP_ENABLED: ${MEDIA_CLEANUP_ENABLED:-true}
+      MEDIA_STORAGE_PATH: ${MEDIA_STORAGE_PATH:-/data/media}
+      MEDIA_ENCRYPTION_KEY: ${MEDIA_ENCRYPTION_KEY:-}
+      MEDIA_ENCRYPTION_KEY_ID: ${MEDIA_ENCRYPTION_KEY_ID:-local-media-v1}
     volumes:
       - ./repos/tgo-platform:/workspace
+      - ./data/tgo-platform/media:/data/media
     ports:
       - "${TGO_PLATFORM_PORT:-8003}:8003"
     command:

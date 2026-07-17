@@ -147,6 +147,7 @@ Thumbs.db
 # Project specific
 logs/
 backups/
+data/
 *.db
 *.sqlite3
 
