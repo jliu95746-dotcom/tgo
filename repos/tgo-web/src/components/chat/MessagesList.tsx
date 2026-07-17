@@ -4,6 +4,12 @@ import ChatMessage from './ChatMessage';
 import LoadingStates from './LoadingStates';
 import EmptyState from './EmptyState';
 import type { WuKongIMMessage, Message } from '@/types';
+import { useAuthStore } from '@/stores/authStore';
+import {
+  buildMessageAnalysisCacheKey,
+  useMessageAnalysisStore,
+} from '@/stores/messageAnalysisStore';
+import type { StaffMessageAnalysisLookup } from '@/types/messageAnalysis';
 
 // Constants
 const SCROLL_THRESHOLD = 100; // Load more when within 100px of top
@@ -77,6 +83,13 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const highlightTimersRef = useRef<number[]>([]);
+  const projectId = useAuthStore((state) => state.user?.project_id ?? null);
+  const analysesByMessage = useMessageAnalysisStore(
+    (state) => state.analysesByMessage,
+  );
+  const loadMessageAnalyses = useMessageAnalysisStore(
+    (state) => state.loadMessageAnalyses,
+  );
 
   // Memoize total message count to prevent unnecessary recalculations
   const totalMessageCount = useMemo(
@@ -181,6 +194,29 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
     return [...historical, ...realtime];
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historicalMessages, realtimeMessages]);
+
+  const analysisLookups = useMemo(() => {
+    const lookups: StaffMessageAnalysisLookup[] = [];
+    combinedMessages.forEach(({ message }) => {
+      if (
+        message.type === 'visitor'
+        && message.channelId
+        && message.sourceMessageId
+      ) {
+        lookups.push({
+          channel_id: message.channelId,
+          source_message_id: message.sourceMessageId,
+        });
+      }
+    });
+    return lookups;
+  }, [combinedMessages]);
+
+  useEffect(() => {
+    if (projectId && analysisLookups.length > 0) {
+      void loadMessageAnalyses(projectId, analysisLookups);
+    }
+  }, [analysisLookups, loadMessageAnalyses, projectId]);
 
   // Reset initial load state when conversation changes (no messages to some messages)
   useEffect(() => {
@@ -444,6 +480,17 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
           <>
             {/* Render Combined Messages with Time Separators (like WeChat) */}
             {combinedMessages.map(({ key, message }, index) => {
+              const analysisInsights = message.channelId && message.sourceMessageId
+                ? analysesByMessage[
+                    buildMessageAnalysisCacheKey({
+                      channel_id: message.channelId,
+                      source_message_id: message.sourceMessageId,
+                    })
+                  ]
+                : undefined;
+              const displayMessage = analysisInsights === undefined
+                ? message
+                : { ...message, analysisInsights };
               // 获取当前消息的时间戳（秒）
               const currentTimestamp = message.timestamp 
                 ? (typeof message.timestamp === 'string' ? new Date(message.timestamp).getTime() / 1000 : message.timestamp)
@@ -518,7 +565,7 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
                   )}
                   <div data-message-seq={message.messageSeq ?? undefined}>
                     <ChatMessage
-                      message={message}
+                      message={displayMessage}
                       onSuggestionClick={onSuggestionClick}
                       onSendMessage={onSendMessage}
                     />

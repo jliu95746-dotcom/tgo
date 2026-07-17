@@ -369,3 +369,48 @@ class CombinedMessageAnalysisResponse(AnalysisSchema):
     source_message_id: str
     media: MediaResultResponse | None = None
     intent: IntentResultResponse | None = None
+
+
+class StaffMessageAnalysisLookup(AnalysisSchema):
+    """One employee-console lookup tied to a visitor conversation."""
+
+    channel_id: str = Field(
+        min_length=40,
+        max_length=40,
+        pattern=(
+            r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-vtr$"
+        ),
+    )
+    source_message_id: str = Field(min_length=1, max_length=255)
+
+
+class StaffMessageAnalysisBatchRequest(AnalysisSchema):
+    """Bounded, duplicate-free employee-console analysis lookup batch."""
+
+    messages: tuple[StaffMessageAnalysisLookup, ...] = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    @model_validator(mode="after")
+    def validate_unique_messages(self) -> Self:
+        keys = {
+            (message.channel_id, message.source_message_id)
+            for message in self.messages
+        }
+        if len(keys) != len(self.messages):
+            raise ValueError("messages must not contain duplicate lookup keys")
+        return self
+
+
+class StaffMessageAnalysisResponse(CombinedMessageAnalysisResponse):
+    """Available analysis projection for one employee-visible message."""
+
+    channel_id: str
+
+
+class StaffMessageAnalysisBatchResponse(AnalysisSchema):
+    """Available projections; missing analyses are intentionally omitted."""
+
+    items: tuple[StaffMessageAnalysisResponse, ...]
