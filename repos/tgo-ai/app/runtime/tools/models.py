@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from app.schemas.knowledge import KnowledgeChannel
+
 
 class MCPConfig(BaseModel):
     """MCP服务器配置."""
@@ -21,6 +23,10 @@ class RagConfig(BaseModel):
     api_key: Optional[str] = Field(default=None, description="RAG服务API Key")
     rag_url: Optional[str] = Field(default=None, description="RAG服务地址")
     project_id: Optional[str] = Field(default=None, description="Project ID for RAG service calls")
+    knowledge_channel: Optional[KnowledgeChannel] = Field(
+        default=None,
+        description="Channel used for automatic-answer knowledge governance",
+    )
     collections: Optional[List[str]] = Field(default=None, description="启用的集合列表")
     filters: Optional[Dict[str, Any]] = Field(default=None, description="搜索过滤条件")
 

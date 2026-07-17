@@ -165,6 +165,7 @@ async def test_run_supervisor_agent_stream_omits_legacy_team_selectors(
             user_id="user-1",
             message="hello",
             session_id="session-1",
+            knowledge_channel="internal",
             enable_memory=True,
             system_message="system",
             expected_output="output",
@@ -174,6 +175,7 @@ async def test_run_supervisor_agent_stream_omits_legacy_team_selectors(
     assert events == []
     payload = captured["json"]
     assert payload["agent_id"] == "agent-1"
+    assert payload["knowledge_channel"] == "internal"
     assert "team_id" not in payload
     assert "agent_ids" not in payload
     assert "config" not in payload

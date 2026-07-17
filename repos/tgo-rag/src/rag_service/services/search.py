@@ -4,7 +4,8 @@ Search service implementing hybrid search with vector similarity and keyword mat
 
 import asyncio
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any, Dict, List, Optional, Set, Tuple
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select, text
@@ -15,6 +16,8 @@ from ..database import get_db_session
 from ..logging_config import get_logger
 from ..models import FileDocument
 from ..schemas.search import SearchMetadata, SearchResult, SearchResponse
+from ..schemas.knowledge_governance import KnowledgeChannel
+from .knowledge_governance import KnowledgeGovernancePolicy
 from .vector_store import get_vector_store_service
 from .embedding import get_embedding_service_for_project
 from .query_processor import get_query_processor
@@ -29,6 +32,110 @@ class SearchService:
         """Initialize the search service."""
         self.settings = get_settings()
         self.vector_store_service = get_vector_store_service()
+
+    async def automatic_answer_search(
+        self,
+        query: str,
+        project_id: UUID,
+        *,
+        channel: KnowledgeChannel,
+        collection_id: Optional[UUID] = None,
+        limit: int = 10,
+        offset: int = 0,
+        min_score: float = 0.0,
+        filters: Optional[Dict[str, Any]] = None,
+        search_mode: str = "hybrid",
+    ) -> SearchResponse:
+        """Search only knowledge admitted for automatic answers.
+
+        Candidate retrieval deliberately oversamples before applying governance so
+        an ineligible high-ranking chunk does not hide an eligible lower-ranked one.
+        Every missing or non-matching governance record is denied by the policy SQL.
+        """
+        started_at = time.time()
+        requested_window = offset + limit
+        multiplier = max(int(self.settings.candidate_multiplier), 1)
+        candidate_limit = min(max(requested_window * multiplier, requested_window), 100)
+        mode = search_mode.lower()
+
+        if mode == "embedding":
+            candidates = await self.semantic_search(
+                query=query,
+                project_id=project_id,
+                collection_id=collection_id,
+                limit=candidate_limit,
+                min_score=min_score,
+                filters=filters,
+            )
+        elif mode == "fulltext":
+            candidates = await self.keyword_search(
+                query=query,
+                project_id=project_id,
+                collection_id=collection_id,
+                limit=candidate_limit,
+                min_score=min_score,
+                filters=filters,
+            )
+        else:
+            candidates = await self.hybrid_search(
+                query=query,
+                project_id=project_id,
+                collection_id=collection_id,
+                limit=candidate_limit,
+                min_score=min_score,
+                filters=filters,
+            )
+
+        candidate_ids = tuple(result.document_id for result in candidates.results)
+        eligible_ids = await self._eligible_document_ids(
+            project_id=project_id,
+            channel=channel,
+            candidate_ids=candidate_ids,
+        )
+        eligible_results = [
+            result for result in candidates.results if result.document_id in eligible_ids
+        ]
+        paginated_results = eligible_results[offset:requested_window]
+        applied_filters = dict(filters or {})
+        applied_filters.update(
+            {
+                "automatic_answer": True,
+                "knowledge_channel": channel.value,
+            }
+        )
+
+        return SearchResponse(
+            results=paginated_results,
+            search_metadata=SearchMetadata(
+                query=query,
+                total_results=len(eligible_results),
+                returned_results=len(paginated_results),
+                search_time_ms=int((time.time() - started_at) * 1000),
+                filters_applied=applied_filters,
+                search_type=f"{candidates.search_metadata.search_type}_governed",
+            ),
+        )
+
+    async def _eligible_document_ids(
+        self,
+        *,
+        project_id: UUID,
+        channel: KnowledgeChannel,
+        candidate_ids: Tuple[UUID, ...],
+    ) -> Set[UUID]:
+        """Return governed candidate IDs; empty candidates fail closed."""
+        if not candidate_ids:
+            return set()
+
+        statement = KnowledgeGovernancePolicy.eligible_document_ids_statement(
+            project_id=project_id,
+            at=datetime.now(UTC),
+            channel=channel,
+            candidate_ids=candidate_ids,
+        )
+        async with get_db_session() as db:
+            result = await db.execute(statement)
+            return set(result.scalars().all())
     
     async def semantic_search(
         self,
@@ -192,6 +299,11 @@ class SearchService:
                             ),
                             FileDocument.project_id == project_id
                         )
+                    )
+
+                if collection_id is not None:
+                    base_query = base_query.where(
+                        FileDocument.collection_id == collection_id
                     )
 
                 # Apply content_type filter

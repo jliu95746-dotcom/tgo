@@ -232,6 +232,93 @@ class RAGServiceClient:
         )
         return await self._handle_response(response)
 
+    # Knowledge governance endpoints
+    async def list_knowledge_governance(
+        self,
+        *,
+        project_id: str,
+        collection_id: str,
+        review_status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> object:
+        """List governed files in a collection."""
+        params: dict[str, object] = {
+            "project_id": project_id,
+            "collection_id": collection_id,
+            "limit": limit,
+            "offset": offset,
+        }
+        if review_status is not None:
+            params["review_status"] = review_status
+        response = await self._make_request(
+            "GET",
+            "/v1/knowledge-governance",
+            params=params,
+        )
+        return await self._handle_response(response)
+
+    async def save_file_knowledge_governance(
+        self,
+        *,
+        project_id: str,
+        file_id: str,
+        data: dict[str, object],
+    ) -> object:
+        """Create or update a file governance draft."""
+        response = await self._make_request(
+            "PUT",
+            f"/v1/knowledge-governance/files/{file_id}",
+            params={"project_id": project_id},
+            json_data=data,
+        )
+        return await self._handle_response(response)
+
+    async def submit_knowledge_governance(
+        self,
+        *,
+        project_id: str,
+        record_id: str,
+    ) -> object:
+        """Submit a governance draft for review."""
+        response = await self._make_request(
+            "POST",
+            f"/v1/knowledge-governance/{record_id}/submit",
+            params={"project_id": project_id},
+        )
+        return await self._handle_response(response)
+
+    async def review_knowledge_governance(
+        self,
+        *,
+        project_id: str,
+        record_id: str,
+        decision: dict[str, object],
+    ) -> object:
+        """Forward an authenticated review decision."""
+        response = await self._make_request(
+            "POST",
+            f"/v1/knowledge-governance/{record_id}/review",
+            params={"project_id": project_id},
+            json_data=decision,
+        )
+        return await self._handle_response(response)
+
+    async def backfill_knowledge_governance(
+        self,
+        *,
+        project_id: str,
+        data: dict[str, object],
+    ) -> object:
+        """Dry-run or execute safe governance backfill for legacy files."""
+        response = await self._make_request(
+            "POST",
+            "/v1/knowledge-governance/backfill",
+            params={"project_id": project_id},
+            json_data=data,
+        )
+        return await self._handle_response(response)
+
 
     async def list_collection_pages(
         self,

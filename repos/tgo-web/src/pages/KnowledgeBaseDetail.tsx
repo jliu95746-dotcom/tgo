@@ -15,7 +15,8 @@ import { useAuthStore } from '@/stores/authStore';
 
 import { SearchTest } from '@/components/knowledge/SearchTest';
 import { QADataView } from '@/components/knowledge/QADataView';
-import { TestTube, FileText } from 'lucide-react';
+import { KnowledgeGovernancePanel } from '@/components/knowledge/KnowledgeGovernancePanel';
+import { TestTube, FileText, ShieldCheck } from 'lucide-react';
 
 /**
  * Knowledge Base Detail Page Component
@@ -40,7 +41,7 @@ const KnowledgeBaseDetail: React.FC = () => {
   const [deletingFiles, setDeletingFiles] = useState<Set<string>>(new Set());
 
   // Tabs State
-  const [activeTab, setActiveTab] = useState<'documents' | 'search' | 'settings'>('documents');
+  const [activeTab, setActiveTab] = useState<'documents' | 'search' | 'governance'>('documents');
 
   // QA View State
   const [qaFile, setQaFile] = useState<{ id: string; name: string } | null>(null);
@@ -447,6 +448,16 @@ const KnowledgeBaseDetail: React.FC = () => {
                 <TestTube className="w-4 h-4" />
                 {t('knowledge.tabs.searchTest', '搜索测试')}
               </button>
+              <button
+                onClick={() => setActiveTab('governance')}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'governance'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                {t('knowledge.tabs.governance')}
+              </button>
             </div>
           </div>
         )}
@@ -497,6 +508,14 @@ const KnowledgeBaseDetail: React.FC = () => {
             {/* Search Test View */}
             {activeTab === 'search' && !qaFile && (
               <SearchTest collectionId={id!} />
+            )}
+
+            {activeTab === 'governance' && !qaFile && (
+              <KnowledgeGovernancePanel
+                collectionId={id!}
+                collectionName={knowledgeBase.name}
+                documents={documents}
+              />
             )}
 
           </div>

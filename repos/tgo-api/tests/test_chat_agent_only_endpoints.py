@@ -60,7 +60,11 @@ async def test_chat_completion_prefers_platform_agent_id(monkeypatch) -> None:
         is_last_message_from_visitor=True,
         last_client_msg_no=None,
     )
-    platform = SimpleNamespace(agent_id=platform_agent_id, ai_mode="auto")
+    platform = SimpleNamespace(
+        agent_id=platform_agent_id,
+        ai_mode="auto",
+        type="wecom",
+    )
     project = SimpleNamespace(id=project_id, api_key="ak_project")
     handle_ai_mock = AsyncMock(return_value={"success": True, "content": "ok"})
 
@@ -119,6 +123,7 @@ async def test_chat_completion_prefers_platform_agent_id(monkeypatch) -> None:
 
     assert result["message"] == "ok"
     assert handle_ai_mock.await_args.kwargs["agent_id"] == str(platform_agent_id)
+    assert handle_ai_mock.await_args.kwargs["knowledge_channel"] == "wecom_kf"
 
 
 @pytest.mark.asyncio
@@ -137,7 +142,7 @@ async def test_chat_completion_omits_agent_id_without_platform_override(
         is_last_message_from_visitor=True,
         last_client_msg_no=None,
     )
-    platform = SimpleNamespace(agent_id=None, ai_mode="auto")
+    platform = SimpleNamespace(agent_id=None, ai_mode="auto", type="website")
     project = SimpleNamespace(id=project_id, api_key="ak_project")
     handle_ai_mock = AsyncMock(return_value={"success": True, "content": "ok"})
 
@@ -196,6 +201,7 @@ async def test_chat_completion_omits_agent_id_without_platform_override(
 
     assert result["message"] == "ok"
     assert "agent_id" not in handle_ai_mock.await_args.kwargs
+    assert handle_ai_mock.await_args.kwargs["knowledge_channel"] == "web"
 
 
 @pytest.mark.asyncio
@@ -230,6 +236,7 @@ async def test_staff_agent_chat_routes_agent_only(monkeypatch) -> None:
 
     assert response.success is True
     assert run_background_mock.call_args.kwargs["agent_id"] == str(agent_id)
+    assert run_background_mock.call_args.kwargs["knowledge_channel"] == "internal"
     assert "team_id" not in run_background_mock.call_args.kwargs
 
 

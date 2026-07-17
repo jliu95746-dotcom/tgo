@@ -174,6 +174,7 @@ class AIServiceClient:
         stream: bool = False,
         mcp_url: Optional[str] = None,
         rag_url: Optional[str] = None,
+        knowledge_channel: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run supervisor agent workflow and return response content."""
         payload: Dict[str, Any] = {
@@ -190,6 +191,8 @@ class AIServiceClient:
             payload["mcp_url"] = mcp_url
         if rag_url:
             payload["rag_url"] = rag_url
+        if knowledge_channel is not None:
+            payload["knowledge_channel"] = knowledge_channel
 
         response = await self._make_request(
             "POST",
@@ -213,6 +216,7 @@ class AIServiceClient:
         user_id: Optional[str] = None,
         mcp_url: Optional[str] = None,
         rag_url: Optional[str] = None,
+        knowledge_channel: Optional[str] = None,
         enable_memory: Optional[bool] = None,
         system_message: Optional[str] = None,
         expected_output: Optional[str] = None,
@@ -232,6 +236,8 @@ class AIServiceClient:
             payload["mcp_url"] = mcp_url
         if rag_url:
             payload["rag_url"] = rag_url
+        if knowledge_channel is not None:
+            payload["knowledge_channel"] = knowledge_channel
         if enable_memory is not None:
             payload["enable_memory"] = enable_memory
         if system_message is not None:

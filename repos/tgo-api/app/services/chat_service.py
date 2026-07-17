@@ -243,6 +243,7 @@ async def process_ai_stream_to_wukongim(
     system_message: Optional[str] = None,
     expected_output: Optional[str] = None,
     agent_id: Optional[str] = None,
+    knowledge_channel: Optional[str] = None,
 ):
     """Process AI stream and forward events to WuKongIM, while yielding events for SSE."""
     full_content = ""
@@ -261,6 +262,7 @@ async def process_ai_stream_to_wukongim(
             enable_memory=True,
             system_message=system_message,
             expected_output=expected_output,
+            knowledge_channel=knowledge_channel,
         ):
             event_type = data.get("event_type") if isinstance(data, dict) else None
             if not event_type:
@@ -307,6 +309,7 @@ async def handle_ai_response_non_stream(
     system_message: Optional[str] = None,
     expected_output: Optional[str] = None,
     agent_id: Optional[str] = None,
+    knowledge_channel: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Handle AI completion in a non-streaming way, while still forwarding to WuKongIM."""
     full_content = ""
@@ -322,6 +325,7 @@ async def handle_ai_response_non_stream(
             enable_memory=True,
             system_message=system_message,
             expected_output=expected_output,
+            knowledge_channel=knowledge_channel,
         ):
             event_type = data.get("event_type") if isinstance(data, dict) else None
             if not event_type:
@@ -365,6 +369,7 @@ async def run_background_ai_interaction(
     system_message: Optional[str] = None,
     expected_output: Optional[str] = None,
     agent_id: Optional[str] = None,
+    knowledge_channel: Optional[str] = None,
     started_event: Optional[asyncio.Event] = None,
 ):
     """Run AI interaction in the background.
@@ -384,6 +389,7 @@ async def run_background_ai_interaction(
         system_message=system_message,
         expected_output=expected_output,
         agent_id=agent_id,
+        knowledge_channel=knowledge_channel,
     ):
             # Signal that AI processing has started
         if started_event and not started_event.is_set():

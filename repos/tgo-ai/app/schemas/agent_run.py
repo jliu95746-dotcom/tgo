@@ -8,6 +8,7 @@ from typing import List, Optional
 from pydantic import ConfigDict, Field
 
 from app.schemas.base import BaseSchema
+from app.schemas.knowledge import KnowledgeChannel
 
 
 class SupervisorRunRequest(BaseSchema):
@@ -59,6 +60,10 @@ class SupervisorRunRequest(BaseSchema):
     rag_url: Optional[str] = Field(
         default=None,
         description="URL of the RAG server for retrieval-augmented generation",
+    )
+    knowledge_channel: Optional[KnowledgeChannel] = Field(
+        default=None,
+        description="Channel used for fail-closed automatic-answer knowledge filtering",
     )
     enable_memory: bool = Field(
         default=False,

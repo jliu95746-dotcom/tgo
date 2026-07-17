@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from app.schemas.knowledge import KnowledgeChannel
+
 
 # =============================================================================
 # Request Models
@@ -180,6 +182,10 @@ class ChatCompletionRequest(BaseModel):
     collection_ids: Optional[List[str]] = Field(
         default=None,
         description="Collection IDs to create RAG search tools for",
+    )
+    knowledge_channel: Optional[KnowledgeChannel] = Field(
+        default=None,
+        description="Channel used for fail-closed automatic-answer RAG filtering",
     )
     max_tool_rounds: Optional[int] = Field(
         default=5,

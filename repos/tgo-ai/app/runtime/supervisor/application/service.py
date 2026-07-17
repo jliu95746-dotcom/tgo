@@ -237,6 +237,7 @@ class SupervisorRuntimeService:
             timeout=payload.timeout,
             mcp_url=payload.mcp_url,
             rag_url=payload.rag_url,
+            knowledge_channel=payload.knowledge_channel,
             enable_memory=payload.enable_memory,
         )
         return context, agent_id

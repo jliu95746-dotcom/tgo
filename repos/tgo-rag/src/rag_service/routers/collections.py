@@ -17,6 +17,7 @@ from ..logging_config import get_logger
 from ..models import Collection, CollectionType, FileDocument, File as FileModel
 from ..models import WebsitePage
 from ..schemas.collections import (
+    AutomaticAnswerSearchRequest,
     CollectionBatchRequest,
     CollectionBatchResponse,
     CollectionCreateRequest,
@@ -913,6 +914,46 @@ async def search_collection_documents(
         )
 
     return search_response
+
+
+@router.post(
+    "/{collection_id}/documents/search/automatic-answer",
+    response_model=SearchResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "Collection not found or not accessible"},
+        422: {"model": ErrorResponse, "description": "Missing or invalid knowledge channel"},
+        500: {"model": ErrorResponse, "description": "Governed search failed"},
+    },
+)
+async def search_collection_documents_for_automatic_answer(
+    collection_id: UUID,
+    search_request: AutomaticAnswerSearchRequest,
+    project_id: UUID = Query(..., description="Project ID"),
+    db: AsyncSession = Depends(get_db_session_dependency),
+) -> SearchResponse:
+    """Search only approved, current knowledge allowed for the request channel."""
+    collection_query = select(Collection).where(
+        and_(
+            Collection.id == collection_id,
+            Collection.project_id == project_id,
+            Collection.deleted_at.is_(None),
+        )
+    )
+    collection_result = await db.execute(collection_query)
+    if collection_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Collection not found or not accessible")
+
+    return await get_search_service().automatic_answer_search(
+        query=search_request.query,
+        project_id=project_id,
+        collection_id=collection_id,
+        channel=search_request.channel,
+        limit=search_request.limit,
+        offset=search_request.offset,
+        min_score=search_request.min_score,
+        filters=search_request.filters,
+        search_mode=search_request.search_mode,
+    )
 
 
 

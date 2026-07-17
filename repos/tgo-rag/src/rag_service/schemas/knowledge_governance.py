@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from .common import PaginationMetadata
+
 
 class KnowledgeDocumentType(str, Enum):
     """Supported first-stage customer-service knowledge categories."""
@@ -131,6 +133,111 @@ class KnowledgeGovernanceInput(BaseModel):
                 "reviewed_by and reviewed_at are required for an audited review status"
             )
         return self
+
+
+class KnowledgeGovernanceDraftRequest(BaseModel):
+    """Editable governance metadata for a file-backed knowledge source."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        str_strip_whitespace=True,
+    )
+
+    document_type: KnowledgeDocumentType
+    product_line: str = Field(min_length=1, max_length=128)
+    channels: tuple[KnowledgeChannel, ...] = Field(min_length=1, max_length=16)
+    effective_at: datetime
+    expires_at: datetime | None = None
+    owner: str = Field(min_length=1, max_length=255)
+    document_version: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    )
+    allow_automatic_reply: bool = False
+    source_origin: KnowledgeSourceOrigin = KnowledgeSourceOrigin.INTERNAL
+
+    @model_validator(mode="after")
+    def validate_contract(self) -> Self:
+        if not _is_timezone_aware(self.effective_at):
+            raise ValueError("effective_at must be timezone-aware")
+        if self.expires_at is not None:
+            if not _is_timezone_aware(self.expires_at):
+                raise ValueError("expires_at must be timezone-aware")
+            if self.expires_at <= self.effective_at:
+                raise ValueError("expires_at must be later than effective_at")
+        if len(set(self.channels)) != len(self.channels):
+            raise ValueError("channels must not contain duplicates")
+        return self
+
+
+class KnowledgeGovernanceBackfillRequest(KnowledgeGovernanceDraftRequest):
+    """Safe defaults for attaching governance metadata to existing files."""
+
+    collection_id: UUID
+    dry_run: bool = True
+    allow_automatic_reply: bool = Field(default=False, frozen=True)
+    review_status: KnowledgeReviewStatus = Field(
+        default=KnowledgeReviewStatus.DRAFT,
+        frozen=True,
+    )
+
+    @model_validator(mode="after")
+    def validate_fail_closed_defaults(self) -> Self:
+        if self.allow_automatic_reply:
+            raise ValueError("backfill cannot enable automatic replies")
+        if self.review_status is not KnowledgeReviewStatus.DRAFT:
+            raise ValueError("backfill records must start as draft")
+        return self
+
+
+class KnowledgeGovernanceRecordResponse(BaseModel):
+    """Governance record enriched with the source name and collection."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: UUID
+    project_id: UUID
+    file_id: UUID | None
+    qa_pair_id: UUID | None
+    collection_id: UUID
+    source_name: str
+    document_type: KnowledgeDocumentType
+    product_line: str
+    channels: tuple[KnowledgeChannel, ...]
+    effective_at: datetime
+    expires_at: datetime | None
+    owner: str
+    document_version: str
+    allow_automatic_reply: bool
+    review_status: KnowledgeReviewStatus
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+    source_origin: KnowledgeSourceOrigin
+    content_is_untrusted: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class KnowledgeGovernanceListResponse(BaseModel):
+    """Paginated governance records."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: tuple[KnowledgeGovernanceRecordResponse, ...]
+    pagination: PaginationMetadata
+
+
+class KnowledgeGovernanceBackfillResponse(BaseModel):
+    """Dry-run or execution summary for legacy file governance backfill."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scanned_count: int = Field(ge=0)
+    missing_count: int = Field(ge=0)
+    created_count: int = Field(ge=0)
+    dry_run: bool
 
 
 class KnowledgeReviewDecision(BaseModel):

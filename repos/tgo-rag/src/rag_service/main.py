@@ -18,7 +18,16 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import get_settings
 from .database import close_database, database_health_check, init_database
 from .logging_config import get_logger, init_logging_from_settings, set_request_context, clear_request_context
-from .routers import collections, files, health, monitoring, embedding_config, websites, qa
+from .routers import (
+    collections,
+    embedding_config,
+    files,
+    health,
+    knowledge_governance,
+    monitoring,
+    qa,
+    websites,
+)
 from .schemas.common import ErrorResponse
 from .startup_banner import (
     print_startup_banner,
@@ -255,6 +264,12 @@ def setup_routers(app: FastAPI) -> None:
         files.router,
         prefix=f"{api_v1_prefix}/files",
         tags=["Files"]
+    )
+
+    app.include_router(
+        knowledge_governance.router,
+        prefix=f"{api_v1_prefix}/knowledge-governance",
+        tags=["Knowledge Governance"],
     )
     # Embedding configuration endpoints (no auth)
     app.include_router(

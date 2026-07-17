@@ -221,6 +221,8 @@ dump.rdb
 test_*.py
 *_test.py
 !tests/test_knowledge_governance.py
+!tests/test_knowledge_governance_api.py
+!tests/test_automatic_answer_search.py
 
 # Coverage reports
 .coverage

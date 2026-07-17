@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.exceptions import NotFoundError, ValidationError
+from app.schemas.knowledge import KnowledgeChannel
 
 
 class CollectionData(BaseModel):
@@ -166,9 +167,10 @@ class RAGServiceClient:
     async def search_documents(
         self,
         collection_id: str,
-        project_id: str,
+        project_id: str | uuid.UUID,
         query: str,
-        limit: int = 10
+        knowledge_channel: KnowledgeChannel | str,
+        limit: int = 10,
     ) -> Dict[str, Any]:
         """
         Search documents in a collection.
@@ -182,12 +184,23 @@ class RAGServiceClient:
         Returns:
             Search results dictionary
         """
+        try:
+            channel = KnowledgeChannel(knowledge_channel)
+        except ValueError as exc:
+            raise ValidationError(
+                "A supported knowledge channel is required for RAG search",
+                "knowledge_channel",
+            ) from exc
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.post(
-                    f"{self.base_url}/v1/collections/{collection_id}/documents/search",
+                    (
+                        f"{self.base_url}/v1/collections/{collection_id}"
+                        "/documents/search/automatic-answer"
+                    ),
                     params={"project_id": str(project_id)},
-                    json={"query": query, "limit": limit},
+                    json={"query": query, "limit": limit, "channel": channel.value},
                     headers={"Content-Type": "application/json"},
                 )
                 response.raise_for_status()

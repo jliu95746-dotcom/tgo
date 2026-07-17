@@ -9,6 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from .knowledge_governance import KnowledgeChannel
+
 
 class CollectionTypeEnum(str, enum.Enum):
     """
@@ -324,6 +326,16 @@ class CollectionSearchRequest(BaseModel):
         default="hybrid",
         description="Search mode: 'hybrid' (default), 'embedding', or 'fulltext'",
         examples=["hybrid"]
+    )
+
+
+class AutomaticAnswerSearchRequest(CollectionSearchRequest):
+    """Collection search request that must pass automatic-answer governance."""
+
+    channel: KnowledgeChannel = Field(
+        ...,
+        description="Customer channel used to enforce knowledge eligibility",
+        examples=[KnowledgeChannel.WECOM_KF.value],
     )
 
 

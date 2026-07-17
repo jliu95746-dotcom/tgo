@@ -13,12 +13,25 @@ from agno.tools import Function
 from mcp import ClientSession, McpError, Tool
 from mcp.client.streamable_http import streamablehttp_client
 
+from app.schemas.knowledge import KnowledgeChannel
 
-async def create_rag_tool(rag_url: str, collection_id: str, project_id: Optional[str], filters: Optional[Dict[str, Any]] = None) -> Function:
+
+async def create_rag_tool(
+    rag_url: str,
+    collection_id: str,
+    project_id: Optional[str],
+    *,
+    knowledge_channel: KnowledgeChannel | str,
+    filters: Optional[Dict[str, Any]] = None,
+) -> Function:
     """根据集合信息生成RAG查询工具."""
 
     if not project_id:
         raise ValueError("project_id is required to create RAG tools")
+    try:
+        channel = KnowledgeChannel(knowledge_channel)
+    except ValueError as exc:
+        raise ValueError("a supported knowledge_channel is required to create RAG tools") from exc
 
     url = rag_url.rstrip("/")
     collection_endpoint = f"{url}/v1/collections/{collection_id}"
@@ -42,8 +55,16 @@ async def create_rag_tool(rag_url: str, collection_id: str, project_id: Optional
     short_id = (collection_id.replace("-", "")[:8]) if collection_id else "unknown"
     tool_name = f"rag_search_{short_id}".lower()
     async def search_collection(query: str) -> str:
-        search_endpoint = f"{url}/v1/collections/{collection_id}/documents/search"
-        payload = {"query": query, "limit": 10, "filters": filters}
+        search_endpoint = (
+            f"{url}/v1/collections/{collection_id}"
+            "/documents/search/automatic-answer"
+        )
+        payload = {
+            "query": query,
+            "limit": 10,
+            "filters": filters,
+            "channel": channel.value,
+        }
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(

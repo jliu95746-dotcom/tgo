@@ -81,6 +81,7 @@ class AgnoAgentBuilder:
                 rag_url=context.rag_url,
                 collections=[binding.collection_id for binding in context.agent.collections if binding.enabled],
                 project_id=context.project_id,
+                knowledge_channel=context.knowledge_channel,
             )
 
         workflow_config = None

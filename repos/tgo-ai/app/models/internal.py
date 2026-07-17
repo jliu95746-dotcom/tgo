@@ -10,6 +10,8 @@ from uuid import UUID
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+
+from app.schemas.knowledge import KnowledgeChannel
 from app.runtime.tools.models import LLMProviderCredentials
 
 
@@ -184,6 +186,10 @@ class AgentExecutionContext(BaseModel):
     timeout: int = Field(..., ge=1, description="Execution timeout in seconds")
     mcp_url: Optional[str] = Field(None, description="MCP runtime URL")
     rag_url: Optional[str] = Field(None, description="RAG runtime URL")
+    knowledge_channel: Optional["KnowledgeChannel"] = Field(
+        None,
+        description="Channel used for automatic-answer knowledge governance",
+    )
     enable_memory: bool = Field(False, description="Whether conversational memory is enabled")
     ui_mode: str = Field("json_render", description="UI rendering mode")
 

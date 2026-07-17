@@ -23,13 +23,21 @@ class ToolExecutor:
         self._tool_registry: Dict[str, Dict[str, Any]] = {}
         self._context: Dict[str, Any] = {}
 
-    def set_context(self, visitor_id: Optional[str] = None, session_id: Optional[str] = None, agent_id: Optional[str] = None, language: Optional[str] = None):
+    def set_context(
+        self,
+        visitor_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        language: Optional[str] = None,
+        knowledge_channel: Optional[str] = None,
+    ):
         """Set execution context for plugin tools."""
         self._context = {
             "visitor_id": visitor_id,
             "session_id": session_id,
             "agent_id": agent_id,
             "language": language,
+            "knowledge_channel": knowledge_channel,
         }
 
     async def register_tools(
@@ -116,12 +124,16 @@ class ToolExecutor:
             return "<error>Missing 'query' argument for RAG search</error>"
         
         limit = args.get("limit", 10)
+        knowledge_channel = self._context.get("knowledge_channel")
+        if not knowledge_channel:
+            return "<error>RAG search denied: knowledge_channel is required</error>"
         try:
             results = await rag_service_client.search_documents(
                 collection_id=collection_id,
                 project_id=self.project_id,
                 query=query,
-                limit=limit
+                knowledge_channel=knowledge_channel,
+                limit=limit,
             )
         except Exception as e:
             return f"<error>RAG search failed: {str(e)}</error>"

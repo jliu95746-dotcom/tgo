@@ -160,6 +160,9 @@ class ChatService:
         executor.set_context(
             visitor_id=request.user, # request.user contains visitor_id
             agent_id=str(request.agent_id) if hasattr(request, "agent_id") else None,
+            knowledge_channel=(
+                request.knowledge_channel.value if request.knowledge_channel else None
+            ),
         )
         await executor.register_tools(request.tool_ids, request.collection_ids)
 
@@ -281,6 +284,12 @@ class ChatService:
         # auto_execute_tools=True: run agentic loop with internal tool execution
         # Create tool executor
         executor = ToolExecutor(self.db, project_id)
+        executor.set_context(
+            visitor_id=request.user,
+            knowledge_channel=(
+                request.knowledge_channel.value if request.knowledge_channel else None
+            ),
+        )
         await executor.register_tools(request.tool_ids, request.collection_ids)
 
         for round_idx in range(max_rounds):

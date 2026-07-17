@@ -37,6 +37,7 @@ from app.models import (
     ClearanceUserType,
 )
 from app.schemas import ChatFileUploadResponse, StaffSendPlatformMessageRequest
+from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.chat import (
     UIUserActionRequest,
     UIUserActionResponse,
@@ -53,6 +54,7 @@ from app.schemas.chat import (
     OpenAIChatMessage,
 )
 from app.services import chat_service
+from app.services.knowledge_channel import resolve_platform_knowledge_channel
 from app.core.logging import get_logger
 logger = get_logger(__name__)
 from app.services.file_service import sanitize_filename, get_safe_ascii_filename
@@ -70,9 +72,12 @@ router = APIRouter()
 
 # Platform routing falls back to the project default agent in tgo-ai when unset.
 def _build_platform_agent_kwargs(platform: Platform) -> dict[str, str]:
-    if platform.agent_id is None:
-        return {}
-    return {"agent_id": str(platform.agent_id)}
+    runtime_kwargs = {
+        "knowledge_channel": resolve_platform_knowledge_channel(platform.type).value,
+    }
+    if platform.agent_id is not None:
+        runtime_kwargs["agent_id"] = str(platform.agent_id)
+    return runtime_kwargs
 
 
 # ============================================================================
@@ -1210,6 +1215,7 @@ async def staff_agent_chat(
         system_message=req.system_message,
         expected_output=req.expected_output,
         agent_id=str(req.agent_id),
+        knowledge_channel=KnowledgeChannel.INTERNAL.value,
     ))
 
     # 6) Return success response immediately
@@ -1261,6 +1267,7 @@ async def handle_ui_user_action(
         client_msg_no=client_msg_no,
         from_uid=ai_sender_uid,
         session_id=session_id,
+        knowledge_channel=KnowledgeChannel.INTERNAL.value,
         **agent_runtime_kwargs,
     ))
 

@@ -2872,6 +2872,11 @@
         "message": "确定要删除文件 \"{{name}}\" 吗？此操作不可撤销。"
       }
     },
+    "tabs": {
+      "documents": "文档列表",
+      "searchTest": "搜索测试",
+      "governance": "治理审核"
+    },
     "detail": {
       "title": "知识库详情",
       "backToList": "返回知识库列表",
@@ -2910,6 +2915,76 @@
         "description": "请检查链接是否正确"
       },
       "fileServiceNotInitialized": "文件服务未初始化"
+    },
+    "governance": {
+      "title": "知识治理与审核",
+      "description": "只有审核通过、在有效期内且允许自动回答的知识，才会进入客服自动回复。",
+      "refresh": "刷新",
+      "safeBackfill": "安全回填旧文档",
+      "ungoverned": "未治理",
+      "ungovernedTitle": "以下文档尚未设置治理信息",
+      "configure": "立即设置",
+      "empty": "暂无治理记录。可以逐个设置，或使用安全回填批量生成草稿。",
+      "loadFailed": "加载知识治理记录失败",
+      "editTitle": "编辑治理草稿",
+      "documentType": "知识类型",
+      "productLine": "产品线",
+      "version": "文档版本",
+      "owner": "负责人",
+      "effectiveAt": "生效时间",
+      "expiresAt": "失效时间（可选）",
+      "sourceOrigin": "内容来源",
+      "channels": "适用渠道",
+      "allowAutomaticReply": "允许用于自动回答",
+      "allowAutomaticReplyHint": "仍需管理员审核通过后才会真正生效；客户原话不能用于自动回答。",
+      "saveDraft": "保存草稿",
+      "saved": "治理草稿已保存",
+      "saveFailed": "保存治理草稿失败",
+      "requiredFields": "请填写产品线、负责人和文档版本",
+      "channelRequired": "请至少选择一个适用渠道",
+      "edit": "编辑草稿",
+      "submit": "提交审核",
+      "approve": "审核通过",
+      "reject": "驳回",
+      "revoke": "撤销生效",
+      "actionFailed": "执行审核动作失败",
+      "autoReplyEnabled": "审核通过后可自动回答",
+      "autoReplyDisabled": "不用于自动回答",
+      "noBackfillNeeded": "当前知识库没有需要回填的旧文档",
+      "backfillConfirm": "将为 {{count}} 个旧文档生成“草稿且禁止自动回答”的治理记录，是否继续？",
+      "backfillSuccess": "已为 {{count}} 个旧文档生成安全治理草稿",
+      "backfillFailed": "旧文档治理回填失败",
+      "status": {
+        "draft": "草稿",
+        "pending_review": "待审核",
+        "approved": "已通过",
+        "rejected": "已驳回",
+        "revoked": "已撤销"
+      },
+      "documentTypes": {
+        "product": "产品资料",
+        "after_sales": "售后政策",
+        "faq": "常见问答",
+        "sop": "服务流程"
+      },
+      "sourceOrigins": {
+        "internal": "内部资料",
+        "customer": "客户提供",
+        "website": "网站采集"
+      },
+      "channelNames": {
+        "wecom_kf": "企业微信客服",
+        "web": "网页客服",
+        "app": "App 客服",
+        "phone": "电话客服",
+        "internal": "内部员工"
+      },
+      "actionSuccess": {
+        "submit": "已提交审核",
+        "approved": "审核已通过",
+        "rejected": "已驳回",
+        "revoked": "已撤销生效"
+      }
     },
     "upload": {
       "title": "拖拽文件到此处或点击上传",

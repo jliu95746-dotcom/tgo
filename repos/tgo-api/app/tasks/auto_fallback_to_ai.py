@@ -12,6 +12,7 @@ from sqlalchemy import or_
 from app.core.database import SessionLocal
 from app.models import Platform, Visitor, VisitorServiceStatus, VisitorSession, SessionStatus
 from app.services.chat_service import handle_ai_response_non_stream
+from app.services.knowledge_channel import resolve_platform_knowledge_channel
 from app.services.wukongim_client import wukongim_client
 from app.utils.encoding import build_visitor_channel_id, get_session_id
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
@@ -149,7 +150,9 @@ async def check_and_fallback_to_ai():
                         continue
 
                     # 5) Call AI synchronously and wait for result
-                    agent_runtime_kwargs: dict[str, str] = {}
+                    agent_runtime_kwargs: dict[str, str] = {
+                        "knowledge_channel": resolve_platform_knowledge_channel(platform.type).value,
+                    }
                     if platform.agent_id is not None:
                         agent_runtime_kwargs["agent_id"] = str(platform.agent_id)
                     

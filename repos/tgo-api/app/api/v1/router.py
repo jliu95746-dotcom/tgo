@@ -40,6 +40,7 @@ from app.api.v1.endpoints import (
     store,
     utils,
     message_analysis,
+    knowledge_governance,
 )
 
 api_router = APIRouter()
@@ -130,6 +131,12 @@ api_router.include_router(
     rag_qa_pairs.router,
     prefix="/rag",
     tags=["RAG QA Pairs"]
+)
+
+api_router.include_router(
+    knowledge_governance.router,
+    prefix="/rag/knowledge-governance",
+    tags=["Knowledge Governance"],
 )
 
 

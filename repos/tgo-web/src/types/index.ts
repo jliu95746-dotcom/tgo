@@ -3,6 +3,7 @@
 import type { MessageAnalysisViewState } from './messageAnalysis';
 
 export type * from './messageAnalysis';
+export type * from './knowledgeGovernance';
 
 export interface Platform {
   id: string;

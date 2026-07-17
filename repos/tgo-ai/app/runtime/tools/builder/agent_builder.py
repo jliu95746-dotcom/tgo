@@ -967,6 +967,12 @@ class AgentBuilder:
     async def _build_rag_tools(self, rag_config: Optional[RagConfig]) -> List[Any]:
         if not rag_config or not rag_config.rag_url or not rag_config.collections:
             return []
+        if rag_config.knowledge_channel is None:
+            self._logger.warning(
+                "Skipping RAG tools because knowledge_channel is missing",
+                project_id=rag_config.project_id,
+            )
+            return []
 
         tools: List[Any] = []
         for collection in rag_config.collections:
@@ -975,6 +981,7 @@ class AgentBuilder:
                     rag_config.rag_url,
                     collection,
                     project_id=rag_config.project_id,
+                    knowledge_channel=rag_config.knowledge_channel,
                     filters=rag_config.filters,
                 )
                 tools.append(tool)

@@ -1679,6 +1679,11 @@
         "message": "Are you sure you want to delete file \"{{name}}\"? This action cannot be undone."
       }
     },
+    "tabs": {
+      "documents": "Documents",
+      "searchTest": "Search Test",
+      "governance": "Governance Review"
+    },
     "detail": {
       "title": "Knowledge Base Details",
       "backToList": "Back to Knowledge Base List",
@@ -1717,6 +1722,76 @@
         "description": "Please check if the link is correct"
       },
       "fileServiceNotInitialized": "File service not initialized"
+    },
+    "governance": {
+      "title": "Knowledge Governance and Review",
+      "description": "Only approved, currently effective knowledge explicitly allowed for automatic replies can be used in customer-service answers.",
+      "refresh": "Refresh",
+      "safeBackfill": "Safely Backfill Legacy Files",
+      "ungoverned": "Ungoverned",
+      "ungovernedTitle": "These documents do not have governance metadata yet",
+      "configure": "Configure",
+      "empty": "No governance records. Configure a file or safely backfill legacy documents as drafts.",
+      "loadFailed": "Failed to load knowledge governance records",
+      "editTitle": "Edit Governance Draft",
+      "documentType": "Knowledge Type",
+      "productLine": "Product Line",
+      "version": "Document Version",
+      "owner": "Owner",
+      "effectiveAt": "Effective At",
+      "expiresAt": "Expires At (Optional)",
+      "sourceOrigin": "Content Origin",
+      "channels": "Allowed Channels",
+      "allowAutomaticReply": "Allow for automatic replies",
+      "allowAutomaticReplyHint": "This takes effect only after administrator approval. Customer-provided content is never eligible for automatic replies.",
+      "saveDraft": "Save Draft",
+      "saved": "Governance draft saved",
+      "saveFailed": "Failed to save governance draft",
+      "requiredFields": "Product line, owner, and document version are required",
+      "channelRequired": "Select at least one allowed channel",
+      "edit": "Edit Draft",
+      "submit": "Submit for Review",
+      "approve": "Approve",
+      "reject": "Reject",
+      "revoke": "Revoke",
+      "actionFailed": "Governance action failed",
+      "autoReplyEnabled": "Automatic reply after approval",
+      "autoReplyDisabled": "Not used for automatic replies",
+      "noBackfillNeeded": "No legacy documents need governance backfill",
+      "backfillConfirm": "Create draft, automatic-reply-disabled governance records for {{count}} legacy files?",
+      "backfillSuccess": "Created safe governance drafts for {{count}} legacy files",
+      "backfillFailed": "Legacy governance backfill failed",
+      "status": {
+        "draft": "Draft",
+        "pending_review": "Pending Review",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "revoked": "Revoked"
+      },
+      "documentTypes": {
+        "product": "Product Material",
+        "after_sales": "After-sales Policy",
+        "faq": "FAQ",
+        "sop": "Service SOP"
+      },
+      "sourceOrigins": {
+        "internal": "Internal",
+        "customer": "Customer Provided",
+        "website": "Website"
+      },
+      "channelNames": {
+        "wecom_kf": "WeCom Customer Service",
+        "web": "Web Chat",
+        "app": "App",
+        "phone": "Phone",
+        "internal": "Internal Staff"
+      },
+      "actionSuccess": {
+        "submit": "Submitted for review",
+        "approved": "Knowledge approved",
+        "rejected": "Knowledge rejected",
+        "revoked": "Knowledge revoked"
+      }
     },
     "upload": {
       "title": "Drag files here or click to upload",
