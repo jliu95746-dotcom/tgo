@@ -64,6 +64,9 @@ async def list_ai_models(
     data = []
     for model, provider in results:
         # Explicitly build dict to avoid any implicit ORM attribute access during serialization
+        # Ensure capabilities is at least an empty dict if None
+        caps = model.capabilities or {}
+        
         item = AIModelWithProvider(
             id=model.id,
             model_id=model.model_id,
@@ -73,6 +76,7 @@ async def list_ai_models(
             provider_name=provider.name,
             provider_kind=provider.provider,
             description=model.description,
+            capabilities=caps,
             context_window=model.context_window,
             is_active=model.is_active,
         )

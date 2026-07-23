@@ -18,11 +18,13 @@ export interface ProviderParams {
 export interface AIModelInputDTO {
   model_id: string;
   model_type: ModelType;
+  capabilities?: Record<string, boolean> | null;
 }
 
 export interface AIProviderModelInfoDTO {
   model_id: string;
   model_type: ModelType;
+  capabilities?: Record<string, boolean> | null;
 }
 
 export interface AIProviderCreateDTO {
@@ -55,6 +57,7 @@ export interface AIProviderResponseDTO {
   api_base_url?: string | null;
   available_models?: string[];
   available_model_configs?: AIProviderModelInfoDTO[];
+  model_configs?: AIModelInputDTO[];
   default_model?: string | null;
   config?: Record<string, any> | null;
   is_active: boolean;
@@ -78,6 +81,10 @@ export interface AIModelResponseDTO {
   provider: string;
   model_id: string; // e.g., gpt-4o
   model_name: string; // display name
+  capabilities?: {
+    vision?: boolean;
+    [key: string]: any;
+  };
 }
 export interface AIModelListResponseDTO {
   data: AIModelResponseDTO[];
@@ -98,6 +105,7 @@ export interface ModelInfoDTO {
   name?: string | null; // Model display name
   owned_by?: string | null; // Model owner/provider
   model_type?: string | null; // chat or embedding
+  capabilities?: Record<string, boolean> | null;
   context_length?: number | null; // Maximum context length
   created?: number | null; // Creation timestamp
 }
@@ -117,6 +125,10 @@ export interface AIModelWithProviderDTO {
   provider_name: string;
   provider_kind: string;
   description?: string | null;
+  capabilities?: {
+    vision?: boolean;
+    [key: string]: any;
+  };
   context_window?: number | null;
   is_active: boolean;
 }
@@ -195,8 +207,8 @@ export class AIProvidersApiService extends BaseApiService {
   }
 
   // Get remote models using stored credentials
-  async getRemoteModels(id: string): Promise<ModelListResponseDTO> {
-    return this.get<ModelListResponseDTO>(this.endpoints.PROVIDER_REMOTE_MODELS(id));
+  async getRemoteModels(id: string, params?: { model_type?: 'chat' | 'embedding' | null; capabilities?: string | null }): Promise<ModelListResponseDTO> {
+    return this.get<ModelListResponseDTO>(this.endpoints.PROVIDER_REMOTE_MODELS(id), params as any);
   }
 
   // List models - GET (old paginated endpoint, kept for backward compatibility if needed)

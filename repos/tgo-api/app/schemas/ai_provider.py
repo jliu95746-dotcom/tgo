@@ -65,6 +65,10 @@ class AIModelInput(BaseSchema):
     """Model input with type information."""
     model_id: str = Field(..., min_length=1, max_length=100)
     model_type: str = Field(default="chat", pattern=MODEL_TYPE_PATTERN)
+    capabilities: Optional[Dict[str, bool]] = Field(
+        None,
+        description="Model capabilities, for example vision support",
+    )
 
 
 class AIProviderModelInfo(BaseSchema):
@@ -72,6 +76,10 @@ class AIProviderModelInfo(BaseSchema):
 
     model_id: str = Field(..., min_length=1, max_length=100)
     model_type: str = Field(..., pattern=MODEL_TYPE_PATTERN)
+    capabilities: Optional[Dict[str, bool]] = Field(
+        None,
+        description="Model capabilities, for example vision support",
+    )
 
 
 class AIProviderUpdate(BaseSchema):
@@ -97,6 +105,10 @@ class AIProviderResponse(AIProviderConfigBase, TimestampMixin, SoftDeleteMixin):
     available_model_configs: list[AIProviderModelInfo] = Field(
         default_factory=list,
         description="Available models with their configured purpose",
+    )
+    model_configs: list[AIModelInput] = Field(
+        default_factory=list,
+        description="Detailed model configurations including capabilities",
     )
 
     # Store metadata

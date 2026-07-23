@@ -569,6 +569,17 @@ class Settings(BaseSettings):
         description="Agent ID for the Computer Use Agent",
     )
 
+    # Vision Agent Service settings
+    VISION_AGENT_SERVICE_URL: str = Field(
+        default="http://localhost:8005",
+        description="URL of the Vision Agent service for UI automation (AgentBay)",
+    )
+    VISION_AGENT_SERVICE_TIMEOUT: int = Field(
+        default=60,
+        description="Timeout for Vision Agent service requests in seconds",
+        gt=0,
+    )
+
     # Environment
     ENVIRONMENT: str = Field(
         default="development",

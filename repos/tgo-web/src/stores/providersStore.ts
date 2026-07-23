@@ -19,6 +19,13 @@ export interface ProviderParams {
   [key: string]: any;
 }
 
+export interface AIModelConfig {
+  id: string;
+  name: string;
+  type: ModelType;
+  capabilities?: Record<string, boolean>;
+}
+
 export interface ModelProviderConfig {
   id: string;
   kind: ProviderKind;
@@ -28,6 +35,7 @@ export interface ModelProviderConfig {
   // Multi-model support
   models?: string[]; // list of model identifiers available under this provider
   modelTypes?: Record<string, ModelType>;
+  modelConfigs?: AIModelConfig[]; // detailed model configurations
   defaultModel?: string; // must be one of models if models exists
   enabled: boolean;
   params?: ProviderParams;
@@ -48,7 +56,11 @@ export interface ProvidersState {
   addProvider: (data: Omit<ModelProviderConfig, 'id' | 'createdAt' | 'updatedAt'>) => Promise<ModelProviderConfig>;
   updateProvider: (id: string, patch: Partial<ModelProviderConfig>) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
-  addModelToProvider: (providerId: string, models: Array<{ model_id: string; model_type: ModelType }>) => Promise<void>;
+  addModelToProvider: (providerId: string, models: Array<{
+    model_id: string;
+    model_type: ModelType;
+    capabilities?: Record<string, boolean>;
+  }>) => Promise<void>;
   removeModelFromProvider: (providerId: string, modelId: string) => Promise<void>;
   clearAll: () => void;
 }
@@ -58,12 +70,16 @@ const svc = new AIProvidersApiService();
 function mapDtoToConfig(dto: AIProviderResponseDTO): ModelProviderConfig {
   const kind = AIProvidersApiService.providerKeyToKind(dto.provider);
   const models = (dto.available_models || []).filter(Boolean);
+  const detailedModels = dto.model_configs || dto.available_model_configs || [];
+  const modelConfigs: AIModelConfig[] = detailedModels.map(mc => ({
+    id: mc.model_id,
+    name: mc.model_id,
+    type: mc.model_type,
+    capabilities: mc.capabilities || undefined,
+  }));
   const modelTypes = Object.fromEntries(
-    (dto.available_model_configs || []).map(model => [
-      model.model_id,
-      model.model_type,
-    ])
-  );
+    modelConfigs.map(model => [model.id, model.type]),
+  ) as Record<string, ModelType>;
   const defaultModel = dto.default_model || (models[0] || undefined);
   const createdAt = Date.parse(dto.created_at) || Date.now();
   const updatedAt = Date.parse(dto.updated_at) || createdAt;
@@ -75,6 +91,7 @@ function mapDtoToConfig(dto: AIProviderResponseDTO): ModelProviderConfig {
     apiBaseUrl: dto.api_base_url || undefined,
     models,
     modelTypes,
+    modelConfigs,
     defaultModel,
     enabled: !!dto.is_active,
     params: AIProvidersApiService.extractParams(kind, dto.config),
@@ -145,11 +162,16 @@ export const useProvidersStore = create<ProvidersState>()(
         if (patch.params !== undefined) payload.config = AIProvidersApiService.buildBackendConfig(nextKind, patch.params) || null;
         if (patch.enabled !== undefined) payload.is_active = !!patch.enabled;
         if (patch.models !== undefined || patch.defaultModel !== undefined) {
+          const configuredModels = patch.modelConfigs || current.modelConfigs || [];
+          const configsById = new Map(
+            configuredModels.map(config => [config.id, config]),
+          );
           const modelTypes = patch.modelTypes || current.modelTypes || {};
           payload.available_models = models.length
             ? models.map(modelId => ({
                 model_id: modelId,
-                model_type: modelTypes[modelId] || 'chat',
+                model_type: configsById.get(modelId)?.type || modelTypes[modelId] || 'chat',
+                capabilities: configsById.get(modelId)?.capabilities,
               }))
             : [];
           payload.default_model = defaultModel || null;
@@ -171,23 +193,34 @@ export const useProvidersStore = create<ProvidersState>()(
       addModelToProvider: async (providerId, models) => {
         const current = get().providers.find(p => p.id === providerId);
         if (!current) return;
-        
-        // Fetch current model IDs
-        const existingModelIds = current.models || [];
-        
-        // Preserve the configured purpose for existing models while adding new ones.
+
+        const existingConfigs = current.modelConfigs || (current.models || []).map(id => ({
+          id,
+          name: id,
+          type: current.modelTypes?.[id] || 'chat',
+        }));
+
+        // Merge with new models
+        // If a model ID already exists, we update it with the new model's info (e.g. capabilities)
+        const updatedModelIds = models.map(m => m.model_id);
+
         const availableModels = [
-          ...existingModelIds.map(id => ({
-            model_id: id,
-            model_type: current.modelTypes?.[id] || 'chat' as ModelType,
-          })),
-          ...models.filter(m => !existingModelIds.includes(m.model_id))
+          // Keep existing models that are NOT being updated
+          ...existingConfigs
+            .filter(mc => !updatedModelIds.includes(mc.id))
+            .map(mc => ({
+              model_id: mc.id,
+              model_type: mc.type,
+              capabilities: mc.capabilities
+            })),
+          // Add all models from the input (new or updated)
+          ...models
         ];
-        
+
         const updated = await svc.updateProvider(providerId, {
-          available_models: availableModels
+          available_models: availableModels,
         });
-        
+
         const mapped = mapDtoToConfig(updated);
         set((state) => ({
           providers: state.providers.map(p => p.id === providerId ? mapped : p)
@@ -201,10 +234,18 @@ export const useProvidersStore = create<ProvidersState>()(
           const updatedModels = (current.models || []).filter(m => m !== modelId);
           const updatedModelTypes = Object.fromEntries(
             Object.entries(current.modelTypes || {}).filter(([id]) => id !== modelId)
+          ) as Record<string, ModelType>;
+          const updatedModelConfigs = current.modelConfigs?.filter(
+            config => config.id !== modelId,
           );
           set((state) => ({
             providers: state.providers.map(p => p.id === providerId
-              ? { ...p, models: updatedModels, modelTypes: updatedModelTypes }
+              ? {
+                  ...p,
+                  models: updatedModels,
+                  modelTypes: updatedModelTypes,
+                  modelConfigs: updatedModelConfigs,
+                }
               : p)
           }));
         }
