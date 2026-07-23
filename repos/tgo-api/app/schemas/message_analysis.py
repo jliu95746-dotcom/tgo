@@ -371,22 +371,46 @@ class CombinedMessageAnalysisResponse(AnalysisSchema):
     intent: IntentResultResponse | None = None
 
 
-class MessageAnalysisBatchRequest(AnalysisSchema):
-    """Bounded source-message lookup used by the authenticated staff UI."""
+class StaffMessageAnalysisLookup(AnalysisSchema):
+    """One employee-console lookup tied to a visitor conversation."""
 
-    source_message_ids: tuple[
-        Annotated[str, Field(min_length=1, max_length=255)], ...
-    ] = Field(min_length=1, max_length=100)
+    channel_id: str = Field(
+        min_length=40,
+        max_length=40,
+        pattern=(
+            r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-vtr$"
+        ),
+    )
+    source_message_id: str = Field(min_length=1, max_length=255)
 
-    @field_validator("source_message_ids")  # type: ignore[misc]
-    @classmethod
-    def reject_duplicate_source_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if len(set(value)) != len(value):
-            raise ValueError("source_message_ids must be unique")
-        return value
+
+class StaffMessageAnalysisBatchRequest(AnalysisSchema):
+    """Bounded, duplicate-free employee-console analysis lookup batch."""
+
+    messages: tuple[StaffMessageAnalysisLookup, ...] = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    @model_validator(mode="after")
+    def validate_unique_messages(self) -> Self:
+        keys = {
+            (message.channel_id, message.source_message_id)
+            for message in self.messages
+        }
+        if len(keys) != len(self.messages):
+            raise ValueError("messages must not contain duplicate lookup keys")
+        return self
 
 
-class MessageAnalysisBatchResponse(AnalysisSchema):
-    """Found analysis projections; missing IDs are deliberately omitted."""
+class StaffMessageAnalysisResponse(CombinedMessageAnalysisResponse):
+    """Available analysis projection for one employee-visible message."""
 
-    results: tuple[CombinedMessageAnalysisResponse, ...]
+    channel_id: str
+
+
+class StaffMessageAnalysisBatchResponse(AnalysisSchema):
+    """Available projections; missing analyses are intentionally omitted."""
+
+    items: tuple[StaffMessageAnalysisResponse, ...]

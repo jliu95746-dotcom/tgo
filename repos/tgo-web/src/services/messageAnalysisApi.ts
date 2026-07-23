@@ -1,25 +1,27 @@
-import { BaseApiService } from './base/BaseApiService';
-import type { CombinedMessageAnalysis } from '@/types/messageAnalysis';
+import type {
+  StaffMessageAnalysisBatchRequest,
+  StaffMessageAnalysisBatchResponse,
+} from '@/types/messageAnalysis';
 
-interface MessageAnalysisBatchResponse {
-  results: CombinedMessageAnalysis[];
-}
+import { BaseApiService } from './base/BaseApiService';
+
 
 class MessageAnalysisApiService extends BaseApiService {
   protected readonly apiVersion = 'v1';
-
   protected readonly endpoints = {
-    STAFF_BATCH: `/${this.apiVersion}/message-analysis/staff/messages/batch`,
-  };
+    staffQuery: '/v1/message-analysis/staff/messages/query',
+  } as const;
 
-  async getStaffBatch(sourceMessageIds: string[]): Promise<CombinedMessageAnalysis[]> {
-    if (sourceMessageIds.length === 0) return [];
-    const response = await this.post<MessageAnalysisBatchResponse>(
-      this.endpoints.STAFF_BATCH,
-      { source_message_ids: sourceMessageIds.slice(0, 100) },
+  async queryStaffMessageAnalyses(
+    request: StaffMessageAnalysisBatchRequest,
+  ): Promise<StaffMessageAnalysisBatchResponse> {
+    return this.post<StaffMessageAnalysisBatchResponse>(
+      this.endpoints.staffQuery,
+      request,
     );
-    return response.results;
   }
 }
 
-export const messageAnalysisApi = new MessageAnalysisApiService();
+export const messageAnalysisApiService = new MessageAnalysisApiService();
+
+export default messageAnalysisApiService;

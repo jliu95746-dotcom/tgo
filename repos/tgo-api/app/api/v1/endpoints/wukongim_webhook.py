@@ -16,7 +16,10 @@ from app.core.database import SessionLocal
 from app.models import ChannelMember, Platform, Project, Staff, Visitor
 from app.models.staff import StaffStatus
 from app.services.ai_client import AIServiceClient
-from app.services.message_analysis_service import MessageAnalysisService
+from app.services.message_analysis_service import (
+    MessageAnalysisLookupKey,
+    MessageAnalysisService,
+)
 from app.services.message_intent_orchestrator import MessageIntentOrchestrator
 from app.services.customer_logistics_service import CustomerLogisticsService
 from app.services.wukongim_client import WuKongIMClient
@@ -384,9 +387,14 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 db
             ).get_combined_results_for_project(
                 project_id=visitor.project_id,
-                source_message_ids=(source_message_id,),
+                keys=(
+                    MessageAnalysisLookupKey(
+                        visitor_id=visitor.id,
+                        source_message_id=source_message_id,
+                    ),
+                ),
             )
-            if source_message_id in existing:
+            if existing:
                 continue
             platform = (
                 db.query(Platform)

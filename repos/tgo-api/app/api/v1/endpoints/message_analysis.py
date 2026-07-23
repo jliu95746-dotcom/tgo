@@ -1,4 +1,4 @@
-"""Platform-authenticated message analysis persistence endpoints."""
+"""Platform-write and staff-read message analysis endpoints."""
 
 from __future__ import annotations
 
@@ -8,21 +8,30 @@ from fastapi import APIRouter, Depends, Header, Path
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_authenticated_project
-from app.models import Project
+from app.core.security import require_permission
+from app.models import Staff
 from app.schemas.message_analysis import (
     CombinedMessageAnalysisResponse,
     IntentResultResponse,
     IntentResultUpsertRequest,
     MediaResultResponse,
     MediaResultUpsertRequest,
-    MessageAnalysisBatchRequest,
-    MessageAnalysisBatchResponse,
+    StaffMessageAnalysisBatchRequest,
+    StaffMessageAnalysisBatchResponse,
+    StaffMessageAnalysisResponse,
 )
-from app.services.message_analysis_service import MessageAnalysisService
+from app.services.message_analysis_service import (
+    MessageAnalysisLookupKey,
+    MessageAnalysisService,
+)
+from app.utils.encoding import (
+    build_visitor_channel_id,
+    parse_visitor_channel_id,
+)
 
 
 router = APIRouter()
+require_message_analysis_read = require_permission("visitors:read")
 
 SourceMessageId = Annotated[
     str,
@@ -109,39 +118,48 @@ def get_message_analysis(
 
 
 @router.post(
-    "/staff/messages/batch",
-    response_model=MessageAnalysisBatchResponse,
-    summary="Batch-read message analysis for the staff console",
+    "/staff/messages/query",
+    response_model=StaffMessageAnalysisBatchResponse,
+    summary="Get employee-visible message analyses",
 )
-def get_staff_message_analysis_batch(
-    request: MessageAnalysisBatchRequest,
-    authenticated: tuple[Project, str] = Depends(get_authenticated_project),
+def get_staff_message_analyses(
+    request: StaffMessageAnalysisBatchRequest,
+    current_user: Staff = Depends(require_message_analysis_read),
     db: Session = Depends(get_db),
-) -> MessageAnalysisBatchResponse:
-    """Return only analysis rows belonging to the signed-in staff project."""
-    project, _ = authenticated
-    combined = MessageAnalysisService(db).get_combined_results_for_project(
-        project_id=project.id,
-        source_message_ids=request.source_message_ids,
+) -> StaffMessageAnalysisBatchResponse:
+    """Batch-read message analyses within the authenticated staff project."""
+    key_to_channel = {
+        MessageAnalysisLookupKey(
+            visitor_id=parse_visitor_channel_id(message.channel_id),
+            source_message_id=message.source_message_id,
+        ): message.channel_id
+        for message in request.messages
+    }
+    combined_results = MessageAnalysisService(
+        db
+    ).get_combined_results_for_project(
+        project_id=current_user.project_id,
+        keys=tuple(key_to_channel),
     )
-    results: list[CombinedMessageAnalysisResponse] = []
-    for source_message_id in request.source_message_ids:
-        item = combined.get(source_message_id)
-        if item is None:
-            continue
-        results.append(
-            CombinedMessageAnalysisResponse(
-                source_message_id=source_message_id,
+    return StaffMessageAnalysisBatchResponse(
+        items=tuple(
+            StaffMessageAnalysisResponse(
+                channel_id=key_to_channel.get(
+                    combined.key,
+                    build_visitor_channel_id(combined.key.visitor_id),
+                ),
+                source_message_id=combined.key.source_message_id,
                 media=(
-                    MediaResultResponse.model_validate(item.media)
-                    if item.media is not None
+                    MediaResultResponse.model_validate(combined.media)
+                    if combined.media is not None
                     else None
                 ),
                 intent=(
-                    IntentResultResponse.model_validate(item.intent)
-                    if item.intent is not None
+                    IntentResultResponse.model_validate(combined.intent)
+                    if combined.intent is not None
                     else None
                 ),
             )
+            for combined in combined_results
         )
-    return MessageAnalysisBatchResponse(results=tuple(results))
+    )

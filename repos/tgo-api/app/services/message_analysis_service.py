@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import status
 from pydantic import BaseModel
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -46,6 +47,23 @@ class SourceMessageConflictError(TGOAPIException):
 class CombinedMessageAnalysis:
     """Current media and intent results for one source message."""
 
+    media: MediaAnalysisResult | None
+    intent: MessageIntentResult | None
+
+
+@dataclass(frozen=True)
+class MessageAnalysisLookupKey:
+    """Natural key used by the employee-console batch read."""
+
+    visitor_id: UUID
+    source_message_id: str
+
+
+@dataclass(frozen=True)
+class ProjectMessageAnalysis:
+    """One project-scoped analysis result for a requested message."""
+
+    key: MessageAnalysisLookupKey
     media: MediaAnalysisResult | None
     intent: MessageIntentResult | None
 
@@ -222,40 +240,81 @@ class MessageAnalysisService:
         self,
         *,
         project_id: UUID,
-        source_message_ids: Sequence[str],
-    ) -> dict[str, CombinedMessageAnalysis]:
-        """Batch-read only records owned by one authenticated project."""
-        if not source_message_ids:
-            return {}
-        media_results = (
+        keys: tuple[MessageAnalysisLookupKey, ...],
+    ) -> tuple[ProjectMessageAnalysis, ...]:
+        """Return requested analyses visible to one authenticated project."""
+        if not keys:
+            return ()
+
+        requested_keys = set(keys)
+        media_source_message_id = MediaAnalysisResult.source_message_id
+        intent_source_message_id = MessageIntentResult.source_message_id
+        media_scope = or_(
+            *(
+                and_(
+                    MediaAnalysisResult.visitor_id == key.visitor_id,
+                    media_source_message_id == key.source_message_id,
+                )
+                for key in keys
+            )
+        )
+        intent_scope = or_(
+            *(
+                and_(
+                    MessageIntentResult.visitor_id == key.visitor_id,
+                    intent_source_message_id == key.source_message_id,
+                )
+                for key in keys
+            )
+        )
+        media_rows = (
             self._db.query(MediaAnalysisResult)
             .filter(
                 MediaAnalysisResult.project_id == project_id,
-                MediaAnalysisResult.source_message_id.in_(source_message_ids),
+                media_scope,
             )
             .all()
         )
-        intent_results = (
+        intent_rows = (
             self._db.query(MessageIntentResult)
             .filter(
                 MessageIntentResult.project_id == project_id,
-                MessageIntentResult.source_message_id.in_(source_message_ids),
+                intent_scope,
             )
             .all()
         )
-        combined: dict[str, CombinedMessageAnalysis] = {}
-        for media in media_results:
-            combined[media.source_message_id] = CombinedMessageAnalysis(
-                media=media,
-                intent=None,
+
+        media_by_key: dict[MessageAnalysisLookupKey, MediaAnalysisResult] = {}
+        for media_row in media_rows:
+            key = MessageAnalysisLookupKey(
+                visitor_id=media_row.visitor_id,
+                source_message_id=media_row.source_message_id,
             )
-        for intent in intent_results:
-            current = combined.get(intent.source_message_id)
-            combined[intent.source_message_id] = CombinedMessageAnalysis(
-                media=current.media if current is not None else None,
-                intent=intent,
+            if media_row.project_id == project_id and key in requested_keys:
+                media_by_key[key] = media_row
+
+        intent_by_key: dict[MessageAnalysisLookupKey, MessageIntentResult] = {}
+        for intent_row in intent_rows:
+            key = MessageAnalysisLookupKey(
+                visitor_id=intent_row.visitor_id,
+                source_message_id=intent_row.source_message_id,
             )
-        return combined
+            if intent_row.project_id == project_id and key in requested_keys:
+                intent_by_key[key] = intent_row
+
+        results: list[ProjectMessageAnalysis] = []
+        for key in keys:
+            media = media_by_key.get(key)
+            intent = intent_by_key.get(key)
+            if media is not None or intent is not None:
+                results.append(
+                    ProjectMessageAnalysis(
+                        key=key,
+                        media=media,
+                        intent=intent,
+                    )
+                )
+        return tuple(results)
 
     def _authenticate_platform(self, api_key: str) -> Platform:
         if not api_key:

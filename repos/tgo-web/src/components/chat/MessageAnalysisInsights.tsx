@@ -291,8 +291,8 @@ const AvailableContent: React.FC<{ state: Extract<MessageAnalysisViewState, { st
 };
 
 /**
- * Safe, display-only analysis card. It performs no network requests and uses
- * an explicit unavailable state until a staff-authenticated read API exists.
+ * Safe, display-only analysis card. Network loading and staff authorization
+ * stay in the service/store layer so this component never handles credentials.
  */
 const MessageAnalysisInsights: React.FC<MessageAnalysisInsightsProps> = ({
   state = MESSAGE_ANALYSIS_UNAVAILABLE,

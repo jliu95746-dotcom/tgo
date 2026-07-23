@@ -1,12 +1,15 @@
-import React, { useRef, useEffect, useCallback, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useLayoutEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import ChatMessage from './ChatMessage';
 import LoadingStates from './LoadingStates';
 import EmptyState from './EmptyState';
 import type { WuKongIMMessage, Message } from '@/types';
-import type { MessageAnalysisViewState } from '@/types/messageAnalysis';
-import { MESSAGE_SENDER_TYPE } from '@/constants';
-import { messageAnalysisApi } from '@/services/messageAnalysisApi';
+import { useAuthStore } from '@/stores/authStore';
+import {
+  buildMessageAnalysisCacheKey,
+  useMessageAnalysisStore,
+} from '@/stores/messageAnalysisStore';
+import type { StaffMessageAnalysisLookup } from '@/types/messageAnalysis';
 
 // Constants
 const SCROLL_THRESHOLD = 100; // Load more when within 100px of top
@@ -80,86 +83,13 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const highlightTimersRef = useRef<number[]>([]);
-  const [analysisBySourceId, setAnalysisBySourceId] = useState<
-    Record<string, MessageAnalysisViewState>
-  >({});
-
-  const analysisSourceIds = useMemo(() => {
-    const ids = new Set<string>();
-    historicalMessages.forEach((message) => {
-      const fromUid = message.from_uid || '';
-      if (
-        message.client_msg_no
-        && fromUid !== 'system'
-        && !fromUid.endsWith('-staff')
-      ) {
-        ids.add(message.client_msg_no);
-      }
-    });
-    realtimeMessages.forEach((message) => {
-      if (message.type === MESSAGE_SENDER_TYPE.VISITOR && message.clientMsgNo) {
-        ids.add(message.clientMsgNo);
-      }
-    });
-    return Array.from(ids).slice(-100);
-  }, [historicalMessages, realtimeMessages]);
-  const analysisSourceIdsKey = analysisSourceIds.join('\u0000');
-
-  useEffect(() => {
-    if (!analysisSourceIdsKey) {
-      setAnalysisBySourceId({});
-      return;
-    }
-    const sourceIds = analysisSourceIdsKey.split('\u0000');
-    let cancelled = false;
-    let retryTimer: number | undefined;
-
-    setAnalysisBySourceId((current) => {
-      const next = { ...current };
-      sourceIds.forEach((sourceId) => {
-        if (!next[sourceId] || next[sourceId].status === 'not_found') {
-          next[sourceId] = { status: 'loading' };
-        }
-      });
-      return next;
-    });
-
-    const load = async (attempt: number) => {
-      try {
-        const results = await messageAnalysisApi.getStaffBatch(sourceIds);
-        if (cancelled) return;
-        const found = new Map(results.map((item) => [item.source_message_id, item]));
-        setAnalysisBySourceId((current) => {
-          const next = { ...current };
-          sourceIds.forEach((sourceId) => {
-            const analysis = found.get(sourceId);
-            next[sourceId] = analysis
-              ? { status: 'available', analysis }
-              : { status: attempt < 2 ? 'loading' : 'not_found' };
-          });
-          return next;
-        });
-        if (found.size < sourceIds.length && attempt < 2) {
-          retryTimer = window.setTimeout(() => load(attempt + 1), 1200);
-        }
-      } catch {
-        if (cancelled) return;
-        setAnalysisBySourceId((current) => {
-          const next = { ...current };
-          sourceIds.forEach((sourceId) => {
-            next[sourceId] = { status: 'error' };
-          });
-          return next;
-        });
-      }
-    };
-
-    void load(0);
-    return () => {
-      cancelled = true;
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-    };
-  }, [analysisSourceIdsKey]);
+  const projectId = useAuthStore((state) => state.user?.project_id ?? null);
+  const analysesByMessage = useMessageAnalysisStore(
+    (state) => state.analysesByMessage,
+  );
+  const loadMessageAnalyses = useMessageAnalysisStore(
+    (state) => state.loadMessageAnalyses,
+  );
 
   // Memoize total message count to prevent unnecessary recalculations
   const totalMessageCount = useMemo(
@@ -225,20 +155,13 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
   // because it's not stable and would cause infinite loops. The function itself
   // doesn't change behavior, only its reference changes.
   const combinedMessages = useMemo(() => {
-    const historical = historicalMessages.map((wkMessage) => {
-      const message = convertWuKongIMToMessage(wkMessage);
-      const sourceId = wkMessage.client_msg_no;
-      if (sourceId && message.type === MESSAGE_SENDER_TYPE.VISITOR) {
-        message.analysisInsights = analysisBySourceId[sourceId];
-      }
-      return {
+    const historical = historicalMessages.map((wkMessage) => ({
         key: `historical-${wkMessage.message_id_str}`,
-        message,
+        message: convertWuKongIMToMessage(wkMessage),
         isHistorical: true,
         messageIdStr: wkMessage.message_id_str,
-        clientMsgNo: sourceId,
-      };
-    });
+        clientMsgNo: wkMessage.client_msg_no,
+      }));
 
     // Build a Set of message identifiers from historical messages for deduplication
     const historicalIds = new Set<string>();
@@ -260,22 +183,40 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
         
         return true;
       })
-      .map((message) => {
-        const enrichedMessage = message.type === MESSAGE_SENDER_TYPE.VISITOR && message.clientMsgNo
-          ? { ...message, analysisInsights: analysisBySourceId[message.clientMsgNo] }
-          : message;
-        return {
-          key: `realtime-${message.id}`,
-          message: enrichedMessage,
-          isHistorical: false,
-          messageIdStr: message.messageId || message.id,
-          clientMsgNo: message.clientMsgNo,
-        };
-      });
+      .map((message) => ({
+        key: `realtime-${message.id}`,
+        message,
+        isHistorical: false,
+        messageIdStr: message.messageId || message.id,
+        clientMsgNo: message.clientMsgNo,
+      }));
 
     return [...historical, ...realtime];
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historicalMessages, realtimeMessages, analysisBySourceId]);
+  }, [historicalMessages, realtimeMessages]);
+
+  const analysisLookups = useMemo(() => {
+    const lookups: StaffMessageAnalysisLookup[] = [];
+    combinedMessages.forEach(({ message }) => {
+      if (
+        message.type === 'visitor'
+        && message.channelId
+        && message.sourceMessageId
+      ) {
+        lookups.push({
+          channel_id: message.channelId,
+          source_message_id: message.sourceMessageId,
+        });
+      }
+    });
+    return lookups;
+  }, [combinedMessages]);
+
+  useEffect(() => {
+    if (projectId && analysisLookups.length > 0) {
+      void loadMessageAnalyses(projectId, analysisLookups);
+    }
+  }, [analysisLookups, loadMessageAnalyses, projectId]);
 
   // Reset initial load state when conversation changes (no messages to some messages)
   useEffect(() => {
@@ -539,6 +480,17 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
           <>
             {/* Render Combined Messages with Time Separators (like WeChat) */}
             {combinedMessages.map(({ key, message }, index) => {
+              const analysisInsights = message.channelId && message.sourceMessageId
+                ? analysesByMessage[
+                    buildMessageAnalysisCacheKey({
+                      channel_id: message.channelId,
+                      source_message_id: message.sourceMessageId,
+                    })
+                  ]
+                : undefined;
+              const displayMessage = analysisInsights === undefined
+                ? message
+                : { ...message, analysisInsights };
               // 获取当前消息的时间戳（秒）
               const currentTimestamp = message.timestamp 
                 ? (typeof message.timestamp === 'string' ? new Date(message.timestamp).getTime() / 1000 : message.timestamp)
@@ -613,7 +565,7 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
                   )}
                   <div data-message-seq={message.messageSeq ?? undefined}>
                     <ChatMessage
-                      message={message}
+                      message={displayMessage}
                       onSuggestionClick={onSuggestionClick}
                       onSendMessage={onSendMessage}
                     />

@@ -20,7 +20,10 @@ from app.schemas.message_analysis import (
     IntentResultUpsertRequest,
     MediaResultUpsertRequest,
 )
-from app.services.message_analysis_service import MessageAnalysisService
+from app.services.message_analysis_service import (
+    MessageAnalysisLookupKey,
+    MessageAnalysisService,
+)
 
 
 ModelT = TypeVar("ModelT")
@@ -312,12 +315,22 @@ def test_internal_intent_upsert_and_project_batch_read() -> None:
     )
     results = service.get_combined_results_for_project(
         project_id=platform.project_id,
-        source_message_ids=("web-message-1", "missing-message"),
+        keys=(
+            MessageAnalysisLookupKey(
+                visitor_id=visitor.id,
+                source_message_id="web-message-1",
+            ),
+            MessageAnalysisLookupKey(
+                visitor_id=visitor.id,
+                source_message_id="missing-message",
+            ),
+        ),
     )
 
     assert intent.project_id == platform.project_id
-    assert results["web-message-1"].intent is intent
-    assert "missing-message" not in results
+    assert len(results) == 1
+    assert results[0].key.source_message_id == "web-message-1"
+    assert results[0].intent is intent
 
 
 def test_service_rejects_missing_platform_or_cross_tenant_visitor() -> None:

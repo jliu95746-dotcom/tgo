@@ -1,8 +1,8 @@
 /**
  * Employee-console projection of the persisted message-analysis contract.
  *
- * Staff reads use the signed-in employee JWT. Platform integration keys remain
- * server-side and are never sent to the browser.
+ * The employee read API uses the existing staff JWT. Platform integration
+ * credentials remain server-to-server only and never enter this contract.
  */
 
 export type MediaAnalysisType = 'voice' | 'image';
@@ -152,6 +152,23 @@ export interface CombinedMessageAnalysis {
   intent: MessageIntentResult | null;
 }
 
+export interface StaffMessageAnalysisLookup {
+  channel_id: string;
+  source_message_id: string;
+}
+
+export interface StaffMessageAnalysisBatchRequest {
+  messages: StaffMessageAnalysisLookup[];
+}
+
+export interface StaffMessageAnalysisResponse extends CombinedMessageAnalysis {
+  channel_id: string;
+}
+
+export interface StaffMessageAnalysisBatchResponse {
+  items: StaffMessageAnalysisResponse[];
+}
+
 /**
  * Explicit UI state. Missing data never silently becomes a successful result.
  */
@@ -160,9 +177,9 @@ export type MessageAnalysisViewState =
   | { status: 'loading' }
   | { status: 'not_found' }
   | { status: 'error' }
-  | { status: 'unavailable'; reason: 'employee_read_endpoint_required' };
+  | { status: 'unavailable'; reason: 'analysis_not_requested' };
 
 export const MESSAGE_ANALYSIS_UNAVAILABLE: MessageAnalysisViewState = {
   status: 'unavailable',
-  reason: 'employee_read_endpoint_required',
+  reason: 'analysis_not_requested',
 };

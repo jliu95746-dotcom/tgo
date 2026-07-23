@@ -950,6 +950,7 @@ export interface Message {
   // Flattened WuKongIM metadata (camelCase)
   messageId?: string; // was wukongim.message_id (now string)
   clientMsgNo?: string; // was client_msg_no
+  sourceMessageId?: string; // original platform message ID from payload.extra
   messageSeq?: number; // was message_seq
   fromUid?: string; // was from_uid
   channelId?: string; // was channel_id

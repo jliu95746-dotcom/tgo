@@ -605,6 +605,13 @@ export class WuKongIMUtils {
     const displayContent = uiParts
       ? uiParts.filter(p => p.type === 'text').map(p => p.text || '').join('')
       : content;
+    const payloadExtra = payloadObj?.extra;
+    const sourceMessageId = payloadExtra
+      && typeof payloadExtra === 'object'
+      && typeof payloadExtra.message_id === 'string'
+      && payloadExtra.message_id.trim()
+        ? payloadExtra.message_id.trim()
+        : undefined;
 
     const convertedMessage: Message = {
       id: idStr,
@@ -616,6 +623,7 @@ export class WuKongIMUtils {
       platform: WuKongIMUtils.getPlatformFromChannelType(channelType),
       messageId: idStr,
       clientMsgNo: wkMessage.client_msg_no || (wkMessage as any).clientMsgNo,
+      sourceMessageId,
       messageSeq: wkMessage.message_seq || (wkMessage as any).messageSeq,
       fromUid: wkMessage.from_uid || (wkMessage as any).fromUid,
       channelId: wkMessage.channel_id || (wkMessage as any).channelId,
