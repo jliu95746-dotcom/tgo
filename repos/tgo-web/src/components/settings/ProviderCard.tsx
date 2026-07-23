@@ -82,7 +82,11 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
           <div className="flex flex-wrap gap-1.5">
             {(provider.models || []).slice(0, 5).map((m) => (
               <span key={m} className={`group/model relative px-3 py-1 text-[10px] font-black rounded-lg border uppercase tracking-tighter transition-all ${provider.defaultModel === m ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700' : 'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-100 dark:border-gray-700'}`}>
-                {m}{provider.defaultModel === m ? ` (${t('settings.providers.badges.default')})` : ''}
+                {m}
+                <span className="ml-1 text-[8px] text-blue-500 dark:text-blue-400">
+                  {t(`settings.providers.modelTypes.${provider.modelTypes?.[m] || 'chat'}`)}
+                </span>
+                {provider.defaultModel === m ? ` (${t('settings.providers.badges.default')})` : ''}
                 <button 
                   onClick={(e) => { e.stopPropagation(); handleDeleteModel(m); }}
                   className="ml-1.5 opacity-0 group-hover/model:opacity-100 hover:text-red-500 transition-all"

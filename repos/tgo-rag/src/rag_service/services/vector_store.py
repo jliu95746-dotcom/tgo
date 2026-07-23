@@ -409,7 +409,11 @@ class VectorStoreService:
                 lambda: vector_store.similarity_search_with_score(
                     query=query,
                     k=k,
-                    filter=filter_dict
+                    filter=filter_dict,
+                    # This path must return cosine distance. The store-level
+                    # hybrid config produces RRF scores, which cannot be
+                    # converted with ``1 - distance`` below.
+                    hybrid_search_config=None,
                 )
             )
 
@@ -477,6 +481,9 @@ class VectorStoreService:
                     query=query,
                     k=k,
                     filter=filter_dict,
+                    # Keep semantic search purely vector-based. Hybrid search
+                    # is composed separately by SearchService.
+                    hybrid_search_config=None,
                 ),
             )
 

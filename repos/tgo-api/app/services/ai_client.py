@@ -602,6 +602,36 @@ class AIServiceClient:
             if tool["name"].startswith(prefix):
                 await self.delete_tool(project_id, tool["id"])
 
+    async def execute_tool(
+        self,
+        *,
+        project_id: str,
+        tool_id: str,
+        input_data: Dict[str, Any],
+        visitor_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute a project-owned tool directly through tgo-ai."""
+
+        payload: Dict[str, Any] = {"input_data": input_data}
+        if visitor_id is not None:
+            payload["visitor_id"] = visitor_id
+        response = await self._make_request(
+            "POST",
+            f"/api/v1/tools/{tool_id}/execute",
+            json_data=payload,
+            extra_headers={
+                "X-Internal-API-Key": settings.SECRET_KEY,
+                "X-Project-Id": project_id,
+            },
+        )
+        result = await self._handle_response(response)
+        if not isinstance(result, dict):
+            raise HTTPException(
+                status_code=502,
+                detail="AI tool service returned an invalid response",
+            )
+        return result
+
 
 
 
@@ -660,6 +690,36 @@ class AIServiceClient:
             params={"project_id": project_id},
         )
         return await self._handle_response(response)
+
+    async def classify_intent(
+        self,
+        *,
+        project_id: str,
+        provider_id: str,
+        model: str,
+        classification_input: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Classify one customer message through tgo-ai's strict intent API."""
+        response = await self._make_request(
+            "POST",
+            "/api/v1/analysis/intent",
+            json_data={
+                "provider_id": provider_id,
+                "model": model,
+                "classification_input": classification_input,
+            },
+            extra_headers={
+                "X-Internal-API-Key": settings.SECRET_KEY,
+                "X-Project-Id": project_id,
+            },
+        )
+        result = await self._handle_response(response)
+        if not isinstance(result, dict):
+            raise HTTPException(
+                status_code=502,
+                detail="AI intent service returned an invalid response",
+            )
+        return result
 
 
     # ------------------------------------------------------------------

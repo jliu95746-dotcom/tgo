@@ -226,6 +226,12 @@ async def get_project_ai_config(
         "default_chat_model": cfg.default_chat_model,
         "default_embedding_provider_id": cfg.default_embedding_provider_id,
         "default_embedding_model": cfg.default_embedding_model,
+        "default_asr_provider_id": cfg.default_asr_provider_id,
+        "default_asr_model": cfg.default_asr_model,
+        "default_ocr_provider_id": cfg.default_ocr_provider_id,
+        "default_ocr_model": cfg.default_ocr_model,
+        "default_vlm_provider_id": cfg.default_vlm_provider_id,
+        "default_vlm_model": cfg.default_vlm_model,
         "created_at": cfg.created_at,
         "updated_at": cfg.updated_at,
         "deleted_at": cfg.deleted_at,
@@ -240,6 +246,12 @@ async def get_project_ai_config(
         provider_ids_to_check.append(cfg.default_chat_provider_id)
     if cfg.default_embedding_provider_id:
         provider_ids_to_check.append(cfg.default_embedding_provider_id)
+    if cfg.default_asr_provider_id:
+        provider_ids_to_check.append(cfg.default_asr_provider_id)
+    if cfg.default_ocr_provider_id:
+        provider_ids_to_check.append(cfg.default_ocr_provider_id)
+    if cfg.default_vlm_provider_id:
+        provider_ids_to_check.append(cfg.default_vlm_provider_id)
 
     # Query all referenced providers at once (avoid N+1)
     valid_provider_ids = set()
@@ -280,6 +292,23 @@ async def get_project_ai_config(
         response_data["default_embedding_provider_id"] = None
         response_data["default_embedding_model"] = None
 
+    multimodal_defaults = (
+        ("asr", cfg.default_asr_provider_id),
+        ("ocr", cfg.default_ocr_provider_id),
+        ("vlm", cfg.default_vlm_provider_id),
+    )
+    for capability, provider_id in multimodal_defaults:
+        if provider_id and provider_id not in valid_provider_ids:
+            logger.warning(
+                f"Invalid or inactive default_{capability}_provider_id detected",
+                extra={
+                    "project_id": str(project_id),
+                    f"default_{capability}_provider_id": str(provider_id),
+                },
+            )
+            response_data[f"default_{capability}_provider_id"] = None
+            response_data[f"default_{capability}_model"] = None
+
     return ProjectAIConfigResponse.model_validate(response_data)
 
 
@@ -307,10 +336,11 @@ async def upsert_project_ai_config(
     data = payload.model_dump(exclude_unset=True)
 
     # Validate providers
-    chat_pid = data.get("default_chat_provider_id")
-    emb_pid = data.get("default_embedding_provider_id")
-
-    def _validate_provider(provider_id: UUID, model_key: str | None) -> None:
+    def _validate_provider(
+        provider_id: UUID,
+        model_key: str,
+        expected_model_type: str,
+    ) -> None:
         prov = (
             db.query(AIProvider)
             .filter(
@@ -322,20 +352,41 @@ async def upsert_project_ai_config(
         )
         if not prov:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid provider for this project")
-        if model_key:
-            model_value = data.get(model_key)
-            # Fetch available models from relation
-            available_models = [m.model_id for m in prov.models if m.deleted_at is None]
-            if model_value and available_models and model_value not in available_models:
+        model_value = data.get(model_key)
+        if model_value:
+            available_models = [m for m in prov.models if m.deleted_at is None]
+            selected_model = next(
+                (model for model in available_models if model.model_id == model_value),
+                None,
+            )
+            if available_models and selected_model is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Model '{model_value}' not in selected provider's available models",
                 )
+            if (
+                selected_model is not None
+                and selected_model.model_type != expected_model_type
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Model '{model_value}' is not configured as "
+                        f"{expected_model_type}"
+                    ),
+                )
 
-    if chat_pid:
-        _validate_provider(chat_pid, "default_chat_model")
-    if emb_pid:
-        _validate_provider(emb_pid, "default_embedding_model")
+    default_selections = (
+        ("default_chat_provider_id", "default_chat_model", "chat"),
+        ("default_embedding_provider_id", "default_embedding_model", "embedding"),
+        ("default_asr_provider_id", "default_asr_model", "asr"),
+        ("default_ocr_provider_id", "default_ocr_model", "ocr"),
+        ("default_vlm_provider_id", "default_vlm_model", "vlm"),
+    )
+    for provider_key, model_key, model_type in default_selections:
+        provider_id = data.get(provider_key)
+        if provider_id:
+            _validate_provider(provider_id, model_key, model_type)
 
     cfg = (
         db.query(ProjectAIConfig)

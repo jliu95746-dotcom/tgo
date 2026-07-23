@@ -1,4 +1,11 @@
-@import "tailwindcss";
+/*
+ * Disable Tailwind v4's workspace-wide automatic source detection.
+ * The dev workspace is a Windows bind mount, so broad rescans can block Vite
+ * long enough to make both the UI and its Docker healthcheck time out.
+ */
+@import "tailwindcss" source(none);
+@source "../index.html";
+@source "./**/*.{js,ts,jsx,tsx}";
 @import "./styles/markdown.css";
 /* 本地化 Inter 字体（替代 Google Fonts） */
 @import "@fontsource/inter/400.css";

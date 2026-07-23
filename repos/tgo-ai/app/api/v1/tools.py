@@ -1,12 +1,13 @@
 """Tool query API endpoints (read-only)."""
 
 import uuid
+import json
 from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,11 +16,28 @@ from app.models.tool import Tool, ToolType
 from app.models.project import Project
 from app.schemas.tool import ToolResponse, ToolCreate, ToolUpdate
 from app.core.logging import get_logger
+from app.dependencies import get_current_or_internal_project_id
+from app.services.tool_executor import ToolExecutor
 
 logger = get_logger(__name__)
 
 # Define router with prefix and tags as requested
 router = APIRouter(prefix="/tools", tags=["tools"])
+
+
+class DirectToolExecuteRequest(BaseModel):
+    """Trusted direct execution request used by the logistics archive."""
+
+    input_data: Dict[str, JsonValue] = Field(default_factory=dict)
+    visitor_id: Optional[str] = None
+
+
+class DirectToolExecuteResponse(BaseModel):
+    """Stable direct execution response for internal service callers."""
+
+    success: bool
+    output_data: JsonValue = None
+    error: Optional[str] = None
 
 
 # ==================== Plugin Tool Registration ====================
@@ -104,6 +122,41 @@ async def update_tool(
     await db.refresh(tool)
 
     return ToolResponse.model_validate(tool)
+
+
+@router.post("/{tool_id}/execute", response_model=DirectToolExecuteResponse)
+async def execute_tool_directly(
+    tool_id: uuid.UUID,
+    request: DirectToolExecuteRequest,
+    project_id: uuid.UUID = Depends(get_current_or_internal_project_id),
+    db: AsyncSession = Depends(get_db),
+) -> DirectToolExecuteResponse:
+    """Execute one project-owned tool without an LLM round trip."""
+
+    stmt = select(Tool).where(
+        Tool.id == tool_id,
+        Tool.project_id == project_id,
+        Tool.deleted_at.is_(None),
+    )
+    result = await db.execute(stmt)
+    tool = result.scalar_one_or_none()
+    if tool is None:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    executor = ToolExecutor(db, project_id)
+    executor.set_context(visitor_id=request.visitor_id)
+    await executor.register_tools(tool_ids=[tool_id])
+    raw_output = await executor.execute(tool.name, request.input_data)
+    if raw_output.startswith("<error>"):
+        return DirectToolExecuteResponse(
+            success=False,
+            error=raw_output.removeprefix("<error>").removesuffix("</error>"),
+        )
+    try:
+        output_data: JsonValue = json.loads(raw_output)
+    except (json.JSONDecodeError, TypeError):
+        output_data = {"content": raw_output}
+    return DirectToolExecuteResponse(success=True, output_data=output_data)
 
 
 

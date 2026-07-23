@@ -22,6 +22,24 @@ class ProjectAIConfigBase(BaseSchema):
     default_embedding_model: Optional[str] = Field(
         None, max_length=100, description="Default embedding model identifier"
     )
+    default_asr_provider_id: Optional[UUID] = Field(
+        None, description="AIProvider ID for default ASR model"
+    )
+    default_asr_model: Optional[str] = Field(
+        None, max_length=100, description="Default ASR model identifier"
+    )
+    default_ocr_provider_id: Optional[UUID] = Field(
+        None, description="AIProvider ID for default OCR model"
+    )
+    default_ocr_model: Optional[str] = Field(
+        None, max_length=100, description="Default OCR model identifier"
+    )
+    default_vlm_provider_id: Optional[UUID] = Field(
+        None, description="AIProvider ID for default VLM model"
+    )
+    default_vlm_model: Optional[str] = Field(
+        None, max_length=100, description="Default VLM model identifier"
+    )
 
 
 class ProjectAIConfigCreate(ProjectAIConfigBase):

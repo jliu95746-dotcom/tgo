@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.dependencies import get_current_project_id, get_db
+from app.dependencies import get_current_or_internal_project_id, get_db
 from app.runtime.routing.policy import IntentRoutingPolicy
 from app.schemas.intent import IntentClassificationResult
 from app.schemas.intent_analysis import IntentAnalysisRequest
@@ -29,7 +29,7 @@ router = APIRouter()
 )
 async def classify_intent(
     request: IntentAnalysisRequest,
-    project_id: uuid.UUID = Depends(get_current_project_id),
+    project_id: uuid.UUID = Depends(get_current_or_internal_project_id),
     db: AsyncSession = Depends(get_db),
 ) -> IntentClassificationResult:
     """Use a project-owned provider; automated routes remain feature-gated."""

@@ -30,25 +30,14 @@ from app.services.store_sync import sync_uninstall_models_to_store, sync_uninsta
 logger = get_logger("endpoints.ai_providers")
 
 
-def _filter_models_by_type(models: Optional[list[str]], model_type: Optional[str]) -> list[str]:
-    ms = list(models or [])
-    if not model_type:
-        return ms
-    if model_type == "embedding":
-        return [m for m in ms if isinstance(m, str) and "embedding" in m.lower()]
-    if model_type == "chat":
-        return [m for m in ms if isinstance(m, str) and "embedding" not in m.lower()]
-    return ms
-
-
-
 def _to_response(item: AIProvider, model_type: Optional[str] = None) -> AIProviderResponse:
     plain = decrypt_str(item.api_key) if item.api_key else None
     masked = mask_secret(plain)
     
-    # Extract model_id from models relationship
-    available_models_list = [m.model_id for m in item.models if m.deleted_at is None]
-    models = _filter_models_by_type(available_models_list, model_type)
+    active_models = [m for m in item.models if m.deleted_at is None]
+    if model_type:
+        active_models = [m for m in active_models if m.model_type == model_type]
+    models = [m.model_id for m in active_models]
     
     return AIProviderResponse.model_validate({
         "id": item.id,
@@ -57,6 +46,10 @@ def _to_response(item: AIProvider, model_type: Optional[str] = None) -> AIProvid
         "name": item.name,
         "api_base_url": item.api_base_url,
         "available_models": models,
+        "available_model_configs": [
+            {"model_id": model.model_id, "model_type": model.model_type}
+            for model in active_models
+        ],
         "default_model": item.default_model,
         "config": item.config,
         "is_active": item.is_active,
@@ -226,7 +219,9 @@ async def get_provider_remote_models(
 @router.get("", response_model=AIProviderListResponse, responses=LIST_RESPONSES)
 async def list_ai_providers(
     params: AIProviderListParams = Depends(),
-    model_type: Optional[str] = Query(None, pattern="^(chat|embedding)$"),
+    model_type: Optional[str] = Query(
+        None, pattern="^(chat|embedding|asr|ocr|vlm)$"
+    ),
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
 ) -> AIProviderListResponse:
@@ -254,22 +249,11 @@ async def list_ai_providers(
     filter_func = None
     if model_type:
         def check_model_type(provider: AIProvider) -> bool:
-            # Check models relationship instead of available_models
-            models = [m.model_id for m in provider.models if m.deleted_at is None]
-            if not isinstance(models, list) or not models:
+            models = [m for m in provider.models if m.deleted_at is None]
+            if not models:
                 # Keep empty/undefined providers in list
                 return True
-            
-            has_embedding = any("embedding" in str(m).lower() for m in models)
-            
-            if model_type == "embedding":
-                return has_embedding
-            elif model_type == "chat":
-                # Chat providers are those that have at least one non-embedding model
-                # or have no embedding models found (defaulting to chat)
-                has_chat = any("embedding" not in str(m).lower() for m in models)
-                return has_chat or (not has_embedding)
-            return True
+            return any(model.model_type == model_type for model in models)
         filter_func = check_model_type
 
     # Fetch all candidates first (filtered by basic params)

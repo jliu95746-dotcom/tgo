@@ -8,6 +8,15 @@ import i18n from '../i18n';
 // API Configuration
 // Priority: window.ENV (runtime) > import.meta.env (build-time) > default
 const getApiBaseUrl = (): string => {
+  // Local development uses Vite's same-origin proxy. This also works inside
+  // the in-app browser, where direct localhost:8000 access may be isolated.
+  if (
+    import.meta.env.DEV &&
+    typeof window !== 'undefined' &&
+    ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  ) {
+    return '/api';
+  }
   // First, try runtime configuration (set by docker-entrypoint.sh)
   if (typeof window !== 'undefined' && (window as any).ENV?.VITE_API_BASE_URL) {
     return (window as any).ENV.VITE_API_BASE_URL;

@@ -1,21 +1,29 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, NavLink } from 'react-router-dom';
-import { Settings as SettingsIcon, Puzzle } from 'lucide-react';
+import { Settings as SettingsIcon, Puzzle, Truck } from 'lucide-react';
 import { FiSettings, FiCpu, FiUsers, FiUser, FiBell } from 'react-icons/fi';
 import SettingsSidebar from '@/components/settings/SettingsSidebar';
+import { useAuthStore } from '@/stores/authStore';
 
 const SettingsLayout: React.FC = () => {
   const { t } = useTranslation();
+  const isAdmin = useAuthStore((state) => state.user?.role === 'admin');
 
-  const items: Array<{ id: string; label: string }> = [
+  const allItems: Array<{ id: string; label: string }> = [
     { id: 'profile', label: t('settings.menu.profile', '个人资料') },
     { id: 'general', label: t('settings.menu.general', '通用') },
     { id: 'notifications', label: t('settings.menu.notifications', '消息通知') },
     { id: 'staff', label: t('settings.menu.staff', '人工坐席') },
     { id: 'providers', label: t('settings.menu.providers', '模型提供商') },
     { id: 'plugins', label: t('settings.menu.plugins', '插件管理') },
+    { id: 'logistics', label: t('settings.menu.logistics', '物流档案') },
   ];
+  const items = allItems.filter(
+    (item) =>
+      isAdmin ||
+      !['staff', 'providers', 'plugins', 'logistics'].includes(item.id),
+  );
 
   const iconMap: Record<string, React.ReactNode> = {
     profile: <FiUser className="w-4 h-4" />,
@@ -24,6 +32,7 @@ const SettingsLayout: React.FC = () => {
     staff: <FiUsers className="w-4 h-4" />,
     providers: <FiCpu className="w-4 h-4" />,
     plugins: <Puzzle className="w-4 h-4" />,
+    logistics: <Truck className="w-4 h-4" />,
   };
 
   return (

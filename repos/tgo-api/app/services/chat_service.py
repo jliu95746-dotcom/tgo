@@ -506,10 +506,17 @@ async def send_user_message_to_wukongim(
     content: str,
     msg_type: Optional[MessageType] = MessageType.TEXT,
     extra: Optional[Dict[str, Any]] = None,
-) -> None:
+) -> Optional[str]:
     """Send a copy of the user's message to WuKongIM (best-effort)."""
     if not content:
-        return
+        return None
+    source_message_id = extra.get("message_id") if extra else None
+    if isinstance(source_message_id, str) and source_message_id:
+        correlation_source = f"{channel_id}:{from_uid}:{source_message_id}"
+        correlation_hash = hashlib.sha256(correlation_source.encode("utf-8")).hexdigest()
+        client_msg_no = f"platform_{correlation_hash[:32]}"
+    else:
+        client_msg_no = f"user_{uuid4().hex}"
     try:
         # Build payload based on msg_type
         # 1=TEXT, 2=IMAGE, 3=FILE
@@ -529,14 +536,6 @@ async def send_user_message_to_wukongim(
         if extra:
             payload["extra"] = extra
 
-        source_message_id = extra.get("message_id") if extra else None
-        if isinstance(source_message_id, str) and source_message_id:
-            correlation_source = f"{channel_id}:{from_uid}:{source_message_id}"
-            correlation_hash = hashlib.sha256(correlation_source.encode("utf-8")).hexdigest()
-            client_msg_no = f"platform_{correlation_hash[:32]}"
-        else:
-            client_msg_no = f"user_{uuid4().hex}"
-
         await wukongim_client.send_message(
             payload=payload,
             from_uid=from_uid,
@@ -546,7 +545,8 @@ async def send_user_message_to_wukongim(
         )
     except Exception:
         # Do not fail main flow on WuKongIM send failure
-        return
+        return client_msg_no
+    return client_msg_no
 
 
 # ============================================================================

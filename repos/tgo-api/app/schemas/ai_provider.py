@@ -8,6 +8,8 @@ from pydantic import Field
 
 from app.schemas.base import BaseSchema, PaginatedResponse, SoftDeleteMixin, TimestampMixin
 
+MODEL_TYPE_PATTERN = "^(chat|embedding|asr|ocr|vlm)$"
+
 
 class AIProviderConfigBase(BaseSchema):
     """Base config fields shared by create/update/response (excludes secret)."""
@@ -62,7 +64,14 @@ class AIProviderCreate(AIProviderConfigBase):
 class AIModelInput(BaseSchema):
     """Model input with type information."""
     model_id: str = Field(..., min_length=1, max_length=100)
-    model_type: str = Field(default="chat", pattern="^(chat|embedding)$")
+    model_type: str = Field(default="chat", pattern=MODEL_TYPE_PATTERN)
+
+
+class AIProviderModelInfo(BaseSchema):
+    """Public model identifier and its configured purpose."""
+
+    model_id: str = Field(..., min_length=1, max_length=100)
+    model_type: str = Field(..., pattern=MODEL_TYPE_PATTERN)
 
 
 class AIProviderUpdate(BaseSchema):
@@ -85,6 +94,10 @@ class AIProviderResponse(AIProviderConfigBase, TimestampMixin, SoftDeleteMixin):
     project_id: UUID = Field(..., description="Associated project ID")
     has_api_key: bool = Field(..., description="Whether secret is set")
     api_key_masked: Optional[str] = Field(None, description="Masked API key, only last 4 visible")
+    available_model_configs: list[AIProviderModelInfo] = Field(
+        default_factory=list,
+        description="Available models with their configured purpose",
+    )
 
     # Store metadata
     store_resource_id: Optional[str] = Field(None, description="Store resource ID if provider is from store")

@@ -110,6 +110,7 @@
       "staff": "Human Agents",
       "notifications": "Notifications",
       "providers": "Model Providers",
+      "logistics": "Logistics Archive",
       "plugins": "Plugins",
       "about": "About",
       "logout": "Logout"
@@ -490,9 +491,14 @@
       },
       "defaults": {
         "title": "Default Models",
-        "description": "Select the required global default models for LLM and Embedding.",
+        "description": "Select global defaults for chat, embedding, and multimodal capabilities.",
         "llmLabel": "Default LLM",
         "embeddingLabel": "Default Embedding",
+        "asrLabel": "Default Speech Recognition",
+        "ocrLabel": "Default OCR",
+        "vlmLabel": "Default Vision Understanding",
+        "multimodalTitle": "Multimodal Understanding",
+        "multimodalDescription": "Choose global default models for speech recognition, image text extraction, and image understanding.",
         "selectPlaceholder": "Please select a model",
         "none": "Not Set",
         "embeddingHelp": {
@@ -574,7 +580,10 @@
       },
       "modelTypes": {
         "chat": "Chat",
-        "embedding": "Embedding"
+        "embedding": "Embedding",
+        "asr": "Speech Recognition (ASR)",
+        "ocr": "Text Recognition (OCR)",
+        "vlm": "Vision Understanding (VLM)"
       },
       "azure": {
         "deployment": "Deployment Name",

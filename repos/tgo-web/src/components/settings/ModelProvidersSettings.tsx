@@ -10,13 +10,49 @@ import { useProvidersStore, type ModelProviderConfig } from '@/stores/providersS
 import { useAuthStore } from '@/stores/authStore';
 import { useAppSettingsStore } from '@/stores/appSettingsStore';
 import { ToastContext } from '@/components/ui/ToastContainer';
-import AIProvidersApiService from '@/services/aiProvidersApi';
+import AIProvidersApiService, { type ModelType } from '@/services/aiProvidersApi';
 import ProjectConfigApiService from '@/services/projectConfigApi';
 import ModelStoreModal from '@/components/ai/ModelStoreModal';
 import { ToolToastProvider } from '@/components/ai/ToolToastProvider';
 import ProviderCard from './ProviderCard';
 import ProviderConfigModal from './ProviderConfigModal';
 import AddModelModal from './AddModelModal';
+
+interface ModelOption {
+  value: string;
+  label: string;
+}
+
+interface DefaultModelField {
+  type: ModelType;
+  labelKey: string;
+  fallbackLabel: string;
+}
+
+const MODEL_TYPES: ModelType[] = ['chat', 'embedding', 'asr', 'ocr', 'vlm'];
+const DEFAULT_MODEL_FIELDS: DefaultModelField[] = [
+  { type: 'chat', labelKey: 'settings.models.defaults.llmLabel', fallbackLabel: '默认 LLM' },
+  { type: 'embedding', labelKey: 'settings.models.defaults.embeddingLabel', fallbackLabel: '默认嵌入模型' },
+  { type: 'asr', labelKey: 'settings.models.defaults.asrLabel', fallbackLabel: '默认语音识别模型' },
+  { type: 'ocr', labelKey: 'settings.models.defaults.ocrLabel', fallbackLabel: '默认 OCR 模型' },
+  { type: 'vlm', labelKey: 'settings.models.defaults.vlmLabel', fallbackLabel: '默认图片理解模型' },
+];
+
+const createModelState = <T,>(valueFactory: () => T): Record<ModelType, T> => ({
+  chat: valueFactory(),
+  embedding: valueFactory(),
+  asr: valueFactory(),
+  ocr: valueFactory(),
+  vlm: valueFactory(),
+});
+
+const selectedModelValue = (
+  providerId: string | null,
+  model: string | null,
+): string => providerId && model ? `${providerId}:${model}` : '';
+
+const getErrorMessage = (error: unknown): string | undefined =>
+  error instanceof Error ? error.message : undefined;
 
 const ModelProvidersSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -34,50 +70,35 @@ const ModelProvidersSettings: React.FC = () => {
   const [testingId, setTestingId] = useState<string | null>(null);
 
   // Global default models UI state
-  const [chatOptions, setChatOptions] = useState<Array<{ value: string; label: string }>>([]);
-  const [embeddingOptions, setEmbeddingOptions] = useState<Array<{ value: string; label: string }>>([]);
-  const [llmSelection, setLlmSelection] = useState<string>('');
-  const [embSelection, setEmbSelection] = useState<string>('');
-  const [chatLoading, setChatLoading] = useState(false);
-  const [embLoading, setEmbLoading] = useState(false);
+  const [modelOptions, setModelOptions] = useState<Record<ModelType, ModelOption[]>>(
+    () => createModelState(() => [])
+  );
+  const [modelSelections, setModelSelections] = useState<Record<ModelType, string>>(
+    () => createModelState(() => '')
+  );
+  const [modelLoading, setModelLoading] = useState<Record<ModelType, boolean>>(
+    () => createModelState(() => false)
+  );
   const [isSavingDefaults, setIsSavingDefaults] = useState(false);
 
   // Track initialization to avoid infinite loops
   const isInitialized = React.useRef(false);
 
-  const ensureFetchChatOptions = async () => {
-    if (chatLoading) return;
-    setChatLoading(true);
+  const ensureFetchModelOptions = async (modelType: ModelType) => {
+    if (modelLoading[modelType]) return;
+    setModelLoading(current => ({ ...current, [modelType]: true }));
     try {
       const svc = new AIProvidersApiService();
-      const res = await svc.listProjectModels({ model_type: 'chat', is_active: true });
-      const opts = (res.data || []).map((m: any) => ({ 
-        value: `${m.provider_id}:${m.model_id}`, 
-        label: `${m.model_name} · ${m.provider_name}` 
+      const res = await svc.listProjectModels({ model_type: modelType, is_active: true });
+      const options = (res.data || []).map(model => ({
+        value: `${model.provider_id}:${model.model_id}`,
+        label: `${model.model_name} · ${model.provider_name}`,
       }));
-      setChatOptions(opts);
-    } catch (err: any) {
-      toast?.showToast('error', t('common.loadFailed', '加载失败'), err?.message);
+      setModelOptions(current => ({ ...current, [modelType]: options }));
+    } catch (error: unknown) {
+      toast?.showToast('error', t('common.loadFailed', '加载失败'), getErrorMessage(error));
     } finally {
-      setChatLoading(false);
-    }
-  };
-
-  const ensureFetchEmbeddingOptions = async () => {
-    if (embLoading) return;
-    setEmbLoading(true);
-    try {
-      const svc = new AIProvidersApiService();
-      const res = await svc.listProjectModels({ model_type: 'embedding', is_active: true });
-      const opts = (res.data || []).map((m: any) => ({ 
-        value: `${m.provider_id}:${m.model_id}`, 
-        label: `${m.model_name} · ${m.provider_name}` 
-      }));
-      setEmbeddingOptions(opts);
-    } catch (err: any) {
-      toast?.showToast('error', t('common.loadFailed', '加载失败'), err?.message);
-    } finally {
-      setEmbLoading(false);
+      setModelLoading(current => ({ ...current, [modelType]: false }));
     }
   };
 
@@ -92,27 +113,24 @@ const ModelProvidersSettings: React.FC = () => {
     const fetchConfig = async () => {
       try {
         // Fetch options first so they are available when config is set
-        await Promise.all([
-          ensureFetchChatOptions(),
-          ensureFetchEmbeddingOptions()
-        ]);
+        await Promise.all(MODEL_TYPES.map(ensureFetchModelOptions));
 
         const svc = new ProjectConfigApiService();
         const conf = await svc.getAIConfig(projectId);
-        const llm = conf.default_chat_provider_id && conf.default_chat_model
-          ? `${conf.default_chat_provider_id}:${conf.default_chat_model}`
-          : '';
-        const emb = conf.default_embedding_provider_id && conf.default_embedding_model
-          ? `${conf.default_embedding_provider_id}:${conf.default_embedding_model}`
-          : '';
-        
-        setLlmSelection(llm);
-        setEmbSelection(emb);
-        setDefaultLlmModel(llm || null);
-        setDefaultEmbeddingModel(emb || null);
+        const selections: Record<ModelType, string> = {
+          chat: selectedModelValue(conf.default_chat_provider_id, conf.default_chat_model),
+          embedding: selectedModelValue(conf.default_embedding_provider_id, conf.default_embedding_model),
+          asr: selectedModelValue(conf.default_asr_provider_id, conf.default_asr_model),
+          ocr: selectedModelValue(conf.default_ocr_provider_id, conf.default_ocr_model),
+          vlm: selectedModelValue(conf.default_vlm_provider_id, conf.default_vlm_model),
+        };
+
+        setModelSelections(selections);
+        setDefaultLlmModel(selections.chat || null);
+        setDefaultEmbeddingModel(selections.embedding || null);
         isInitialized.current = true;
-      } catch (err: any) {
-        toast?.showToast('error', t('common.loadFailed'), err?.message);
+      } catch (error: unknown) {
+        toast?.showToast('error', t('common.loadFailed'), getErrorMessage(error));
       }
     };
 
@@ -123,25 +141,34 @@ const ModelProvidersSettings: React.FC = () => {
     if (!projectId) return;
     setIsSavingDefaults(true);
     try {
-    const parse = (v: string) => {
+      const parse = (v: string) => {
       const i = v.indexOf(':');
         if (i <= 0) return { providerId: null, model: null };
         return { providerId: v.slice(0, i), model: v.slice(i + 1) };
       };
-      const chat = parse(llmSelection);
-      const emb = parse(embSelection);
+      const chat = parse(modelSelections.chat);
+      const embedding = parse(modelSelections.embedding);
+      const asr = parse(modelSelections.asr);
+      const ocr = parse(modelSelections.ocr);
+      const vlm = parse(modelSelections.vlm);
       const svc = new ProjectConfigApiService();
       await svc.upsertAIConfig(projectId, {
         default_chat_provider_id: chat.providerId,
         default_chat_model: chat.model,
-        default_embedding_provider_id: emb.providerId,
-        default_embedding_model: emb.model,
+        default_embedding_provider_id: embedding.providerId,
+        default_embedding_model: embedding.model,
+        default_asr_provider_id: asr.providerId,
+        default_asr_model: asr.model,
+        default_ocr_provider_id: ocr.providerId,
+        default_ocr_model: ocr.model,
+        default_vlm_provider_id: vlm.providerId,
+        default_vlm_model: vlm.model,
       });
-      setDefaultLlmModel(llmSelection || null);
-      setDefaultEmbeddingModel(embSelection || null);
+      setDefaultLlmModel(modelSelections.chat || null);
+      setDefaultEmbeddingModel(modelSelections.embedding || null);
       toast?.showToast('success', t('settings.models.toast.saved'));
-    } catch (err: any) {
-      toast?.showToast('error', t('common.saveFailed'), err?.message);
+    } catch (error: unknown) {
+      toast?.showToast('error', t('common.saveFailed'), getErrorMessage(error));
     } finally {
       setIsSavingDefaults(false);
     }
@@ -152,8 +179,8 @@ const ModelProvidersSettings: React.FC = () => {
     try {
       await removeProvider(id);
       toast?.showToast('success', t('settings.providers.toast.deleted'));
-    } catch (e: any) {
-      toast?.showToast('error', t('common.deleteFailed'), e?.message);
+    } catch (error: unknown) {
+      toast?.showToast('error', t('common.deleteFailed'), getErrorMessage(error));
     }
   };
 
@@ -162,13 +189,13 @@ const ModelProvidersSettings: React.FC = () => {
     try {
       const svc = new AIProvidersApiService();
       const res = await svc.testProvider(p.id);
-      if ((res as any).ok ?? (res as any).success ?? true) {
+      if (res.ok ?? res.success ?? true) {
         toast?.showToast('success', t('settings.providers.test.ok'));
       } else {
         toast?.showToast('error', t('settings.providers.test.failed'));
       }
-    } catch (err: any) {
-      toast?.showToast('error', t('settings.providers.test.failed'), err?.message);
+    } catch (error: unknown) {
+      toast?.showToast('error', t('settings.providers.test.failed'), getErrorMessage(error));
     } finally {
       setTestingId(null);
     }
@@ -177,6 +204,28 @@ const ModelProvidersSettings: React.FC = () => {
   const sortedProviders = useMemo(() => 
     providers.slice().sort((a, b) => Number(b.enabled) - Number(a.enabled)), 
     [providers]
+  );
+
+  const renderDefaultModelField = (field: DefaultModelField) => (
+    <div key={field.type} className="space-y-2">
+      <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest px-1">
+        {t(field.labelKey, field.fallbackLabel)}
+      </label>
+      <Select
+        value={modelSelections[field.type]}
+        onChange={value => setModelSelections(current => ({
+          ...current,
+          [field.type]: value,
+        }))}
+        onOpen={() => ensureFetchModelOptions(field.type)}
+        isLoading={modelLoading[field.type]}
+        options={[
+          { value: '', label: t('settings.models.defaults.none', '未设置') },
+          ...modelOptions[field.type],
+        ]}
+        className="w-full"
+      />
+    </div>
   );
 
     return (
@@ -240,39 +289,22 @@ const ModelProvidersSettings: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest px-1">
-              {t('settings.models.defaults.llmLabel', '默认 LLM')}
-            </label>
-            <Select
-              value={llmSelection}
-              onChange={setLlmSelection}
-                    onOpen={ensureFetchChatOptions}
-                    isLoading={chatLoading}
-              options={[
-                { value: '', label: t('settings.models.defaults.none', '未设置') },
-                      ...chatOptions,
-                    ]}
-                    className="w-full"
-            />
-          </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest px-1">
-                {t('settings.models.defaults.embeddingLabel', '默认嵌入模型')}
-              </label>
-            <Select
-              value={embSelection}
-              onChange={setEmbSelection}
-                    onOpen={ensureFetchEmbeddingOptions}
-                    isLoading={embLoading}
-              options={[
-                { value: '', label: t('settings.models.defaults.none', '未设置') },
-                      ...embeddingOptions,
-                    ]}
-                    className="w-full"
-            />
-          </div>
-        </div>
+                {DEFAULT_MODEL_FIELDS.slice(0, 2).map(renderDefaultModelField)}
+              </div>
+
+              <div className="pt-6 border-t border-blue-100 dark:border-blue-900/30 space-y-4">
+                <div>
+                  <h4 className="text-sm font-black text-gray-900 dark:text-gray-100">
+                    {t('settings.models.defaults.multimodalTitle', '多模态理解')}
+                  </h4>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-1">
+                    {t('settings.models.defaults.multimodalDescription', '为语音识别、图片文字提取和图片理解选择全局默认模型。')}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {DEFAULT_MODEL_FIELDS.slice(2).map(renderDefaultModelField)}
+                </div>
+              </div>
             </div>
             <div className="w-full md:w-auto">
               <Button 

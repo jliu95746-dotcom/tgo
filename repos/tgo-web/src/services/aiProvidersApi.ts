@@ -8,6 +8,7 @@ import type { PaginationMetadata } from '@/types';
 
 // Local type copies to avoid circular imports
 export type ProviderKind = 'openai' | 'azure' | 'qwen' | 'moonshot' | 'deepseek' | 'baichuan' | 'ollama' | 'custom';
+export type ModelType = 'chat' | 'embedding' | 'asr' | 'ocr' | 'vlm';
 export interface ProviderParams {
   azure?: { deployment?: string; resource?: string; apiVersion?: string };
   [key: string]: any;
@@ -16,7 +17,12 @@ export interface ProviderParams {
 // Backend DTOs (from docs/api.json)
 export interface AIModelInputDTO {
   model_id: string;
-  model_type: 'chat' | 'embedding';
+  model_type: ModelType;
+}
+
+export interface AIProviderModelInfoDTO {
+  model_id: string;
+  model_type: ModelType;
 }
 
 export interface AIProviderCreateDTO {
@@ -48,6 +54,7 @@ export interface AIProviderResponseDTO {
   name: string;
   api_base_url?: string | null;
   available_models?: string[];
+  available_model_configs?: AIProviderModelInfoDTO[];
   default_model?: string | null;
   config?: Record<string, any> | null;
   is_active: boolean;
@@ -119,6 +126,12 @@ export interface AIModelWithProviderListResponseDTO {
   pagination: PaginationMetadata;
 }
 
+export interface ProviderTestResponseDTO {
+  ok?: boolean;
+  success?: boolean;
+  message?: string;
+}
+
 export class AIProvidersApiService extends BaseApiService {
   protected readonly apiVersion = 'v1';
   protected readonly endpoints = {
@@ -135,7 +148,7 @@ export class AIProvidersApiService extends BaseApiService {
 
   // List models for current project with provider info
   async listProjectModels(params?: { 
-    model_type?: 'chat' | 'embedding' | null; 
+    model_type?: ModelType | null;
     is_active?: boolean; 
     limit?: number; 
     offset?: number 
@@ -144,7 +157,7 @@ export class AIProvidersApiService extends BaseApiService {
   }
 
   // List providers
-  async listProviders(params?: { limit?: number; offset?: number; search?: string; provider?: string | null; is_active?: boolean | null; model_type?: 'chat' | 'embedding' | null }): Promise<AIProviderListResponseDTO> {
+  async listProviders(params?: { limit?: number; offset?: number; search?: string; provider?: string | null; is_active?: boolean | null; model_type?: ModelType | null }): Promise<AIProviderListResponseDTO> {
     return this.get<AIProviderListResponseDTO>(this.endpoints.PROVIDERS, params as any);
   }
 
@@ -177,8 +190,8 @@ export class AIProvidersApiService extends BaseApiService {
   }
 
   // Test connection
-  async testProvider(id: string): Promise<{ ok?: boolean; success?: boolean; message?: string; [k: string]: any }> {
-    return this.post(this.endpoints.PROVIDER_TEST(id));
+  async testProvider(id: string): Promise<ProviderTestResponseDTO> {
+    return this.post<ProviderTestResponseDTO>(this.endpoints.PROVIDER_TEST(id));
   }
 
   // Get remote models using stored credentials
@@ -202,7 +215,7 @@ export class AIProvidersApiService extends BaseApiService {
    * @param request - ModelListRequest with provider info
    * @param modelType - Optional filter by model type (chat or embedding)
    */
-  async listModels(request: ModelListRequestDTO, modelType?: 'chat' | 'embedding'): Promise<ModelListResponseDTO> {
+  async listModels(request: ModelListRequestDTO, modelType?: ModelType): Promise<ModelListResponseDTO> {
     let url = "";
     url = this.endpoints.MODELS;
     if (modelType) {

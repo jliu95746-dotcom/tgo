@@ -14,6 +14,10 @@ from app.domain.business_tools.models import (
 )
 
 
+class BusinessProviderAccessDenied(ValueError):
+    """The upstream response did not prove customer ownership."""
+
+
 class ReadOnlyBusinessProvider(Protocol):
     """A provider that exposes queries and deliberately has no mutation methods."""
 

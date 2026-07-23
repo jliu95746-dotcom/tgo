@@ -20,6 +20,12 @@ def _config_to_upsert(item: ProjectAIConfig) -> dict[str, Any]:
         "default_chat_model": item.default_chat_model,
         "default_embedding_provider_id": str(item.default_embedding_provider_id) if item.default_embedding_provider_id else None,
         "default_embedding_model": item.default_embedding_model,
+        "default_asr_provider_id": str(item.default_asr_provider_id) if item.default_asr_provider_id else None,
+        "default_asr_model": item.default_asr_model,
+        "default_ocr_provider_id": str(item.default_ocr_provider_id) if item.default_ocr_provider_id else None,
+        "default_ocr_model": item.default_ocr_model,
+        "default_vlm_provider_id": str(item.default_vlm_provider_id) if item.default_vlm_provider_id else None,
+        "default_vlm_model": item.default_vlm_model,
     }
     return {k: v for k, v in upsert.items() if v is not None}
 

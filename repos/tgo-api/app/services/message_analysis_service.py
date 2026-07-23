@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from collections.abc import Sequence
 from uuid import UUID
 
 from fastapi import status
@@ -83,6 +84,21 @@ class MessageAnalysisService:
     ) -> MediaAnalysisResult:
         """Insert a media result or return the identical existing result."""
         platform = self._authenticate_platform(platform_api_key)
+        return self.upsert_media_result_for_platform(
+            platform=platform,
+            source_message_id=source_message_id,
+            request=request,
+        )
+
+    def upsert_media_result_for_platform(
+        self,
+        *,
+        platform: Platform,
+        source_message_id: str,
+        request: MediaResultUpsertRequest,
+    ) -> MediaAnalysisResult:
+        """Persist a result after an in-process caller already resolved the platform."""
+        self._require_active_platform(platform)
         self._require_scoped_visitor(platform, request.visitor_id)
         fingerprint = _fingerprint(source_message_id, request)
         existing = self._find_media_result(platform, source_message_id)
@@ -131,6 +147,21 @@ class MessageAnalysisService:
     ) -> MessageIntentResult:
         """Insert an intent result or return the identical existing result."""
         platform = self._authenticate_platform(platform_api_key)
+        return self.upsert_intent_result_for_platform(
+            platform=platform,
+            source_message_id=source_message_id,
+            request=request,
+        )
+
+    def upsert_intent_result_for_platform(
+        self,
+        *,
+        platform: Platform,
+        source_message_id: str,
+        request: IntentResultUpsertRequest,
+    ) -> MessageIntentResult:
+        """Persist an intent result for a trusted in-process platform context."""
+        self._require_active_platform(platform)
         self._require_scoped_visitor(platform, request.visitor_id)
         media_result = self._resolve_media_result(
             platform,
@@ -187,6 +218,45 @@ class MessageAnalysisService:
             raise NotFoundError("Message analysis", source_message_id)
         return CombinedMessageAnalysis(media=media, intent=intent)
 
+    def get_combined_results_for_project(
+        self,
+        *,
+        project_id: UUID,
+        source_message_ids: Sequence[str],
+    ) -> dict[str, CombinedMessageAnalysis]:
+        """Batch-read only records owned by one authenticated project."""
+        if not source_message_ids:
+            return {}
+        media_results = (
+            self._db.query(MediaAnalysisResult)
+            .filter(
+                MediaAnalysisResult.project_id == project_id,
+                MediaAnalysisResult.source_message_id.in_(source_message_ids),
+            )
+            .all()
+        )
+        intent_results = (
+            self._db.query(MessageIntentResult)
+            .filter(
+                MessageIntentResult.project_id == project_id,
+                MessageIntentResult.source_message_id.in_(source_message_ids),
+            )
+            .all()
+        )
+        combined: dict[str, CombinedMessageAnalysis] = {}
+        for media in media_results:
+            combined[media.source_message_id] = CombinedMessageAnalysis(
+                media=media,
+                intent=None,
+            )
+        for intent in intent_results:
+            current = combined.get(intent.source_message_id)
+            combined[intent.source_message_id] = CombinedMessageAnalysis(
+                media=current.media if current is not None else None,
+                intent=intent,
+            )
+        return combined
+
     def _authenticate_platform(self, api_key: str) -> Platform:
         if not api_key:
             raise AuthenticationError("Missing platform API key")
@@ -202,6 +272,11 @@ class MessageAnalysisService:
         if platform is None:
             raise AuthenticationError("Invalid platform API key")
         return platform
+
+    @staticmethod
+    def _require_active_platform(platform: Platform) -> None:
+        if not platform.is_active or platform.deleted_at is not None:
+            raise AuthenticationError("Inactive platform")
 
     def _require_scoped_visitor(
         self,

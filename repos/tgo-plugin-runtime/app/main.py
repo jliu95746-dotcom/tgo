@@ -104,8 +104,10 @@ async def health_check():
 
 # Include API routes
 from app.api.routes import router as api_router
+from app.api.business_queries import router as business_query_router
 
 app.include_router(api_router)
+app.include_router(business_query_router)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import (
@@ -369,3 +369,24 @@ class CombinedMessageAnalysisResponse(AnalysisSchema):
     source_message_id: str
     media: MediaResultResponse | None = None
     intent: IntentResultResponse | None = None
+
+
+class MessageAnalysisBatchRequest(AnalysisSchema):
+    """Bounded source-message lookup used by the authenticated staff UI."""
+
+    source_message_ids: tuple[
+        Annotated[str, Field(min_length=1, max_length=255)], ...
+    ] = Field(min_length=1, max_length=100)
+
+    @field_validator("source_message_ids")  # type: ignore[misc]
+    @classmethod
+    def reject_duplicate_source_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("source_message_ids must be unique")
+        return value
+
+
+class MessageAnalysisBatchResponse(AnalysisSchema):
+    """Found analysis projections; missing IDs are deliberately omitted."""
+
+    results: tuple[CombinedMessageAnalysisResponse, ...]

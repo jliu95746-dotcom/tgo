@@ -41,6 +41,7 @@ from app.api.v1.endpoints import (
     utils,
     message_analysis,
     knowledge_governance,
+    customer_logistics,
 )
 
 api_router = APIRouter()
@@ -282,6 +283,12 @@ api_router.include_router(
     message_analysis.router,
     prefix="/message-analysis",
     tags=["Message Analysis"],
+)
+
+api_router.include_router(
+    customer_logistics.router,
+    prefix="/logistics",
+    tags=["Customer Logistics"],
 )
 
 # Remote Agents endpoints (manage remote agents from AgentOS)

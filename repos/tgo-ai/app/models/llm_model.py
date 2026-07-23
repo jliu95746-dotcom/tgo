@@ -53,12 +53,12 @@ class LLMModel(BaseModel):
         comment="Display name for the model"
     )
     
-    # chat | embedding
+    # chat | embedding | asr | ocr | vlm
     model_type: Mapped[str] = mapped_column(
         String(20), 
         nullable=False, 
         default="chat", 
-        comment="Model type: chat or embedding"
+        comment="Model type: chat, embedding, ASR, OCR, or VLM"
     )
     
     description: Mapped[Optional[str]] = mapped_column(

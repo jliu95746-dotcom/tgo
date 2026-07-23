@@ -1,9 +1,8 @@
 /**
  * Employee-console projection of the persisted message-analysis contract.
  *
- * The write/read API currently exposed by tgo-api is authenticated with a
- * platform integration key. That credential must never be sent to a browser,
- * so these types intentionally contain no request headers or client API shape.
+ * Staff reads use the signed-in employee JWT. Platform integration keys remain
+ * server-side and are never sent to the browser.
  */
 
 export type MediaAnalysisType = 'voice' | 'image';

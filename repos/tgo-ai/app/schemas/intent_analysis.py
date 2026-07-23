@@ -13,7 +13,7 @@ class IntentAnalysisRequest(BaseModel):
     """Select one project-owned LLM provider and classify customer content."""
 
     model_config = ConfigDict(
-        extra="forbid", strict=True, str_strip_whitespace=True
+        extra="forbid", strict=False, str_strip_whitespace=True
     )
 
     provider_id: uuid.UUID

@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from pydantic import Field, PostgresDsn
+from pydantic import Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -542,6 +542,10 @@ class Settings(BaseSettings):
         default=35,
         description="Timeout in seconds for plugin runtime requests",
         gt=0,
+    )
+    INTERNAL_API_KEY: Optional[SecretStr] = Field(
+        default=None,
+        description="Shared credential for internal service-to-service calls",
     )
 
     # Device Control Service

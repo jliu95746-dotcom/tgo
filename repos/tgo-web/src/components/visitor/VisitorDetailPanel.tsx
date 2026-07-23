@@ -12,6 +12,7 @@ import AIInsightsSection from './AIInsightsSection';
 import SystemInfoSection from './SystemInfoSection';
 import RecentActivitySection from './RecentActivitySection';
 import PluginPanelSection from '../plugin/PluginPanelSection';
+import VisitorLogisticsSection from './VisitorLogisticsSection';
 import { visitorApiService, type VisitorAttributesUpdateRequest, type VisitorResponse } from '@/services/visitorApi';
 import { tagsApiService } from '@/services/tagsApi';
 import { useChannelStore } from '@/stores/channelStore';
@@ -202,6 +203,7 @@ const VisitorDetailPanel: React.FC<VisitorDetailPanelProps> = ({
         tags: true,
         system_info: false,
         plugins: true,
+        logistics: true,
         recent_activity: false
       };
     } catch {
@@ -211,6 +213,7 @@ const VisitorDetailPanel: React.FC<VisitorDetailPanelProps> = ({
         tags: true,
         system_info: false,
         plugins: true,
+        logistics: true,
         recent_activity: false
       };
     }
@@ -232,7 +235,7 @@ const VisitorDetailPanel: React.FC<VisitorDetailPanelProps> = ({
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // 默认模块顺序
-  const DEFAULT_ORDER = ['basic_info', 'ai_insights', 'tags', 'system_info', 'plugins', 'recent_activity'];
+  const DEFAULT_ORDER = ['basic_info', 'ai_insights', 'tags', 'logistics', 'system_info', 'plugins', 'recent_activity'];
   const [sectionOrder, setSectionOrder] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('visitor_panel_section_order');
@@ -1170,6 +1173,18 @@ const VisitorDetailPanel: React.FC<VisitorDetailPanelProps> = ({
                   expanded={expandedSections.plugins}
                   onToggle={(expanded) => handleToggleSection('plugins', expanded)}
                   onDragStart={(e) => handleDragStart(e, 'plugins')}
+                  onDragEnd={handleDragEnd}
+                />
+              );
+            case 'logistics':
+              return visitor && wrapWithIndicator(
+                <VisitorLogisticsSection
+                  visitorId={visitor.id}
+                  draggable
+                  className={sectionClassName}
+                  expanded={expandedSections.logistics}
+                  onToggle={(expanded) => handleToggleSection('logistics', expanded)}
+                  onDragStart={(e) => handleDragStart(e, 'logistics')}
                   onDragEnd={handleDragEnd}
                 />
               );

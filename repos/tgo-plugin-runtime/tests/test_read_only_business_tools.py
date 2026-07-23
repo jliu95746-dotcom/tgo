@@ -6,9 +6,15 @@ import asyncio
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
+from app.domain.business_tools.http_provider import (
+    HTTPBusinessProvider,
+    HTTPBusinessProviderConfig,
+)
+from app.domain.business_tools.audit_sink import DatabaseBusinessQueryAuditSink
 from app.domain.business_tools.models import (
     BusinessQueryAuditEvent,
     BusinessQueryContext,
@@ -26,6 +32,13 @@ from app.domain.business_tools.service import (
     BusinessQueryService,
     BusinessQueryTimeout,
 )
+from app.api.business_queries import (
+    get_business_query_status,
+    query_business_data,
+)
+from app.config import settings
+from app.domain.business_tools.models import BusinessQueryRequest
+from app.domain.business_tools.models import BusinessQueryContextRequest
 
 TEST_AUDIT_KEY = b"test-only-audit-fingerprint-key-0001"
 
@@ -116,6 +129,55 @@ def make_contract() -> tuple[
         ),
     )
     return context, order, logistics
+
+
+@pytest.mark.asyncio
+async def test_demo_business_query_http_handler_is_tenant_bound() -> None:
+    context, _, _ = make_contract()
+    previous_mode = settings.BUSINESS_QUERY_MODE
+    previous_key = settings.INTERNAL_API_KEY
+    settings.BUSINESS_QUERY_MODE = "demo"
+    settings.INTERNAL_API_KEY = "test-internal-key"
+    try:
+        response = await query_business_data(
+            BusinessQueryRequest(
+                context=BusinessQueryContextRequest.model_validate(
+                    context.model_dump()
+                ),
+                operation="logistics_query",
+                order_no="ORDER-20260716-001",
+            ),
+            x_internal_api_key="test-internal-key",
+        )
+    finally:
+        settings.BUSINESS_QUERY_MODE = previous_mode
+        settings.INTERNAL_API_KEY = previous_key
+
+    assert response.logistics is not None
+    assert response.logistics.order_no == "ORDER-20260716-001"
+    assert response.logistics.tracking_no_masked == "SF****5678"
+
+
+@pytest.mark.asyncio
+async def test_business_query_status_exposes_no_url_or_secret() -> None:
+    previous_mode = settings.BUSINESS_QUERY_MODE
+    previous_key = settings.INTERNAL_API_KEY
+    settings.BUSINESS_QUERY_MODE = "demo"
+    settings.INTERNAL_API_KEY = "test-internal-key"
+    try:
+        response = await get_business_query_status(
+            x_internal_api_key="test-internal-key"
+        )
+    finally:
+        settings.BUSINESS_QUERY_MODE = previous_mode
+        settings.INTERNAL_API_KEY = previous_key
+
+    assert response.configured is True
+    assert response.mode == "demo"
+    assert response.auth_mode is None
+    serialized = response.model_dump_json()
+    assert "test-internal-key" not in serialized
+    assert "business-api" not in serialized
 
 
 def test_query_models_reject_write_operations_and_unknown_fields() -> None:
@@ -273,3 +335,175 @@ async def test_query_fails_closed_when_required_audit_cannot_be_recorded() -> No
             OrderQueryInput(order_no="ORDER-20260716-001"),
             context,
         )
+
+
+@pytest.mark.asyncio
+async def test_http_provider_authenticates_maps_and_masks_logistics() -> None:
+    context, _, _ = make_contract()
+    context = context.model_copy(
+        update={"external_customer_id": "member-7788"},
+    )
+    captured_request: httpx.Request | None = None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_request
+        captured_request = request
+        return httpx.Response(
+            200,
+            json={
+                "code": "0",
+                "payload": {
+                    "project": str(context.tenant_id),
+                    "member": "member-7788",
+                    "orderId": "ORDER-20260716-001",
+                    "delivery": {
+                        "state": "运输中",
+                        "company": "顺丰速运",
+                        "trackingNo": "SF12345678",
+                        "updatedAt": "2026-07-16T13:00:00Z",
+                    },
+                },
+            },
+        )
+
+    provider = HTTPBusinessProvider(
+        HTTPBusinessProviderConfig(
+            base_url="https://business.example.test",
+            order_path="/v1/orders/query",
+            logistics_path="/v1/logistics/query",
+            method="POST",
+            auth_mode="bearer",
+            auth_token="test-token",
+            data_path="payload",
+            success_field="code",
+            success_value="0",
+            tenant_id_field="project",
+            customer_id_field="member",
+            order_no_field="orderId",
+            logistics_status_field="delivery.state",
+            logistics_carrier_field="delivery.company",
+            logistics_tracking_no_field="delivery.trackingNo",
+            logistics_updated_at_field="delivery.updatedAt",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+
+    owned = await provider.query_logistics(
+        LogisticsQueryInput(order_no="ORDER-20260716-001"),
+        context,
+    )
+
+    assert captured_request is not None
+    assert captured_request.url == (
+        "https://business.example.test/v1/logistics/query"
+    )
+    assert captured_request.headers["Authorization"] == "Bearer test-token"
+    request_body = captured_request.content.decode("utf-8")
+    assert "ORDER-20260716-001" in request_body
+    assert str(context.tenant_id) in request_body
+    assert "member-7788" in request_body
+    assert owned.ownership.visitor_id == context.visitor_id
+    assert owned.result.tracking_no_masked == "SF****5678"
+    assert owned.result.status == "运输中"
+
+
+@pytest.mark.asyncio
+async def test_http_provider_rejects_customer_ownership_mismatch() -> None:
+    context, _, _ = make_contract()
+    context = context.model_copy(
+        update={"external_customer_id": "member-correct"},
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "tenant_id": str(context.tenant_id),
+                    "customer_id": "member-other",
+                    "order_no": "ORDER-20260716-001",
+                    "status": "已发货",
+                }
+            },
+        )
+
+    provider = HTTPBusinessProvider(
+        HTTPBusinessProviderConfig(
+            base_url="https://business.example.test",
+            order_path="/orders",
+            logistics_path="/logistics",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ValueError, match="customer ownership mismatch"):
+        await provider.query_order(
+            OrderQueryInput(order_no="ORDER-20260716-001"),
+            context,
+        )
+
+
+def test_http_provider_requires_safe_complete_configuration() -> None:
+    with pytest.raises(ValueError, match="auth_token"):
+        HTTPBusinessProviderConfig(
+            base_url="https://business.example.test",
+            order_path="/orders",
+            logistics_path="/logistics",
+            auth_mode="bearer",
+        )
+
+    with pytest.raises(ValueError, match="http or https"):
+        HTTPBusinessProviderConfig(
+            base_url="file:///etc/passwd",
+            order_path="/orders",
+            logistics_path="/logistics",
+        )
+
+
+@pytest.mark.asyncio
+async def test_database_audit_sink_persists_only_fingerprints() -> None:
+    context, order, logistics = make_contract()
+    audit_event = BusinessQueryAuditEvent(
+        tenant_id=context.tenant_id,
+        conversation_id=context.conversation_id,
+        request_id=context.request_id,
+        actor_id=context.actor_id,
+        operation="logistics_query",
+        outcome="success",
+        visitor_fingerprint="a" * 64,
+        parameter_fingerprint="b" * 64,
+        duration_ms=12.5,
+    )
+
+    class FakeSession:
+        record: object | None = None
+        committed = False
+
+        async def __aenter__(self) -> FakeSession:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        def add(self, record: object) -> None:
+            self.record = record
+
+        async def commit(self) -> None:
+            self.committed = True
+
+    session = FakeSession()
+    sink = DatabaseBusinessQueryAuditSink(
+        session_factory=lambda: session,  # type: ignore[arg-type]
+    )
+
+    await sink.record(audit_event)
+
+    assert session.committed is True
+    assert session.record is not None
+    persisted = vars(session.record)
+    assert persisted["visitor_fingerprint"] == "a" * 64
+    assert persisted["parameter_fingerprint"] == "b" * 64
+    assert "ORDER-20260716-001" not in str(persisted)
+    assert context.visitor_id not in str(persisted)
+    del order, logistics

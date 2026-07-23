@@ -1,6 +1,6 @@
 """Project-level default AI model configuration (synced from tgo-api).
 
-This table stores per-project default chat and embedding model selections.
+This table stores per-project default chat, embedding, and multimodal model selections.
 Design notes:
 - Primary key is project_id (UUID)
 - No foreign key constraints to ai_projects or ai_llm_providers (sync order independent)
@@ -50,6 +50,26 @@ class ProjectAIConfig(_BaseNoId):
         String(150), nullable=True, comment="Default embedding model name"
     )
 
+    # Default multimodal model configuration
+    default_asr_provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True, comment="Provider id for default ASR model"
+    )
+    default_asr_model: Mapped[Optional[str]] = mapped_column(
+        String(150), nullable=True, comment="Default ASR model name"
+    )
+    default_ocr_provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True, comment="Provider id for default OCR model"
+    )
+    default_ocr_model: Mapped[Optional[str]] = mapped_column(
+        String(150), nullable=True, comment="Default OCR model name"
+    )
+    default_vlm_provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True, comment="Provider id for default VLM model"
+    )
+    default_vlm_model: Mapped[Optional[str]] = mapped_column(
+        String(150), nullable=True, comment="Default VLM model name"
+    )
+
     # Sync tracking fields for embedding configs -> RAG service
     last_sync_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, comment="Timestamp of last successful sync to RAG"
@@ -76,6 +96,9 @@ class ProjectAIConfig(_BaseNoId):
         return (
             f"<ProjectAIConfig(project_id={self.project_id}, "
             f"chat={self.default_chat_provider_id}:{self.default_chat_model}, "
-            f"embedding={self.default_embedding_provider_id}:{self.default_embedding_model})>"
+            f"embedding={self.default_embedding_provider_id}:{self.default_embedding_model}, "
+            f"asr={self.default_asr_provider_id}:{self.default_asr_model}, "
+            f"ocr={self.default_ocr_provider_id}:{self.default_ocr_model}, "
+            f"vlm={self.default_vlm_provider_id}:{self.default_vlm_model})>"
         )
 

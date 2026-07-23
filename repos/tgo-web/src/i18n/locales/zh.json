@@ -111,6 +111,7 @@
       "notifications": "消息通知",
       "providers": "模型提供商",
       "plugins": "插件管理",
+      "logistics": "物流档案",
       "about": "关于",
       "logout": "退出登录"
     },
@@ -490,9 +491,14 @@
       },
       "defaults": {
         "title": "默认模型",
-        "description": "请选择全局默认的 LLM 与嵌入模型（必选）。",
+        "description": "集中选择对话、嵌入和多模态能力使用的全局默认模型。",
         "llmLabel": "默认 LLM",
         "embeddingLabel": "默认嵌入模型",
+        "asrLabel": "默认语音识别模型",
+        "ocrLabel": "默认 OCR 模型",
+        "vlmLabel": "默认图片理解模型",
+        "multimodalTitle": "多模态理解",
+        "multimodalDescription": "为语音识别、图片文字提取和图片理解选择全局默认模型。",
         "selectPlaceholder": "请选择模型",
         "none": "未设置",
         "embeddingHelp": {
@@ -574,7 +580,10 @@
       },
       "modelTypes": {
         "chat": "对话 (Chat)",
-        "embedding": "嵌入 (Embedding)"
+        "embedding": "嵌入 (Embedding)",
+        "asr": "语音识别 (ASR)",
+        "ocr": "文字识别 (OCR)",
+        "vlm": "图片理解 (VLM)"
       },
       "azure": {
         "deployment": "部署名称",

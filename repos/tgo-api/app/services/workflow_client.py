@@ -272,6 +272,24 @@ class WorkflowServiceClient:
         )
         return await self._handle_response(response)
 
+    async def route_customer_service(
+        self,
+        routing_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Apply the deterministic cross-service customer routing policy."""
+        response = await self._make_request(
+            "POST",
+            "/v1/customer-service/route",
+            json_data=routing_data,
+        )
+        result = await self._handle_response(response)
+        if not isinstance(result, dict):
+            raise HTTPException(
+                status_code=502,
+                detail="Workflow routing service returned an invalid response",
+            )
+        return result
+
 
 # Global workflow client instance
 workflow_client = WorkflowServiceClient()

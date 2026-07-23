@@ -30,8 +30,14 @@ class AIModel(Base):
     provider: Mapped[str] = mapped_column(String(50), nullable=False, comment="Provider key (openai, anthropic, dashscope, azure_openai)")
     model_id: Mapped[str] = mapped_column(String(100), nullable=False, comment="Model identifier (e.g., gpt-4, claude-3-opus, qwen-max)")
     model_name: Mapped[str] = mapped_column(String(100), nullable=False, comment="Display name for the model")
-    # chat | embedding
-    model_type: Mapped[str] = mapped_column(String(20), nullable=False, default="chat", index=True, comment="Model type: chat or embedding")
+    # chat | embedding | asr | ocr | vlm
+    model_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="chat",
+        index=True,
+        comment="Model type: chat, embedding, ASR, OCR, or VLM",
+    )
     description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment="Optional description of the model")
 
     capabilities: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, comment="Model capabilities JSON, e.g., {vision: true, function_calling: true}")
