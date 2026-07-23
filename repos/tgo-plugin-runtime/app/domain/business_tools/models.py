@@ -50,11 +50,18 @@ class StrictBusinessModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class BusinessTransportModel(BaseModel):
+    """JSON transport model converted before strict domain validation."""
+
+    model_config = ConfigDict(extra="forbid", strict=False)
+
+
 class BusinessQueryContext(StrictBusinessModel):
     """Trusted caller identity used to enforce tenant and visitor ownership."""
 
     tenant_id: UUID
     visitor_id: Identifier
+    external_customer_id: Identifier | None = None
     conversation_id: Identifier
     request_id: Identifier
     actor_id: Identifier
@@ -138,3 +145,45 @@ class BusinessQueryAuditEvent(StrictBusinessModel):
     visitor_fingerprint: HexDigest
     parameter_fingerprint: HexDigest
     duration_ms: float = Field(ge=0)
+
+
+class BusinessQueryContextRequest(BusinessTransportModel):
+    """HTTP representation of trusted caller identity."""
+
+    tenant_id: UUID
+    visitor_id: Identifier
+    external_customer_id: Identifier | None = None
+    conversation_id: Identifier
+    request_id: Identifier
+    actor_id: Identifier
+
+    def to_domain(self) -> BusinessQueryContext:
+        return BusinessQueryContext.model_validate(self.model_dump())
+
+
+class BusinessQueryRequest(BusinessTransportModel):
+    """Internal HTTP request for one safe read-only business operation."""
+
+    context: BusinessQueryContextRequest
+    operation: BusinessQueryOperation
+    order_no: OrderNumber
+
+
+class BusinessQueryResponse(StrictBusinessModel):
+    """Exactly one typed result is returned for the requested operation."""
+
+    operation: BusinessQueryOperation
+    order: OrderQueryResult | None = None
+    logistics: LogisticsQueryResult | None = None
+
+
+class BusinessQueryProviderStatus(StrictBusinessModel):
+    """Non-secret readiness information for the configured provider."""
+
+    mode: Literal["disabled", "demo", "http"]
+    configured: bool
+    auth_mode: Literal["none", "bearer", "api_key", "basic"] | None = None
+    method: Literal["GET", "POST"] | None = None
+    order_path: str | None = None
+    logistics_path: str | None = None
+    timeout_seconds: float

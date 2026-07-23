@@ -44,7 +44,7 @@ EMBEDDING_PROVIDER=qwen3
 QWEN3_API_KEY=your_dashscope_api_key
 QWEN3_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 QWEN3_MODEL=text-embedding-v4
-QWEN3_DIMENSIONS=1024
+QWEN3_DIMENSIONS=1536
 ```
 
 ### Configuration File (.env)
@@ -56,7 +56,7 @@ EMBEDDING_PROVIDER=qwen3
 QWEN3_API_KEY=sk-your-dashscope-api-key
 QWEN3_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 QWEN3_MODEL=text-embedding-v4
-QWEN3_DIMENSIONS=1024
+QWEN3_DIMENSIONS=1536
 
 # Common Settings
 EMBEDDING_BATCH_SIZE=100
@@ -100,7 +100,7 @@ embeddings = await service.generate_embeddings_batch([
 # Get provider information
 provider = service.get_embedding_provider()  # "qwen3" or "openai"
 model = service.get_embedding_model()        # "text-embedding-v4"
-dimensions = service.get_embedding_dimensions()  # 1024
+dimensions = service.get_embedding_dimensions()  # 1536
 ```
 
 ### **Provider-Specific Configuration**
@@ -122,7 +122,7 @@ print(f"Dimensions: {service.get_embedding_dimensions()}")
 
 ### **Qwen3-Embedding (text-embedding-v4)**
 - **Provider**: Alibaba Cloud DashScope
-- **Dimensions**: 1024 (default)
+- **Dimensions**: TGO phase 1 uses 1536 because the existing pgvector column is fixed at 1536 dimensions
 - **Context Length**: Long text support
 - **Languages**: Multi-language (English, Chinese, etc.)
 - **API Format**: OpenAI-compatible

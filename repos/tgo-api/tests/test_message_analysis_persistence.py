@@ -20,7 +20,10 @@ from app.schemas.message_analysis import (
     IntentResultUpsertRequest,
     MediaResultUpsertRequest,
 )
-from app.services.message_analysis_service import MessageAnalysisService
+from app.services.message_analysis_service import (
+    MessageAnalysisLookupKey,
+    MessageAnalysisService,
+)
 
 
 ModelT = TypeVar("ModelT")
@@ -43,6 +46,13 @@ class _FakeQuery:
             return self._session.media_result
         if self._model is MessageIntentResult:
             return self._session.intent_result
+        raise AssertionError(f"Unexpected model query: {self._model}")
+
+    def all(self) -> list[object]:
+        if self._model is MediaAnalysisResult:
+            return [self._session.media_result] if self._session.media_result else []
+        if self._model is MessageIntentResult:
+            return [self._session.intent_result] if self._session.intent_result else []
         raise AssertionError(f"Unexpected model query: {self._model}")
 
 
@@ -293,6 +303,36 @@ def test_intent_upsert_links_existing_media_and_combined_result() -> None:
     assert combined.intent is intent
 
 
+def test_internal_intent_upsert_and_project_batch_read() -> None:
+    platform, visitor = _platform_and_visitor()
+    session = _FakeSession(platform=platform, visitor=visitor)
+    service = MessageAnalysisService(session)  # type: ignore[arg-type]
+
+    intent = service.upsert_intent_result_for_platform(
+        platform=platform,
+        source_message_id="web-message-1",
+        request=_intent_request(visitor.id),
+    )
+    results = service.get_combined_results_for_project(
+        project_id=platform.project_id,
+        keys=(
+            MessageAnalysisLookupKey(
+                visitor_id=visitor.id,
+                source_message_id="web-message-1",
+            ),
+            MessageAnalysisLookupKey(
+                visitor_id=visitor.id,
+                source_message_id="missing-message",
+            ),
+        ),
+    )
+
+    assert intent.project_id == platform.project_id
+    assert len(results) == 1
+    assert results[0].key.source_message_id == "web-message-1"
+    assert results[0].intent is intent
+
+
 def test_service_rejects_missing_platform_or_cross_tenant_visitor() -> None:
     platform, visitor = _platform_and_visitor()
     missing_platform_service = MessageAnalysisService(  # type: ignore[arg-type]
@@ -416,3 +456,29 @@ def test_analysis_api_returns_source_message_conflict(
     assert first.status_code == 200
     assert second.status_code == 409
     assert second.json()["error"]["code"] == "SOURCE_MESSAGE_CONFLICT"
+
+
+def test_staff_batch_analysis_api_is_project_scoped(
+    client: object,
+    db_override: object,
+    authenticated_project: object,
+) -> None:
+    platform, visitor = _platform_and_visitor()
+    authenticated_project.id = platform.project_id  # type: ignore[attr-defined]
+    session = _FakeSession(platform=platform, visitor=visitor)
+    service = MessageAnalysisService(session)  # type: ignore[arg-type]
+    service.upsert_intent_result_for_platform(
+        platform=platform,
+        source_message_id="web-message-1",
+        request=_intent_request(visitor.id),
+    )
+    db_override.session = session  # type: ignore[attr-defined]
+
+    response = client.post(  # type: ignore[attr-defined]
+        "/v1/message-analysis/staff/messages/batch",
+        json={"source_message_ids": ["web-message-1", "missing-message"]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["results"][0]["source_message_id"] == "web-message-1"
+    assert response.json()["results"][0]["intent"]["intent"] == "logistics_query"

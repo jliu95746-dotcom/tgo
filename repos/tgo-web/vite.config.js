@@ -37,6 +37,15 @@ export default defineConfig({
       'react/jsx-runtime': path.resolve(__dirname, 'node_modules/react/jsx-runtime'),
     },
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY_TARGET || 'http://tgo-api:8000',
+        changeOrigin: true,
+        rewrite: (requestPath) => requestPath.replace(/^\/api/, ''),
+      },
+    },
+  },
   build: {
     rollupOptions: {
       output: {

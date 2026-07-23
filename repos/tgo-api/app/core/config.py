@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from pydantic import Field, PostgresDsn
+from pydantic import Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -543,6 +543,10 @@ class Settings(BaseSettings):
         description="Timeout in seconds for plugin runtime requests",
         gt=0,
     )
+    INTERNAL_API_KEY: Optional[SecretStr] = Field(
+        default=None,
+        description="Shared credential for internal service-to-service calls",
+    )
 
     # Device Control Service
     DEVICE_CONTROL_SERVICE_URL: str = Field(
@@ -563,6 +567,17 @@ class Settings(BaseSettings):
     DEVICE_CONTROL_AGENT_ID: str = Field(
         default="computer-use-agent",
         description="Agent ID for the Computer Use Agent",
+    )
+
+    # Vision Agent Service settings
+    VISION_AGENT_SERVICE_URL: str = Field(
+        default="http://localhost:8005",
+        description="URL of the Vision Agent service for UI automation (AgentBay)",
+    )
+    VISION_AGENT_SERVICE_TIMEOUT: int = Field(
+        default=60,
+        description="Timeout for Vision Agent service requests in seconds",
+        gt=0,
     )
 
     # Environment

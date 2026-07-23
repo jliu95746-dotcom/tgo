@@ -1,6 +1,7 @@
 """WuKongIM webhook endpoints."""
 
 import asyncio
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -12,9 +13,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models import Platform, Staff, Visitor, ChannelMember
+from app.models import ChannelMember, Platform, Project, Staff, Visitor
 from app.models.staff import StaffStatus
 from app.services.ai_client import AIServiceClient
+from app.services.message_analysis_service import (
+    MessageAnalysisLookupKey,
+    MessageAnalysisService,
+)
+from app.services.message_intent_orchestrator import MessageIntentOrchestrator
+from app.services.customer_logistics_service import CustomerLogisticsService
 from app.services.wukongim_client import WuKongIMClient
 from app.services.visitor_notifications import notify_visitor_profile_updated
 from app.utils.const import MEMBER_TYPE_VISITOR, CHANNEL_TYPE_CUSTOMER_SERVICE
@@ -35,6 +42,24 @@ STREAM_EVENT_FALLBACK = "ai.stream"
 
 STAFF_API_CACHE: Dict[str, Tuple[str, float]] = {}
 STAFF_API_CACHE_LOCK = asyncio.Lock()
+
+
+def _extract_text_message(message: Dict[str, Any]) -> str | None:
+    """Extract plain customer text without treating media URLs as text."""
+    payload = message.get("payload")
+    if isinstance(payload, str):
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
+        payload = parsed
+    if not isinstance(payload, dict):
+        return None
+    payload_type = payload.get("type", 1)
+    if payload_type not in (1, "1"):
+        return None
+    content = payload.get("content")
+    return content.strip() if isinstance(content, str) and content.strip() else None
 
 
 
@@ -172,6 +197,8 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
     # Group messages by visitor_id for efficient batch processing
     # Structure: {visitor_id: {"max_seq": int, "client_msg_no": str, "send_count": int, "is_last_from_visitor": bool}}
     visitor_stats: Dict[UUID, Dict[str, Any]] = {}
+    analysis_jobs: List[Tuple[UUID, str, str]] = []
+    logistics_jobs: List[Tuple[UUID, str, str, str]] = []
     
     for msg in messages:
         if not isinstance(msg, dict):
@@ -197,6 +224,21 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
         message_seq = msg.get("message_seq", 0)
         client_msg_no = msg.get("client_msg_no")
         is_from_visitor = bool(from_uid and from_uid.endswith(VISITOR_UID_SUFFIX))
+        if isinstance(client_msg_no, str) and client_msg_no:
+            message_text = _extract_text_message(msg)
+            if message_text is not None:
+                logistics_jobs.append(
+                    (
+                        visitor_id,
+                        client_msg_no,
+                        message_text,
+                        "visitor_message" if is_from_visitor else "staff_message",
+                    )
+                )
+                if is_from_visitor:
+                    analysis_jobs.append(
+                        (visitor_id, client_msg_no, message_text)
+                    )
         
         # Initialize or update aggregated stats for this visitor
         if visitor_id not in visitor_stats:
@@ -298,6 +340,98 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 "skipped_count": skipped_count,
             }
         )
+
+    for visitor_id, source_message_id, message_text, message_source in logistics_jobs:
+        try:
+            visitor = (
+                db.query(Visitor)
+                .filter(
+                    Visitor.id == visitor_id,
+                    Visitor.deleted_at.is_(None),
+                )
+                .first()
+            )
+            if visitor is None:
+                continue
+            CustomerLogisticsService(db).capture_message(
+                project_id=visitor.project_id,
+                visitor_id=visitor.id,
+                message_text=message_text,
+                source=message_source,
+                source_message_id=source_message_id,
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "Failed to capture tracking number from message",
+                extra={
+                    "visitor_id": str(visitor_id),
+                    "source_message_id": source_message_id,
+                    "error": str(exc),
+                },
+            )
+
+    for visitor_id, source_message_id, message_text in analysis_jobs:
+        try:
+            visitor = (
+                db.query(Visitor)
+                .filter(
+                    Visitor.id == visitor_id,
+                    Visitor.deleted_at.is_(None),
+                )
+                .first()
+            )
+            if visitor is None:
+                continue
+            existing = MessageAnalysisService(
+                db
+            ).get_combined_results_for_project(
+                project_id=visitor.project_id,
+                keys=(
+                    MessageAnalysisLookupKey(
+                        visitor_id=visitor.id,
+                        source_message_id=source_message_id,
+                    ),
+                ),
+            )
+            if existing:
+                continue
+            platform = (
+                db.query(Platform)
+                .filter(
+                    Platform.id == visitor.platform_id,
+                    Platform.is_active.is_(True),
+                    Platform.deleted_at.is_(None),
+                )
+                .first()
+            )
+            project = (
+                db.query(Project)
+                .filter(
+                    Project.id == visitor.project_id,
+                    Project.deleted_at.is_(None),
+                )
+                .first()
+            )
+            if platform is None or project is None:
+                continue
+            await MessageIntentOrchestrator(db).analyze_text_message(
+                project=project,
+                platform=platform,
+                visitor=visitor,
+                source_message_id=source_message_id,
+                user_text=message_text,
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "Failed to analyze customer message",
+                extra={
+                    "visitor_id": str(visitor_id),
+                    "source_message_id": source_message_id,
+                    "error": str(exc),
+                },
+            )
 
 
 async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
@@ -530,6 +664,6 @@ async def wukongim_webhook(request: Request, background_tasks: BackgroundTasks) 
         except Exception as exc:
             logger.error("Failed to parse WuKongIM msg.notify payload: %s", exc)
             return {"code": 400, "message": "invalid payload"}
-        await _process_msg_notify(body)
+        background_tasks.add_task(_process_msg_notify, body)
 
     return {"code": 0, "message": "ok"}

@@ -19,6 +19,7 @@ from app.domain.business_tools.models import (
     OrderQueryResult,
 )
 from app.domain.business_tools.providers import (
+    BusinessProviderAccessDenied,
     BusinessQueryAuditSink,
     ReadOnlyBusinessProvider,
 )
@@ -77,6 +78,17 @@ class BusinessQueryService:
                 self._provider.query_order(query, context),
                 timeout=self._timeout_seconds,
             )
+        except BusinessProviderAccessDenied as exc:
+            await self._audit(
+                operation="order_query",
+                outcome="denied",
+                order_no=query.order_no,
+                context=context,
+                started_at=started_at,
+            )
+            raise BusinessQueryAccessDenied(
+                "无法确认订单归属，请转人工核验"
+            ) from exc
         except TimeoutError as exc:
             await self._audit(
                 operation="order_query",
@@ -132,6 +144,17 @@ class BusinessQueryService:
                 self._provider.query_logistics(query, context),
                 timeout=self._timeout_seconds,
             )
+        except BusinessProviderAccessDenied as exc:
+            await self._audit(
+                operation="logistics_query",
+                outcome="denied",
+                order_no=query.order_no,
+                context=context,
+                started_at=started_at,
+            )
+            raise BusinessQueryAccessDenied(
+                "无法确认订单归属，请转人工核验"
+            ) from exc
         except TimeoutError as exc:
             await self._audit(
                 operation="logistics_query",

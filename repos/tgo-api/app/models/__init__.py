@@ -34,6 +34,11 @@ from app.models.channel_memory_clearance import ChannelMemoryClearance, Clearanc
 from app.models.store_credential import StoreCredential
 from app.models.media_analysis_result import MediaAnalysisResult
 from app.models.message_intent_result import MessageIntentResult
+from app.models.customer_logistics import (
+    CustomerShipment,
+    LogisticsSettings,
+    ShipmentTrackingEvent,
+)
 
 __all__ = [
     # Models
@@ -72,6 +77,9 @@ __all__ = [
     "StoreCredential",
     "MediaAnalysisResult",
     "MessageIntentResult",
+    "CustomerShipment",
+    "LogisticsSettings",
+    "ShipmentTrackingEvent",
     # Enums
     "PlatformType",
     "StaffRole",

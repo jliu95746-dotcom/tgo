@@ -20,7 +20,7 @@ services:
     env_file:
       - .env.dev
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
 
   redis:
     ports:
@@ -91,6 +91,7 @@ services:
       WORKFLOW_SERVICE_URL: http://tgo-workflow:8000
       PLUGIN_RUNTIME_URL: http://tgo-plugin-runtime:8090
       DEVICE_CONTROL_SERVICE_URL: http://tgo-device-control:8085
+      INTENT_AUTOMATION_ENABLED: "${INTENT_AUTOMATION_ENABLED:-true}"
     volumes:
       - ./repos/tgo-ai:/workspace
       - ./data/skills:/data/skills
@@ -110,6 +111,7 @@ services:
     environment:
       <<: *backend-env
       AI_SERVICE_URL: http://tgo-ai:8081
+      BUSINESS_QUERY_MODE: "${BUSINESS_QUERY_MODE:-demo}"
     volumes:
       - ./repos/tgo-plugin-runtime:/workspace
       - ./data/plugins:/var/lib/tgo/plugins
@@ -240,7 +242,8 @@ services:
       - .env.dev
     environment:
       CHOKIDAR_USEPOLLING: "true"
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_API_BASE_URL: /api
+      VITE_API_PROXY_TARGET: http://tgo-api:8000
       VITE_WIDGET_PREVIEW_URL: ${VITE_WIDGET_PREVIEW_URL:-http://localhost:5174}
       VITE_WIDGET_SCRIPT_BASE: ${VITE_WIDGET_SCRIPT_BASE:-http://localhost:5174/tgo-widget-sdk.js}
       VITE_WIDGET_DEMO_URL: ${VITE_WIDGET_DEMO_URL:-http://localhost:5174/demo.html}
@@ -263,7 +266,9 @@ services:
         fi
         yarn dev --host 0.0.0.0 --port 5173
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5173/').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      # A page request triggers Vite/Tailwind compilation on Windows bind mounts.
+      # Check that the dev server is listening without competing with page builds.
+      test: ["CMD-SHELL", "node -e \"const net = require('node:net'); const socket = net.connect(5173, '127.0.0.1'); const fail = () => process.exit(1); socket.setTimeout(5000); socket.once('connect', () => { socket.end(); process.exit(0); }); socket.once('timeout', fail); socket.once('error', fail);\""]
       interval: 30s
       timeout: 10s
       retries: 3

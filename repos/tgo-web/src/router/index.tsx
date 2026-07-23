@@ -42,6 +42,7 @@ import StaffSettings from '../components/settings/StaffSettings';
 import NotificationSettings from '../components/settings/NotificationSettings';
 import ModelProvidersSettings from '../components/settings/ModelProvidersSettings';
 import PluginsSettings from '../components/settings/PluginsSettings';
+import LogisticsSettings from '../components/settings/LogisticsSettings';
 import AboutSettings from '../components/settings/AboutSettings';
 import MarkdownTestPage from '../pages/MarkdownTestPage';
 
@@ -98,6 +99,7 @@ export const router = createBrowserRouter([
           { path: 'staff', element: <StaffSettings /> },
           { path: 'providers', element: <ModelProvidersSettings /> },
           { path: 'plugins', element: <PluginsSettings /> },
+          { path: 'logistics', element: <LogisticsSettings /> },
           { path: 'about', element: <AboutSettings /> },
           // Inject SaaS settings routes
           ...(saasRoutes || [])

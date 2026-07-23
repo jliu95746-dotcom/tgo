@@ -1,4 +1,4 @@
-"""Platform-authenticated message analysis persistence endpoints."""
+"""Platform-write and staff-read message analysis endpoints."""
 
 from __future__ import annotations
 
@@ -8,17 +8,30 @@ from fastapi import APIRouter, Depends, Header, Path
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import require_permission
+from app.models import Staff
 from app.schemas.message_analysis import (
     CombinedMessageAnalysisResponse,
     IntentResultResponse,
     IntentResultUpsertRequest,
     MediaResultResponse,
     MediaResultUpsertRequest,
+    StaffMessageAnalysisBatchRequest,
+    StaffMessageAnalysisBatchResponse,
+    StaffMessageAnalysisResponse,
 )
-from app.services.message_analysis_service import MessageAnalysisService
+from app.services.message_analysis_service import (
+    MessageAnalysisLookupKey,
+    MessageAnalysisService,
+)
+from app.utils.encoding import (
+    build_visitor_channel_id,
+    parse_visitor_channel_id,
+)
 
 
 router = APIRouter()
+require_message_analysis_read = require_permission("visitors:read")
 
 SourceMessageId = Annotated[
     str,
@@ -101,4 +114,52 @@ def get_message_analysis(
             if combined.intent is not None
             else None
         ),
+    )
+
+
+@router.post(
+    "/staff/messages/query",
+    response_model=StaffMessageAnalysisBatchResponse,
+    summary="Get employee-visible message analyses",
+)
+def get_staff_message_analyses(
+    request: StaffMessageAnalysisBatchRequest,
+    current_user: Staff = Depends(require_message_analysis_read),
+    db: Session = Depends(get_db),
+) -> StaffMessageAnalysisBatchResponse:
+    """Batch-read message analyses within the authenticated staff project."""
+    key_to_channel = {
+        MessageAnalysisLookupKey(
+            visitor_id=parse_visitor_channel_id(message.channel_id),
+            source_message_id=message.source_message_id,
+        ): message.channel_id
+        for message in request.messages
+    }
+    combined_results = MessageAnalysisService(
+        db
+    ).get_combined_results_for_project(
+        project_id=current_user.project_id,
+        keys=tuple(key_to_channel),
+    )
+    return StaffMessageAnalysisBatchResponse(
+        items=tuple(
+            StaffMessageAnalysisResponse(
+                channel_id=key_to_channel.get(
+                    combined.key,
+                    build_visitor_channel_id(combined.key.visitor_id),
+                ),
+                source_message_id=combined.key.source_message_id,
+                media=(
+                    MediaResultResponse.model_validate(combined.media)
+                    if combined.media is not None
+                    else None
+                ),
+                intent=(
+                    IntentResultResponse.model_validate(combined.intent)
+                    if combined.intent is not None
+                    else None
+                ),
+            )
+            for combined in combined_results
+        )
     )

@@ -223,6 +223,8 @@ test_*.py
 !tests/test_knowledge_governance.py
 !tests/test_knowledge_governance_api.py
 !tests/test_automatic_answer_search.py
+!tests/test_qwen3_embedding_client.py
+!tests/test_vector_store_similarity.py
 
 # Coverage reports
 .coverage

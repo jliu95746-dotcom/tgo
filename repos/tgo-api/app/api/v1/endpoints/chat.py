@@ -62,6 +62,10 @@ from app.services.chat_service import get_or_create_visitor
 from app.services.transfer_service import transfer_to_staff
 from app.models import AssignmentSource
 from app.services.ai_client import AIServiceClient
+from app.services.message_intent_orchestrator import (
+    MessageIntentOrchestrator,
+    MessageIntentRoutingOutcome,
+)
 from app.services.wukongim_client import wukongim_client
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_STAFF, MessageType
 from app.utils.encoding import build_visitor_channel_id, parse_visitor_channel_id, get_session_id
@@ -78,6 +82,14 @@ def _build_platform_agent_kwargs(platform: Platform) -> dict[str, str]:
     if platform.agent_id is not None:
         runtime_kwargs["agent_id"] = str(platform.agent_id)
     return runtime_kwargs
+
+
+def _append_trusted_system_context(
+    current: str | None,
+    addition: str,
+) -> str:
+    """Append server-generated instructions without changing customer text."""
+    return f"{current}\n\n{addition}" if current else addition
 
 
 # ============================================================================
@@ -326,8 +338,9 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
         req.message = storage.resolve_url(req.message)
 
     # 3.2) Forward a copy of user message to WuKongIM (best-effort)
+    source_message_id: str | None = None
     if req.forward_user_message_to_wukongim:
-        await chat_service.send_user_message_to_wukongim(
+        source_message_id = await chat_service.send_user_message_to_wukongim(
             from_uid=f"{visitor.id}-vtr",
             channel_id=channel_id_enc,
             channel_type=channel_type,
@@ -335,6 +348,29 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
             msg_type=req.msg_type,
             extra=req.extra,
         )
+
+    intent_outcome: MessageIntentRoutingOutcome | None = None
+    if req.msg_type == MessageType.TEXT:
+        source_message_id = source_message_id or f"direct_{uuid4().hex}"
+        try:
+            intent_outcome = await MessageIntentOrchestrator(
+                db
+            ).analyze_text_message(
+                project=project,
+                platform=platform,
+                visitor=visitor,
+                source_message_id=source_message_id,
+                user_text=req.message,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Message intent pipeline failed without blocking chat",
+                extra={
+                    "visitor_id": str(visitor.id),
+                    "source_message_id": source_message_id,
+                    "error": str(exc),
+                },
+            )
 
     # 3.5) If visitor is unassigned, try to assign staff
     assigned_staff_id = None
@@ -416,6 +452,38 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
             async def no_staff_error_gen():
                 yield chat_service.sse_format({"event_type": "error", "data": error_data})
             return StreamingResponse(no_staff_error_gen(), media_type="text/event-stream")
+
+    if intent_outcome is not None:
+        if intent_outcome.routing_target == "human_handoff":
+            handoff_data = {
+                "success": False,
+                "event_type": "human_handoff",
+                "message": "该问题需要人工客服处理，已停止 AI 自动回复。",
+                "visitor_id": str(visitor.id),
+                "routing_reason": intent_outcome.routing_reason,
+            }
+            if req.stream is False:
+                return handoff_data
+
+            async def handoff_gen():
+                yield chat_service.sse_format(
+                    {"event_type": "human_handoff", "data": handoff_data}
+                )
+
+            return StreamingResponse(
+                handoff_gen(),
+                media_type="text/event-stream",
+            )
+        if intent_outcome.routing_target == "clarify":
+            req.system_message = _append_trusted_system_context(
+                req.system_message,
+                "本轮只询问一个必要的澄清问题，不得猜测订单号或客户意图。",
+            )
+        elif intent_outcome.tool_context:
+            req.system_message = _append_trusted_system_context(
+                req.system_message,
+                intent_outcome.tool_context,
+            )
 
     # 5) Check AI disabled status (removed auto-recovery logic - should only be triggered by explicit staff action or platform setting change)
     # 5.1) Check AI disabled status

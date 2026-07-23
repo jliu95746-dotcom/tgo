@@ -73,7 +73,9 @@ export enum PlatformType {
   WECOM = "wecom",
   WECOM_BOT = "wecom_bot",
   FEISHU_BOT = "feishu_bot",
-  DINGTALK_BOT = "dingtalk_bot"
+  DINGTALK_BOT = "dingtalk_bot",
+  // Vision Agent platforms (UI automation via VLM + AgentBay)
+  WECHAT_PERSONAL = "wechat_personal"
 }
 
 export interface PlatformConfig {
@@ -92,6 +94,17 @@ export interface PlatformConfig {
   smtpPort?: number;
   username?: string;
   lastError?: string;
+  // Vision Agent configuration
+  agentbayApiKey?: string;
+  environmentType?: string;
+  imageId?: string;
+  pollIntervalSeconds?: number;
+  // Vision model (for screen analysis)
+  visionProviderId?: string;
+  visionModelId?: string;
+  // Reasoning model (for task planning)
+  reasoningProviderId?: string;
+  reasoningModelId?: string;
 }
 
 /**
@@ -950,6 +963,7 @@ export interface Message {
   // Flattened WuKongIM metadata (camelCase)
   messageId?: string; // was wukongim.message_id (now string)
   clientMsgNo?: string; // was client_msg_no
+  sourceMessageId?: string; // original platform message ID from payload.extra
   messageSeq?: number; // was message_seq
   fromUid?: string; // was from_uid
   channelId?: string; // was channel_id

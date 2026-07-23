@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import AsyncIterator, Optional
 from functools import lru_cache
+import hmac
 
 from fastapi import Depends, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -90,6 +91,29 @@ async def get_current_project_id(
     Returns:
         Project UUID
     """
+    return project.id
+
+
+async def get_current_or_internal_project_id(
+    request: Request,
+    authorization: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> uuid.UUID:
+    """Resolve a project from either normal auth or a trusted service call."""
+    internal_key = request.headers.get("X-Internal-API-Key")
+    internal_project_id = request.headers.get("X-Project-Id")
+    if internal_key is not None or internal_project_id is not None:
+        if (
+            not internal_key
+            or not internal_project_id
+            or not hmac.compare_digest(internal_key, settings.secret_key)
+        ):
+            raise AuthenticationError("Invalid internal service authentication")
+        try:
+            return uuid.UUID(internal_project_id)
+        except ValueError as exc:
+            raise AuthenticationError("Invalid internal project ID") from exc
+
+    project = await get_current_project(request, authorization)
     return project.id
 
 

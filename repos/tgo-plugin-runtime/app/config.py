@@ -1,8 +1,8 @@
 """Application configuration using Pydantic Settings."""
 
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -65,6 +65,41 @@ class Settings(BaseSettings):
         default="secret-key-at-least-32-chars-long!!",
         description="Secret key for JWT verification (must match tgo-api)",
     )
+    INTERNAL_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Shared key for internal tgo-api calls",
+    )
+    BUSINESS_QUERY_MODE: Literal["disabled", "demo", "http"] = Field(
+        default="disabled",
+        description="Read-only business provider mode: disabled, demo, or http",
+    )
+    BUSINESS_QUERY_TIMEOUT: float = Field(default=5.0, gt=0)
+    BUSINESS_API_BASE_URL: Optional[str] = None
+    BUSINESS_API_ORDER_PATH: str = "/v1/orders/query"
+    BUSINESS_API_LOGISTICS_PATH: str = "/v1/logistics/query"
+    BUSINESS_API_METHOD: Literal["GET", "POST"] = "POST"
+    BUSINESS_API_AUTH_MODE: Literal[
+        "none", "bearer", "api_key", "basic"
+    ] = "none"
+    BUSINESS_API_AUTH_TOKEN: Optional[SecretStr] = None
+    BUSINESS_API_KEY_HEADER: str = "X-API-Key"
+    BUSINESS_API_BASIC_USERNAME: Optional[str] = None
+    BUSINESS_API_BASIC_PASSWORD: Optional[SecretStr] = None
+    BUSINESS_API_DATA_PATH: str = "data"
+    BUSINESS_API_SUCCESS_FIELD: Optional[str] = None
+    BUSINESS_API_SUCCESS_VALUE: str = "0"
+    BUSINESS_API_TENANT_ID_FIELD: str = "tenant_id"
+    BUSINESS_API_CUSTOMER_ID_FIELD: str = "customer_id"
+    BUSINESS_API_ORDER_NO_FIELD: str = "order_no"
+    BUSINESS_API_ORDER_STATUS_FIELD: str = "status"
+    BUSINESS_API_ORDER_AMOUNT_FIELD: str = "amount_minor"
+    BUSINESS_API_ORDER_AMOUNT_UNIT: Literal["minor", "major"] = "minor"
+    BUSINESS_API_ORDER_CURRENCY_FIELD: str = "currency"
+    BUSINESS_API_ORDER_CREATED_AT_FIELD: str = "created_at"
+    BUSINESS_API_LOGISTICS_STATUS_FIELD: str = "status"
+    BUSINESS_API_LOGISTICS_CARRIER_FIELD: str = "carrier"
+    BUSINESS_API_LOGISTICS_TRACKING_NO_FIELD: str = "tracking_no"
+    BUSINESS_API_LOGISTICS_UPDATED_AT_FIELD: str = "updated_at"
 
     # Plugin Storage
     PLUGIN_BASE_PATH: str = Field(

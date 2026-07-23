@@ -3,7 +3,10 @@ import type {
   MessageAnalysisViewState,
   MessageIntentResult,
   RoutingReason,
+  StaffMessageAnalysisBatchRequest,
+  StaffMessageAnalysisBatchResponse,
 } from '../messageAnalysis';
+import { buildMessageAnalysisCacheKey } from '../../stores/messageAnalysisStore';
 
 const routingReason: RoutingReason = 'untrusted_media_confirmation';
 
@@ -49,9 +52,33 @@ const availableState: MessageAnalysisViewState = {
   analysis,
 };
 
+const staffRequest = {
+  messages: [
+    {
+      channel_id: '00000000-0000-0000-0000-000000000001-vtr',
+      source_message_id: 'source-message-id',
+    },
+  ],
+} satisfies StaffMessageAnalysisBatchRequest;
+
+const staffResponse = {
+  items: [
+    {
+      channel_id: staffRequest.messages[0].channel_id,
+      ...analysis,
+    },
+  ],
+} satisfies StaffMessageAnalysisBatchResponse;
+
+const cacheKey: string = buildMessageAnalysisCacheKey(
+  staffRequest.messages[0]
+);
+
 // Invalid write-capable routes must remain outside the console contract.
 // @ts-expect-error Only policy-approved routes may be displayed.
 const unsafeRoute: MessageIntentResult['recommended_route'] = 'refund_order';
 
 void availableState;
+void staffResponse;
+void cacheKey;
 void unsafeRoute;

@@ -31,20 +31,34 @@ from app.services.rag_service import (
 
 logger = get_logger("services.rag_embedding_sync")
 
+RAG_EMBEDDING_DIMENSIONS = 1536
+RAG_EMBEDDING_BATCH_SIZE = 10
+_OPENAI_COMPATIBLE_KINDS = {
+    "openai_compatible",
+    "openai-compatible",
+    "openai compatible",
+}
+_DASHSCOPE_VENDORS = {"ali", "aliyun", "dashscope", "qwen", "qwen3"}
+
 
 def _map_provider_for_rag(provider_kind: str, vendor: Optional[str]) -> Optional[str]:
     """Map internal provider_kind/vendor to RAG "provider" enum.
 
-    Supported (per RAG OpenAPI): "openai", "qwen3".
+    DashScope is synchronized by tgo-api as an OpenAI-compatible provider with
+    ``vendor=dashscope``. RAG keeps a dedicated Qwen3 client so that model and
+    dimension behavior remain explicit.
     """
     kind = (provider_kind or "").lower()
     vend = (vendor or "").lower() if vendor else None
 
     if kind == "openai":
         return "openai"
-    # Qwen3 runs via OpenAI-compatible endpoints; we use vendor to disambiguate
-    if kind in ("openai_compatible", "openai-compatible", "openai compatible") and vend in {"qwen3", "qwen"}:
+    if kind in _DASHSCOPE_VENDORS:
         return "qwen3"
+    if kind in _OPENAI_COMPATIBLE_KINDS:
+        if vend in _DASHSCOPE_VENDORS:
+            return "qwen3"
+        return "openai_compatible"
 
     return None
 
@@ -76,7 +90,18 @@ async def build_embedding_configs(
             )
             continue
 
-        provider_name =provider.provider_kind
+        provider_name = _map_provider_for_rag(
+            provider.provider_kind,
+            provider.vendor,
+        )
+        if provider_name is None:
+            logger.warning(
+                "Embedding sync skipped: provider is not supported by RAG",
+                project_id=str(cfg.project_id),
+                provider_kind=provider.provider_kind,
+                vendor=provider.vendor,
+            )
+            continue
 
         # Build payload
         payloads.append(
@@ -84,7 +109,8 @@ async def build_embedding_configs(
                 project_id=cfg.project_id,
                 provider=provider_name,
                 model=cfg.default_embedding_model,
-                # Let RAG defaults apply for dimensions/batch_size
+                dimensions=RAG_EMBEDDING_DIMENSIONS,
+                batch_size=RAG_EMBEDDING_BATCH_SIZE,
                 api_key=provider.api_key,
                 base_url=provider.api_base_url,
                 is_active=True,

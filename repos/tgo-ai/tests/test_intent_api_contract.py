@@ -5,12 +5,33 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from starlette.requests import Request
 
+from app.config import settings
+from app.dependencies import get_current_or_internal_project_id
 from app.runtime.structured_output.base import StructuredOutputRequest
 from app.schemas.chat import ChatCompletionResponse, Choice, ChoiceMessage
 from app.services.structured_output_chat_client import (
     ChatServiceStructuredOutputClient,
 )
+
+
+@pytest.mark.asyncio
+async def test_internal_intent_auth_uses_explicit_project_scope() -> None:
+    project_id = uuid.uuid4()
+    request = Request(
+        {
+            "type": "http",
+            "headers": [
+                (b"x-internal-api-key", settings.secret_key.encode()),
+                (b"x-project-id", str(project_id).encode()),
+            ],
+        }
+    )
+
+    resolved = await get_current_or_internal_project_id(request, None)
+
+    assert resolved == project_id
 
 
 class FakeChatService:

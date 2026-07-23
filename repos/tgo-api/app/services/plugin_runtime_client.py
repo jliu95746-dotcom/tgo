@@ -1,6 +1,6 @@
 """Client for communicating with tgo-plugin-runtime service."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -163,6 +163,33 @@ class PluginRuntimeClient:
             json=request_data,
             params=params,
         )
+
+    async def query_business_data(
+        self,
+        request_data: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Call the built-in tenant-bound read-only business adapter."""
+        url = f"{self.base_url}/business/query"
+        internal_key = settings.INTERNAL_API_KEY
+        internal_key_value = (
+            internal_key.get_secret_value()
+            if internal_key is not None
+            else settings.SECRET_KEY
+        )
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                url,
+                json=request_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-API-Key": internal_key_value,
+                },
+            )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        result = response.json()
+        return result if isinstance(result, dict) else None
 
     # ==================== Installation & Lifecycle ====================
 

@@ -13,7 +13,7 @@ from app.core.database import Base
 class ProjectAIConfig(Base):
     """Default AI models for a given project (one-to-one with Project).
 
-    Stores default chat and embedding provider/model selections.
+    Stores default chat, embedding, and multimodal provider/model selections.
     """
 
     __tablename__ = "api_project_ai_configs"
@@ -48,6 +48,32 @@ class ProjectAIConfig(Base):
         String(100), nullable=True, comment="Default embedding model identifier"
     )
 
+    # Default multimodal model selections
+    default_asr_provider_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("api_ai_providers.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="AIProvider ID for default ASR model",
+    )
+    default_asr_model: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, comment="Default ASR model identifier"
+    )
+    default_ocr_provider_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("api_ai_providers.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="AIProvider ID for default OCR model",
+    )
+    default_ocr_model: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, comment="Default OCR model identifier"
+    )
+    default_vlm_provider_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("api_ai_providers.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="AIProvider ID for default VLM model",
+    )
+    default_vlm_model: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, comment="Default VLM model identifier"
+    )
+
     # Timestamps (soft delete)
     created_at: Mapped[datetime] = mapped_column(nullable=False, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -67,6 +93,15 @@ class ProjectAIConfig(Base):
     )
     embedding_provider: Mapped[Optional["AIProvider"]] = relationship(
         "AIProvider", foreign_keys=[default_embedding_provider_id], lazy="select"
+    )
+    asr_provider: Mapped[Optional["AIProvider"]] = relationship(
+        "AIProvider", foreign_keys=[default_asr_provider_id], lazy="select"
+    )
+    ocr_provider: Mapped[Optional["AIProvider"]] = relationship(
+        "AIProvider", foreign_keys=[default_ocr_provider_id], lazy="select"
+    )
+    vlm_provider: Mapped[Optional["AIProvider"]] = relationship(
+        "AIProvider", foreign_keys=[default_vlm_provider_id], lazy="select"
     )
 
     __table_args__ = (

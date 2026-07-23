@@ -12,7 +12,9 @@ from pydantic.config import ConfigDict
 class LLMModelBase(BaseModel):
     model_id: str = Field(..., description="Model identifier (e.g., gpt-4)")
     model_name: str = Field(..., description="Display name for the model")
-    model_type: str = Field(default="chat", description="chat | embedding")
+    model_type: str = Field(
+        default="chat", description="chat | embedding | asr | ocr | vlm"
+    )
     description: Optional[str] = None
     capabilities: Optional[dict] = None
     context_window: Optional[int] = None

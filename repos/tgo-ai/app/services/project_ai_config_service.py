@@ -34,6 +34,12 @@ class ProjectAIConfigService:
         default_chat_model: Optional[str] = None,
         default_embedding_provider_id: Optional[uuid.UUID] = None,
         default_embedding_model: Optional[str] = None,
+        default_asr_provider_id: Optional[uuid.UUID] = None,
+        default_asr_model: Optional[str] = None,
+        default_ocr_provider_id: Optional[uuid.UUID] = None,
+        default_ocr_model: Optional[str] = None,
+        default_vlm_provider_id: Optional[uuid.UUID] = None,
+        default_vlm_model: Optional[str] = None,
     ) -> ProjectAIConfig:
         existing = await self.get(project_id)
         if existing:
@@ -41,6 +47,12 @@ class ProjectAIConfigService:
             existing.default_chat_model = default_chat_model
             existing.default_embedding_provider_id = default_embedding_provider_id
             existing.default_embedding_model = default_embedding_model
+            existing.default_asr_provider_id = default_asr_provider_id
+            existing.default_asr_model = default_asr_model
+            existing.default_ocr_provider_id = default_ocr_provider_id
+            existing.default_ocr_model = default_ocr_model
+            existing.default_vlm_provider_id = default_vlm_provider_id
+            existing.default_vlm_model = default_vlm_model
             # mark pending for new sync cycle
             existing.sync_status = "pending"
             existing.sync_error = None
@@ -60,6 +72,12 @@ class ProjectAIConfigService:
             default_chat_model=default_chat_model,
             default_embedding_provider_id=default_embedding_provider_id,
             default_embedding_model=default_embedding_model,
+            default_asr_provider_id=default_asr_provider_id,
+            default_asr_model=default_asr_model,
+            default_ocr_provider_id=default_ocr_provider_id,
+            default_ocr_model=default_ocr_model,
+            default_vlm_provider_id=default_vlm_provider_id,
+            default_vlm_model=default_vlm_model,
             sync_status="pending",
             sync_error=None,
             sync_attempt_count=0,
@@ -83,6 +101,12 @@ class ProjectAIConfigService:
                 default_chat_model=payload.get("default_chat_model"),
                 default_embedding_provider_id=payload.get("default_embedding_provider_id"),
                 default_embedding_model=payload.get("default_embedding_model"),
+                default_asr_provider_id=payload.get("default_asr_provider_id"),
+                default_asr_model=payload.get("default_asr_model"),
+                default_ocr_provider_id=payload.get("default_ocr_provider_id"),
+                default_ocr_model=payload.get("default_ocr_model"),
+                default_vlm_provider_id=payload.get("default_vlm_provider_id"),
+                default_vlm_model=payload.get("default_vlm_model"),
             )
             synced.append(cfg)
         # upsert_config already commits; no additional commit required here

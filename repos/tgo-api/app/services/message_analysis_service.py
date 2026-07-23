@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from collections.abc import Sequence
 from uuid import UUID
 
 from fastapi import status
 from pydantic import BaseModel
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -49,6 +51,23 @@ class CombinedMessageAnalysis:
     intent: MessageIntentResult | None
 
 
+@dataclass(frozen=True)
+class MessageAnalysisLookupKey:
+    """Natural key used by the employee-console batch read."""
+
+    visitor_id: UUID
+    source_message_id: str
+
+
+@dataclass(frozen=True)
+class ProjectMessageAnalysis:
+    """One project-scoped analysis result for a requested message."""
+
+    key: MessageAnalysisLookupKey
+    media: MediaAnalysisResult | None
+    intent: MessageIntentResult | None
+
+
 def _fingerprint(source_message_id: str, request: BaseModel) -> str:
     """Build a deterministic digest while excluding retry-only request IDs."""
     canonical = {
@@ -83,6 +102,21 @@ class MessageAnalysisService:
     ) -> MediaAnalysisResult:
         """Insert a media result or return the identical existing result."""
         platform = self._authenticate_platform(platform_api_key)
+        return self.upsert_media_result_for_platform(
+            platform=platform,
+            source_message_id=source_message_id,
+            request=request,
+        )
+
+    def upsert_media_result_for_platform(
+        self,
+        *,
+        platform: Platform,
+        source_message_id: str,
+        request: MediaResultUpsertRequest,
+    ) -> MediaAnalysisResult:
+        """Persist a result after an in-process caller already resolved the platform."""
+        self._require_active_platform(platform)
         self._require_scoped_visitor(platform, request.visitor_id)
         fingerprint = _fingerprint(source_message_id, request)
         existing = self._find_media_result(platform, source_message_id)
@@ -131,6 +165,21 @@ class MessageAnalysisService:
     ) -> MessageIntentResult:
         """Insert an intent result or return the identical existing result."""
         platform = self._authenticate_platform(platform_api_key)
+        return self.upsert_intent_result_for_platform(
+            platform=platform,
+            source_message_id=source_message_id,
+            request=request,
+        )
+
+    def upsert_intent_result_for_platform(
+        self,
+        *,
+        platform: Platform,
+        source_message_id: str,
+        request: IntentResultUpsertRequest,
+    ) -> MessageIntentResult:
+        """Persist an intent result for a trusted in-process platform context."""
+        self._require_active_platform(platform)
         self._require_scoped_visitor(platform, request.visitor_id)
         media_result = self._resolve_media_result(
             platform,
@@ -187,6 +236,86 @@ class MessageAnalysisService:
             raise NotFoundError("Message analysis", source_message_id)
         return CombinedMessageAnalysis(media=media, intent=intent)
 
+    def get_combined_results_for_project(
+        self,
+        *,
+        project_id: UUID,
+        keys: tuple[MessageAnalysisLookupKey, ...],
+    ) -> tuple[ProjectMessageAnalysis, ...]:
+        """Return requested analyses visible to one authenticated project."""
+        if not keys:
+            return ()
+
+        requested_keys = set(keys)
+        media_source_message_id = MediaAnalysisResult.source_message_id
+        intent_source_message_id = MessageIntentResult.source_message_id
+        media_scope = or_(
+            *(
+                and_(
+                    MediaAnalysisResult.visitor_id == key.visitor_id,
+                    media_source_message_id == key.source_message_id,
+                )
+                for key in keys
+            )
+        )
+        intent_scope = or_(
+            *(
+                and_(
+                    MessageIntentResult.visitor_id == key.visitor_id,
+                    intent_source_message_id == key.source_message_id,
+                )
+                for key in keys
+            )
+        )
+        media_rows = (
+            self._db.query(MediaAnalysisResult)
+            .filter(
+                MediaAnalysisResult.project_id == project_id,
+                media_scope,
+            )
+            .all()
+        )
+        intent_rows = (
+            self._db.query(MessageIntentResult)
+            .filter(
+                MessageIntentResult.project_id == project_id,
+                intent_scope,
+            )
+            .all()
+        )
+
+        media_by_key: dict[MessageAnalysisLookupKey, MediaAnalysisResult] = {}
+        for media_row in media_rows:
+            key = MessageAnalysisLookupKey(
+                visitor_id=media_row.visitor_id,
+                source_message_id=media_row.source_message_id,
+            )
+            if media_row.project_id == project_id and key in requested_keys:
+                media_by_key[key] = media_row
+
+        intent_by_key: dict[MessageAnalysisLookupKey, MessageIntentResult] = {}
+        for intent_row in intent_rows:
+            key = MessageAnalysisLookupKey(
+                visitor_id=intent_row.visitor_id,
+                source_message_id=intent_row.source_message_id,
+            )
+            if intent_row.project_id == project_id and key in requested_keys:
+                intent_by_key[key] = intent_row
+
+        results: list[ProjectMessageAnalysis] = []
+        for key in keys:
+            media = media_by_key.get(key)
+            intent = intent_by_key.get(key)
+            if media is not None or intent is not None:
+                results.append(
+                    ProjectMessageAnalysis(
+                        key=key,
+                        media=media,
+                        intent=intent,
+                    )
+                )
+        return tuple(results)
+
     def _authenticate_platform(self, api_key: str) -> Platform:
         if not api_key:
             raise AuthenticationError("Missing platform API key")
@@ -202,6 +331,11 @@ class MessageAnalysisService:
         if platform is None:
             raise AuthenticationError("Invalid platform API key")
         return platform
+
+    @staticmethod
+    def _require_active_platform(platform: Platform) -> None:
+        if not platform.is_active or platform.deleted_at is not None:
+            raise AuthenticationError("Inactive platform")
 
     def _require_scoped_visitor(
         self,

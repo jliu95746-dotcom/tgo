@@ -24,6 +24,16 @@ class StrictRoutingSchema(BaseModel):
     )
 
 
+class RoutingTransportSchema(BaseModel):
+    """JSON transport schema that converts strings before strict policy use."""
+
+    model_config = ConfigDict(
+        strict=False,
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+
 class CustomerServiceIntent(str, Enum):
     """Version 1 intent identifiers shared at the service boundary."""
 
@@ -147,6 +157,43 @@ class CustomerServiceRoutingInput(StrictRoutingSchema):
         ):
             raise ValueError("media source requires processing status")
         return self
+
+
+class IntentRoutingSignalRequest(RoutingTransportSchema):
+    """HTTP representation of one upstream classification signal."""
+
+    intent: CustomerServiceIntent
+    confidence: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    risk_level: RiskLevel
+    recommended_route: RecommendedRoute
+    need_human: bool
+    taxonomy_version: Literal["v1"]
+
+
+class CustomerServiceRoutingRequest(RoutingTransportSchema):
+    """HTTP input converted into the strict policy-domain contract."""
+
+    classification: IntentRoutingSignalRequest
+    media_status: MediaProcessingStatus
+    content_sources: tuple[CustomerContentSource, ...] = Field(min_length=1)
+    content_trust_boundary: Literal[
+        ContentTrustBoundary.UNTRUSTED
+    ] = ContentTrustBoundary.UNTRUSTED
+
+    @model_validator(mode="after")
+    def validate_domain_boundary(self) -> Self:
+        self.to_domain()
+        return self
+
+    def to_domain(self) -> CustomerServiceRoutingInput:
+        return CustomerServiceRoutingInput(
+            classification=IntentRoutingSignal(
+                **self.classification.model_dump()
+            ),
+            media_status=self.media_status,
+            content_sources=self.content_sources,
+            content_trust_boundary=self.content_trust_boundary,
+        )
 
 
 class CustomerServiceRoutingDecision(StrictRoutingSchema):

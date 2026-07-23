@@ -93,6 +93,7 @@ from app.schemas.ai_provider import (
     AIProviderResponse,
     AIProviderListParams,
     AIProviderListResponse,
+    AIModelInput,
 )
 from app.schemas.ai_model import (
     AIModelCreate,
@@ -292,6 +293,7 @@ __all__ = [
     "AIProviderResponse",
     "AIProviderListParams",
     "AIProviderListResponse",
+    "AIModelInput",
     # AI Model schemas
     "AIModelCreate",
     "AIModelUpdate",
