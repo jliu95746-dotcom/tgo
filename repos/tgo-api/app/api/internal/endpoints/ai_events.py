@@ -19,12 +19,15 @@ from app.core.database import get_db
 from app.models import (
     Project,
     Visitor,
+    VisitorServiceStatus,
     Staff,
     VisitorAIInsight,
     VisitorCustomerUpdate,
     Tag,
     VisitorTag,
     VisitorWaitingQueue,
+    VisitorSession,
+    SessionStatus,
     WaitingStatus,
     AssignmentSource,
 )
@@ -185,6 +188,9 @@ async def _handle_manual_service_request(event: AIServiceEvent, project: Project
         ).first()
         
         if existing_queue:
+            visitor.ai_disabled = True
+            db.commit()
+            await notify_visitor_profile_updated(db, visitor)
             return {
                 "entry_id": str(existing_queue.id),
                 "status": existing_queue.status,
@@ -194,16 +200,30 @@ async def _handle_manual_service_request(event: AIServiceEvent, project: Project
                 "channel_type": existing_queue.channel_type,
                 "message": f"Visitor already in queue (status: {visitor.service_status})",
             }
-        else:
+
+        active_session = db.query(VisitorSession).filter(
+            VisitorSession.visitor_id == visitor.id,
+            VisitorSession.status == SessionStatus.OPEN.value,
+            VisitorSession.staff_id.isnot(None),
+        ).first()
+        if active_session:
+            visitor.ai_disabled = True
+            db.commit()
+            await notify_visitor_profile_updated(db, visitor)
             return {
-                "entry_id": None,
-                "status": visitor.service_status,
-                "position": None,
-                "priority": None,
-                "channel_id": None,
-                "channel_type": None,
-                "message": f"Visitor cannot enter queue (status: {visitor.service_status})",
+                "assigned_staff_id": str(active_session.staff_id),
+                "session_id": str(active_session.id),
+                "status": VisitorServiceStatus.ACTIVE.value,
+                "message": "Visitor is already assigned to staff; AI replies are now disabled",
             }
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Visitor cannot be handed off because no active staff session "
+                f"or waiting queue exists (status: {visitor.service_status})"
+            ),
+        )
 
     reason = (payload.reason or "").strip()
     if not reason:
@@ -248,15 +268,12 @@ async def _handle_manual_service_request(event: AIServiceEvent, project: Project
             "message": transfer_result.message,
         }
 
-    return {
-        "entry_id": None,
-        "status": visitor.service_status,
-        "position": None,
-        "priority": None,
-        "channel_id": None,
-        "channel_type": None,
-        "message": transfer_result.message,
-    }
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=(
+            "Transfer reported success but created no staff session or waiting queue"
+        ),
+    )
 
 
 async def _handle_visitor_info_update(event: AIServiceEvent, project: Project, db: Session) -> dict:

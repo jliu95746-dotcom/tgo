@@ -28,7 +28,7 @@ async def test_qwen3_client_requests_configured_dimensions(monkeypatch) -> None:
     client = embedding_module.Qwen3EmbeddingClient(
         api_key="test-dashscope-key",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="text-embedding-v4",
+        model="qwen3.7-text-embedding",
         dimensions=1536,
         batch_size=10,
     )
@@ -36,7 +36,7 @@ async def test_qwen3_client_requests_configured_dimensions(monkeypatch) -> None:
     vector = await client.embed_query("企业微信的退换货规则是什么？")
 
     assert len(vector) == 1536
-    assert captured["model"] == "text-embedding-v4"
+    assert captured["model"] == "qwen3.7-text-embedding"
     assert captured["input"] == ["企业微信的退换货规则是什么？"]
     assert captured["dimensions"] == 1536
     assert captured["encoding_format"] == "float"

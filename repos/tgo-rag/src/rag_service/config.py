@@ -113,7 +113,7 @@ class Settings(BaseSettings):
         description="Qwen3-Embedding API base URL"
     )
     qwen3_model: str = Field(
-        default="text-embedding-v4",
+        default="qwen3.7-text-embedding",
         description="Qwen3-Embedding model name"
     )
     qwen3_dimensions: int = Field(default=1536, description="Qwen3-Embedding vector dimensions")
@@ -121,7 +121,10 @@ class Settings(BaseSettings):
     # Search settings
     default_search_limit: int = Field(default=20, description="Default search result limit")
     max_search_limit: int = Field(default=100, description="Maximum search result limit")
-    min_similarity_score: float = Field(default=0.1, description="Minimum similarity score (filter low-quality results)")
+    min_similarity_score: float = Field(
+        default=0.37,
+        description="Minimum similarity score for automatic answers",
+    )
     semantic_search_weight: float = Field(default=0.7, description="Semantic search weight in hybrid search")
     keyword_search_weight: float = Field(default=0.3, description="Keyword search weight in hybrid search")
     

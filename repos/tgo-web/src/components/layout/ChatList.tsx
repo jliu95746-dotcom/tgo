@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Minus, Plus, X } from 'lucide-react';
+import { Clock3, Plus, Tags, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { MessagePayloadType, type Chat } from '@/types';
+import { MessagePayloadType, PlatformType, type ChannelInfo, type ChannelVisitorExtra, type Chat } from '@/types';
 import { useChatStore, chatSelectors, useUIStore, useConversationStore } from '@/stores';
 import { useSyncStore } from '@/stores/syncStore';
 import { useChannelStore } from '@/stores/channelStore';
@@ -21,8 +21,6 @@ import { visitorApiService, type VisitorResponse } from '@/services/visitorApi';
 import { CHAT_PRIORITY, CHAT_STATUS, VISITOR_STATUS } from '@/constants';
 import { useToast } from '@/hooks/useToast';
 import { showApiError } from '@/utils/toastHelpers';
-import { PlatformType } from '@/types';
-import type { ChannelVisitorExtra, ChannelInfo } from '@/types';
 
 // ============================================================================
 // Main Component
@@ -44,6 +42,10 @@ interface ChatListProps {
   refreshTrigger?: number;
   /** Channel info of the deleted chat (to remove from local state) */
   deletedChatChannel?: { channelId: string; channelType: number } | null;
+  /** Optional responsive layout classes */
+  className?: string;
+  /** Reports the number of items visible in the current view */
+  onVisibleItemCountChange?: (count: number) => void;
 }
 
 /**
@@ -103,11 +105,14 @@ const ChatListComponent: React.FC<ChatListProps> = ({
   onTabChange: controlledOnTabChange,
   refreshTrigger,
   deletedChatChannel,
+  className = '',
+  onVisibleItemCountChange,
 }) => {
   const { t } = useTranslation();
   
   // Store subscriptions - chats 用于存储新消息创建的会话
-  const realtimeChats = useChatStore(chatSelectors.chats) ?? [];
+  const realtimeChatsState = useChatStore(chatSelectors.chats);
+  const realtimeChats = useMemo(() => realtimeChatsState ?? [], [realtimeChatsState]);
   const searchQuery = useChatStore(chatSelectors.searchQuery) ?? '';
   const setSearchQuery = useChatStore(state => state.setSearchQuery);
   
@@ -123,8 +128,7 @@ const ChatListComponent: React.FC<ChatListProps> = ({
   const [mineTagMeta, setMineTagMeta] = useState<Record<string, StoredVisitorTag>>({});
   const [availableVisitorTags, setAvailableVisitorTags] = useState<TagResponse[]>([]);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
-  const [isTagFilterOpen, setIsTagFilterOpen] = useState(false); // 选择面板（用于“+”添加）
-  const [isEditingMineTags, setIsEditingMineTags] = useState(false); // “-”进入编辑删除模式
+  const [isTagFilterOpen, setIsTagFilterOpen] = useState(false);
   const tagFilterRef = useRef<HTMLDivElement>(null);
   const tagPickerRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
@@ -277,7 +281,7 @@ const ChatListComponent: React.FC<ChatListProps> = ({
             return next;
           });
         }
-      } catch (e) {
+      } catch {
         // 静默失败：不影响会话列表使用
         if (!mounted) return;
         setAvailableVisitorTags([]);
@@ -288,7 +292,7 @@ const ChatListComponent: React.FC<ChatListProps> = ({
     return () => {
       mounted = false;
     };
-  }, [isTagFilterOpen]);
+  }, [isTagFilterOpen, mineTagIds]);
 
   // 点击外部关闭标签筛选面板
   useEffect(() => {
@@ -580,7 +584,7 @@ const ChatListComponent: React.FC<ChatListProps> = ({
       fetchRecentVisitors();
     }
     // 'mine' tab 不在这里处理，由标签筛选 effect 统一管理
-  }, [activeTab, fetchUnassignedConversations, fetchAllConversations, fetchManualConversations]);
+  }, [activeTab, fetchUnassignedConversations, fetchAllConversations, fetchManualConversations, fetchRecentVisitors]);
   
   // 当 refreshTrigger 变化时，强制刷新"我的"和"未分配"列表及数量
   const prevRefreshTriggerRef = useRef(refreshTrigger);
@@ -865,12 +869,21 @@ const ChatListComponent: React.FC<ChatListProps> = ({
     });
   }, [recentVisitors, searchQuery]);
 
+  const visibleItemCount = activeTab === 'recent'
+    ? filteredRecentVisitors.length
+    : filteredChats.length;
+
+  useEffect(() => {
+    onVisibleItemCountChange?.(visibleItemCount);
+  }, [onVisibleItemCountChange, visibleItemCount]);
+
   // Memoized callbacks to prevent unnecessary re-renders
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
   }, [setSearchQuery]);
 
   const handleTabChange = useCallback((tab: ChatTabType) => {
+    setIsTagFilterOpen(false);
     setActiveTab(tab);
   }, [setActiveTab]);
 
@@ -1047,7 +1060,7 @@ const ChatListComponent: React.FC<ChatListProps> = ({
   }, [activeTab, isLoadingMore, hasMore, loadMoreUnassignedConversations, loadMoreAllConversations, loadMoreManualConversations, loadMoreRecentVisitors]);
 
   return (
-    <div className="w-72 bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg border-r border-gray-200/60 dark:border-gray-700/60 flex flex-col">
+    <div className={`h-full w-[280px] shrink-0 bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg border-r border-gray-200/60 dark:border-gray-700/60 flex flex-col ${className}`}>
       {/* Header with search */}
       <ChatListHeader
         searchQuery={searchQuery}
@@ -1085,99 +1098,101 @@ const ChatListComponent: React.FC<ChatListProps> = ({
         counts={counts}
       />
 
-      {/* "我的" tab 标签筛选 */}
-      {activeTab === 'mine' && (
-        <div className="px-4 py-2 border-b border-gray-200/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg">
-          <div ref={tagFilterRef} className="relative z-40">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {/* 已选择的标签展示（紧凑 chips） */}
-              {mineTagIds.map((id: string) => {
-                const fromList = availableVisitorTags.find(tg => tg.id === id);
-                const meta = mineTagMeta[id];
-                const displayName = (fromList?.display_name || fromList?.name || meta?.display_name || meta?.name || id);
-                const color = (fromList?.color ?? meta?.color ?? null) as string | null;
-                const tagForStyle = { id, display_name: displayName, color } as unknown as TagResponse;
-                return (
-                  <span
-                    key={id}
-                    className={`inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[10px] leading-none ${
-                      isEditingMineTags ? 'bg-gray-100 dark:bg-gray-700/60 text-gray-700 dark:text-gray-200' : ''
-                    }`}
-                    style={
-                      isEditingMineTags
-                        ? undefined
-                        : (() => {
-                            const hex = normalizeTagHex(tagForStyle.color);
-                            return {
-                              backgroundColor: hexToRgba(hex, 0.12),
-                              color: hex,
-                            } as React.CSSProperties;
-                          })()
-                    }
-                  >
-                    <span className="truncate max-w-[140px]">{displayName}</span>
-                    {isEditingMineTags && (
-                      <button
-                        type="button"
-                        title={t('chat.list.tagFilter.remove', '删除标签')}
-                        aria-label={t('chat.list.tagFilter.remove', '删除标签')}
-                        className="ml-0.5 w-3.5 h-3.5 flex items-center justify-center rounded hover:bg-gray-200/70 dark:hover:bg-gray-600/60"
-                        onClick={() => {
-                          setMineTagIds(mineTagIds.filter((x: string) => x !== id));
-                          setMineTagMeta(prev => {
-                            const next = { ...prev };
-                            delete next[id];
-                            return next;
-                          });
-                          setIsEditingMineTags(false); // 删除后恢复非编辑状态
-                        }}
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
-                  </span>
-                );
-              })}
+      {/* 访客筛选与“我的”标签筛选 */}
+      <div className="px-3 py-2 border-b border-gray-200/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg">
+        <div ref={tagFilterRef} className="relative z-40">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              aria-pressed={activeTab === 'recent'}
+              onClick={() => handleTabChange(activeTab === 'recent' ? 'mine' : 'recent')}
+              className={`inline-flex min-h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+                activeTab === 'recent'
+                  ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                  : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700'
+              }`}
+            >
+              <Clock3 className="h-4 w-4" aria-hidden="true" />
+              <span>{t('chat.list.tabs.recent', '最近在线')}</span>
+            </button>
 
-              {/* + / - 放在标签最后面 */}
+            {activeTab === 'mine' && (
               <button
                 ref={addButtonRef}
                 type="button"
-                title={t('chat.list.tagFilter.add', '添加筛选标签')}
-                aria-label={t('chat.list.tagFilter.add', '添加筛选标签')}
-                onClick={() => {
-                  setIsEditingMineTags(false);
-                  setIsTagFilterOpen(v => !v);
-                }}
-                className="inline-flex items-center justify-center p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-
-              <button
-                type="button"
-                disabled={mineTagIds.length === 0}
-                title={t('chat.list.tagFilter.edit', '编辑筛选标签')}
-                aria-label={t('chat.list.tagFilter.edit', '编辑筛选标签')}
-                onClick={() => {
-                  if (mineTagIds.length === 0) return;
-                  setIsTagFilterOpen(false);
-                  setIsEditingMineTags(v => !v); // 多次点击切换编辑/非编辑
-                }}
-                className={`inline-flex items-center justify-center p-0.5 rounded transition ${
-                  mineTagIds.length === 0
-                    ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                    : isEditingMineTags
-                      ? 'text-blue-600 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'
-                      : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60'
+                aria-expanded={isTagFilterOpen}
+                aria-haspopup="dialog"
+                onClick={() => setIsTagFilterOpen(value => !value)}
+                className={`inline-flex min-h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+                  isTagFilterOpen || mineTagIds.length > 0
+                    ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
-                <Minus className="w-4 h-4" />
+                <Tags className="h-4 w-4" aria-hidden="true" />
+                <span>{t('chat.list.tagFilter.button', '标签筛选')}</span>
+                {mineTagIds.length > 0 && (
+                  <span className="min-w-5 rounded-full bg-blue-100 px-1.5 py-0.5 text-center text-[10px] tabular-nums text-blue-700 dark:bg-blue-800 dark:text-blue-100">
+                    {mineTagIds.length}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+
+          {activeTab === 'mine' && mineTagIds.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label={t('chat.list.tagFilter.selected', '已选筛选标签')}>
+              {mineTagIds.map((id: string) => {
+                const fromList = availableVisitorTags.find(tag => tag.id === id);
+                const meta = mineTagMeta[id];
+                const displayName = fromList?.display_name || fromList?.name || meta?.display_name || meta?.name || id;
+                const color = (fromList?.color ?? meta?.color ?? null) as string | null;
+                const tagForStyle = { id, display_name: displayName, color } as unknown as TagResponse;
+                const hex = normalizeTagHex(tagForStyle.color);
+
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex min-h-8 items-center gap-1 rounded-md py-1 pl-2 pr-1 text-xs leading-none"
+                    style={{
+                      backgroundColor: hexToRgba(hex, 0.12),
+                      color: hex,
+                    }}
+                  >
+                    <span className="truncate max-w-[140px]">{displayName}</span>
+                    <button
+                      type="button"
+                      title={t('chat.list.tagFilter.remove', '删除标签')}
+                      aria-label={t('chat.list.tagFilter.removeNamed', '删除标签 {{name}}', { name: displayName })}
+                      className="ml-0.5 flex h-6 w-6 items-center justify-center rounded outline-none hover:bg-black/10 focus-visible:ring-2 focus-visible:ring-blue-500"
+                      onClick={() => {
+                        setMineTagIds(mineTagIds.filter((tagId: string) => tagId !== id));
+                        setMineTagMeta(previous => {
+                          const next = { ...previous };
+                          delete next[id];
+                          return next;
+                        });
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </span>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => {
+                  setMineTagIds([]);
+                  setMineTagMeta({});
+                }}
+                className="min-h-8 rounded-md px-2 text-xs font-medium text-gray-600 outline-none hover:bg-gray-100 hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white"
+              >
+                {t('chat.list.tagFilter.clear', '清空')}
               </button>
             </div>
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* 标签选择面板（Portal 到 body，避免被会话列表遮挡/裁剪） */}
       {isTagFilterOpen && tagPickerPos && typeof document !== 'undefined' && (
@@ -1185,6 +1200,8 @@ const ChatListComponent: React.FC<ChatListProps> = ({
           {createPortal(
             <div
               ref={tagPickerRef}
+              role="dialog"
+              aria-label={t('chat.list.tagFilter.add', '添加筛选标签')}
               className="fixed z-[99999] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-2xl overflow-hidden"
               style={{ top: tagPickerPos.top, left: tagPickerPos.left, width: tagPickerPos.width }}
             >
@@ -1260,6 +1277,9 @@ const ChatListComponent: React.FC<ChatListProps> = ({
 
       {/* Chat list */}
       <div 
+        id="chat-list-panel"
+        role="tabpanel"
+        aria-labelledby={activeTab === 'recent' ? undefined : `chat-tab-${activeTab}`}
         ref={scrollContainerRef}
         className="flex-grow overflow-y-auto p-2 space-y-1" 
         style={{ height: 0 }}

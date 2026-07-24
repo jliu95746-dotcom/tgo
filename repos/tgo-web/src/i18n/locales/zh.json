@@ -515,7 +515,7 @@
             "qwen": {
               "name": "千问/DashScope",
               "models": [
-                "text-embedding-v4"
+                "qwen3.7-text-embedding"
               ]
             }
           }
@@ -769,7 +769,9 @@
       "loading": "正在加载访客信息...",
       "loadFailed": "加载失败",
       "selectConversation": "选择一个对话以查看访客信息",
-      "noInfo": "暂无访客信息"
+      "noInfo": "暂无访客信息",
+      "panelTitle": "访客信息",
+      "closePanel": "关闭访客信息"
     },
     "fields": {
       "name": "姓名",
@@ -3092,7 +3094,9 @@
       }
     },
     "empty": {
-      "selectConversation": "选择一个聊天开始对话"
+      "selectConversation": "选择一个聊天开始对话",
+      "selectConversationDescription": "从左侧列表选择需要处理的会话",
+      "waitingForConversation": "新会话接入后，将显示在左侧列表中"
     },
     "list": {
       "searchPlaceholder": "搜索",
@@ -3102,18 +3106,23 @@
         "add": "添加筛选标签",
         "edit": "编辑筛选标签",
         "remove": "删除标签",
+        "removeNamed": "删除标签 {{name}}",
+        "selected": "已选筛选标签",
         "searchPlaceholder": "搜索标签",
         "clear": "清空",
         "loading": "加载标签中...",
         "empty": "暂无可用标签"
       },
       "tabs": {
+        "ariaLabel": "会话状态",
+        "moreAria": "更多会话状态",
         "mine": "我的",
         "unassigned": "未分配",
         "recent": "最近在线",
         "all": "已完成",
         "manual": "转人工"
       },
+      "emptyCurrentView": "当前列表为空",
       "waiting": {
         "justNow": "刚刚",
         "minutes": "{{count}}分钟",
@@ -3125,6 +3134,7 @@
       }
     },
     "header": {
+      "backToList": "返回会话列表",
       "staffFallback": "客服",
       "visitorFallback": "访客 {{suffix}}",
       "agentFallback": "AI员工",

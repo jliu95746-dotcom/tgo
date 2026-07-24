@@ -305,10 +305,10 @@ class CollectionSearchRequest(BaseModel):
         description="Number of results to skip for pagination"
     )
     min_score: float = Field(
-        default=0.0,
+        default=0.37,
         ge=0.0,
         le=1.0,
-        description="Minimum relevance score threshold (0-1)"
+        description="Minimum relevance score threshold for automatic answers (0-1)"
     )
     filters: Optional[Dict[str, Any]] = Field(
         None,

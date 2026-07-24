@@ -38,7 +38,7 @@ async def test_dashscope_config_uses_1536_dimensions() -> None:
     project_config = SimpleNamespace(
         project_id=project_id,
         default_embedding_provider_id=provider_id,
-        default_embedding_model="text-embedding-v4",
+        default_embedding_model="qwen3.7-text-embedding",
     )
 
     configs = await build_embedding_configs(db, [project_config])
@@ -47,7 +47,7 @@ async def test_dashscope_config_uses_1536_dimensions() -> None:
     config = configs[0]
     assert config.project_id == project_id
     assert config.provider == "qwen3"
-    assert config.model == "text-embedding-v4"
+    assert config.model == "qwen3.7-text-embedding"
     assert config.dimensions == 1536
     assert config.batch_size == 10
     assert config.api_key == "test-dashscope-key"

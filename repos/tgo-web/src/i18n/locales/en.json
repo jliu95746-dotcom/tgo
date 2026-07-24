@@ -515,7 +515,7 @@
             "qwen": {
               "name": "Qwen/DashScope",
               "models": [
-                "text-embedding-v4"
+                "qwen3.7-text-embedding"
               ]
             }
           }
@@ -1977,7 +1977,9 @@
       "loading": "Loading visitor information...",
       "loadFailed": "Load Failed",
       "selectConversation": "Select a chat to view visitor information",
-      "noInfo": "No visitor information"
+      "noInfo": "No visitor information",
+      "panelTitle": "Visitor details",
+      "closePanel": "Close visitor details"
     },
     "fields": {
       "name": "Name",
@@ -2216,7 +2218,9 @@
       }
     },
     "empty": {
-      "selectConversation": "Select a chat to start conversation"
+      "selectConversation": "Select a chat to start conversation",
+      "selectConversationDescription": "Choose a conversation from the list on the left",
+      "waitingForConversation": "New conversations will appear in the list on the left"
     },
     "list": {
       "searchPlaceholder": "Search",
@@ -2226,18 +2230,23 @@
         "add": "Add filter tag",
         "edit": "Edit filter tags",
         "remove": "Remove tag",
+        "removeNamed": "Remove tag {{name}}",
+        "selected": "Selected filter tags",
         "searchPlaceholder": "Search tags",
         "clear": "Clear",
         "loading": "Loading tags...",
         "empty": "No tags"
       },
       "tabs": {
+        "ariaLabel": "Conversation status",
+        "moreAria": "More conversation statuses",
         "mine": "Mine",
         "unassigned": "Unassigned",
         "recent": "Recently Online",
         "all": "Completed",
         "manual": "Manual Service"
       },
+      "emptyCurrentView": "No conversations in this view",
       "waiting": {
         "justNow": "Just now",
         "minutes": "{{count}}m",
@@ -2249,6 +2258,7 @@
       }
     },
     "header": {
+      "backToList": "Back to conversations",
       "staffFallback": "Agent",
       "visitorFallback": "Visitor {{suffix}}",
       "agentFallback": "AI Employee",

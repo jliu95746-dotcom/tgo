@@ -58,15 +58,24 @@ class SearchService:
         candidate_limit = min(max(requested_window * multiplier, requested_window), 100)
         mode = search_mode.lower()
 
+        # Always gate automatic answers with the original query's absolute
+        # embedding similarity. Hybrid RRF scores are relative ranks and can
+        # normalize an unrelated top result to 1.0, so they are not safe as an
+        # automatic-answer relevance threshold.
+        semantic_gate = await self.semantic_search(
+            query=query,
+            project_id=project_id,
+            collection_id=collection_id,
+            limit=candidate_limit,
+            min_score=min_score,
+            filters=filters,
+        )
+        semantically_relevant_ids = {
+            result.document_id for result in semantic_gate.results
+        }
+
         if mode == "embedding":
-            candidates = await self.semantic_search(
-                query=query,
-                project_id=project_id,
-                collection_id=collection_id,
-                limit=candidate_limit,
-                min_score=min_score,
-                filters=filters,
-            )
+            candidates = semantic_gate
         elif mode == "fulltext":
             candidates = await self.keyword_search(
                 query=query,
@@ -86,14 +95,21 @@ class SearchService:
                 filters=filters,
             )
 
-        candidate_ids = tuple(result.document_id for result in candidates.results)
+        candidate_ids = tuple(
+            result.document_id
+            for result in candidates.results
+            if result.document_id in semantically_relevant_ids
+        )
         eligible_ids = await self._eligible_document_ids(
             project_id=project_id,
             channel=channel,
             candidate_ids=candidate_ids,
         )
         eligible_results = [
-            result for result in candidates.results if result.document_id in eligible_ids
+            result
+            for result in candidates.results
+            if result.document_id in semantically_relevant_ids
+            and result.document_id in eligible_ids
         ]
         paginated_results = eligible_results[offset:requested_window]
         applied_filters = dict(filters or {})

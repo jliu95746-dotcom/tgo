@@ -13,7 +13,18 @@ from agno.tools import Function
 from mcp import ClientSession, McpError, Tool
 from mcp.client.streamable_http import streamablehttp_client
 
+from app.config import settings
 from app.schemas.knowledge import KnowledgeChannel
+
+
+NO_RELEVANT_KNOWLEDGE_RESPONSE = (
+    '<documents status="no_relevant_knowledge">'
+    "<instruction>No sufficiently relevant approved knowledge was found. "
+    "Do not answer the factual question from guesses or general knowledge. "
+    "Tell the user it cannot be confirmed from the knowledge base and offer "
+    "human support.</instruction>"
+    "</documents>"
+)
 
 
 async def create_rag_tool(
@@ -45,7 +56,8 @@ async def create_rag_tool(
     description = collection_data.get("description")
     tool_description = (
         f"Search documents within the '{display_name}' collection for results"
-        " semantically similar to the query."
+        " semantically similar to the query. If no relevant documents are"
+        " returned, do not guess or answer from general knowledge."
     )
     if description:
         tool_description = f"{tool_description} Collection description: {description}"
@@ -62,6 +74,7 @@ async def create_rag_tool(
         payload = {
             "query": query,
             "limit": 10,
+            "min_score": settings.rag_min_similarity_score,
             "filters": filters,
             "channel": channel.value,
         }
@@ -79,7 +92,7 @@ async def create_rag_tool(
 
         documents = data.get("results", [])
         if not documents:
-            return "<documents />"
+            return NO_RELEVANT_KNOWLEDGE_RESPONSE
 
         serialized = [
             f'<document id="{doc.get("document_id", "unknown")}">{doc.get("content", doc.get("content_preview", ""))}</document>'

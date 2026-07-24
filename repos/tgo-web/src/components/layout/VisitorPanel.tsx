@@ -6,6 +6,7 @@ import type { Chat } from '@/types';
 
 interface VisitorPanelProps {
   activeChat?: Chat;
+  variant?: 'sidebar' | 'drawer';
 }
 
 const MIN_WIDTH = 280;
@@ -58,8 +59,9 @@ const deriveVisitorContext = (chat?: Chat | null): VisitorContext => {
  * Visitor information panel component for chat interface
  * This is a wrapper around VisitorDetailPanel that extracts channel info from activeChat
  */
-const VisitorPanel: React.FC<VisitorPanelProps> = ({ activeChat }) => {
+const VisitorPanel: React.FC<VisitorPanelProps> = ({ activeChat, variant = 'sidebar' }) => {
   const { t } = useTranslation();
+  const isDrawer = variant === 'drawer';
   const [width, setWidth] = useState(() => {
     const saved = localStorage.getItem('visitor_panel_width');
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
@@ -115,16 +117,18 @@ const VisitorPanel: React.FC<VisitorPanelProps> = ({ activeChat }) => {
     return (
       <aside 
         className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg border-l border-gray-200/60 dark:border-gray-700/60 flex items-center justify-center shrink-0 font-sans antialiased relative group"
-        style={{ width: `${width}px` }}
+        style={{ width: isDrawer ? '100%' : `${width}px` }}
       >
-        <div
-          className={`absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-[60] group/resize flex items-center justify-center`}
-          onMouseDown={startResizing}
-        >
-          <div className={`h-full w-0.5 transition-colors duration-200 ${isResizing ? 'bg-blue-500' : 'bg-transparent group-hover/resize:bg-blue-400/50'}`} />
-        </div>
-        <div className="text-center text-gray-500 dark:text-gray-400 px-4">
-          <User size={48} className="mx-auto mb-4 text-gray-300 dark:text-gray-600" />
+        {!isDrawer && (
+          <div
+            className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-[60] group/resize flex items-center justify-center"
+            onMouseDown={startResizing}
+          >
+            <div className={`h-full w-0.5 transition-colors duration-200 ${isResizing ? 'bg-blue-500' : 'bg-transparent group-hover/resize:bg-blue-400/50'}`} />
+          </div>
+        )}
+        <div className="text-center text-gray-600 dark:text-gray-300 px-4">
+          <User size={48} className="mx-auto mb-4 text-gray-400 dark:text-gray-500" />
           <p className="text-sm leading-5">{t('visitor.ui.selectConversation', '选择聊天查看访客信息')}</p>
         </div>
       </aside>
@@ -132,14 +136,16 @@ const VisitorPanel: React.FC<VisitorPanelProps> = ({ activeChat }) => {
   }
 
   return (
-    <div className="relative flex shrink-0 h-full" style={{ width: `${width}px` }}>
+    <div className="relative flex shrink-0 h-full" style={{ width: isDrawer ? '100%' : `${width}px` }}>
       {/* 拖拽手柄：增加命中区域 */}
-      <div
-        className={`absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-[60] group/resize flex items-center justify-center`}
-        onMouseDown={startResizing}
-      >
-        <div className={`h-full w-0.5 transition-colors duration-200 ${isResizing ? 'bg-blue-500' : 'bg-transparent group-hover/resize:bg-blue-400/50'}`} />
-      </div>
+      {!isDrawer && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-[60] group/resize flex items-center justify-center"
+          onMouseDown={startResizing}
+        >
+          <div className={`h-full w-0.5 transition-colors duration-200 ${isResizing ? 'bg-blue-500' : 'bg-transparent group-hover/resize:bg-blue-400/50'}`} />
+        </div>
+      )}
       
       <VisitorDetailPanel
         channelId={channelId}

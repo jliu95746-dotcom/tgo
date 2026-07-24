@@ -39,6 +39,7 @@ def test_automatic_answer_request_requires_supported_channel() -> None:
         channel=KnowledgeChannel.WECOM_KF,
     )
     assert request.channel is KnowledgeChannel.WECOM_KF
+    assert request.min_score == 0.37
 
 
 def test_router_exposes_separate_automatic_answer_endpoint() -> None:
@@ -69,8 +70,20 @@ async def test_automatic_answer_search_filters_candidates_before_pagination(
 
     service = SearchService.__new__(SearchService)
     service.settings = SimpleNamespace(candidate_multiplier=3)
+    semantic_gate = SearchResponse(
+        results=[_result(second, 0.82), _result(third, 0.78)],
+        search_metadata=SearchMetadata(
+            query="退款政策",
+            total_results=2,
+            returned_results=2,
+            search_time_ms=4,
+            search_type="semantic",
+        ),
+    )
+    semantic_search = AsyncMock(return_value=semantic_gate)
     hybrid_search = AsyncMock(return_value=base_response)
     eligible_document_ids = AsyncMock(return_value={second, third})
+    monkeypatch.setattr(service, "semantic_search", semantic_search)
     monkeypatch.setattr(service, "hybrid_search", hybrid_search)
     monkeypatch.setattr(service, "_eligible_document_ids", eligible_document_ids)
 
@@ -94,6 +107,14 @@ async def test_automatic_answer_search_filters_candidates_before_pagination(
         min_score=0.2,
         filters={"language": "zh"},
     )
+    semantic_search.assert_awaited_once_with(
+        query="退款政策",
+        project_id=project_id,
+        collection_id=collection_id,
+        limit=3,
+        min_score=0.2,
+        filters={"language": "zh"},
+    )
     eligible_document_ids.assert_awaited_once()
     assert [result.document_id for result in response.results] == [second]
     assert response.search_metadata.total_results == 2
@@ -104,6 +125,67 @@ async def test_automatic_answer_search_filters_candidates_before_pagination(
         "automatic_answer": True,
         "knowledge_channel": "wecom_kf",
     }
+
+
+@pytest.mark.asyncio
+async def test_automatic_answer_search_rejects_hybrid_hits_without_absolute_semantic_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = uuid4()
+    collection_id = uuid4()
+    candidate = uuid4()
+    empty_semantic_gate = SearchResponse(
+        results=[],
+        search_metadata=SearchMetadata(
+            query="汽车机油多久更换",
+            total_results=0,
+            returned_results=0,
+            search_time_ms=5,
+            search_type="semantic",
+        ),
+    )
+    normalized_hybrid_hit = SearchResponse(
+        results=[_result(candidate, 1.0)],
+        search_metadata=SearchMetadata(
+            query="汽车机油多久更换",
+            total_results=1,
+            returned_results=1,
+            search_time_ms=8,
+            search_type="hybrid_rrf",
+        ),
+    )
+
+    service = SearchService.__new__(SearchService)
+    service.settings = SimpleNamespace(candidate_multiplier=2)
+    monkeypatch.setattr(
+        service,
+        "semantic_search",
+        AsyncMock(return_value=empty_semantic_gate),
+    )
+    monkeypatch.setattr(
+        service,
+        "hybrid_search",
+        AsyncMock(return_value=normalized_hybrid_hit),
+    )
+    eligible_document_ids = AsyncMock(return_value={candidate})
+    monkeypatch.setattr(service, "_eligible_document_ids", eligible_document_ids)
+
+    response = await service.automatic_answer_search(
+        query="汽车机油多久更换",
+        project_id=project_id,
+        collection_id=collection_id,
+        channel=KnowledgeChannel.WEB,
+        limit=10,
+        min_score=0.37,
+        search_mode="hybrid",
+    )
+
+    assert response.results == []
+    eligible_document_ids.assert_awaited_once_with(
+        project_id=project_id,
+        channel=KnowledgeChannel.WEB,
+        candidate_ids=(),
+    )
 
 
 @pytest.mark.asyncio

@@ -2,13 +2,13 @@
 
 ## Overview
 
-The RAG service now supports **Qwen3-Embedding** (text-embedding-v4) from Alibaba Cloud DashScope as an alternative to OpenAI embeddings. This integration provides a multi-provider embedding architecture while maintaining full backward compatibility.
+The RAG service now supports **Qwen3-Embedding** (`qwen3.7-text-embedding`) from Alibaba Cloud DashScope as an alternative to OpenAI embeddings. This integration provides a multi-provider embedding architecture while maintaining full backward compatibility.
 
 ## Features
 
 ### ✅ **Multi-Provider Support**
 - **OpenAI Embeddings**: text-embedding-ada-002, text-embedding-3-small, etc.
-- **Qwen3-Embedding**: text-embedding-v4 via Alibaba Cloud DashScope
+- **Qwen3-Embedding**: `qwen3.7-text-embedding` via Alibaba Cloud DashScope
 - **Seamless Switching**: Change providers via environment variables
 
 ### ✅ **OpenAI Compatibility**
@@ -43,7 +43,7 @@ EMBEDDING_DIMENSIONS=1536
 EMBEDDING_PROVIDER=qwen3
 QWEN3_API_KEY=your_dashscope_api_key
 QWEN3_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-QWEN3_MODEL=text-embedding-v4
+QWEN3_MODEL=qwen3.7-text-embedding
 QWEN3_DIMENSIONS=1536
 ```
 
@@ -55,7 +55,7 @@ EMBEDDING_PROVIDER=qwen3
 # Qwen3-Embedding Settings
 QWEN3_API_KEY=sk-your-dashscope-api-key
 QWEN3_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-QWEN3_MODEL=text-embedding-v4
+QWEN3_MODEL=qwen3.7-text-embedding
 QWEN3_DIMENSIONS=1536
 
 # Common Settings
@@ -68,7 +68,7 @@ EMBEDDING_BATCH_SIZE=100
 
 1. **Create Account**: Sign up at [Alibaba Cloud](https://www.alibabacloud.com/)
 2. **Access DashScope**: Navigate to DashScope console
-3. **Generate API Key**: Create a new API key for text-embedding-v4
+3. **Generate API Key**: Create a new API key for `qwen3.7-text-embedding`
 4. **Set Environment Variable**: 
    ```bash
    export QWEN3_API_KEY=sk-your-dashscope-api-key
@@ -99,7 +99,7 @@ embeddings = await service.generate_embeddings_batch([
 
 # Get provider information
 provider = service.get_embedding_provider()  # "qwen3" or "openai"
-model = service.get_embedding_model()        # "text-embedding-v4"
+model = service.get_embedding_model()        # "qwen3.7-text-embedding"
 dimensions = service.get_embedding_dimensions()  # 1536
 ```
 
@@ -120,7 +120,7 @@ print(f"Dimensions: {service.get_embedding_dimensions()}")
 
 ## Model Specifications
 
-### **Qwen3-Embedding (text-embedding-v4)**
+### **Qwen3-Embedding (`qwen3.7-text-embedding`)**
 - **Provider**: Alibaba Cloud DashScope
 - **Dimensions**: TGO phase 1 uses 1536 because the existing pgvector column is fixed at 1536 dimensions
 - **Context Length**: Long text support

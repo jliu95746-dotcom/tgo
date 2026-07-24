@@ -289,7 +289,7 @@ EMBEDDING_DIMENSIONS=1536
 # Qwen3 Configuration (alternative)
 QWEN3_API_KEY=your-dashscope-api-key
 QWEN3_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-QWEN3_MODEL=text-embedding-v4
+QWEN3_MODEL=qwen3.7-text-embedding
 
 # Document Processing
 MAX_FILE_SIZE_MB=100
@@ -300,7 +300,7 @@ BATCH_SIZE=50
 # Search Configuration
 DEFAULT_SEARCH_LIMIT=20
 MAX_SEARCH_LIMIT=100
-MIN_SIMILARITY_SCORE=0.0
+MIN_SIMILARITY_SCORE=0.37
 ```
 
 ## 🛠️ Development

@@ -8,6 +8,7 @@ packages = [{include = "app"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+tzdata = {version = "^2025.2", markers = "sys_platform == 'win32'"}
 fastapi = "^0.104.1"
 uvicorn = {extras = ["standard"], version = "^0.24.0"}
 sqlalchemy = "^2.0.23"

@@ -15,11 +15,8 @@ export default defineConfig({
         tsconfigPath: './tsconfig.json',
         buildMode: false, // Only check in dev mode
       },
-      overlay: {
-        initialIsOpen: false, // Don't auto-open overlay on start
-        position: 'br', // bottom-right
-        badgeStyle: 'margin: 0 0 20px 20px;',
-      },
+      // Keep diagnostics in the terminal/CI without leaking dev tooling into the product UI.
+      overlay: false,
       enableBuild: false, // Disable in build mode (tsc already runs)
     }),
   ],

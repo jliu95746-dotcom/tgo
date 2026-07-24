@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { Chat, PlatformType, ChannelVisitorExtra, VisitorServiceStatus } from '@/types';
 import { useTranslation } from 'react-i18next';
-import { Bot, LogOut, Loader2, ArrowRightLeft, ChevronDown, User, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Bot, LogOut, Loader2, ArrowRightLeft, ChevronDown, PanelRightOpen, User, RotateCcw } from 'lucide-react';
 
 import { getPlatformIconComponent, getPlatformLabel, toPlatformType, getPlatformColor } from '@/utils/platformUtils';
 import { visitorApiService } from '@/services/visitorApi';
@@ -22,13 +22,22 @@ export interface ChatHeaderProps {
   activeChat: Chat;
   /** Callback when chat is ended successfully (with channel info) */
   onEndChatSuccess?: (channelId: string, channelType: number) => void;
+  /** Return to the conversation list on compact screens */
+  onBackToList?: () => void;
+  /** Open visitor information in a drawer on narrower screens */
+  onOpenVisitorPanel?: () => void;
 }
 
 /**
  * Chat header component displaying visitor name and platform icon
  * Memoized to prevent unnecessary re-renders
  */
-const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({ activeChat, onEndChatSuccess }) => {
+const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
+  activeChat,
+  onEndChatSuccess,
+  onBackToList,
+  onOpenVisitorPanel,
+}) => {
   const { t } = useTranslation();
   const { showSuccess, showError } = useToast();
   const [isClosing, setIsClosing] = useState(false);
@@ -210,8 +219,18 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({ activeChat, onEndCha
   
   return (
     <header className="px-6 py-3 border-b border-gray-200/80 dark:border-gray-700/80 flex justify-between items-center bg-white/60 dark:bg-gray-800/60 backdrop-blur-lg sticky top-0 z-10">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center">
+      <div className="flex min-w-0 items-center gap-2">
+        {onBackToList && (
+          <button
+            type="button"
+            onClick={onBackToList}
+            aria-label={t('chat.header.backToList', '返回会话列表')}
+            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-600 outline-none hover:bg-gray-100 hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-blue-500 max-[899px]:flex dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          </button>
+        )}
+        <h2 className="min-w-0 truncate text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center">
           <span>{displayName}</span>
           {isAgentChat ? (
             <span title={t('chat.header.agentTooltip', 'AI员工会话')}>
@@ -232,6 +251,17 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({ activeChat, onEndCha
           )}
         </h2>
       </div>
+      <div className="flex items-center gap-1">
+      {!isAIChat && onOpenVisitorPanel && (
+        <button
+          type="button"
+          onClick={onOpenVisitorPanel}
+          className="hidden min-h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-gray-700 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-blue-500 max-[1199px]:inline-flex dark:text-gray-200 dark:hover:bg-gray-700"
+        >
+          <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
+          <span>{t('visitor.ui.panelTitle', '访客信息')}</span>
+        </button>
+      )}
       {/* 操作按钮 - 只对访客会话显示 */}
       {showEndChatButton && (
         <div className="flex items-center gap-1">
@@ -315,6 +345,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({ activeChat, onEndCha
           </button>
         </div>
       )}
+      </div>
     </header>
   );
 });

@@ -20,14 +20,13 @@ export const ChatListTabs: React.FC<ChatListTabsProps> = ({ activeTab, onTabChan
   const containerRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0, opacity: 1 });
-  const [visibleTabCount, setVisibleTabCount] = useState<number>(5); // 初始全部显示
+  const [visibleTabCount, setVisibleTabCount] = useState<number>(4); // 初始全部显示
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
 
-  const allTabs = useMemo(() => [
+  const workflowTabs = useMemo(() => [
     { key: 'mine' as ChatTabType, label: t('chat.list.tabs.mine', '我的'), count: counts.mine > 0 ? counts.mine : undefined },
     { key: 'unassigned' as ChatTabType, label: t('chat.list.tabs.unassigned', '未分配'), count: counts.unassigned > 0 ? counts.unassigned : undefined },
-    { key: 'recent' as ChatTabType, label: t('chat.list.tabs.recent', '最近在线') },
     { key: 'all' as ChatTabType, label: t('chat.list.tabs.all', '已完成') },
     { key: 'manual' as ChatTabType, label: t('chat.list.tabs.manual', '转人工') },
   ], [t, counts.mine, counts.unassigned]);
@@ -44,11 +43,11 @@ export const ChatListTabs: React.FC<ChatListTabsProps> = ({ activeTab, onTabChan
     const availableWidth = containerWidth - padding;
 
     // 临时创建一个测量用的 div 来获取各 tab 的宽度
-    const buttons = Array.from(container.querySelectorAll('button[data-tab]')) as HTMLElement[];
+    const buttons = Array.from(container.querySelectorAll('button[data-measure-tab]')) as HTMLElement[];
     if (buttons.length === 0) return;
 
     let currentTotalWidth = 0;
-    let newVisibleCount = allTabs.length;
+    let newVisibleCount = workflowTabs.length;
 
     for (let i = 0; i < buttons.length; i++) {
       const btn = buttons[i];
@@ -69,10 +68,15 @@ export const ChatListTabs: React.FC<ChatListTabsProps> = ({ activeTab, onTabChan
     }
 
     setVisibleTabCount(Math.max(1, newVisibleCount)); // 至少保留一个
-  }, [allTabs.length]);
+  }, [workflowTabs.length]);
 
   const updateIndicator = useCallback(() => {
     if (!containerRef.current) return;
+
+    if (activeTab === 'recent') {
+      setIndicatorStyle(prev => ({ ...prev, opacity: 0 }));
+      return;
+    }
     
     const activeButton = containerRef.current.querySelector(`[data-tab="${activeTab}"]`) as HTMLElement;
     if (activeButton) {
@@ -93,7 +97,7 @@ export const ChatListTabs: React.FC<ChatListTabsProps> = ({ activeTab, onTabChan
         setIndicatorStyle(prev => ({ ...prev, opacity: 0 }));
       }
     }
-  }, [activeTab, visibleTabCount]);
+  }, [activeTab]);
 
   useEffect(() => {
     updateTabVisibility();
@@ -110,9 +114,30 @@ export const ChatListTabs: React.FC<ChatListTabsProps> = ({ activeTab, onTabChan
     updateIndicator();
   }, [updateIndicator, visibleTabCount]);
 
-  const visibleTabs = allTabs.slice(0, visibleTabCount);
-  const hiddenTabs = allTabs.slice(visibleTabCount);
-  const isactiveInMore = hiddenTabs.some(t => t.key === activeTab);
+  const visibleTabs = workflowTabs.slice(0, visibleTabCount);
+  const hiddenTabs = workflowTabs.slice(visibleTabCount);
+  const isActiveInMore = hiddenTabs.some(t => t.key === activeTab);
+
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentTab: ChatTabType) => {
+    const currentIndex = workflowTabs.findIndex(tab => tab.key === currentTab);
+    if (currentIndex < 0) return;
+
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight') {
+      nextIndex = (currentIndex + 1) % workflowTabs.length;
+    } else if (event.key === 'ArrowLeft') {
+      nextIndex = (currentIndex - 1 + workflowTabs.length) % workflowTabs.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = workflowTabs.length - 1;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    onTabChange(workflowTabs[nextIndex].key);
+  };
 
   const toggleMore = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -136,12 +161,20 @@ export const ChatListTabs: React.FC<ChatListTabsProps> = ({ activeTab, onTabChan
   return (
     <div 
       ref={containerRef}
+      role="tablist"
+      aria-label={t('chat.list.tabs.ariaLabel', '会话状态')}
       className="relative flex items-stretch px-4 gap-5 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 overflow-hidden"
     >
       {/* 用于测量的隐藏层，始终渲染所有 tabs 以获取宽度 */}
       <div className="absolute top-0 left-0 invisible pointer-events-none flex gap-5 px-4 h-0 overflow-hidden">
-        {allTabs.map(tab => (
-          <button key={`measure-${tab.key}`} data-tab={tab.key} className="py-2.5 text-[13px] font-medium flex items-center gap-1.5 whitespace-nowrap">
+        {workflowTabs.map(tab => (
+          <button
+            key={`measure-${tab.key}`}
+            data-measure-tab={tab.key}
+            aria-hidden="true"
+            tabIndex={-1}
+            className="py-2.5 text-[13px] font-medium flex items-center gap-1.5 whitespace-nowrap"
+          >
             <span>{tab.label}</span>
             {tab.count !== undefined && <span className="text-[11px] tabular-nums">{tab.count}</span>}
           </button>
@@ -154,13 +187,20 @@ export const ChatListTabs: React.FC<ChatListTabsProps> = ({ activeTab, onTabChan
           <button
             key={tab.key}
             data-tab={tab.key}
+            id={`chat-tab-${tab.key}`}
+            role="tab"
+            aria-selected={isActive}
+            aria-controls="chat-list-panel"
+            tabIndex={isActive ? 0 : -1}
             onClick={() => onTabChange(tab.key)}
+            onKeyDown={(event) => handleTabKeyDown(event, tab.key)}
             className={`
               relative py-2.5 text-[13px] font-medium transition-all duration-200 outline-none
+              focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
               flex items-center gap-1.5 whitespace-nowrap
               ${isActive 
                 ? 'text-gray-900 dark:text-white' 
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                : 'text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white'
               }
             `}
           >
@@ -176,12 +216,16 @@ export const ChatListTabs: React.FC<ChatListTabsProps> = ({ activeTab, onTabChan
         <button
           ref={moreButtonRef}
           onClick={toggleMore}
+          aria-haspopup="menu"
+          aria-expanded={isMoreOpen}
+          aria-label={t('chat.list.tabs.moreAria', '更多会话状态')}
           className={`
             relative py-2.5 text-[13px] font-medium transition-all duration-200 outline-none
+            focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
             flex items-center gap-1 min-w-[40px] justify-center
-            ${isactiveInMore || isMoreOpen
+            ${isActiveInMore || isMoreOpen
               ? 'text-gray-900 dark:text-white' 
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              : 'text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white'
             }
           `}
         >
@@ -204,6 +248,7 @@ export const ChatListTabs: React.FC<ChatListTabsProps> = ({ activeTab, onTabChan
       {/* Dropdown Menu */}
       {isMoreOpen && createPortal(
         <div 
+          role="menu"
           className="fixed z-[1000] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-1 min-w-[120px] animate-in fade-in zoom-in-95 duration-100"
           style={{ 
             top: dropdownPos.top + 4,
@@ -214,13 +259,15 @@ export const ChatListTabs: React.FC<ChatListTabsProps> = ({ activeTab, onTabChan
           {hiddenTabs.map(tab => (
             <button
               key={tab.key}
+              role="menuitemradio"
+              aria-checked={activeTab === tab.key}
               onClick={() => {
                 onTabChange(tab.key);
                 setIsMoreOpen(false);
               }}
               className={`
                 w-full px-4 py-2 text-left text-[13px] flex items-center justify-between
-                transition-colors duration-150
+                transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500
                 ${activeTab === tab.key 
                   ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' 
                   : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'

@@ -54,6 +54,12 @@ class Settings(BaseSettings):
         default="http://localhost:8085",
         description="Base URL for the RAG service"
     )
+    rag_min_similarity_score: float = Field(
+        default=0.37,
+        ge=0.0,
+        le=1.0,
+        description="Minimum relevance score required for automatic-answer knowledge",
+    )
 
 
     # MCP Service Configuration

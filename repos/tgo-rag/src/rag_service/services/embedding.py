@@ -3,7 +3,7 @@ Embedding service for generating vector embeddings using multiple providers.
 
 Supports:
 - OpenAI embeddings (text-embedding-ada-002, text-embedding-3-small, etc.)
-- Qwen3-Embedding (text-embedding-v4) via Alibaba Cloud DashScope
+- Qwen3-Embedding (qwen3.7-text-embedding) via Alibaba Cloud DashScope
 """
 
 import asyncio
@@ -167,7 +167,7 @@ class Qwen3EmbeddingClient(BaseEmbeddingClient):
         Args:
             api_key: Alibaba Cloud DashScope API key
             base_url: API base URL (https://dashscope.aliyuncs.com/compatible-mode/v1)
-            model: Model name (text-embedding-v4)
+            model: Model name (qwen3.7-text-embedding)
             dimensions: Embedding dimensions
             batch_size: Batch size for processing
         """

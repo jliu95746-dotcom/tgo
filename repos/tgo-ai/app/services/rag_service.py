@@ -200,7 +200,12 @@ class RAGServiceClient:
                         "/documents/search/automatic-answer"
                     ),
                     params={"project_id": str(project_id)},
-                    json={"query": query, "limit": limit, "channel": channel.value},
+                    json={
+                        "query": query,
+                        "limit": limit,
+                        "min_score": settings.rag_min_similarity_score,
+                        "channel": channel.value,
+                    },
                     headers={"Content-Type": "application/json"},
                 )
                 response.raise_for_status()

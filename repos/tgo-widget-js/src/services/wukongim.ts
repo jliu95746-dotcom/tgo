@@ -15,6 +15,18 @@ export type IMInitOptions = {
 
 export type IMStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
+export function normalizeWebSocketAddress(address: string, preferSecure = false): string {
+  const trimmedAddress = address.trim()
+  if (!trimmedAddress) throw new Error('missing ws address')
+  if (/^wss?:\/\//i.test(trimmedAddress)) return trimmedAddress
+  if (/^https?:\/\//i.test(trimmedAddress)) {
+    return trimmedAddress.replace(/^http/i, 'ws')
+  }
+  if (trimmedAddress.startsWith('//')) {
+    return `${preferSecure ? 'wss:' : 'ws:'}${trimmedAddress}`
+  }
+  return `${preferSecure ? 'wss' : 'ws'}://${trimmedAddress}`
+}
 
 export class WuKongIMService {
   private static _instance: WuKongIMService | null = null
@@ -27,6 +39,7 @@ export class WuKongIMService {
   private _im: WKIM = null
   private _cfg: IMInitOptions | null = null
   private _uid: string | null = null
+  private _connected = false
   // internal event binding guard and saved handlers for off()
   private _bound = false
   private _hConnect?: (r:any)=>void
@@ -39,7 +52,7 @@ export class WuKongIMService {
   private _statusListeners = new Set<(s: IMStatus, info?: any) => void>()
   private _customListeners = new Set<(e: any) => void>()
 
-  get isReady() { return this._inited && !!this._im && !!this._cfg }
+  get isReady() { return this._inited && this._connected && !!this._im && !!this._cfg }
   get uid() { return this._uid }
 
   async init(opts: IMInitOptions) {
@@ -52,6 +65,7 @@ export class WuKongIMService {
       try { this._unbindInternalEvents() } catch {}
     }
     this._im = WKIM.init(wsAddr, { uid: opts.uid, token: opts.token || '' })
+    this._connected = false
     this._bindInternalEvents()
     this._inited = true
   }
@@ -59,9 +73,18 @@ export class WuKongIMService {
   private _bindInternalEvents() {
     if (!this._im || this._bound) return
 
-    this._hConnect = (result: any) => { this._emitStatus('connected', result) }
-    this._hDisconnect = (info: any) => { this._emitStatus('disconnected', info) }
-    this._hError = (err: any) => { this._emitStatus('error', err) }
+    this._hConnect = (result: any) => {
+      this._connected = true
+      this._emitStatus('connected', result)
+    }
+    this._hDisconnect = (info: any) => {
+      this._connected = false
+      this._emitStatus('disconnected', info)
+    }
+    this._hError = (err: any) => {
+      this._connected = false
+      this._emitStatus('error', err)
+    }
     this._hMessage = (message: any) => { this._emitMessage(message as RecvMessage) }
     this._hCustom = (ev: any) => { this._emitCustom(ev) }
 
@@ -94,6 +117,7 @@ export class WuKongIMService {
 
   async connect() {
     if (!this._im) throw new Error('WuKongIMService not initialized')
+    this._connected = false
     this._emitStatus('connecting')
     // EasyJSSDK connect returns a promise
     return this._im.connect()
@@ -101,6 +125,7 @@ export class WuKongIMService {
 
   async disconnect() {
     if (!this._im) return
+    this._connected = false
     if (typeof this._im.disconnect === 'function') {
       try { await this._im.disconnect() } catch {}
     }
@@ -125,7 +150,7 @@ export class WuKongIMService {
 
       // Priority 1: Use wss_addr if present and non-empty (highest priority)
       if (data?.wss_addr && typeof data.wss_addr === 'string' && data.wss_addr.trim()) {
-        return data.wss_addr.trim()
+        return normalizeWebSocketAddress(data.wss_addr, true)
       }
 
       // Priority 2: Fallback to existing logic
@@ -133,9 +158,7 @@ export class WuKongIMService {
       let addr: any = data?.ws_addr ?? data?.ws ?? data?.ws_url ?? data?.wsAddr ?? data?.websocket
       if (!addr && isHttps) addr = data?.wss ?? data?.ws_addr_tls
       if (!addr || typeof addr !== 'string') throw new Error('missing ws address')
-      let wsAddr = String(addr)
-      if (/^http(s)?:/i.test(wsAddr)) wsAddr = wsAddr.replace(/^http/i, 'ws')
-      return wsAddr
+      return normalizeWebSocketAddress(String(addr), isHttps)
     } catch (e: any) {
       const msg = e?.message ? String(e.message) : String(e)
       throw new Error(`[WuKongIM] route fetch failed: ${msg}`)

@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import ChatList from '../components/layout/ChatList';
 import ChatWindow from '../components/layout/ChatWindow';
 import VisitorPanel from '../components/layout/VisitorPanel';
@@ -19,6 +21,7 @@ interface ChatPageLocationState {
 }
 
 const ChatPage: React.FC = () => {
+  const { t } = useTranslation();
   const { channelType: urlChannelType, channelId: urlChannelId } = useParams<{ channelType: string; channelId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -26,6 +29,9 @@ const ChatPage: React.FC = () => {
   
   // Tab state management
   const [activeTab, setActiveTab] = useState<ChatTabType>('mine');
+  const [isCompactListOpen, setIsCompactListOpen] = useState(true);
+  const [isVisitorDrawerOpen, setIsVisitorDrawerOpen] = useState(false);
+  const [visibleConversationCount, setVisibleConversationCount] = useState(0);
   
   // Refresh trigger for ChatList (increment to trigger refresh)
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -178,6 +184,10 @@ const ChatPage: React.FC = () => {
     }
 
     setActiveChat(chat);
+    if (window.innerWidth < 900) {
+      setIsCompactListOpen(false);
+    }
+    setIsVisitorDrawerOpen(false);
     
     // Update URL with the selected chat's channel info
     if (chat.channelId && chat.channelType != null) {
@@ -213,28 +223,102 @@ const ChatPage: React.FC = () => {
   const isAgentChat = activeChat?.channelId?.endsWith('-agent') ?? false;
   const isAIChat = isAgentChat;
 
+  useEffect(() => {
+    if (!activeChat || isAIChat) {
+      setIsVisitorDrawerOpen(false);
+    }
+  }, [activeChat, isAIChat]);
+
+  useEffect(() => {
+    if (activeChat && window.innerWidth < 900) {
+      setIsCompactListOpen(false);
+    }
+  }, [activeChat]);
+
+  useEffect(() => {
+    if (!isVisitorDrawerOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsVisitorDrawerOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isVisitorDrawerOpen]);
+
   return (
-    <div className="flex h-full w-full bg-gray-50 dark:bg-gray-900">
+    <div className="relative flex h-full min-w-0 flex-1 bg-gray-50 dark:bg-gray-900">
       {/* Chat List */}
-      <ChatList
-        activeChat={activeChat ?? undefined}
-        onChatSelect={handleChatSelect}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        refreshTrigger={refreshTrigger}
-        deletedChatChannel={deletedChatChannel}
-      />
+      <div className={`h-full shrink-0 ${isCompactListOpen ? 'max-[899px]:flex max-[899px]:w-full' : 'max-[899px]:hidden'}`}>
+        <ChatList
+          activeChat={activeChat ?? undefined}
+          onChatSelect={handleChatSelect}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          refreshTrigger={refreshTrigger}
+          deletedChatChannel={deletedChatChannel}
+          className="max-[899px]:w-full"
+          onVisibleItemCountChange={setVisibleConversationCount}
+        />
+      </div>
 
       {/* Main Chat Window */}
-      <ChatWindow
-        key={activeChat ? getChannelKey(activeChat.channelId, activeChat.channelType) : 'no-active'}
-        activeChat={activeChat ?? undefined}
-        onAcceptVisitor={handleAcceptVisitor}
-        onEndChatSuccess={handleEndChatSuccess}
-      />
+      <div className={`min-w-0 flex-1 ${isCompactListOpen ? 'max-[899px]:hidden' : 'max-[899px]:flex'}`}>
+        <ChatWindow
+          key={activeChat ? getChannelKey(activeChat.channelId, activeChat.channelType) : 'no-active'}
+          activeChat={activeChat ?? undefined}
+          onAcceptVisitor={handleAcceptVisitor}
+          onEndChatSuccess={handleEndChatSuccess}
+          onBackToList={() => setIsCompactListOpen(true)}
+          onOpenVisitorPanel={() => setIsVisitorDrawerOpen(true)}
+          hasConversations={visibleConversationCount > 0}
+        />
+      </div>
 
-      {/* Visitor Info Panel - 仅在非 AI 会话（非 agent）时显示 */}
-      {!isAIChat && <VisitorPanel activeChat={activeChat ?? undefined} />}
+      {/* Wide-screen visitor panel - only render when a visitor conversation is selected */}
+      {!isAIChat && activeChat && (
+        <div className="hidden min-[1200px]:flex">
+          <VisitorPanel activeChat={activeChat} />
+        </div>
+      )}
+
+      {/* Visitor details become a drawer when the workspace is narrower than 1200px */}
+      {!isAIChat && activeChat && isVisitorDrawerOpen && (
+        <div className="fixed inset-0 z-[100] min-[1200px]:hidden">
+          <button
+            type="button"
+            aria-label={t('visitor.ui.closePanel', '关闭访客信息')}
+            className="absolute inset-0 bg-gray-950/30 backdrop-blur-[1px]"
+            onClick={() => setIsVisitorDrawerOpen(false)}
+          />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="visitor-drawer-title"
+            className="absolute inset-y-0 right-0 flex w-[min(360px,calc(100vw-24px))] flex-col bg-white shadow-2xl dark:bg-gray-800"
+          >
+            <header className="flex min-h-14 items-center justify-between border-b border-gray-200 px-4 dark:border-gray-700">
+              <h2 id="visitor-drawer-title" className="font-semibold text-gray-900 dark:text-gray-100">
+                {t('visitor.ui.panelTitle', '访客信息')}
+              </h2>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setIsVisitorDrawerOpen(false)}
+                aria-label={t('visitor.ui.closePanel', '关闭访客信息')}
+                className="flex h-9 w-9 items-center justify-center rounded-md text-gray-600 outline-none hover:bg-gray-100 hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </header>
+            <div className="min-h-0 flex-1">
+              <VisitorPanel activeChat={activeChat} variant="drawer" />
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 };

@@ -146,7 +146,7 @@ async def test_rag_tool_uses_automatic_answer_endpoint_and_channel(
     )
     result = await tool.entrypoint(query="退款政策")
 
-    assert result == "<documents />"
+    assert result == tool_utils.NO_RELEVANT_KNOWLEDGE_RESPONSE
     assert captured_posts == [
         {
             "url": (
@@ -159,6 +159,7 @@ async def test_rag_tool_uses_automatic_answer_endpoint_and_channel(
                 "limit": 10,
                 "filters": None,
                 "channel": "wecom_kf",
+                "min_score": 0.37,
             },
         }
     ]
