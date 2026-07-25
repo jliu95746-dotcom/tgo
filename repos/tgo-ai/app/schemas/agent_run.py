@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import ConfigDict, Field
 
@@ -68,6 +68,17 @@ class SupervisorRunRequest(BaseSchema):
     enable_memory: bool = Field(
         default=False,
         description="Enable conversational memory for the executing agent",
+    )
+    excluded_tool_ids: tuple[uuid.UUID, ...] = Field(
+        default=(),
+        description=(
+            "Persisted tool bindings to omit only for this run because an "
+            "upstream trusted orchestrator already executed them"
+        ),
+    )
+    ui_mode: Literal["text", "json_render"] = Field(
+        default="json_render",
+        description="Response UI protocol; customer chat uses text mode",
     )
 
 

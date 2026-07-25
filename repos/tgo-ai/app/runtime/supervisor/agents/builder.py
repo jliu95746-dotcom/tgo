@@ -42,6 +42,7 @@ class AgnoAgentBuilder:
             request_id=context.request_id,
             skills_enabled=context.agent.skills_enabled,
             enable_memory=context.enable_memory,
+            excluded_tool_ids=context.excluded_tool_ids,
         )
         agno_agent = await self._agent_builder.build_agent(request, internal_agent=context.agent)
 

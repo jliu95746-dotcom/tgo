@@ -239,6 +239,7 @@ class SupervisorRuntimeService:
             rag_url=payload.rag_url,
             knowledge_channel=payload.knowledge_channel,
             enable_memory=payload.enable_memory,
+            excluded_tool_ids=payload.excluded_tool_ids,
         )
         return context, agent_id
 

@@ -9,6 +9,32 @@ from agno.tools import Function
 from .base import EventClient, ToolContext
 
 
+ALLOWED_USER_TAGS: dict[str, str] = {
+    "vip_customer": "重要客户",
+    "high_intent": "高意向",
+    "price_sensitive": "价格敏感",
+    "technical_support": "技术支持",
+    "new_customer": "新客户",
+    "returning_customer": "回访客户",
+    "complaint_risk": "投诉风险",
+    "needs_human": "需要人工",
+    "after_sales": "售后服务",
+}
+
+USER_TAG_ALIASES: dict[str, str] = {
+    "vip": "vip_customer",
+    "high_intent_customer": "high_intent",
+    "tech_support": "technical_support",
+    "returning": "returning_customer",
+}
+
+
+def _canonical_tag_name(value: str) -> str | None:
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    canonical = USER_TAG_ALIASES.get(normalized, normalized)
+    return canonical if canonical in ALLOWED_USER_TAGS else None
+
+
 def create_user_tag_tool(
     *,
     agent_id: str,
@@ -43,7 +69,8 @@ def create_user_tag_tool(
             return "请至少提供一个标签。"
 
         # Validate and normalize tags
-        normalized_tags = []
+        normalized_tags: list[dict[str, str]] = []
+        seen_names: set[str] = set()
         for tag in tags:
             if not isinstance(tag, dict):
                 return "标签格式错误，每个标签应包含 name 字段。"
@@ -52,12 +79,20 @@ def create_user_tag_tool(
             if not name:
                 return "标签的 name 字段不能为空。"
 
-            normalized_tag = {"name": name}
-            name_zh = tag.get("name_zh", "").strip()
-            if name_zh:
-                normalized_tag["name_zh"] = name_zh
+            canonical_name = _canonical_tag_name(name)
+            if canonical_name is None:
+                allowed = ", ".join(ALLOWED_USER_TAGS)
+                return f"不支持的标签：{name}。可用标签：{allowed}。"
+            if canonical_name in seen_names:
+                continue
+            seen_names.add(canonical_name)
 
-            normalized_tags.append(normalized_tag)
+            normalized_tags.append(
+                {
+                    "name": canonical_name,
+                    "name_zh": ALLOWED_USER_TAGS[canonical_name],
+                }
+            )
 
         result = await client.post_event(
             "user_tag.add",
@@ -74,10 +109,10 @@ def create_user_tag_tool(
     return Function(
         name="add_user_tags",
         description=(
-            "当你识别出用户具有某些特征或属于某个分类时，调用此工具为用户添加标签。"
-            "标签用于用户分类和后续营销/服务策略。"
-            "常见标签示例：VIP（重要客户）、High Intent（高意向）、Price Sensitive（价格敏感）、"
-            "Tech Support（技术支持）、New User（新用户）、Returning（回访客户）等。"
+            "仅当对话中有明确证据时，为用户添加受控标签。"
+            "name 只能使用：vip_customer、high_intent、price_sensitive、"
+            "technical_support、new_customer、returning_customer、"
+            "complaint_risk、needs_human、after_sales。不得临时发明标签。"
         ),
         parameters={
             "type": "object",
@@ -88,7 +123,11 @@ def create_user_tag_tool(
                     "items": {
                         "type": "object",
                         "properties": {
-                            "name": {"type": "string", "description": "标签英文名（必填）"},
+                            "name": {
+                                "type": "string",
+                                "enum": list(ALLOWED_USER_TAGS),
+                                "description": "受控标签英文名（必填）",
+                            },
                             "name_zh": {"type": "string", "description": "标签中文名（建议提供）"},
                         },
                         "required": ["name"],

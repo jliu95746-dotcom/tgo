@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -16,8 +17,8 @@ from app.models import (
     ProjectAIConfig,
     Visitor,
 )
-from app.services.message_intent_orchestrator import MessageIntentOrchestrator
 from app.services.ai_client import AIServiceClient
+from app.services.message_intent_orchestrator import MessageIntentOrchestrator
 
 
 class _Query:
@@ -107,6 +108,126 @@ class _PluginClient:
                 "tracking_no_masked": "SF****5678",
             },
         }
+
+
+class _UnexpectedAIClient:
+    def __init__(self) -> None:
+        self.called = False
+
+    async def classify_intent(self, **_kwargs: object) -> dict[str, object]:
+        self.called = True
+        raise AssertionError("safe auto-reply text must not invoke the intent model")
+
+
+class _AutoReplyWorkflowClient:
+    def __init__(self) -> None:
+        self.last_request: dict[str, object] | None = None
+
+    async def route_customer_service(
+        self, routing_data: dict[str, object]
+    ) -> dict[str, object]:
+        self.last_request = routing_data
+        return {"target": "auto_reply", "reason": "high_confidence_faq"}
+
+
+class _LogisticsAIClient:
+    async def classify_intent(self, **_kwargs: object) -> dict[str, object]:
+        return {
+            "intent": "logistics_query",
+            "confidence": 0.98,
+            "entities": {"logistics_no": "SF1234567890"},
+            "risk_level": "low",
+            "recommended_route": "read_only_tool",
+            "need_human": False,
+            "taxonomy_version": "v1",
+            "routing_reason": "high_confidence_read_only",
+            "classification_source": "model",
+        }
+
+
+class _LogisticsService:
+    def __init__(self) -> None:
+        self.query_tool_id = uuid4()
+        self.shipment = SimpleNamespace(
+            id=uuid4(),
+            tracking_no_masked="SF12****7890",
+            carrier_name="顺丰速运",
+            status="in_transit",
+            latest_summary="快件正在运输中",
+        )
+
+    def get_settings(self, _project_id):
+        return SimpleNamespace(
+            enabled=True,
+            auto_query_on_mention=True,
+            query_tool_id=self.query_tool_id,
+        )
+
+    def create_shipment(self, **_kwargs):
+        return self.shipment
+
+    async def query_shipment(self, _project_id, _shipment_id):
+        return self.shipment, ()
+
+
+@pytest.mark.asyncio
+async def test_safe_short_message_skips_redundant_intent_model_call() -> None:
+    project = Project(id=uuid4(), name="test", api_key="ak_test")
+    platform = Platform(
+        id=uuid4(),
+        project_id=project.id,
+        name="web",
+        type="website",
+        api_key="platform-key",
+        is_active=True,
+    )
+    visitor = Visitor(
+        id=uuid4(),
+        project_id=project.id,
+        platform_id=platform.id,
+        platform_open_id="visitor-open-id",
+    )
+    config = ProjectAIConfig(
+        project_id=project.id,
+        default_chat_provider_id=uuid4(),
+        default_chat_model="deepseek-v4-flash",
+    )
+    session = _Session(config, visitor)
+    ai_client = _UnexpectedAIClient()
+    workflow_client = _AutoReplyWorkflowClient()
+    orchestrator = MessageIntentOrchestrator(
+        session,  # type: ignore[arg-type]
+        ai_client=ai_client,  # type: ignore[arg-type]
+        workflow_client=workflow_client,  # type: ignore[arg-type]
+    )
+
+    outcome = await orchestrator.analyze_text_message(
+        project=project,
+        platform=platform,
+        visitor=visitor,
+        source_message_id="user-message-fast-path",
+        user_text="请简单介绍一下你们的功能",
+    )
+
+    assert ai_client.called is False
+    assert outcome.intent_result.intent == "product_inquiry"
+    assert outcome.intent_result.classification_source == "rule"
+    assert outcome.routing_target == "auto_reply"
+    assert workflow_client.last_request is not None
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "请帮我查询订单",
+        "我想转人工客服",
+        "这个商品坏了，怎么售后",
+        "账号被盗了",
+        "请帮我退！款",
+    ),
+)
+def test_special_routing_messages_keep_semantic_classification(message: str) -> None:
+    assert MessageIntentOrchestrator._can_use_safe_auto_reply(message) is False
 
 
 @pytest.mark.asyncio
@@ -204,6 +325,48 @@ async def test_business_query_prefers_explicit_business_customer_id() -> None:
     context = plugin_client.last_request["context"]
     assert isinstance(context, dict)
     assert context["external_customer_id"] == "member-7788"
+
+
+@pytest.mark.asyncio
+async def test_logistics_archive_excludes_the_tool_already_executed() -> None:
+    project = Project(id=uuid4(), name="test", api_key="ak_test")
+    platform = Platform(
+        id=uuid4(),
+        project_id=project.id,
+        name="web",
+        type="website",
+        api_key="platform-key",
+        is_active=True,
+    )
+    visitor = Visitor(
+        id=uuid4(),
+        project_id=project.id,
+        platform_id=platform.id,
+        platform_open_id="visitor-open-id",
+    )
+    config = ProjectAIConfig(
+        project_id=project.id,
+        default_chat_provider_id=uuid4(),
+        default_chat_model="deepseek-v4-flash",
+    )
+    logistics_service = _LogisticsService()
+    orchestrator = MessageIntentOrchestrator(
+        _Session(config, visitor),  # type: ignore[arg-type]
+        ai_client=_LogisticsAIClient(),  # type: ignore[arg-type]
+        workflow_client=_WorkflowClient(),  # type: ignore[arg-type]
+        logistics_service=logistics_service,  # type: ignore[arg-type]
+    )
+
+    outcome = await orchestrator.analyze_text_message(
+        project=project,
+        platform=platform,
+        visitor=visitor,
+        source_message_id="user-message-logistics",
+        user_text="帮我查一下 SF1234567890",
+    )
+
+    assert outcome.routing_target == "read_only_tool"
+    assert outcome.excluded_tool_ids == (str(logistics_service.query_tool_id),)
 
 
 @pytest.mark.asyncio

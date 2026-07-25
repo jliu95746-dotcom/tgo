@@ -191,6 +191,10 @@ class AgentExecutionContext(BaseModel):
         description="Channel used for automatic-answer knowledge governance",
     )
     enable_memory: bool = Field(False, description="Whether conversational memory is enabled")
+    excluded_tool_ids: tuple[UUID, ...] = Field(
+        default=(),
+        description="Persisted agent tools omitted only for this execution",
+    )
     ui_mode: str = Field("json_render", description="UI rendering mode")
 
     class Config:

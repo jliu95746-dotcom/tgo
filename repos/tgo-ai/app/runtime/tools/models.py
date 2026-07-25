@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -115,6 +116,10 @@ class AgentRunRequest(BaseModel):
         description="流式输出是否包含中间工具步骤",
     )
     enable_memory: bool = Field(default=False, description="是否启用会话记忆功能")
+    excluded_tool_ids: tuple[UUID, ...] = Field(
+        default=(),
+        description="仅在本轮执行中排除的持久化工具 ID",
+    )
 
 
 class ToolExecution(BaseModel):

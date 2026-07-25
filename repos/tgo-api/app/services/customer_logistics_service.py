@@ -160,6 +160,22 @@ def parse_tracking_result(raw: Any) -> ParsedTrackingResult:
             decoded_content = None
         if isinstance(decoded_content, (dict, list)):
             data = decoded_content
+    if isinstance(data, dict) and isinstance(data.get("content"), list):
+        text_blocks = [
+            item.get("text", "").strip()
+            for item in data["content"]
+            if isinstance(item, dict)
+            and isinstance(item.get("text"), str)
+            and item.get("text", "").strip()
+        ]
+        for text_block in text_blocks:
+            try:
+                decoded_content = json.loads(text_block)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(decoded_content, dict):
+                data = decoded_content
+                break
     if not isinstance(data, dict):
         data = {"summary": str(data)}
 
@@ -169,7 +185,7 @@ def parse_tracking_result(raw: Any) -> ParsedTrackingResult:
     )
     carrier_code = _first_text(data, ("carrier_code", "company_code", "code"))
     carrier_name = _first_text(data, ("carrier_name", "company", "carrier"))
-    raw_events = next(
+    raw_events: list[Any] = next(
         (
             data[key]
             for key in ("traces", "events", "tracking", "route")

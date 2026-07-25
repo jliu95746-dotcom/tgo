@@ -62,3 +62,27 @@ def test_parse_tracking_result_decodes_json_content_from_store_tool() -> None:
     assert result.status == "delivered"
     assert result.carrier_name == "圆通速递"
     assert result.summary == "本人已签收"
+
+
+def test_parse_tracking_result_decodes_mcp_text_content_list() -> None:
+    result = parse_tracking_result(
+        {
+            "output_data": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            '{"status":"运输中","company":"顺丰速运",'
+                            '"traces":[{"time":"2026-07-25T10:30:00+00:00",'
+                            '"context":"快件到达杭州转运中心","location":"杭州"}]}'
+                        ),
+                    }
+                ]
+            }
+        }
+    )
+
+    assert result.status == "in_transit"
+    assert result.carrier_name == "顺丰速运"
+    assert result.summary == "快件到达杭州转运中心"
+    assert len(result.events) == 1

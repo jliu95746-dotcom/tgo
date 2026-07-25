@@ -220,6 +220,7 @@ class AIServiceClient:
         enable_memory: Optional[bool] = None,
         system_message: Optional[str] = None,
         expected_output: Optional[str] = None,
+        excluded_tool_ids: Optional[List[str]] = None,
     ) -> AsyncGenerator[Tuple[str, Any], None]:
         """Stream supervisor agent events as they arrive."""
         payload: Dict[str, Any] = {
@@ -244,6 +245,8 @@ class AIServiceClient:
             payload["system_message"] = system_message
         if expected_output is not None:
             payload["expected_output"] = expected_output
+        if excluded_tool_ids:
+            payload["excluded_tool_ids"] = excluded_tool_ids
 
         url = f"{self.base_url}/api/v1/agents/run"
         request_id = str(uuid4())

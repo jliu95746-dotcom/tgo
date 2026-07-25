@@ -9,6 +9,7 @@ import traceback
 import types
 import uuid
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Union
+from uuid import UUID
 
 import httpx
 from agno.agent import Agent, RemoteAgent
@@ -511,6 +512,22 @@ class StoreRemoteAgent(RemoteAgent):
 UNEDITABLE_SYSTEM_PROMPT = (
     "\nIf the tool throws an error requiring authentication, provide the user with a Markdown "
     "link to the authentication page and prompt them to authenticate."
+    "\nFor factual answers based on bound knowledge, call each RAG search tool at most once "
+    "per user turn. Treat the first governed result as complete. Use only explicit facts "
+    "from that result. Never claim that an item matches a requested price, policy, date, "
+    "specification, or other constraint unless the matching value is explicitly present. "
+    "If no result satisfies the constraint, clearly say that no confirmed match was found."
+    "\nCustomer context management applies identically to every channel. When the customer "
+    "explicitly provides a stable profile fact such as their name, contact method, company, "
+    "position, or address, call update_user_info once with only the stated fields. When the "
+    "customer clearly expresses satisfaction, dissatisfaction, emotion, or a service intent, "
+    "call update_user_sentiment once. Use add_user_tags only for its documented controlled "
+    "vocabulary and only when evidence is explicit. Use update_user_memory only for stable "
+    "preferences, durable constraints, or decisions that will help in future conversations. "
+    "Never store passwords, verification codes, authentication tokens, payment credentials, "
+    "government identifiers, medical details, or unconfirmed inferences in profile fields, "
+    "tags, sentiment, or long-term memory. Do not mention these background writes to the "
+    "customer unless the write fails and affects the requested service."
 )
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant that has access to a variety of tools."
@@ -613,6 +630,7 @@ class AgentBuilder:
             project_id=request.project_id,
             agent_id=request.agent_id,
             request_id=request.request_id,
+            excluded_tool_ids=request.excluded_tool_ids,
         )
 
         # Build Agno Skills object if skills_enabled
@@ -753,6 +771,7 @@ class AgentBuilder:
         project_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         request_id: Optional[str] = None,
+        excluded_tool_ids: tuple[UUID, ...] = (),
     ) -> List[Any]:
         tools: List[Any] = []
 
@@ -774,29 +793,48 @@ class AgentBuilder:
                 error_type=type(exc).__name__,
             )
 
-        # Load MCP tools from internal_agent if provided, otherwise use config.mcp_config
-        if internal_agent and internal_agent.tools:
-            try:
-                tools.extend(
-                    await self._build_mcp_tools_from_agent(
-                        internal_agent, 
-                        session_id, 
-                        user_id,
-                        project_id=project_id
+        # Load MCP tools from the persisted agent binding. Per-run exclusions
+        # are applied to a copy so the project's saved agent configuration is
+        # never mutated.
+        if internal_agent is not None:
+            excluded_ids = set(excluded_tool_ids)
+            runtime_agent = internal_agent
+            if excluded_ids:
+                runtime_agent = internal_agent.model_copy(
+                    update={
+                        "tools": [
+                            tool
+                            for tool in internal_agent.tools
+                            if tool.tool_id not in excluded_ids
+                        ]
+                    }
+                )
+            if runtime_agent.tools:
+                try:
+                    tools.extend(
+                        await self._build_mcp_tools_from_agent(
+                            runtime_agent,
+                            session_id,
+                            user_id,
+                            project_id=project_id,
+                        )
                     )
-                )
-            except (MCPConnectionError, MCPToolError, MCPAuthenticationError) as exc:
-                self._logger.warning(
-                    "MCP tool setup from agent failed, continuing without MCP tools",
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                )
-            except Exception as exc:  # noqa: BLE001
-                self._logger.warning(
-                    "Unexpected error during MCP tool setup from agent, continuing without MCP tools",
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                )
+                except (
+                    MCPConnectionError,
+                    MCPToolError,
+                    MCPAuthenticationError,
+                ) as exc:
+                    self._logger.warning(
+                        "MCP tool setup from agent failed, continuing without MCP tools",
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    self._logger.warning(
+                        "Unexpected error during MCP tool setup from agent, continuing without MCP tools",
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
         else:
             try:
                 tools.extend(await self._build_mcp_tools(config.mcp_config, session_id, user_id))
