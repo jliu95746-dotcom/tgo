@@ -1,46 +1,41 @@
 """Chat service for handling chat completion business logic."""
 
-import json
 import asyncio
 import hashlib
+import json
 from datetime import datetime
-from typing import Optional, Dict, Any
-from uuid import uuid4
+from typing import Any, AsyncIterator, Dict, Optional
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
-from app.core.logging import get_logger
-from app.models import (
-    Platform,
-    Project,
-    Visitor,
-    VisitorServiceStatus,
-    Staff,
-)
 import app.services.visitor_service as visitor_service
-from app.services.wukongim_client import wukongim_client
-from app.services.ai_client import AIServiceClient
-from app.utils.const import MessageType
+from app.core.logging import get_logger
+from app.models import Platform, Project, Staff, Visitor, VisitorServiceStatus
 from app.schemas.chat import (
-    OpenAIChatMessage,
-    OpenAIChatCompletionResponse,
     OpenAIChatCompletionChoice,
+    OpenAIChatCompletionResponse,
     OpenAIChatCompletionUsage,
+    OpenAIChatMessage,
 )
+from app.services.ai_client import AIServiceClient
+from app.services.wukongim_client import wukongim_client
+from app.utils.const import MessageType
 
 logger = get_logger("services.chat")
 
 ai_client = AIServiceClient()
+background_ai_tasks: set[asyncio.Task[None]] = set()
 
 # ============================================================================
 # Validation & Helpers
 # ============================================================================
 
+
 def validate_platform_and_project(
-    platform_api_key: str,
-    db: Session
+    platform_api_key: str, db: Session
 ) -> tuple[Platform, Project]:
     """Validate Platform API key and return platform with project."""
     platform = (
@@ -54,15 +49,14 @@ def validate_platform_and_project(
     )
     if not platform:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key"
         )
 
     project = platform.project
     if not project or not project.api_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Platform is not linked to a valid project"
+            detail="Platform is not linked to a valid project",
         )
 
     return platform, project
@@ -70,7 +64,7 @@ def validate_platform_and_project(
 
 def is_ai_disabled(platform: Platform, visitor: Optional[Visitor]) -> bool:
     """Check if AI is disabled for the platform or visitor.
-    
+
     Logic priority:
     1. If visitor.ai_disabled is not None, use that value
     2. Otherwise, check platform.ai_mode:
@@ -82,7 +76,7 @@ def is_ai_disabled(platform: Platform, visitor: Optional[Visitor]) -> bool:
         visitor_ai_disabled = getattr(visitor, "ai_disabled", None)
         if visitor_ai_disabled is not None:
             return visitor_ai_disabled
-    
+
     # Fall back to ai_mode: "auto" means AI enabled, others mean disabled
     ai_mode = getattr(platform, "ai_mode", None)
     return ai_mode != "auto"
@@ -106,6 +100,7 @@ def authenticate_staff_or_platform(
 
     if credentials and credentials.credentials:
         from app.core.security import verify_token
+
         payload = verify_token(credentials.credentials)
         if payload:
             username = payload.get("sub")
@@ -133,6 +128,29 @@ def authenticate_staff_or_platform(
 # ============================================================================
 # AI Integration Logic
 # ============================================================================
+
+
+def _extract_ai_content_chunk(event_data: Dict[str, Any]) -> Optional[str]:
+    """Extract text from the supported AI event envelopes."""
+
+    data = event_data.get("data") or {}
+    if not isinstance(data, dict):
+        return None
+
+    chunk_text = data.get("content_chunk") or data.get("content") or data.get("text")
+    if not chunk_text:
+        inner_data = data.get("data", {})
+        if isinstance(inner_data, dict):
+            chunk_text = (
+                inner_data.get("content_chunk")
+                or inner_data.get("content")
+                or inner_data.get("text")
+            )
+    if chunk_text is None:
+        return None
+    chunk = str(chunk_text)
+    return chunk or None
+
 
 async def forward_ai_event_to_wukongim(
     event_type: str,
@@ -165,21 +183,8 @@ async def forward_ai_event_to_wukongim(
             )
 
         elif event_type == "agent_content_chunk":
-            # Robust extraction of content from data
-            chunk_text = data.get("content_chunk") or data.get("content") or data.get("text")
-            if not chunk_text and isinstance(data, dict):
-                inner_data = data.get("data", {})
-                if isinstance(inner_data, dict):
-                    chunk_text = (
-                        inner_data.get("content_chunk")
-                        or inner_data.get("content")
-                        or inner_data.get("text")
-                    )
-
-            if chunk_text is not None:
-                chunk_str = str(chunk_text)
-                if not chunk_str:
-                    return None
+            chunk_str = _extract_ai_content_chunk(event_data)
+            if chunk_str:
                 await wukongim_client.send_stream_event(
                     channel_id=channel_id,
                     channel_type=channel_type,
@@ -193,6 +198,22 @@ async def forward_ai_event_to_wukongim(
                 return chunk_str
 
         elif event_type in {"workflow_completed", "agent_response_complete"}:
+            final_content = data.get("final_content")
+            total_chunks = data.get("total_chunks")
+            fallback_content: Optional[str] = None
+            if isinstance(final_content, str) and final_content and total_chunks == 0:
+                fallback_content = final_content
+                await wukongim_client.send_stream_event(
+                    channel_id=channel_id,
+                    channel_type=channel_type,
+                    client_msg_no=client_msg_no,
+                    event_id=uuid4().hex,
+                    event_type="stream.delta",
+                    event_key="main",
+                    from_uid=from_uid,
+                    payload={"kind": "text", "delta": fallback_content},
+                )
+
             # Close the stream channel, then finish the entire message
             await wukongim_client.send_stream_event(
                 channel_id=channel_id,
@@ -212,9 +233,12 @@ async def forward_ai_event_to_wukongim(
                 event_key="main",
                 from_uid=from_uid,
             )
+            return fallback_content
 
         elif event_type == "workflow_failed":
-            error_message = data.get("error") or "AI processing failed"
+            error_message = (
+                data.get("error") or data.get("error_message") or "AI processing failed"
+            )
             await wukongim_client.send_stream_event(
                 channel_id=channel_id,
                 channel_type=channel_type,
@@ -225,6 +249,16 @@ async def forward_ai_event_to_wukongim(
                 from_uid=from_uid,
                 payload={"error": str(error_message)},
             )
+            for terminal_event_type in ("stream.close", "stream.finish"):
+                await wukongim_client.send_stream_event(
+                    channel_id=channel_id,
+                    channel_type=channel_type,
+                    client_msg_no=client_msg_no,
+                    event_id=uuid4().hex,
+                    event_type=terminal_event_type,
+                    event_key="main",
+                    from_uid=from_uid,
+                )
 
     except Exception as e:
         logger.error(f"Failed to forward AI event {event_type} to WuKongIM: {e}")
@@ -244,12 +278,24 @@ async def process_ai_stream_to_wukongim(
     expected_output: Optional[str] = None,
     agent_id: Optional[str] = None,
     knowledge_channel: Optional[str] = None,
-):
+    excluded_tool_ids: tuple[str, ...] = (),
+) -> AsyncIterator[Dict[str, Any]]:
     """Process AI stream and forward events to WuKongIM, while yielding events for SSE."""
     full_content = ""
-    
-    # 1) Notify acceptance immediately (caller may already have done this, but here for consistency)
-    # yield {"event_type": "accepted", "visitor_id": visitor_id, "client_msg_no": client_msg_no}
+    stream_finished = False
+
+    # Give the visitor immediate feedback before remote tool discovery/model setup.
+    anchor_task = asyncio.create_task(
+        forward_ai_event_to_wukongim(
+            event_type="agent_execution_started",
+            event_data={"data": {}},
+            channel_id=channel_id,
+            channel_type=channel_type,
+            client_msg_no=client_msg_no,
+            from_uid=from_uid,
+        )
+    )
+    await asyncio.sleep(0)
 
     # 2) Run AI completion
     try:
@@ -263,38 +309,74 @@ async def process_ai_stream_to_wukongim(
             system_message=system_message,
             expected_output=expected_output,
             knowledge_channel=knowledge_channel,
+            excluded_tool_ids=list(excluded_tool_ids),
         ):
             event_type = data.get("event_type") if isinstance(data, dict) else None
             if not event_type:
                 event_type = stream_event_type
-            # Forward to WuKongIM
-            content_chunk = await forward_ai_event_to_wukongim(
-                event_type=event_type,
-                event_data=data,
-                channel_id=channel_id,
-                channel_type=channel_type,
-                client_msg_no=client_msg_no,
-                from_uid=from_uid,
-            )
-            if content_chunk:
-                full_content += content_chunk
+            # WuKongIM HTTP calls can take over a second. Buffer provider token
+            # chunks and publish one delta at completion instead of blocking the
+            # AI stream once per token.
+            if event_type == "agent_content_chunk":
+                chunk = _extract_ai_content_chunk(data)
+                if chunk:
+                    full_content += chunk
+            else:
+                if event_type == "agent_tool_call_started":
+                    full_content = ""
+                if event_type == "agent_execution_started":
+                    yield {"event_type": event_type, "data": data}
+                    continue
+                if (
+                    event_type in {"workflow_completed", "agent_response_complete"}
+                    and stream_finished
+                ):
+                    yield {"event_type": event_type, "data": data}
+                    continue
+                event_to_forward = data
+                if event_type in {
+                    "workflow_completed",
+                    "agent_response_complete",
+                } and isinstance(data, dict):
+                    completion_data = data.get("data")
+                    if isinstance(completion_data, dict):
+                        provider_final = completion_data.get("final_content")
+                        if not full_content and isinstance(provider_final, str):
+                            full_content = provider_final
+                        completion_data = {
+                            **completion_data,
+                            "final_content": full_content,
+                            "total_chunks": 0,
+                        }
+                        event_to_forward = {**data, "data": completion_data}
+                    await anchor_task
+                await forward_ai_event_to_wukongim(
+                    event_type=event_type,
+                    event_data=event_to_forward,
+                    channel_id=channel_id,
+                    channel_type=channel_type,
+                    client_msg_no=client_msg_no,
+                    from_uid=from_uid,
+                )
+                if event_type in {"workflow_completed", "agent_response_complete"}:
+                    stream_finished = True
 
             # Yield for SSE
             yield {"event_type": event_type, "data": data}
-            
+
     except Exception as e:
         logger.error(f"Error in AI stream processing: {e}")
         error_data = {"error_message": str(e)}
+        await anchor_task
         await forward_ai_event_to_wukongim(
             event_type="workflow_failed",
-            event_data=error_data,
+            event_data={"data": error_data},
             channel_id=channel_id,
             channel_type=channel_type,
             client_msg_no=client_msg_no,
             from_uid=from_uid,
         )
         yield {"event_type": "workflow_failed", "data": error_data}
-    
 
 
 async def handle_ai_response_non_stream(
@@ -310,11 +392,25 @@ async def handle_ai_response_non_stream(
     expected_output: Optional[str] = None,
     agent_id: Optional[str] = None,
     knowledge_channel: Optional[str] = None,
+    excluded_tool_ids: tuple[str, ...] = (),
 ) -> Dict[str, Any]:
     """Handle AI completion in a non-streaming way, while still forwarding to WuKongIM."""
     full_content = ""
     last_data = {}
-    
+    stream_finished = False
+
+    anchor_task = asyncio.create_task(
+        forward_ai_event_to_wukongim(
+            event_type="agent_execution_started",
+            event_data={"data": {}},
+            channel_id=channel_id,
+            channel_type=channel_type,
+            client_msg_no=client_msg_no,
+            from_uid=from_uid,
+        )
+    )
+    await asyncio.sleep(0)
+
     try:
         async for stream_event_type, data in ai_client.run_supervisor_agent_stream(
             project_id=project_id,
@@ -326,29 +422,66 @@ async def handle_ai_response_non_stream(
             system_message=system_message,
             expected_output=expected_output,
             knowledge_channel=knowledge_channel,
+            excluded_tool_ids=list(excluded_tool_ids),
         ):
             event_type = data.get("event_type") if isinstance(data, dict) else None
             if not event_type:
                 event_type = stream_event_type
-            content_chunk = await forward_ai_event_to_wukongim(
-                event_type=event_type,
-                event_data=data,
-                channel_id=channel_id,
-                channel_type=channel_type,
-                client_msg_no=client_msg_no,
-                from_uid=from_uid,
-            )
-            if content_chunk:
-                full_content += content_chunk
+            if event_type == "agent_content_chunk":
+                chunk = _extract_ai_content_chunk(data)
+                if chunk:
+                    full_content += chunk
+            else:
+                if event_type == "agent_tool_call_started":
+                    full_content = ""
+                if event_type == "agent_execution_started":
+                    last_data = data
+                    continue
+                if (
+                    event_type in {"workflow_completed", "agent_response_complete"}
+                    and stream_finished
+                ):
+                    last_data = data
+                    continue
+                event_to_forward = data
+                if event_type in {
+                    "workflow_completed",
+                    "agent_response_complete",
+                } and isinstance(data, dict):
+                    completion_data = data.get("data")
+                    if isinstance(completion_data, dict):
+                        provider_final = completion_data.get("final_content")
+                        if not full_content and isinstance(provider_final, str):
+                            full_content = provider_final
+                        event_to_forward = {
+                            **data,
+                            "data": {
+                                **completion_data,
+                                "final_content": full_content,
+                                "total_chunks": 0,
+                            },
+                        }
+                    await anchor_task
+                await forward_ai_event_to_wukongim(
+                    event_type=event_type,
+                    event_data=event_to_forward,
+                    channel_id=channel_id,
+                    channel_type=channel_type,
+                    client_msg_no=client_msg_no,
+                    from_uid=from_uid,
+                )
+                if event_type in {"workflow_completed", "agent_response_complete"}:
+                    stream_finished = True
             last_data = data
-            
+
         return {"success": True, "content": full_content, "data": last_data}
     except Exception as e:
         logger.error(f"Error in non-stream AI processing: {e}")
         error_data = {"error_message": str(e)}
+        await anchor_task
         await forward_ai_event_to_wukongim(
             event_type="workflow_failed",
-            event_data=error_data,
+            event_data={"data": error_data},
             channel_id=channel_id,
             channel_type=channel_type,
             client_msg_no=client_msg_no,
@@ -370,10 +503,11 @@ async def run_background_ai_interaction(
     expected_output: Optional[str] = None,
     agent_id: Optional[str] = None,
     knowledge_channel: Optional[str] = None,
+    excluded_tool_ids: tuple[str, ...] = (),
     started_event: Optional[asyncio.Event] = None,
-):
+) -> None:
     """Run AI interaction in the background.
-    
+
     Args:
         started_event: Optional asyncio.Event that will be set when agent execution starts.
     """
@@ -390,17 +524,95 @@ async def run_background_ai_interaction(
         expected_output=expected_output,
         agent_id=agent_id,
         knowledge_channel=knowledge_channel,
+        excluded_tool_ids=excluded_tool_ids,
     ):
-            # Signal that AI processing has started
+        # Signal that AI processing has started
         if started_event and not started_event.is_set():
             event_type = event_payload.get("event_type")
             if event_type == "agent_execution_started":
                 started_event.set()
 
 
+def schedule_background_ai_interaction(
+    *,
+    project_id: str,
+    user_id: str,
+    message: str,
+    channel_id: str,
+    channel_type: int,
+    client_msg_no: str,
+    from_uid: str,
+    session_id: Optional[str] = None,
+    system_message: Optional[str] = None,
+    expected_output: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    knowledge_channel: Optional[str] = None,
+    excluded_tool_ids: tuple[str, ...] = (),
+    interaction_run_id: UUID | None = None,
+) -> asyncio.Task[None]:
+    """Schedule an AI run and retain it until completion."""
+
+    task = asyncio.create_task(
+        run_background_ai_interaction(
+            project_id=project_id,
+            user_id=user_id,
+            message=message,
+            channel_id=channel_id,
+            channel_type=channel_type,
+            client_msg_no=client_msg_no,
+            from_uid=from_uid,
+            session_id=session_id,
+            system_message=system_message,
+            expected_output=expected_output,
+            agent_id=agent_id,
+            knowledge_channel=knowledge_channel,
+            excluded_tool_ids=excluded_tool_ids,
+        )
+    )
+    background_ai_tasks.add(task)
+
+    def _release(completed: asyncio.Task[None]) -> None:
+        background_ai_tasks.discard(completed)
+        if completed.cancelled():
+            logger.warning(
+                "Background AI interaction was cancelled",
+                extra={"client_msg_no": client_msg_no},
+            )
+            if interaction_run_id is not None:
+                from app.services.ai_interaction_run_service import (
+                    mark_ai_interaction_finished,
+                )
+
+                mark_ai_interaction_finished(
+                    interaction_run_id,
+                    error_message="Background AI interaction was cancelled",
+                )
+            return
+        error = completed.exception()
+        if error is not None:
+            logger.error(
+                "Background AI interaction failed",
+                exc_info=error,
+                extra={"client_msg_no": client_msg_no},
+            )
+        if interaction_run_id is not None:
+            from app.services.ai_interaction_run_service import (
+                mark_ai_interaction_finished,
+            )
+
+            mark_ai_interaction_finished(
+                interaction_run_id,
+                error_message=str(error) if error is not None else None,
+            )
+
+    task.add_done_callback(_release)
+    return task
+
+
 # ============================================================================
 # UI User Action Handling
 # ============================================================================
+
 
 def convert_ui_user_action_to_query(user_action: Dict[str, Any]) -> str:
     """Convert a UI userAction payload into a natural-language query.
@@ -416,16 +628,18 @@ def convert_ui_user_action_to_query(user_action: Dict[str, Any]) -> str:
     context_parts = [f"{k}={v}" for k, v in context.items() if v]
     context_str = ", ".join(context_parts) if context_parts else "no additional context"
 
-    return f"[UI Action] User triggered action '{action_name}' with context: {context_str}"
+    return (
+        f"[UI Action] User triggered action '{action_name}' with context: {context_str}"
+    )
 
 
 # ============================================================================
 # OpenAI Mapping Helpers
 # ============================================================================
 
+
 def extract_messages_from_openai_format(
-    messages: list[OpenAIChatMessage],
-    user_field: Optional[str] = None
+    messages: list[OpenAIChatMessage], user_field: Optional[str] = None
 ) -> tuple[str, Optional[str], str]:
     """Extract user message, system message, and platform_open_id from OpenAI message format."""
     user_message = None
@@ -440,7 +654,7 @@ def extract_messages_from_openai_format(
     if not user_message:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No user message found in messages array"
+            detail="No user message found in messages array",
         )
 
     platform_open_id = user_field or f"openai_user_{uuid4().hex[:8]}"
@@ -449,8 +663,7 @@ def extract_messages_from_openai_format(
 
 
 def estimate_token_usage(
-    messages: list[OpenAIChatMessage],
-    completion_text: str
+    messages: list[OpenAIChatMessage], completion_text: str
 ) -> tuple[int, int, int]:
     """Estimate token usage for prompt and completion."""
     prompt_text = " ".join([msg.content for msg in messages])
@@ -468,7 +681,7 @@ def build_openai_completion_response(
     completion_text: str,
     prompt_tokens: int,
     completion_tokens: int,
-    total_tokens: int
+    total_tokens: int,
 ) -> OpenAIChatCompletionResponse:
     """Build OpenAI-compatible completion response."""
     return OpenAIChatCompletionResponse(
@@ -498,6 +711,7 @@ def build_openai_completion_response(
 # Messaging Helpers
 # ============================================================================
 
+
 async def send_user_message_to_wukongim(
     *,
     from_uid: str,
@@ -513,7 +727,9 @@ async def send_user_message_to_wukongim(
     source_message_id = extra.get("message_id") if extra else None
     if isinstance(source_message_id, str) and source_message_id:
         correlation_source = f"{channel_id}:{from_uid}:{source_message_id}"
-        correlation_hash = hashlib.sha256(correlation_source.encode("utf-8")).hexdigest()
+        correlation_hash = hashlib.sha256(
+            correlation_source.encode("utf-8")
+        ).hexdigest()
         client_msg_no = f"platform_{correlation_hash[:32]}"
     else:
         client_msg_no = f"user_{uuid4().hex}"
@@ -553,6 +769,7 @@ async def send_user_message_to_wukongim(
 # Visitor & Queue Management
 # ============================================================================
 
+
 async def get_or_create_visitor(
     db: Session,
     platform: Platform,
@@ -562,16 +779,16 @@ async def get_or_create_visitor(
 ) -> tuple[Visitor, bool]:
     """
     获取或创建访客。
-    
+
     如果访客存在且信息发生变化，自动更新并通知 WuKongIM。
-    
+
     Args:
         db: 数据库会话
         platform: 平台对象
         platform_open_id: 平台用户ID
         nickname: 昵称（可选）
         avatar_url: 头像URL（可选）
-        
+
     Returns:
         tuple[Visitor, bool]: (访客对象, 是否发生了更新)
     """
@@ -584,14 +801,14 @@ async def get_or_create_visitor(
         )
         .first()
     )
-    
+
     if not visitor:
         # 创建新访客
         visitor = await visitor_service.create_visitor_with_channel(
             db=db,
             platform=platform,
             platform_open_id=platform_open_id,
-            name=nickname, # 同时设置 name
+            name=nickname,  # 同时设置 name
             nickname=nickname,
             avatar_url=avatar_url,
         )
@@ -610,11 +827,11 @@ async def get_or_create_visitor(
             if visitor.nickname_zh != nickname:
                 visitor.nickname_zh = nickname
                 changed = True
-        
+
         if avatar_url and visitor.avatar_url != avatar_url:
             visitor.avatar_url = avatar_url
             changed = True
-            
+
         # 重置已关闭的访客状态
         if visitor.service_status == VisitorServiceStatus.CLOSED.value:
             visitor.service_status = VisitorServiceStatus.NEW.value
@@ -624,5 +841,5 @@ async def get_or_create_visitor(
         if changed:
             visitor.updated_at = datetime.utcnow()
             db.commit()
-    
+
     return visitor, changed

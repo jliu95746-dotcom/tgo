@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -61,6 +61,7 @@ async def test_chat_completion_prefers_platform_agent_id(monkeypatch) -> None:
         last_client_msg_no=None,
     )
     platform = SimpleNamespace(
+        id=uuid4(),
         agent_id=platform_agent_id,
         ai_mode="auto",
         type="wecom",
@@ -110,6 +111,24 @@ async def test_chat_completion_prefers_platform_agent_id(monkeypatch) -> None:
         "handle_ai_response_non_stream",
         handle_ai_mock,
     )
+    interaction_run = SimpleNamespace(
+        id=uuid4(),
+        response_client_msg_no="ai_test",
+        status="running",
+    )
+    monkeypatch.setattr(
+        chat_endpoints,
+        "claim_ai_interaction",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            run=interaction_run,
+            is_duplicate=False,
+        ),
+    )
+    monkeypatch.setattr(
+        chat_endpoints,
+        "mark_ai_interaction_finished",
+        lambda *_args, **_kwargs: None,
+    )
 
     result = await chat_endpoints.chat_completion(
         ChatCompletionRequest(
@@ -142,7 +161,12 @@ async def test_chat_completion_omits_agent_id_without_platform_override(
         is_last_message_from_visitor=True,
         last_client_msg_no=None,
     )
-    platform = SimpleNamespace(agent_id=None, ai_mode="auto", type="website")
+    platform = SimpleNamespace(
+        id=uuid4(),
+        agent_id=None,
+        ai_mode="auto",
+        type="website",
+    )
     project = SimpleNamespace(id=project_id, api_key="ak_project")
     handle_ai_mock = AsyncMock(return_value={"success": True, "content": "ok"})
 
@@ -188,6 +212,24 @@ async def test_chat_completion_omits_agent_id_without_platform_override(
         "handle_ai_response_non_stream",
         handle_ai_mock,
     )
+    interaction_run = SimpleNamespace(
+        id=uuid4(),
+        response_client_msg_no="ai_test",
+        status="running",
+    )
+    monkeypatch.setattr(
+        chat_endpoints,
+        "claim_ai_interaction",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            run=interaction_run,
+            is_duplicate=False,
+        ),
+    )
+    monkeypatch.setattr(
+        chat_endpoints,
+        "mark_ai_interaction_finished",
+        lambda *_args, **_kwargs: None,
+    )
 
     result = await chat_endpoints.chat_completion(
         ChatCompletionRequest(
@@ -210,19 +252,18 @@ async def test_staff_agent_chat_routes_agent_only(monkeypatch) -> None:
 
     project_id = uuid4()
     agent_id = uuid4()
-    run_background_mock = AsyncMock(return_value=None)
-
-    def fake_create_task(coro):
-        coro.close()
-        return SimpleNamespace(cancel=lambda: None)
+    schedule_background_mock = MagicMock()
 
     monkeypatch.setattr(
         chat_endpoints.chat_service,
         "send_user_message_to_wukongim",
         AsyncMock(return_value=None),
     )
-    monkeypatch.setattr(chat_endpoints.chat_service, "run_background_ai_interaction", run_background_mock)
-    monkeypatch.setattr(chat_endpoints.asyncio, "create_task", fake_create_task)
+    monkeypatch.setattr(
+        chat_endpoints.chat_service,
+        "schedule_background_ai_interaction",
+        schedule_background_mock,
+    )
 
     response = await chat_endpoints.staff_agent_chat(
         StaffAgentChatRequest(agent_id=agent_id, message="hello"),
@@ -235,9 +276,9 @@ async def test_staff_agent_chat_routes_agent_only(monkeypatch) -> None:
     )
 
     assert response.success is True
-    assert run_background_mock.call_args.kwargs["agent_id"] == str(agent_id)
-    assert run_background_mock.call_args.kwargs["knowledge_channel"] == "internal"
-    assert "team_id" not in run_background_mock.call_args.kwargs
+    assert schedule_background_mock.call_args.kwargs["agent_id"] == str(agent_id)
+    assert schedule_background_mock.call_args.kwargs["knowledge_channel"] == "internal"
+    assert "team_id" not in schedule_background_mock.call_args.kwargs
 
 
 def test_chat_openapi_uses_agent_route_not_team_route(client) -> None:

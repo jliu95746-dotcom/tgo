@@ -34,6 +34,8 @@ from app.models.channel_memory_clearance import ChannelMemoryClearance, Clearanc
 from app.models.store_credential import StoreCredential
 from app.models.media_analysis_result import MediaAnalysisResult
 from app.models.message_intent_result import MessageIntentResult
+from app.models.manual_service_request import ManualServiceRequest
+from app.models.ai_interaction_run import AIInteractionRun, AIInteractionRunStatus
 from app.models.customer_logistics import (
     CustomerShipment,
     LogisticsSettings,
@@ -77,6 +79,8 @@ __all__ = [
     "StoreCredential",
     "MediaAnalysisResult",
     "MessageIntentResult",
+    "ManualServiceRequest",
+    "AIInteractionRun",
     "CustomerShipment",
     "LogisticsSettings",
     "ShipmentTrackingEvent",
@@ -91,4 +95,5 @@ __all__ = [
     "QueueUrgency",
     "TagCategory",
     "ClearanceUserType",
+    "AIInteractionRunStatus",
 ]

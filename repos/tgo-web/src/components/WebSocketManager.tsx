@@ -65,12 +65,12 @@ export const WebSocketManager: React.FC = () => {
 
     console.log('🔌 WebSocket Manager: Received real-time message', {
       messageId: message.id,
-      content: message.content.substring(0, 50) + '...',
+      content: `${message.content.substring(0, 50)}...`,
       sender: message.fromInfo?.name,
       type: message.type,
-      channelId: channelId,
+      channelId,
       timestamp: message.timestamp,
-      isActiveConversation: isActiveConversation,
+      isActiveConversation,
       activeChannelId: activeChat?.channelId
     });
 
@@ -130,13 +130,27 @@ export const WebSocketManager: React.FC = () => {
         forceSyncConversations().catch(err => {
           console.error('🔌 WebSocket Manager: Failed to sync after reconnection:', err);
         });
+        const currentActiveChat = useChatStore.getState().activeChat;
+        if (currentActiveChat?.channelId && currentActiveChat.channelType != null) {
+          useChatStore.getState()
+            .loadNewerHistory(
+              currentActiveChat.channelId,
+              currentActiveChat.channelType,
+            )
+            .catch(err => {
+              console.error(
+                'Failed to reconcile active chat after reconnection:',
+                err,
+              );
+            });
+        }
       }
       wasConnectedRef.current = true;
     } else if (!status.isConnecting) {
       // Connection lost (not just connecting)
       // Keep wasConnectedRef.current as true to detect next reconnection
     }
-  }, [forceSyncConversations]);
+  }, [forceSyncConversations, setConnectionStatus]);
 
   /**
    * Handle WebSocket errors
@@ -157,7 +171,7 @@ export const WebSocketManager: React.FC = () => {
           onText: (text) => {
             // Append '\n' that was stripped by the line-based parser so
             // merged text parts retain their original line breaks.
-            appendMixedPart(clientMsgNo, { type: 'text', text: text + '\n' });
+            appendMixedPart(clientMsgNo, { type: 'text', text: `${text}\n` });
           },
           onPatch: (patch) => {
             appendMixedPart(clientMsgNo, { type: 'data-spec', data: { type: 'patch', patch } });
@@ -202,6 +216,13 @@ export const WebSocketManager: React.FC = () => {
   const handleStreamFinish = React.useCallback((clientMsgNo: string) => {
     try {
       markStreamMessageFinish(clientMsgNo);
+      const currentActiveChat = useChatStore.getState().activeChat;
+      if (currentActiveChat?.channelId && currentActiveChat.channelType != null) {
+        void useChatStore.getState().loadNewerHistory(
+          currentActiveChat.channelId,
+          currentActiveChat.channelType,
+        );
+      }
       console.log('🤖 WebSocket Manager: Stream message finished (all channels done)');
     } catch (err) {
       console.error('🤖 WebSocket Manager: Error marking stream message finish:', err);
@@ -273,7 +294,7 @@ export const WebSocketManager: React.FC = () => {
 
     console.log('🔌 WebSocket Manager: Connecting with dynamic UID', {
       userId: user.id,
-      uid: uid,
+      uid,
       hasToken: !!token
     });
 
@@ -281,8 +302,8 @@ export const WebSocketManager: React.FC = () => {
     const serverUrl = await WuKongIMApiService.resolveWebSocketUrl(uid);
     const config: WuKongIMWebSocketConfig = {
       serverUrl,
-      uid: uid,
-      token: token,
+      uid,
+      token,
     };
 
     try {

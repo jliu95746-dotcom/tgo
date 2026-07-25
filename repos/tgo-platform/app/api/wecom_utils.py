@@ -23,7 +23,12 @@ from app.db.models import (
     WeComSyncCursor,
 )
 from app.db.error_utils import is_expected_unique_violation
-from app.domain.services.media.types import MediaType, WeComMediaReference
+from app.domain.services.media.ingestion import build_media_records
+from app.domain.services.media.types import (
+    MediaEnvelope,
+    MediaType,
+    WeComMediaReference,
+)
 
 
 class InboxStoreResult(str, Enum):
@@ -533,28 +538,19 @@ async def try_store_wecom_inbox(
         record = WeComInbox(id=inbox_id, **kwargs)
         db.add(record)
         if media_reference is not None:
-            media_id = uuid.uuid4()
-            media = MessageMedia(
-                id=media_id,
-                platform_id=kwargs["platform_id"],
-                inbox_id=inbox_id,
-                source_media_id=media_reference.source_media_id,
-                media_type=media_reference.media_type,
-                status="pending" if media_reference.supported else "unsupported",
-                original_filename=media_reference.original_filename,
-                declared_size=media_reference.declared_size,
+            media, media_job = build_media_records(
+                MediaEnvelope(
+                    platform_id=kwargs["platform_id"],
+                    source_channel="wecom",
+                    source_inbox_id=inbox_id,
+                    source_message_id=str(kwargs["message_id"]),
+                    reference=media_reference,
+                ),
+                max_attempts=settings.media_job_max_attempts,
             )
             db.add(media)
-            if media_reference.supported:
-                db.add(
-                    MediaProcessingJob(
-                        id=uuid.uuid4(),
-                        media_id=media_id,
-                        job_type="download",
-                        status="pending",
-                        max_attempts=settings.media_job_max_attempts,
-                    )
-                )
+            if media_job is not None:
+                db.add(media_job)
         await db.commit()
         return InboxStoreResult.STORED
     except IntegrityError as exc:
@@ -600,7 +596,10 @@ async def _ensure_duplicate_media_state(
             return False
 
         existing_media = await db.scalar(
-            select(MessageMedia).where(MessageMedia.inbox_id == inbox_id)
+            select(MessageMedia).where(
+                MessageMedia.source_channel == "wecom",
+                MessageMedia.inbox_id == inbox_id,
+            )
         )
         if existing_media is not None and (
             existing_media.source_media_id != media_reference.source_media_id
@@ -620,17 +619,24 @@ async def _ensure_duplicate_media_state(
                     id=candidate_media_id,
                     platform_id=platform_id,
                     inbox_id=inbox_id,
+                    source_channel="wecom",
+                    source_message_id=message_id,
                     source_media_id=media_reference.source_media_id,
                     media_type=media_reference.media_type,
                     status="pending" if media_reference.supported else "unsupported",
                     original_filename=media_reference.original_filename,
                     declared_size=media_reference.declared_size,
                 )
-                .on_conflict_do_nothing(index_elements=["inbox_id"])
+                .on_conflict_do_nothing(
+                    index_elements=["source_channel", "inbox_id"]
+                )
             )
             await db.execute(media_insert)
         media_id = await db.scalar(
-            select(MessageMedia.id).where(MessageMedia.inbox_id == inbox_id)
+            select(MessageMedia.id).where(
+                MessageMedia.source_channel == "wecom",
+                MessageMedia.inbox_id == inbox_id,
+            )
         )
         if media_id is None:
             await db.rollback()

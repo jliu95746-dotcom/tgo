@@ -4,7 +4,6 @@ import asyncio
 import base64
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel
@@ -16,6 +15,11 @@ from app.db.models import Platform, WuKongIMInbox
 from app.domain.entities import NormalizedMessage
 from app.domain.ports import MessageNormalizer, TgoApiClient, SSEManager
 from app.domain.services.dispatcher import process_message
+from app.domain.services.inbox_reliability import (
+    claim_inbox_batch,
+    finalize_inbox_failure,
+    finalize_inbox_success,
+)
 from app.infra.visitor_client import VisitorService
 
 
@@ -113,49 +117,18 @@ class WuKongIMChannelListener:
         max_retries = max(0, int(getattr(p.cfg, "max_retry_attempts", 3) or 3))
 
         async with self._session_factory() as db:
-            # Fetch pending
-            pending = (
-                await db.execute(
-                    select(WuKongIMInbox)
-                    .where(WuKongIMInbox.platform_id == p.id, WuKongIMInbox.status == "pending")
-                    .order_by(WuKongIMInbox.fetched_at.asc())
-                    .limit(batch_size)
-                )
-            ).scalars().all()
-
-            remaining = batch_size - len(pending)
-            candidates: list[WuKongIMInbox] = list(pending)
-
-            if remaining > 0:
-                # Consider failed with exponential backoff
-                failed = (
-                    await db.execute(
-                        select(WuKongIMInbox)
-                        .where(
-                            WuKongIMInbox.platform_id == p.id,
-                            WuKongIMInbox.status == "failed",
-                            WuKongIMInbox.retry_count < max_retries,
-                        )
-                        .order_by(WuKongIMInbox.processed_at.asc().nullsfirst())
-                        .limit(batch_size * 3)
-                    )
-                ).scalars().all()
-                now = datetime.now(timezone.utc)
-                for rec in failed:
-                    delay = max(1, 2 ** int(rec.retry_count or 0))
-                    if not rec.processed_at or (now - rec.processed_at).total_seconds() >= delay:
-                        candidates.append(rec)
-                        if len(candidates) >= batch_size:
-                            break
+            candidates = await claim_inbox_batch(
+                db,
+                WuKongIMInbox,
+                platform_id=p.id,
+                batch_size=batch_size,
+                max_retry_attempts=max_retries,
+            )
 
             if not candidates:
                 return
 
             for rec in candidates:
-                rec.status = "processing"
-                rec.error_message = None
-                await db.commit()
-
                 try:
                     # Use decoded plain content; backward-compat: detect and decode base64 if necessary
                     content = rec.payload or ""
@@ -198,15 +171,14 @@ class WuKongIMChannelListener:
                     )
 
                     rec.ai_reply = reply_text
-                    rec.status = "completed"
-                    rec.processed_at = datetime.now(timezone.utc)
-                    rec.error_message = None
+                    finalize_inbox_success(rec)
                     await db.commit()
                 except Exception as e:
                     print(f"[WUKONGIM] Processing failed for {p.id}: {e}")
-                    rec.status = "failed"
-                    rec.processed_at = datetime.now(timezone.utc)
-                    rec.retry_count = int((rec.retry_count or 0)) + 1
-                    rec.error_message = str(e)[:2000]
+                    finalize_inbox_failure(
+                        rec,
+                        e,
+                        max_retry_attempts=max_retries,
+                    )
                     await db.commit()
 

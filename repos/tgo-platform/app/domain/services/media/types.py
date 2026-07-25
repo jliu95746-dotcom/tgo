@@ -2,20 +2,35 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+from uuid import UUID
 
 
 MediaType = Literal["image", "voice", "video", "file"]
 
 
 @dataclass(frozen=True)
-class WeComMediaReference:
-    """Typed media fields extracted from one WeCom sync message."""
+class ChannelMediaReference:
+    """Channel-independent media fields extracted from one inbound message."""
 
     source_media_id: str
     media_type: MediaType
     supported: bool
     original_filename: str | None = None
     declared_size: int | None = None
+
+
+WeComMediaReference = ChannelMediaReference
+
+
+@dataclass(frozen=True)
+class MediaEnvelope:
+    """Stable media identity shared by every channel-specific downloader."""
+
+    platform_id: UUID
+    source_channel: str
+    source_inbox_id: UUID
+    source_message_id: str
+    reference: ChannelMediaReference
 
 
 @dataclass(frozen=True)

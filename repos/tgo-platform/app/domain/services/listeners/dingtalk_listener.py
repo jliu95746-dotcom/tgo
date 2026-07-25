@@ -21,6 +21,11 @@ from app.db.models import Platform, DingTalkInbox
 from app.domain.entities import NormalizedMessage
 from app.domain.ports import MessageNormalizer, TgoApiClient, SSEManager
 from app.domain.services.dispatcher import process_message
+from app.domain.services.inbox_reliability import (
+    claim_inbox_batch,
+    finalize_inbox_failure,
+    finalize_inbox_success,
+)
 from app.infra.visitor_client import VisitorService
 
 
@@ -205,6 +210,7 @@ class DingTalkChannelListener:
             "platform_id": str(platform.id),
             "extra": {
                 "project_id": str(platform.project_id),
+                "message_id": record.message_id,
                 "msg_type": record.msg_type,
                 "dingtalk": dingtalk_ctx,
             },
@@ -259,22 +265,28 @@ class DingTalkChannelListener:
     async def _finalize_success(self, session: AsyncSession, record: DingTalkInbox, reply_text: str | None) -> None:
         """Mark record as completed with optional reply text."""
         record.ai_reply = reply_text
-        record.status = "completed"
-        record.processed_at = datetime.now(timezone.utc)
-        record.error_message = None
+        finalize_inbox_success(record)
         try:
             await session.commit()
         except Exception as e2:
             print(f"[DINGTALK] Commit completed status failed (ignore): {e2}")
             await session.rollback()
 
-    async def _finalize_failure(self, session: AsyncSession, platform: _PlatformEntry, record: DingTalkInbox, error: Exception) -> None:
+    async def _finalize_failure(
+        self,
+        session: AsyncSession,
+        platform: _PlatformEntry,
+        record: DingTalkInbox,
+        error: Exception,
+        max_retries: int,
+    ) -> None:
         """Mark record as failed with retry increment and error message."""
         print(f"[DINGTALK] Processing failed for {platform.id}: {error}")
-        record.status = "failed"
-        record.processed_at = datetime.now(timezone.utc)
-        record.retry_count = int((record.retry_count or 0)) + 1
-        record.error_message = str(error)[:2000]
+        finalize_inbox_failure(
+            record,
+            error,
+            max_retry_attempts=max_retries,
+        )
         try:
             await session.commit()
         except Exception as e2:
@@ -287,15 +299,17 @@ class DingTalkChannelListener:
 
         async with self._session_factory() as db:
             # Select candidate records for this platform (pending + eligible failed)
-            candidates: list[DingTalkInbox] = await self._select_candidates(db, p, batch_size, max_retries)
+            candidates = await claim_inbox_batch(
+                db,
+                DingTalkInbox,
+                platform_id=p.id,
+                batch_size=batch_size,
+                max_retry_attempts=max_retries,
+            )
             if not candidates:
                 return
 
             for rec in candidates:
-                # Claim record for processing
-                if not await self._claim_record(db, rec):
-                    continue
-
                 try:
                     # Build mapped message
                     mapped_raw: dict[str, Any] = self._build_mapped_message(p, rec)
@@ -317,5 +331,5 @@ class DingTalkChannelListener:
                     await self._finalize_success(db, rec, reply_text)
                 except Exception as e:
                     # Finalize failure with retry increment
-                    await self._finalize_failure(db, p, rec, e)
+                    await self._finalize_failure(db, p, rec, e, max_retries)
 

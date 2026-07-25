@@ -19,6 +19,7 @@ function sendChatCompletion(params) {
   }
   if (params.channelId) body.channel_id = params.channelId
   if (params.channelType != null) body.channel_type = params.channelType
+  if (params.sourceMessageId) body.source_message_id = params.sourceMessageId
 
   return adapter.request({
     url: url,

@@ -1,7 +1,7 @@
 """Chat-related request/response schemas."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 from pydantic import ConfigDict, Field
@@ -80,6 +80,11 @@ class ChatCompletionRequest(BaseSchema):
         default=True,
         description="是否将用户消息同时转发一份到 WuKongIM（默认开启）",
         examples=[True],
+    )
+    source_message_id: Optional[str] = Field(
+        None,
+        max_length=255,
+        description="上游消息幂等编号；同一消息经多个入口到达时必须保持一致",
     )
     timeout_seconds: Optional[int] = Field(
         120,

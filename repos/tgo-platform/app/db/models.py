@@ -71,6 +71,9 @@ class EmailInbox(Base):
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     # Processing status
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
@@ -222,7 +225,17 @@ class MessageMedia(Base):
     )
     inbox_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("pt_wecom_inbox.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_channel: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default="wecom",
+        index=True,
+    )
+    source_message_id: Mapped[str] = mapped_column(
+        String(255),
         nullable=False,
         index=True,
     )
@@ -263,8 +276,9 @@ class MessageMedia(Base):
 
     __table_args__ = (
         UniqueConstraint(
+            "source_channel",
             "inbox_id",
-            name="uq_message_media_inbox",
+            name="uq_message_media_channel_inbox",
         ),
         Index("ix_message_media_status_created", "status", "created_at"),
         Index(
@@ -370,6 +384,9 @@ class WuKongIMInbox(Base):
 
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -421,6 +438,9 @@ class FeishuInbox(Base):
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # From Feishu create_time
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     # Processing status
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
@@ -477,6 +497,9 @@ class DingTalkInbox(Base):
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     # Processing status
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
@@ -531,6 +554,9 @@ class TelegramInbox(Base):
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # From Telegram message.date
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     # Processing status
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
@@ -580,6 +606,9 @@ class SlackInbox(Base):
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     # Processing status
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")

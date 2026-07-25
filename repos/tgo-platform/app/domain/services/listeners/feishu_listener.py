@@ -21,6 +21,11 @@ from app.db.models import Platform, FeishuInbox
 from app.domain.entities import NormalizedMessage
 from app.domain.ports import MessageNormalizer, TgoApiClient, SSEManager
 from app.domain.services.dispatcher import process_message
+from app.domain.services.inbox_reliability import (
+    claim_inbox_batch,
+    finalize_inbox_failure,
+    finalize_inbox_success,
+)
 from app.infra.visitor_client import VisitorService
 from app.api.feishu_utils import feishu_get_user_info, feishu_extract_sender_info_from_event
 
@@ -207,6 +212,7 @@ class FeishuChannelListener:
             "platform_id": str(platform.id),
             "extra": {
                 "project_id": str(platform.project_id),
+                "message_id": record.message_id,
                 "msg_type": record.msg_type,
                 "feishu": feishu_ctx,
             },
@@ -299,22 +305,28 @@ class FeishuChannelListener:
     async def _finalize_success(self, session: AsyncSession, record: FeishuInbox, reply_text: str | None) -> None:
         """Mark record as completed with optional reply text."""
         record.ai_reply = reply_text
-        record.status = "completed"
-        record.processed_at = datetime.now(timezone.utc)
-        record.error_message = None
+        finalize_inbox_success(record)
         try:
             await session.commit()
         except Exception as e2:
             print(f"[FEISHU] Commit completed status failed (ignore): {e2}")
             await session.rollback()
 
-    async def _finalize_failure(self, session: AsyncSession, platform: _PlatformEntry, record: FeishuInbox, error: Exception) -> None:
+    async def _finalize_failure(
+        self,
+        session: AsyncSession,
+        platform: _PlatformEntry,
+        record: FeishuInbox,
+        error: Exception,
+        max_retries: int,
+    ) -> None:
         """Mark record as failed with retry increment and error message."""
         print(f"[FEISHU] Processing failed for {platform.id}: {error}")
-        record.status = "failed"
-        record.processed_at = datetime.now(timezone.utc)
-        record.retry_count = int((record.retry_count or 0)) + 1
-        record.error_message = str(error)[:2000]
+        finalize_inbox_failure(
+            record,
+            error,
+            max_retry_attempts=max_retries,
+        )
         try:
             await session.commit()
         except Exception as e2:
@@ -327,15 +339,17 @@ class FeishuChannelListener:
 
         async with self._session_factory() as db:
             # Select candidate records for this platform (pending + eligible failed)
-            candidates: list[FeishuInbox] = await self._select_candidates(db, p, batch_size, max_retries)
+            candidates = await claim_inbox_batch(
+                db,
+                FeishuInbox,
+                platform_id=p.id,
+                batch_size=batch_size,
+                max_retry_attempts=max_retries,
+            )
             if not candidates:
                 return
 
             for rec in candidates:
-                # Claim record for processing
-                if not await self._claim_record(db, rec):
-                    continue
-
                 try:
                     # Build mapped message
                     mapped_raw: dict[str, Any] = self._build_mapped_message(p, rec)
@@ -357,5 +371,5 @@ class FeishuChannelListener:
                     await self._finalize_success(db, rec, reply_text)
                 except Exception as e:
                     # Finalize failure with retry increment
-                    await self._finalize_failure(db, p, rec, e)
+                    await self._finalize_failure(db, p, rec, e, max_retries)
 

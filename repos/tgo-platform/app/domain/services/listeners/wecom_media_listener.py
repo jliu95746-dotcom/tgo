@@ -148,6 +148,7 @@ class WeComMediaListener:
                     .join(Platform, Platform.id == MessageMedia.platform_id)
                     .where(
                         MediaProcessingJob.job_type == "download",
+                        MessageMedia.source_channel == "wecom",
                         MessageMedia.media_type.in_(["image", "voice"]),
                         Platform.is_active.is_(True),
                         eligible,

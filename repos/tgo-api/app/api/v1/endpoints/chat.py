@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 import json
 import mimetypes
 import os
@@ -11,72 +10,105 @@ import re
 import secrets
 import time
 import unicodedata
+from collections.abc import AsyncIterator
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TypedDict
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import get_current_active_user, verify_token, require_permission
+from app.core.logging import get_logger
+from app.core.security import get_current_active_user, require_permission, verify_token
 from app.models import (
     ChannelMember,
+    ChannelMemoryClearance,
     ChatFile,
+    ClearanceUserType,
     Platform,
     SessionStatus,
     Staff,
     Visitor,
     VisitorSession,
-    ChannelMemoryClearance,
-    ClearanceUserType,
 )
 from app.schemas import ChatFileUploadResponse, StaffSendPlatformMessageRequest
-from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.chat import (
-    UIUserActionRequest,
-    UIUserActionResponse,
     ChatCompletionRequest,
-    StaffAgentChatRequest,
-    StaffAgentChatResponse,
+    OpenAIChatCompletionChoice,
     OpenAIChatCompletionChunk,
     OpenAIChatCompletionChunkChoice,
-    OpenAIChatCompletionChoice,
     OpenAIChatCompletionDelta,
     OpenAIChatCompletionRequest,
     OpenAIChatCompletionResponse,
     OpenAIChatCompletionUsage,
     OpenAIChatMessage,
+    StaffAgentChatRequest,
+    StaffAgentChatResponse,
+    UIUserActionRequest,
+    UIUserActionResponse,
 )
+from app.schemas.knowledge import KnowledgeChannel
 from app.services import chat_service
 from app.services.knowledge_channel import resolve_platform_knowledge_channel
-from app.core.logging import get_logger
+
 logger = get_logger(__name__)
-from app.services.file_service import sanitize_filename, get_safe_ascii_filename
-from app.services.chat_service import get_or_create_visitor
-from app.services.transfer_service import transfer_to_staff
 from app.models import AssignmentSource
 from app.services.ai_client import AIServiceClient
+from app.services.ai_interaction_run_service import (
+    AIInteractionIdentity,
+    build_request_fingerprint,
+    claim_ai_interaction,
+    mark_ai_interaction_finished,
+)
+from app.services.chat_service import get_or_create_visitor
+from app.services.file_service import get_safe_ascii_filename, sanitize_filename
 from app.services.message_intent_orchestrator import (
     MessageIntentOrchestrator,
     MessageIntentRoutingOutcome,
 )
+from app.services.transfer_service import transfer_to_staff
 from app.services.wukongim_client import wukongim_client
-from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_STAFF, MessageType
-from app.utils.encoding import build_visitor_channel_id, parse_visitor_channel_id, get_session_id
-
+from app.utils.const import (
+    CHANNEL_TYPE_CUSTOMER_SERVICE,
+    MEMBER_TYPE_STAFF,
+    MessageType,
+)
+from app.utils.encoding import (
+    build_visitor_channel_id,
+    get_session_id,
+    parse_visitor_channel_id,
+)
 
 router = APIRouter()
 
 
+class PlatformAgentKwargs(TypedDict, total=False):
+    """Keyword arguments shared by each platform-routed AI execution."""
+
+    knowledge_channel: str
+    agent_id: str
+
+
 # Platform routing falls back to the project default agent in tgo-ai when unset.
-def _build_platform_agent_kwargs(platform: Platform) -> dict[str, str]:
-    runtime_kwargs = {
+def _build_platform_agent_kwargs(platform: Platform) -> PlatformAgentKwargs:
+    runtime_kwargs: PlatformAgentKwargs = {
         "knowledge_channel": resolve_platform_knowledge_channel(platform.type).value,
     }
     if platform.agent_id is not None:
@@ -98,6 +130,7 @@ def _append_trusted_system_context(
 
 @router.post(
     "/completion",
+    response_model=None,
     summary="流式聊天完成接口",
     tags=["Chat"],
     description="""
@@ -299,7 +332,10 @@ const eventSource = new EventSource('/api/v1/chat/completion', {
         503: {"description": "无可用客服"},
     }
 )
-async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_db)) -> StreamingResponse:
+async def chat_completion(
+    req: ChatCompletionRequest,
+    db: Session = Depends(get_db),
+) -> StreamingResponse | dict[str, Any]:
     """流式聊天完成接口 - 详细说明请查看接口描述。"""
     # 1) Validate Platform API key and get project
     platform, project = chat_service.validate_platform_and_project(req.api_key, db)
@@ -338,16 +374,24 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
         req.message = storage.resolve_url(req.message)
 
     # 3.2) Forward a copy of user message to WuKongIM (best-effort)
-    source_message_id: str | None = None
+    source_message_id: str | None = req.source_message_id
+    if source_message_id is None and req.extra:
+        extra_source_message_id = req.extra.get("message_id")
+        if isinstance(extra_source_message_id, str) and extra_source_message_id:
+            source_message_id = extra_source_message_id
     if req.forward_user_message_to_wukongim:
-        source_message_id = await chat_service.send_user_message_to_wukongim(
+        forward_extra = dict(req.extra or {})
+        if source_message_id:
+            forward_extra["message_id"] = source_message_id
+        forwarded_message_id = await chat_service.send_user_message_to_wukongim(
             from_uid=f"{visitor.id}-vtr",
             channel_id=channel_id_enc,
             channel_type=channel_type,
             content=req.message,
             msg_type=req.msg_type,
-            extra=req.extra,
+            extra=forward_extra,
         )
+        source_message_id = source_message_id or forwarded_message_id
 
     intent_outcome: MessageIntentRoutingOutcome | None = None
     if req.msg_type == MessageType.TEXT:
@@ -395,7 +439,7 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
             }
             if req.stream is False:
                 return error_data
-            async def transfer_error_gen():
+            async def transfer_error_gen() -> AsyncIterator[str]:
                 yield chat_service.sse_format({"event_type": "error", "data": error_data})
             return StreamingResponse(transfer_error_gen(), media_type="text/event-stream")
         
@@ -410,7 +454,7 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
             }
             if req.stream is False:
                 return queued_data
-            async def no_staff_gen():
+            async def no_staff_gen() -> AsyncIterator[str]:
                 yield chat_service.sse_format({"event_type": "queued", "data": queued_data})
             return StreamingResponse(no_staff_gen(), media_type="text/event-stream")
         
@@ -449,7 +493,7 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail=error_data
                 )
-            async def no_staff_error_gen():
+            async def no_staff_error_gen() -> AsyncIterator[str]:
                 yield chat_service.sse_format({"event_type": "error", "data": error_data})
             return StreamingResponse(no_staff_error_gen(), media_type="text/event-stream")
 
@@ -461,11 +505,12 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
                 "message": "该问题需要人工客服处理，已停止 AI 自动回复。",
                 "visitor_id": str(visitor.id),
                 "routing_reason": intent_outcome.routing_reason,
+                "handoff": intent_outcome.handoff_result,
             }
             if req.stream is False:
                 return handoff_data
 
-            async def handoff_gen():
+            async def handoff_gen() -> AsyncIterator[str]:
                 yield chat_service.sse_format(
                     {"event_type": "human_handoff", "data": handoff_data}
                 )
@@ -510,25 +555,63 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
         }
         if req.stream is False:
             return error_data
-        async def disabled_gen():
+        async def disabled_gen() -> AsyncIterator[str]:
             yield chat_service.sse_format({"event_type": event_type, "data": error_data})
         return StreamingResponse(disabled_gen(), media_type="text/event-stream")
 
     # 7) AI is enabled: directly call AI service and stream response
     agent_runtime_kwargs = _build_platform_agent_kwargs(platform)
+    excluded_tool_ids = (
+        intent_outcome.excluded_tool_ids if intent_outcome is not None else ()
+    )
     response_client_msg_no = f"ai_{uuid4().hex}"
+    source_message_id = source_message_id or f"direct_{uuid4().hex}"
+    interaction_claim = claim_ai_interaction(
+        db,
+        identity=AIInteractionIdentity(
+            project_id=project.id,
+            platform_id=platform.id,
+            visitor_id=visitor.id,
+            channel_id=channel_id_enc,
+            channel_type=channel_type,
+            source_message_id=source_message_id,
+        ),
+        request_fingerprint=build_request_fingerprint(
+            visitor_id=visitor.id,
+            message=req.message,
+            message_type=int(req.msg_type or MessageType.TEXT),
+        ),
+        response_client_msg_no=response_client_msg_no,
+    )
+    response_client_msg_no = interaction_claim.run.response_client_msg_no
+    if interaction_claim.is_duplicate:
+        duplicate_data = {
+            "success": True,
+            "event_type": "accepted",
+            "message": "Duplicate source message suppressed; existing AI run reused",
+            "visitor_id": str(visitor.id),
+            "source_message_id": source_message_id,
+            "client_msg_no": response_client_msg_no,
+            "processing_status": interaction_claim.run.status,
+            "duplicate": True,
+        }
+        if req.stream is False:
+            return duplicate_data
 
-    # Update visitor last message stats
-    visitor.is_last_message_from_ai = True
-    visitor.is_last_message_from_visitor = False
-    visitor.last_client_msg_no = response_client_msg_no
-    db.add(visitor)
-    db.commit()
+        async def duplicate_gen() -> AsyncIterator[str]:
+            yield chat_service.sse_format(
+                {"event_type": "accepted", "data": duplicate_data}
+            )
+
+        return StreamingResponse(
+            duplicate_gen(),
+            media_type="text/event-stream",
+        )
 
     # 8) If wukongim_only=True, start background processing and return immediately.
     # Do not block on stream start signal; otherwise requests may hang until timeout.
     if req.wukongim_only:
-        asyncio.create_task(chat_service.run_background_ai_interaction(
+        chat_service.schedule_background_ai_interaction(
             project_id=str(project.id),
             user_id=str(visitor.id),
             message=req.message,
@@ -539,8 +622,10 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
             session_id=session_id,
             system_message=req.system_message,
             expected_output=req.expected_output,
+            excluded_tool_ids=excluded_tool_ids,
+            interaction_run_id=interaction_claim.run.id,
             **agent_runtime_kwargs,
-        ))
+        )
 
         accepted_data = {
             "success": True,
@@ -550,7 +635,7 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
         }
         if req.stream is False:
             return accepted_data
-        async def accepted_gen():
+        async def accepted_gen() -> AsyncIterator[str]:
             yield chat_service.sse_format({"event_type": "accepted", "data": accepted_data})
         return StreamingResponse(accepted_gen(), media_type="text/event-stream")
 
@@ -567,15 +652,21 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
             session_id=session_id,
             system_message=req.system_message,
             expected_output=req.expected_output,
+            excluded_tool_ids=excluded_tool_ids,
             **agent_runtime_kwargs,
         )
         
         if not result["success"]:
+            mark_ai_interaction_finished(
+                interaction_claim.run.id,
+                error_message=str(result.get("error", "AI processing failed")),
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=result.get("error", "AI processing failed")
             )
             
+        mark_ai_interaction_finished(interaction_claim.run.id)
         return {
             "success": True,
             "message": result["content"],
@@ -583,21 +674,43 @@ async def chat_completion(req: ChatCompletionRequest, db: Session = Depends(get_
         }
 
     # 10) Streaming mode: stream response to client
-    async def ai_event_generator() -> Any:
-        async for event_payload in chat_service.process_ai_stream_to_wukongim(
-            project_id=str(project.id),
-            user_id=str(visitor.id),
-            message=req.message,
-            channel_id=channel_id_enc,
-            channel_type=channel_type,
-            client_msg_no=response_client_msg_no,
-            from_uid=wukongim_from_uid,
-            session_id=session_id,
-            system_message=req.system_message,
-            expected_output=req.expected_output,
-            **agent_runtime_kwargs,
-        ):
-            yield chat_service.sse_format(event_payload)
+    async def ai_event_generator() -> AsyncIterator[str]:
+        stream_error: str | None = None
+        try:
+            async for event_payload in chat_service.process_ai_stream_to_wukongim(
+                project_id=str(project.id),
+                user_id=str(visitor.id),
+                message=req.message,
+                channel_id=channel_id_enc,
+                channel_type=channel_type,
+                client_msg_no=response_client_msg_no,
+                from_uid=wukongim_from_uid,
+                session_id=session_id,
+                system_message=req.system_message,
+                expected_output=req.expected_output,
+                excluded_tool_ids=excluded_tool_ids,
+                **agent_runtime_kwargs,
+            ):
+                if event_payload.get("event_type") == "workflow_failed":
+                    event_data = event_payload.get("data")
+                    if isinstance(event_data, dict):
+                        stream_error = str(
+                            event_data.get("error_message")
+                            or event_data.get("error")
+                            or "AI processing failed"
+                        )
+                yield chat_service.sse_format(event_payload)
+        except asyncio.CancelledError:
+            stream_error = "AI stream cancelled before completion"
+            raise
+        except Exception as exc:
+            stream_error = str(exc)
+            raise
+        finally:
+            mark_ai_interaction_finished(
+                interaction_claim.run.id,
+                error_message=stream_error,
+            )
 
     return StreamingResponse(ai_event_generator(), media_type="text/event-stream")
 
@@ -1271,7 +1384,7 @@ async def staff_agent_chat(
     # AI result sender should be the target agent (not current staff)
     ai_sender_uid = channel_id
     
-    asyncio.create_task(chat_service.run_background_ai_interaction(
+    chat_service.schedule_background_ai_interaction(
         project_id=str(current_user.project_id),
         user_id=staff_uid,
         message=req.message,
@@ -1284,7 +1397,7 @@ async def staff_agent_chat(
         expected_output=req.expected_output,
         agent_id=str(req.agent_id),
         knowledge_channel=KnowledgeChannel.INTERNAL.value,
-    ))
+    )
 
     # 6) Return success response immediately
     return StaffAgentChatResponse(
@@ -1321,12 +1434,9 @@ async def handle_ui_user_action(
     staff_uid = f"{current_user.id}-staff"
     session_id = get_session_id(staff_uid, req.channel_id, req.channel_type)
 
-    agent_runtime_kwargs: dict[str, str] = {}
-    if req.agent_id is not None:
-        agent_runtime_kwargs["agent_id"] = str(req.agent_id)
     ai_sender_uid = req.channel_id
 
-    asyncio.create_task(chat_service.run_background_ai_interaction(
+    chat_service.schedule_background_ai_interaction(
         project_id=str(current_user.project_id),
         user_id=staff_uid,
         message=query,
@@ -1336,8 +1446,8 @@ async def handle_ui_user_action(
         from_uid=ai_sender_uid,
         session_id=session_id,
         knowledge_channel=KnowledgeChannel.INTERNAL.value,
-        **agent_runtime_kwargs,
-    ))
+        agent_id=str(req.agent_id) if req.agent_id is not None else None,
+    )
 
     return UIUserActionResponse(
         success=True,

@@ -8,7 +8,7 @@ import re
 import html as html_module
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Dict, Optional
 from datetime import datetime, timedelta, timezone
 
 from email import message_from_bytes, policy
@@ -17,7 +17,7 @@ from email.header import decode_header, make_header
 from email.utils import parseaddr, parsedate_to_datetime
 
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.exc import IntegrityError
 
@@ -25,6 +25,11 @@ from app.db.models import Platform, EmailInbox
 from app.domain.entities import NormalizedMessage
 from app.domain.ports import MessageNormalizer, TgoApiClient, SSEManager
 from app.domain.services.dispatcher import process_message
+from app.domain.services.inbox_reliability import (
+    claim_inbox_batch,
+    finalize_inbox_failure,
+    finalize_inbox_success,
+)
 from app.core.config import settings
 from app.infra.visitor_client import VisitorService
 
@@ -512,43 +517,18 @@ class EmailChannelListener:
         max_retries = max(0, int(getattr(p.cfg, "max_retry_attempts", 3) or 3))
 
         async with self._session_factory() as db:
-            # Fetch pending first
-            pending = (await db.execute(
-                select(EmailInbox)
-                .where(EmailInbox.platform_id == p.id, EmailInbox.status == "pending")
-                .order_by(EmailInbox.fetched_at.asc())
-                .limit(batch_size)
-            )).scalars().all()
-
-            remaining = batch_size - len(pending)
-            candidates: list[EmailInbox] = list(pending)
-
-            if remaining > 0:
-                # Consider failed with backoff and retry allowance
-                failed = (await db.execute(
-                    select(EmailInbox)
-                    .where(EmailInbox.platform_id == p.id, EmailInbox.status == "failed", EmailInbox.retry_count < max_retries)
-                    .order_by(EmailInbox.processed_at.asc().nullsfirst())
-                    .limit(batch_size * 3)
-                )).scalars().all()
-                now = datetime.now(timezone.utc)
-                for rec in failed:
-                    # Exponential backoff in seconds: 2 ** retry_count (min 1s)
-                    delay = max(1, 2 ** int(rec.retry_count or 0))
-                    if not rec.processed_at or (now - rec.processed_at).total_seconds() >= delay:
-                        candidates.append(rec)
-                        if len(candidates) >= batch_size:
-                            break
+            candidates = await claim_inbox_batch(
+                db,
+                EmailInbox,
+                platform_id=p.id,
+                batch_size=batch_size,
+                max_retry_attempts=max_retries,
+            )
 
             if not candidates:
                 return
 
             for rec in candidates:
-                # Mark as processing
-                rec.status = "processing"
-                rec.error_message = None
-                await db.commit()
-
                 try:
                     # Prepare mapped raw payload
                     from_addr = rec.from_address
@@ -609,15 +589,14 @@ class EmailChannelListener:
 
                     # Success
                     rec.ai_reply = reply_text
-                    rec.status = "completed"
-                    rec.processed_at = datetime.now(timezone.utc)
-                    rec.error_message = None
+                    finalize_inbox_success(rec)
                     await db.commit()
                 except Exception as e:
                     # Failure with retry increment
                     print(f"[EMAIL] Processing failed for {p.id}: {e}")
-                    rec.status = "failed"
-                    rec.processed_at = datetime.now(timezone.utc)
-                    rec.retry_count = int((rec.retry_count or 0)) + 1
-                    rec.error_message = str(e)[:2000]
+                    finalize_inbox_failure(
+                        rec,
+                        e,
+                        max_retry_attempts=max_retries,
+                    )
                     await db.commit()

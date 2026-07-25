@@ -25,6 +25,64 @@ var STREAM_TIMEOUT_MS = 60000
 // Per-clientMsgNo MixedStreamParser instances
 var activeParsers = {}
 
+function mergeHistoryMessages(currentMessages, incomingMessages) {
+  var merged = currentMessages.slice()
+  incomingMessages.forEach(function (incoming) {
+    var existingIndex = -1
+    for (var i = 0; i < merged.length; i++) {
+      var current = merged[i]
+      if (
+        incoming.messageSeq != null &&
+        current.messageSeq != null &&
+        incoming.messageSeq === current.messageSeq
+      ) {
+        existingIndex = i
+        break
+      }
+      if (
+        incoming.clientMsgNo &&
+        current.clientMsgNo &&
+        incoming.clientMsgNo === current.clientMsgNo
+      ) {
+        existingIndex = i
+        break
+      }
+      if (incoming.id === current.id) {
+        existingIndex = i
+        break
+      }
+    }
+
+    if (existingIndex >= 0) {
+      var existing = merged[existingIndex]
+      var hasPersistedText = (
+        incoming.payload &&
+        incoming.payload.type === 1 &&
+        incoming.payload.content &&
+        String(incoming.payload.content).trim()
+      )
+      merged[existingIndex] = Object.assign(
+        {},
+        existing,
+        incoming,
+        {
+          status: undefined,
+          streamData: hasPersistedText ? undefined : existing.streamData
+        }
+      )
+    } else {
+      merged.push(incoming)
+    }
+  })
+
+  return merged.sort(function (left, right) {
+    if (left.messageSeq != null && right.messageSeq != null) {
+      return left.messageSeq - right.messageSeq
+    }
+    return left.time.getTime() - right.time.getTime()
+  })
+}
+
 function ChatStore() {
   this._state = {
     messages: [],
@@ -188,29 +246,9 @@ ChatStore.prototype._bindIMEvents = function () {
       channelType: m.channelType
     }
 
-    var currentMessages = self._state.messages
-    for (var i = 0; i < currentMessages.length; i++) {
-      if (currentMessages[i].id === chat.id) return
-    }
-
-    // Merge into streaming placeholder if exists
-    if (chat.clientMsgNo) {
-      var idx = -1
-      for (var j = 0; j < currentMessages.length; j++) {
-        if (currentMessages[j].clientMsgNo && currentMessages[j].clientMsgNo === chat.clientMsgNo) {
-          idx = j
-          break
-        }
-      }
-      if (idx >= 0) {
-        var next = currentMessages.slice()
-        next[idx] = Object.assign({}, currentMessages[idx], chat, { streamData: undefined })
-        self._setState({ messages: next })
-        return
-      }
-    }
-
-    self._setState({ messages: currentMessages.concat([chat]) })
+    self._setState({
+      messages: mergeHistoryMessages(self._state.messages, [chat])
+    })
   })
 
   // Custom stream events
@@ -255,7 +293,25 @@ ChatStore.prototype._bindIMEvents = function () {
       if (newEventType === 'stream.close') {
         if (!clientMsgNo) return
         var closeParser = activeParsers[clientMsgNo]
-        if (closeParser) { closeParser.flush(); delete activeParsers[clientMsgNo] }
+        var reconciledMessage = null
+        for (var messageIndex = 0; messageIndex < self._state.messages.length; messageIndex++) {
+          if (self._state.messages[messageIndex].clientMsgNo === clientMsgNo) {
+            reconciledMessage = self._state.messages[messageIndex]
+            break
+          }
+        }
+        var alreadyReconciled = Boolean(
+          reconciledMessage &&
+          reconciledMessage.payload &&
+          reconciledMessage.payload.type === 1 &&
+          reconciledMessage.payload.content &&
+          String(reconciledMessage.payload.content).trim() &&
+          !reconciledMessage.streamData
+        )
+        if (closeParser) {
+          if (!alreadyReconciled) closeParser.flush()
+          delete activeParsers[clientMsgNo]
+        }
         var errMsg = (eventData && eventData.payload && eventData.payload.end_reason > 0) ? '流异常结束' : undefined
         self.finalizeStreamMessage(clientMsgNo, errMsg)
         self.markStreamingEnd()
@@ -340,6 +396,15 @@ ChatStore.prototype.sendMessage = function (text) {
     this._updateMessage(id, { status: undefined, errorMessage: 'Not initialized' })
     return Promise.resolve()
   }
+  var lastKnownSequence = 0
+  st.messages.forEach(function (message) {
+    if (
+      typeof message.messageSeq === 'number' &&
+      message.messageSeq > lastKnownSequence
+    ) {
+      lastKnownSequence = message.messageSeq
+    }
+  })
 
   // Auto-cancel previous streaming
   var cancelPromise = st.isStreaming ? this.cancelStreaming('auto_cancel_on_new_send') : Promise.resolve()
@@ -360,6 +425,12 @@ ChatStore.prototype.sendMessage = function (text) {
       self._updateMessage(id, { status: undefined, reasonCode: result.reasonCode })
       return
     }
+    if (
+      typeof result.messageSeq === 'number' &&
+      result.messageSeq > lastKnownSequence
+    ) {
+      lastKnownSequence = result.messageSeq
+    }
 
     // Call chat completion API
     return chatService.sendChatCompletion({
@@ -368,9 +439,11 @@ ChatStore.prototype.sendMessage = function (text) {
       message: v,
       fromUid: self._state.myUid,
       channelId: self._state.channelId,
-      channelType: self._state.channelType
+      channelType: self._state.channelType,
+      sourceMessageId: clientMsgNo
     }).then(function () {
       self._updateMessage(id, { status: undefined, reasonCode: result.reasonCode })
+      return self._reconcileReplyHistory(lastKnownSequence)
     })
   }).catch(function (e) {
     console.error('[Chat] Send failed:', e)
@@ -401,6 +474,67 @@ ChatStore.prototype._updateMessage = function (id, partial) {
     return m
   })
   this._setState({ messages: messages })
+}
+
+ChatStore.prototype._reconcileReplyHistory = function (lastKnownSequence) {
+  var self = this
+  var channelId = this._state.channelId
+  var channelType = this._state.channelType
+  var maxAttempts = 20
+
+  function poll(attempt) {
+    if (attempt >= maxAttempts) return Promise.resolve()
+    return new Promise(function (resolve) {
+      setTimeout(resolve, attempt === 0 ? 1000 : 2000)
+    }).then(function () {
+      var current = self._state
+      if (
+        !current.apiBase ||
+        !current.channelId ||
+        current.channelId !== channelId ||
+        current.channelType !== channelType
+      ) {
+        return
+      }
+      return historyService.syncVisitorMessages({
+        apiBase: current.apiBase,
+        platformApiKey: current.platformApiKey,
+        channelId: current.channelId,
+        channelType: current.channelType,
+        startSeq: 0,
+        endSeq: 0,
+        limit: 20,
+        pullMode: 1
+      }).then(function (res) {
+        var latest = res.messages.slice().sort(function (a, b) {
+          return (a.message_seq || 0) - (b.message_seq || 0)
+        }).map(function (message) {
+          return types.mapHistoryToChatMessage(message, current.myUid)
+        })
+        self._setState({
+          messages: mergeHistoryMessages(self._state.messages, latest)
+        })
+
+        var completedReply = latest.some(function (message) {
+          return (
+            message.role === 'agent' &&
+            (message.messageSeq || 0) > lastKnownSequence &&
+            message.payload &&
+            message.payload.type === 1 &&
+            message.payload.content &&
+            Boolean(String(message.payload.content).trim())
+          )
+        })
+        if (completedReply) return
+        return poll(attempt + 1)
+      }).catch(function (historyError) {
+        console.warn('[Chat] Reply history reconciliation failed:', historyError)
+        return poll(attempt + 1)
+      })
+    })
+  }
+
+  return poll(0)
 }
 
 // ========== Upload ==========
@@ -479,28 +613,17 @@ ChatStore.prototype.loadInitialHistory = function (limit) {
       return types.mapHistoryToChatMessage(m, myUid)
     })
 
-    // Dedup and prepend
-    var existingSeqs = {}
-    var existingIds = {}
-    self._state.messages.forEach(function (m) {
-      if (typeof m.messageSeq === 'number') existingSeqs[m.messageSeq] = true
-      existingIds[m.id] = true
-    })
-
-    var mergedHead = list.filter(function (m) {
-      if (m.messageSeq != null) return !existingSeqs[m.messageSeq]
-      return !existingIds[m.id]
-    })
+    var mergedMessages = mergeHistoryMessages(self._state.messages, list)
 
     var earliest = self._state.earliestSeq
-    mergedHead.forEach(function (m) {
+    list.forEach(function (m) {
       if (m.messageSeq != null) {
         if (earliest === null || m.messageSeq < earliest) earliest = m.messageSeq
       }
     })
 
     self._setState({
-      messages: mergedHead.concat(self._state.messages),
+      messages: mergedMessages,
       earliestSeq: earliest,
       historyHasMore: res.more === 1
     })
@@ -538,27 +661,15 @@ ChatStore.prototype.loadMoreHistory = function (limit) {
       return types.mapHistoryToChatMessage(m, myUid)
     })
 
-    var existingSeqs = {}
-    var existingIds = {}
-    self._state.messages.forEach(function (m) {
-      if (typeof m.messageSeq === 'number') existingSeqs[m.messageSeq] = true
-      existingIds[m.id] = true
-    })
-
-    var prepend = listAsc.filter(function (m) {
-      if (m.messageSeq != null) return !existingSeqs[m.messageSeq]
-      return !existingIds[m.id]
-    })
-
     var earliest = self._state.earliestSeq
-    prepend.forEach(function (m) {
+    listAsc.forEach(function (m) {
       if (m.messageSeq != null) {
         if (earliest === null || m.messageSeq < earliest) earliest = m.messageSeq
       }
     })
 
     self._setState({
-      messages: prepend.concat(self._state.messages),
+      messages: mergeHistoryMessages(self._state.messages, listAsc),
       earliestSeq: earliest,
       historyHasMore: res.more === 1
     })

@@ -16,8 +16,7 @@ import asyncio
 import threading
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 import requests
 from pydantic import BaseModel
@@ -240,7 +239,7 @@ class SlackChannelListener:
             if event.get("bot_id") or event.get("subtype") == "bot_message":
                 return
 
-            if not user_id or (not text and not files):
+            if not user_id or not channel or not ts or (not text and not files):
                 return
 
             msg_preview = text[:50] if text else f"[File: {len(files)} files]"
@@ -334,6 +333,7 @@ class SlackChannelListener:
                 "api_key": platform.api_key or "",
                 "message": content,
                 "from_uid": user_id,
+                "source_message_id": f"slack:{channel}:{ts}",
                 "visitor_name": display_name,
                 "visitor_avatar": avatar_url,
                 "msg_type": msg_type,

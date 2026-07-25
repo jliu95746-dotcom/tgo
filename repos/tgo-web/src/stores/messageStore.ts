@@ -269,10 +269,6 @@ export const useMessageStore = create<MessageState>()(
         const currentMaxSeq = current.length > 0 ? current[current.length - 1].message_seq : 0;
 
         // 无更多较新历史且已到最新
-        if (state.hasMoreNewerHistory?.[key] === false) {
-          return;
-        }
-
         try {
           const resp = await WuKongIMApiService.syncChannelMessages({
             channel_id: channelId,

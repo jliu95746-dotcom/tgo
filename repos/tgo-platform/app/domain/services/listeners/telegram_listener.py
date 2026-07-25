@@ -275,6 +275,9 @@ class TelegramChannelListener:
             "platform_id": str(platform.id),
             "extra": {
                 "project_id": str(platform.project_id),
+                "message_id": (
+                    f"telegram:{msg_data['chat_id']}:{msg_data['message_id']}"
+                ),
                 "msg_type": msg_data["msg_type"],
                 "telegram": telegram_ctx,
             },
