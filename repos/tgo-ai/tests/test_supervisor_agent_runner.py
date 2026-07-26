@@ -101,6 +101,43 @@ async def test_runner_returns_single_agent_response_shape() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runner_returns_only_final_assistant_message_after_tool_call() -> None:
+    context = _build_context()
+    built_agent = SimpleNamespace(
+        agent=SimpleNamespace(
+            arun=AsyncMock(
+                return_value=SimpleNamespace(
+                    content=(
+                        "好的，我先查一下知识库。"
+                        "目前没有同时满足红色和小羊皮的款式。"
+                    ),
+                    messages=[
+                        SimpleNamespace(role="user", content="找红色小羊皮女包"),
+                        SimpleNamespace(
+                            role="assistant",
+                            content="好的，我先查一下知识库。",
+                            tool_calls=[{"function": {"name": "rag_search"}}],
+                        ),
+                        SimpleNamespace(role="tool", content="检索结果"),
+                        SimpleNamespace(
+                            role="assistant",
+                            content="目前没有同时满足红色和小羊皮的款式。",
+                            tool_calls=None,
+                        ),
+                    ],
+                    tools=[],
+                )
+            )
+        )
+    )
+
+    response = await AgnoAgentRunner().run(built_agent, context)
+
+    assert response.content == "目前没有同时满足红色和小羊皮的款式。"
+    assert "我先查一下" not in response.content
+
+
+@pytest.mark.asyncio
 async def test_stream_uses_content_chunks_when_completed_event_is_empty() -> None:
     async def event_stream():
         yield RunContentEvent(content="链路")

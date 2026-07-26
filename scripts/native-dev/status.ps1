@@ -23,6 +23,7 @@ foreach ($endpoint in @(
     @{ Name = 'tgo-api-internal'; Url = 'http://127.0.0.1:18001/health' },
     @{ Name = 'tgo-ai'; Url = 'http://127.0.0.1:8081/health' },
     @{ Name = 'tgo-rag'; Url = 'http://127.0.0.1:18082/health' },
+    @{ Name = 'tgo-platform'; Url = 'http://127.0.0.1:8003/health' },
     @{ Name = 'tgo-workflow'; Url = 'http://127.0.0.1:8004/health' },
     @{ Name = 'tgo-device-control'; Url = 'http://127.0.0.1:8085/health' },
     @{ Name = 'tgo-widget-js'; Url = 'http://127.0.0.1:5174/' }

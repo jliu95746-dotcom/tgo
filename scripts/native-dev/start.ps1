@@ -8,6 +8,7 @@ param(
 $apiDirectory = Join-Path $script:RepoRoot 'repos\tgo-api'
 $aiDirectory = Join-Path $script:RepoRoot 'repos\tgo-ai'
 $ragDirectory = Join-Path $script:RepoRoot 'repos\tgo-rag'
+$platformDirectory = Join-Path $script:RepoRoot 'repos\tgo-platform'
 $workflowDirectory = Join-Path $script:RepoRoot 'repos\tgo-workflow'
 $deviceDirectory = Join-Path $script:RepoRoot 'repos\tgo-device-control'
 $webDirectory = Join-Path $script:RepoRoot 'repos\tgo-web'
@@ -15,6 +16,7 @@ $widgetDirectory = Join-Path $script:RepoRoot 'repos\tgo-widget-js'
 $apiPython = Join-Path $apiDirectory '.venv\Scripts\python.exe'
 $aiPython = Join-Path $aiDirectory '.venv\Scripts\python.exe'
 $ragPython = Join-Path $ragDirectory '.venv\Scripts\python.exe'
+$platformPython = Join-Path $platformDirectory '.venv\Scripts\python.exe'
 $workflowPython = Join-Path $workflowDirectory '.venv\Scripts\python.exe'
 $devicePython = Join-Path $deviceDirectory '.venv\Scripts\python.exe'
 $viteScript = Join-Path $webDirectory 'node_modules\vite\bin\vite.js'
@@ -25,6 +27,7 @@ foreach ($requiredPath in @(
     $apiPython,
     $aiPython,
     $ragPython,
+    $platformPython,
     $workflowPython,
     $devicePython,
     $viteScript,
@@ -122,6 +125,18 @@ if (-not $SkipMigrations) {
         Pop-Location
     }
 
+    Write-Host 'Applying tgo-platform migrations...'
+    Set-NativeEnvironment -Service platform
+    Push-Location $platformDirectory
+    try {
+        & $platformPython -m alembic upgrade head
+        if ($LASTEXITCODE -ne 0) {
+            throw 'tgo-platform migration failed.'
+        }
+    } finally {
+        Pop-Location
+    }
+
     Write-Host 'Applying tgo-workflow migrations...'
     Set-NativeEnvironment -Service workflow
     Push-Location $workflowDirectory
@@ -151,6 +166,7 @@ Assert-PortAvailable -Port 18000 -Label 'tgo-api'
 Assert-PortAvailable -Port 18001 -Label 'tgo-api internal service'
 Assert-PortAvailable -Port 8081 -Label 'tgo-ai'
 Assert-PortAvailable -Port 18082 -Label 'tgo-rag'
+Assert-PortAvailable -Port 8003 -Label 'tgo-platform'
 Assert-PortAvailable -Port 8004 -Label 'tgo-workflow'
 Assert-PortAvailable -Port 8085 -Label 'tgo-device-control HTTP'
 Assert-PortAvailable -Port 9876 -Label 'tgo-device-control TCP RPC'
@@ -172,6 +188,16 @@ $processes += Start-NativeProcess `
     -FilePath $apiPython `
     -ArgumentList @('-m', 'uvicorn', 'app.internal:internal_app', '--host', '127.0.0.1', '--port', '18001') `
     -WorkingDirectory $apiDirectory
+Save-ProcessState -Processes $processes
+
+Wait-Http -Url 'http://127.0.0.1:18000/health' -Label 'tgo-api'
+
+Set-NativeEnvironment -Service platform
+$processes += Start-NativeProcess `
+    -Name 'tgo-platform' `
+    -FilePath $platformPython `
+    -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8003') `
+    -WorkingDirectory $platformDirectory
 Save-ProcessState -Processes $processes
 
 Set-NativeEnvironment -Service ai
@@ -246,6 +272,7 @@ Wait-Http -Url 'http://127.0.0.1:18000/health' -Label 'tgo-api'
 Wait-Http -Url 'http://127.0.0.1:18001/health' -Label 'tgo-api internal service'
 Wait-Http -Url 'http://127.0.0.1:8081/health' -Label 'tgo-ai' -TimeoutSeconds 240
 Wait-Http -Url 'http://127.0.0.1:18082/health' -Label 'tgo-rag' -TimeoutSeconds 240
+Wait-Http -Url 'http://127.0.0.1:8003/health' -Label 'tgo-platform'
 Wait-Http -Url 'http://127.0.0.1:8004/health' -Label 'tgo-workflow'
 Wait-Http -Url 'http://127.0.0.1:8085/health' -Label 'tgo-device-control'
 Wait-Http -Url "http://127.0.0.1:$webPort/chat" -Label 'tgo-web'
@@ -259,6 +286,7 @@ Write-Host '  TGO API:      http://127.0.0.1:18000'
 Write-Host '  TGO Internal: http://127.0.0.1:18001'
 Write-Host '  TGO AI:       http://127.0.0.1:8081'
 Write-Host '  TGO RAG:      http://127.0.0.1:18082'
+Write-Host '  Platform:     http://127.0.0.1:8003'
 Write-Host '  Workflow:     http://127.0.0.1:8004'
 Write-Host '  Device HTTP:  http://127.0.0.1:8085'
 Write-Host '  Device TCP:   0.0.0.0:9876'

@@ -61,6 +61,28 @@ async def test_non_stream_ai_client_payload_includes_knowledge_channel() -> None
 
 
 @pytest.mark.asyncio
+async def test_non_stream_ai_client_payload_supports_plain_rewrite_mode() -> None:
+    client = AIServiceClient()
+    client._make_request = AsyncMock(return_value=object())
+    client._handle_response = AsyncMock(return_value={"content": "ok"})
+
+    await client.run_supervisor_agent(
+        message="待改写答复",
+        project_id=str(uuid4()),
+        enable_memory=False,
+        disable_tools=True,
+        markdown=False,
+        temperature=0.4,
+    )
+
+    payload = client._make_request.await_args.kwargs["json_data"]
+    assert payload["enable_memory"] is False
+    assert payload["disable_tools"] is True
+    assert payload["markdown"] is False
+    assert payload["temperature"] == 0.4
+
+
+@pytest.mark.asyncio
 async def test_chat_service_forwards_channel_to_streaming_ai_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -63,6 +63,10 @@ async def test_prepare_context_uses_explicit_agent_id(monkeypatch) -> None:
             message="hello",
             agent_id=str(agent.id),
             excluded_tool_ids=(uuid.uuid4(),),
+            disable_tools=True,
+            enable_memory=False,
+            markdown=False,
+            temperature=0.4,
         ),
         project_id,
         {"X-Request-ID": "req-explicit"},
@@ -71,6 +75,10 @@ async def test_prepare_context_uses_explicit_agent_id(monkeypatch) -> None:
     assert context.agent.id == agent.id
     assert resolved_agent_id == str(agent.id)
     assert context.excluded_tool_ids
+    assert context.disable_tools is True
+    assert context.enable_memory is False
+    assert context.markdown is False
+    assert context.temperature == 0.4
     fake_agent_service.get_default_agent.assert_not_awaited()
 
 

@@ -14,15 +14,25 @@ if (Test-Path -LiteralPath $script:StateFile) {
 
         $recordedExecutable = [System.IO.Path]::GetFullPath([string]$entry.executable)
         $runningExecutable = $process.Path
-        if (
-            [string]::IsNullOrWhiteSpace($runningExecutable) -or
-            -not [string]::Equals(
+        $executableMatches = (
+            -not [string]::IsNullOrWhiteSpace($runningExecutable) -and
+            [string]::Equals(
                 [System.IO.Path]::GetFullPath($runningExecutable),
                 $recordedExecutable,
                 [System.StringComparison]::OrdinalIgnoreCase
             )
-        ) {
-            Write-Warning "Skipping stale PID $($entry.pid) for $($entry.name); executable no longer matches."
+        )
+        $startTimeMatches = $false
+        if ($entry.startedAt) {
+            $recordedStartTime = [DateTimeOffset]::Parse([string]$entry.startedAt)
+            $runningStartTime = [DateTimeOffset]$process.StartTime
+            $startTimeDelta = [Math]::Abs(
+                ($runningStartTime.ToUniversalTime() - $recordedStartTime.ToUniversalTime()).TotalSeconds
+            )
+            $startTimeMatches = $startTimeDelta -le 10
+        }
+        if (-not $executableMatches -and -not $startTimeMatches) {
+            Write-Warning "Skipping stale PID $($entry.pid) for $($entry.name); process identity no longer matches."
             continue
         }
 

@@ -88,7 +88,7 @@ function Set-ProcessEnv {
 function Set-NativeEnvironment {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('api', 'ai', 'rag', 'workflow', 'device', 'web', 'widget')]
+        [ValidateSet('api', 'ai', 'rag', 'platform', 'workflow', 'device', 'web', 'widget')]
         [string]$Service
     )
 
@@ -137,6 +137,14 @@ function Set-NativeEnvironment {
         Set-ProcessEnv -Name 'MCP_SERVICE_URL' -Value 'http://127.0.0.1:8090'
         Set-ProcessEnv -Name 'DEVICE_CONTROL_MCP_ENDPOINT' -Value 'http://127.0.0.1:8085/mcp/{device_id}'
         Set-ProcessEnv -Name 'SKILLS_BASE_DIR' -Value (Join-Path $script:RepoRoot 'data\skills')
+    }
+
+    if ($Service -eq 'platform') {
+        $platformMediaDirectory = Join-Path $script:RepoRoot 'data\tgo-platform\media'
+        Set-ProcessEnv -Name 'REDIS_URL' -Value "redis://127.0.0.1:${redisPort}/0"
+        Set-ProcessEnv -Name 'API_BASE_URL' -Value 'http://127.0.0.1:18000'
+        Set-ProcessEnv -Name 'MEDIA_STORAGE_PATH' -Value $platformMediaDirectory
+        Set-ProcessEnv -Name 'VISION_AGENT_URL' -Value 'http://127.0.0.1:18085'
     }
 
     if ($Service -eq 'rag') {

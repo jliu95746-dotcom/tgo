@@ -171,6 +171,10 @@ class AIServiceClient:
         rag_url: Optional[str] = None,
         knowledge_channel: Optional[str] = None,
         system_message: Optional[str] = None,
+        enable_memory: Optional[bool] = None,
+        disable_tools: Optional[bool] = None,
+        markdown: Optional[bool] = None,
+        temperature: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Run supervisor agent workflow and return response content."""
         payload: Dict[str, Any] = {
@@ -191,6 +195,14 @@ class AIServiceClient:
             payload["knowledge_channel"] = knowledge_channel
         if system_message is not None:
             payload["system_message"] = system_message
+        if enable_memory is not None:
+            payload["enable_memory"] = enable_memory
+        if disable_tools is not None:
+            payload["disable_tools"] = disable_tools
+        if markdown is not None:
+            payload["markdown"] = markdown
+        if temperature is not None:
+            payload["temperature"] = temperature
 
         response = await self._make_request(
             "POST",

@@ -555,6 +555,8 @@ UNEDITABLE_SYSTEM_PROMPT = (
     "from that result. Never claim that an item matches a requested price, policy, date, "
     "specification, or other constraint unless the matching value is explicitly present. "
     "If no result satisfies the constraint, clearly say that no confirmed match was found."
+    "\nWhen a tool is needed, call it immediately without any user-facing preamble. "
+    "Never announce that you are about to search, check, think, or use a tool."
     "\nCustomer context management applies identically to every channel. When the customer "
     "explicitly provides a stable profile fact such as their name, contact method, company, "
     "position, or address, call update_user_info once with only the stated fields. When the "
@@ -666,23 +668,25 @@ class AgentBuilder:
     ) -> Agent:
         """Helper to construct a local Agno Agent."""
         config = self._normalize_config(request.config)
-        tools = await self._build_tools(
-            config,
-            request.session_id,
-            request.user_id,
-            internal_agent=internal_agent,
-            project_id=request.project_id,
-            agent_id=request.agent_id,
-            request_id=request.request_id,
-            excluded_tool_ids=request.excluded_tool_ids,
-        )
+        tools: List[Any] = []
+        if not request.disable_tools:
+            tools = await self._build_tools(
+                config,
+                request.session_id,
+                request.user_id,
+                internal_agent=internal_agent,
+                project_id=request.project_id,
+                agent_id=request.agent_id,
+                request_id=request.request_id,
+                excluded_tool_ids=request.excluded_tool_ids,
+            )
 
         # Build Agno Skills object if skills_enabled
         skills_obj = None
         skills_enabled = (
             request.skills_enabled if request.skills_enabled is not None else True
         )
-        if skills_enabled and request.project_id:
+        if not request.disable_tools and skills_enabled and request.project_id:
             try:
                 skills_obj = self._build_skills(request.project_id)
                 if skills_obj:
@@ -703,7 +707,11 @@ class AgentBuilder:
             config.system_prompt,
             ui_mode=config.ui_mode,
         )
-        enable_memory = request.enable_memory or bool(config.enable_memory)
+        enable_memory = (
+            bool(config.enable_memory)
+            if request.enable_memory is None
+            else request.enable_memory
+        )
 
         self._logger.debug(
             "Creating local agent",

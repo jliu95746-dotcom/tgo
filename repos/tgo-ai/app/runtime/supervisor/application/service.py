@@ -247,6 +247,9 @@ class SupervisorRuntimeService:
             rag_url=payload.rag_url,
             knowledge_channel=payload.knowledge_channel,
             enable_memory=payload.enable_memory,
+            disable_tools=payload.disable_tools,
+            markdown=payload.markdown,
+            temperature=payload.temperature,
             excluded_tool_ids=payload.excluded_tool_ids,
             ui_mode=payload.ui_mode,
         )

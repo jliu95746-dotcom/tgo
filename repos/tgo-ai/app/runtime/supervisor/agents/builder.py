@@ -42,6 +42,7 @@ class AgnoAgentBuilder:
             request_id=context.request_id,
             skills_enabled=context.agent.skills_enabled,
             enable_memory=context.enable_memory,
+            disable_tools=context.disable_tools,
             excluded_tool_ids=context.excluded_tool_ids,
         )
         agno_agent = await self._agent_builder.build_agent(request, internal_agent=context.agent)
@@ -96,7 +97,11 @@ class AgnoAgentBuilder:
 
         return AgentConfig(
             model_name=context.agent.model,
-            temperature=config.get("temperature"),
+            temperature=(
+                context.temperature
+                if context.temperature is not None
+                else config.get("temperature")
+            ),
             max_tokens=config.get("max_tokens"),
             system_prompt=context.agent.instruction,
             system_message=context.system_message,
@@ -106,7 +111,11 @@ class AgnoAgentBuilder:
             workflow=workflow_config,
             enable_memory=context.enable_memory,
             provider_credentials=context.agent.llm_provider_credentials,
-            markdown=config.get("markdown"),
+            markdown=(
+                context.markdown
+                if context.markdown is not None
+                else config.get("markdown")
+            ),
             add_datetime_to_context=config.get("add_datetime_to_context"),
             add_location_to_context=config.get("add_location_to_context"),
             timezone_identifier=config.get("timezone_identifier"),

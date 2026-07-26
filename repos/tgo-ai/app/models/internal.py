@@ -190,7 +190,24 @@ class AgentExecutionContext(BaseModel):
         None,
         description="Channel used for automatic-answer knowledge governance",
     )
-    enable_memory: bool = Field(False, description="Whether conversational memory is enabled")
+    enable_memory: Optional[bool] = Field(
+        None,
+        description="Per-run memory override; None keeps the stored agent setting",
+    )
+    disable_tools: bool = Field(
+        False,
+        description="Whether every tool and skill must be disabled for this execution",
+    )
+    markdown: Optional[bool] = Field(
+        None,
+        description="Per-run Markdown output override",
+    )
+    temperature: Optional[float] = Field(
+        None,
+        ge=0,
+        le=2,
+        description="Per-run model temperature override",
+    )
     excluded_tool_ids: tuple[UUID, ...] = Field(
         default=(),
         description="Persisted agent tools omitted only for this execution",

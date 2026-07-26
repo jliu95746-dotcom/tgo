@@ -58,6 +58,7 @@ function Test-TgoReady {
         'http://127.0.0.1:18001/health',
         'http://127.0.0.1:8081/health',
         'http://127.0.0.1:18082/health',
+        'http://127.0.0.1:8003/health',
         'http://127.0.0.1:8004/health',
         'http://127.0.0.1:8085/health',
         'http://127.0.0.1:5174/'

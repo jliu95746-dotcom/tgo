@@ -5,7 +5,7 @@
 此模式用于内存较小的 Windows 开发机：
 
 - Docker 仅运行 PostgreSQL、Redis、WuKongIM。
-- `tgo-api`、`tgo-ai`、`tgo-rag`、`tgo-workflow`、`tgo-device-control`、
+- `tgo-api`、`tgo-ai`、`tgo-rag`、`tgo-platform`、`tgo-workflow`、`tgo-device-control`、
   `tgo-web`、`tgo-widget-js` 作为 Windows 本机进程运行。
 - RAG 文档处理使用 Windows 本机 Celery `solo` worker，避免 Docker 应用容器占用额外内存。
 - `tgo-api` 使用 `18000`，避免与本机 Agent Memory 的 `8000` 冲突。
@@ -21,7 +21,7 @@
 powershell -ExecutionPolicy Bypass -File scripts\native-dev\install.ps1
 ```
 
-安装过程使用 API、AI、RAG、Workflow、Device Control 各自的锁文件，并在服务目录创建
+安装过程使用 API、AI、RAG、Platform、Workflow、Device Control 各自的锁文件，并在服务目录创建
 `.venv`。前端依赖安装到 `repos\tgo-web\node_modules` 和
 `repos\tgo-widget-js\node_modules`。这些目录均不会提交到 Git。
 
@@ -35,14 +35,15 @@ powershell -ExecutionPolicy Bypass -File scripts\native-dev\start.ps1
 
 1. 停止 TGO 应用容器；
 2. 启动 PostgreSQL、Redis、WuKongIM；
-3. 执行 API、AI、RAG 和 Workflow 数据库迁移；
-4. 启动本机 API、内部 API、AI、RAG、RAG worker、Workflow、管理端和访客端；
+3. 执行 API、AI、RAG、Platform 和 Workflow 数据库迁移；
+4. 启动本机 API、内部 API、AI、RAG、RAG worker、Platform、Workflow、管理端和访客端；
 5. 验证健康检查、管理端 API 代理和访客端。
 
 页面地址：
 
 - 管理端：`http://127.0.0.1:5173/chat`
 - 访客端：`http://127.0.0.1:5174`
+- 消息平台服务：`http://127.0.0.1:8003`
 - 设备控制 HTTP：`http://127.0.0.1:8085`
 - 设备接入 TCP：`本机局域网 IP:9876`
 

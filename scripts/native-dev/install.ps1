@@ -33,6 +33,7 @@ foreach ($service in @(
     'tgo-api',
     'tgo-ai',
     'tgo-rag',
+    'tgo-platform',
     'tgo-workflow',
     'tgo-device-control'
 )) {

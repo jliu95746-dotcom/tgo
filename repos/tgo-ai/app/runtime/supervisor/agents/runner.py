@@ -56,7 +56,7 @@ class AgnoAgentRunner:
             user_id=context.user_id,
         )
         total_time = time.time() - start_time
-        final_content = self._ensure_text(getattr(output, "content", None))
+        final_content = self._extract_final_content(output)
         tools_used = self._extract_tool_names(getattr(output, "tools", None))
 
         result = AgentExecutionResult(
@@ -199,6 +199,25 @@ class AgnoAgentRunner:
         if isinstance(value, str):
             return value
         return str(value)
+
+    @classmethod
+    def _extract_final_content(cls, output: Any) -> str:
+        """Return the final visible assistant turn, excluding tool-call preambles."""
+        messages = getattr(output, "messages", None)
+        if isinstance(messages, (list, tuple)):
+            for message in reversed(messages):
+                role = getattr(message, "role", None)
+                if hasattr(role, "value"):
+                    role = role.value
+                normalized_role = str(role or "").lower().rsplit(".", 1)[-1]
+                if normalized_role != "assistant":
+                    continue
+                if getattr(message, "tool_calls", None):
+                    continue
+                content = cls._ensure_text(getattr(message, "content", None)).strip()
+                if content:
+                    return content
+        return cls._ensure_text(getattr(output, "content", None)).strip()
 
     @staticmethod
     def _extract_tool_names(tools: Any) -> list[str]:

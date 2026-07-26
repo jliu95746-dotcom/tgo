@@ -81,8 +81,10 @@ from app.services.ai_interaction_run_service import (
 )
 from app.services.chat_service import get_or_create_visitor
 from app.services.humanization_service import (
+    ASSIST_FACT_GATHERING_PROMPT,
     append_humanization_prompt,
     get_humanization_skill_prompt,
+    rewrite_assist_draft,
 )
 from app.services.file_service import get_safe_ascii_filename, sanitize_filename
 from app.services.message_intent_orchestrator import (
@@ -809,14 +811,10 @@ async def generate_assist_draft(
             detail="Humanization skill is not enabled for this visitor",
         )
 
-    system_message = (
-        "你是人工客服的回复助手。根据客户当前消息生成一条可以直接发送的中文回复。"
-        "只输出回复正文，不描述思考、查询、工具调用或内部工作过程；"
-        "不确定的业务事实要明确说明并交给人工确认。"
-    )
+    humanization_prompt = ""
     if selected_skill:
         try:
-            prompt = await get_humanization_skill_prompt(
+            humanization_prompt = await get_humanization_skill_prompt(
                 str(current_user.project_id), selected_skill
             )
         except ValueError as exc:
@@ -824,25 +822,40 @@ async def generate_assist_draft(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=str(exc),
             ) from exc
-        system_message = append_humanization_prompt(system_message, prompt)
 
     agent_kwargs = _build_platform_agent_kwargs(visitor.platform)
-    result = await AIServiceClient().run_supervisor_agent(
+    ai_service = AIServiceClient()
+    result = await ai_service.run_supervisor_agent(
         message=req.customer_message,
         project_id=str(current_user.project_id),
         agent_id=agent_kwargs.get("agent_id"),
         session_id=f"assist-{visitor.id}",
         user_id=str(visitor.id),
         knowledge_channel=agent_kwargs.get("knowledge_channel"),
-        system_message=system_message,
+        system_message=ASSIST_FACT_GATHERING_PROMPT,
     )
     draft_value = result.get("content") or result.get("message")
-    draft = draft_value.strip() if isinstance(draft_value, str) else ""
-    if not draft:
+    factual_draft = draft_value.strip() if isinstance(draft_value, str) else ""
+    if not factual_draft:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="AI service returned an empty assist draft",
         )
+    try:
+        draft = await rewrite_assist_draft(
+            ai_service,
+            project_id=str(current_user.project_id),
+            agent_id=agent_kwargs.get("agent_id"),
+            customer_message=req.customer_message,
+            factual_draft=factual_draft,
+            humanization_prompt=humanization_prompt,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Assist draft rewrite failed; returning factual draft: %s",
+            exc,
+        )
+        draft = factual_draft
     return AssistDraftResponse(
         draft=draft,
         humanization_skill_name=selected_skill,

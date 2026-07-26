@@ -65,9 +65,26 @@ class SupervisorRunRequest(BaseSchema):
         default=None,
         description="Channel used for fail-closed automatic-answer knowledge filtering",
     )
-    enable_memory: bool = Field(
+    enable_memory: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Override conversational memory for this run. When omitted, the stored "
+            "agent setting is used."
+        ),
+    )
+    disable_tools: bool = Field(
         default=False,
-        description="Enable conversational memory for the executing agent",
+        description="Disable every RAG, workflow, MCP, and skill tool for this run",
+    )
+    markdown: Optional[bool] = Field(
+        default=None,
+        description="Optional per-run Markdown output override",
+    )
+    temperature: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=2,
+        description="Optional per-run model temperature override",
     )
     excluded_tool_ids: tuple[uuid.UUID, ...] = Field(
         default=(),

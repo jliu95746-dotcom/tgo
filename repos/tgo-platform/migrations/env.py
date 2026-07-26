@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # Import application models and settings
 from app.db.models import Base
 from app.core.config import settings
+from migrations.version_table import ensure_platform_version_table_capacity
 
 # this is the Alembic Config object, which provides access to the values within the .ini file in use.
 config = context.config
@@ -135,6 +136,12 @@ def run_migrations_online() -> None:
     connectable: AsyncEngine = create_async_engine(settings.database_url, poolclass=pool.NullPool)
 
     async def run() -> None:
+        # The compatibility DDL starts its own transaction. Commit it before
+        # Alembic opens the migration transaction, otherwise SQLAlchemy's
+        # autobegin transaction is rolled back when the connection closes.
+        async with connectable.begin() as connection:
+            await connection.run_sync(ensure_platform_version_table_capacity)
+
         async with connectable.connect() as connection:
             await connection.run_sync(do_run_migrations)
 

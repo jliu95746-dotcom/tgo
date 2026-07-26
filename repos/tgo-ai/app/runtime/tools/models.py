@@ -126,7 +126,14 @@ class AgentRunRequest(BaseModel):
         default=False,
         description="流式输出是否包含中间工具步骤",
     )
-    enable_memory: bool = Field(default=False, description="是否启用会话记忆功能")
+    enable_memory: Optional[bool] = Field(
+        default=None,
+        description="是否覆盖本轮会话记忆设置；未设置时沿用智能体配置",
+    )
+    disable_tools: bool = Field(
+        default=False,
+        description="是否在本轮禁用全部 RAG、工作流、MCP 和技能工具",
+    )
     excluded_tool_ids: tuple[UUID, ...] = Field(
         default=(),
         description="仅在本轮执行中排除的持久化工具 ID",
