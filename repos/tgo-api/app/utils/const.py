@@ -1,4 +1,4 @@
-from enum import IntEnum, Enum
+from enum import Enum, IntEnum
 
 # WuKongIM channel types
 CHANNEL_TYPE_CUSTOMER_SERVICE = 251
@@ -24,3 +24,4 @@ class MessageType(IntEnum):
     SESSION_CLOSED = 1001
     SESSION_TRANSFERRED = 1002
     MEMORY_CLEARED = 1003
+    HUMAN_HANDOFF_REQUESTED = 1004

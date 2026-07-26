@@ -105,4 +105,7 @@ async def test_install_agent_from_store_payload_has_no_team_id(monkeypatch) -> N
     )
 
     assert result == {"id": "agent-1"}
-    assert "team_id" not in create_agent_mock.await_args.kwargs["agent_data"]
+    create_agent_call = create_agent_mock.await_args.kwargs
+    assert create_agent_call["project_id"] == str(project_id)
+    assert "project_id" not in create_agent_call["agent_data"]
+    assert "team_id" not in create_agent_call["agent_data"]

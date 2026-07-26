@@ -4,7 +4,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 # Note: These tests require the app to be importable
 # In a real setup, you would mock the database connection
@@ -56,7 +55,7 @@ class TestHealthEndpoints:
         """Test TGO API health check success."""
         from app.api.v1.health import check_tgo_api
 
-        with patch("app.api.v1.health.httpx.AsyncClient") as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = AsyncMock()
             mock_response.status_code = 200
 
@@ -76,7 +75,7 @@ class TestHealthEndpoints:
         """Test TGO API health check failure."""
         from app.api.v1.health import check_tgo_api
 
-        with patch("app.api.v1.health.httpx.AsyncClient") as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_client_instance = AsyncMock()
             mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
             mock_client_instance.__aexit__ = AsyncMock(return_value=None)

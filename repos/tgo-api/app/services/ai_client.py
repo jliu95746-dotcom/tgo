@@ -1,14 +1,12 @@
 """AI service client for proxying requests to external AI service."""
 
 import json
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
-from uuid import uuid4, UUID
-
 from datetime import date, datetime
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import HTTPException
-
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -19,7 +17,7 @@ logger = get_logger("ai_client")
 class AIServiceClient:
     """Client for communicating with the external AI service."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.base_url = str(settings.AI_SERVICE_URL).rstrip("/")
         self.timeout = settings.AI_SERVICE_TIMEOUT
         self.api_key = settings.AI_SERVICE_API_KEY
@@ -32,6 +30,7 @@ class AIServiceClient:
         }
         # Authentication headers have been removed per latest AI service API spec
         return headers
+
     def _to_jsonable(self, obj: Any) -> Any:
         """Recursively convert data to JSON-serializable primitives (str/int/bool/list/dict).
         Handles UUID, datetime/date, sets, and Pydantic models (via model_dump if present).
@@ -59,7 +58,6 @@ class AIServiceClient:
         except Exception:
             return str(obj)
 
-
     async def _make_request(
         self,
         method: str,
@@ -85,11 +83,14 @@ class AIServiceClient:
                 "method": method,
                 "url": url,
                 "params": params,
-            }
+            },
         )
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                trust_env=False,
+            ) as client:
                 kwargs: Dict[str, Any] = {
                     "method": method,
                     "url": url,
@@ -100,37 +101,34 @@ class AIServiceClient:
                     kwargs["json"] = self._to_jsonable(json_data)
                 if content is not None:
                     kwargs["content"] = content
-                response = await client.request(**kwargs
-                )
+                response = await client.request(**kwargs)
 
                 logger.info(
                     f"AI service response: {response.status_code}",
                     extra={
                         "request_id": request_id,
                         "status_code": response.status_code,
-                        "response_time": response.elapsed.total_seconds() if response.elapsed else None,
-                    }
+                        "response_time": response.elapsed.total_seconds()
+                        if response.elapsed
+                        else None,
+                    },
                 )
 
                 return response
 
-        except httpx.TimeoutException as e:
+        except httpx.TimeoutException:
             logger.error(
                 f"AI service timeout: {url}",
-                extra={"request_id": request_id, "timeout": self.timeout}
+                extra={"request_id": request_id, "timeout": self.timeout},
             )
-            raise HTTPException(
-                status_code=504,
-                detail="AI service request timed out"
-            )
+            raise HTTPException(status_code=504, detail="AI service request timed out")
         except httpx.RequestError as e:
             logger.error(
                 f"AI service request error: {e}",
-                extra={"request_id": request_id, "error": str(e)}
+                extra={"request_id": request_id, "error": str(e)},
             )
             raise HTTPException(
-                status_code=502,
-                detail="Failed to connect to AI service"
+                status_code=502, detail="Failed to connect to AI service"
             )
 
     async def _handle_response(self, response: httpx.Response) -> Any:
@@ -154,13 +152,10 @@ class AIServiceClient:
             extra={
                 "status_code": response.status_code,
                 "error_data": error_data,
-            }
+            },
         )
 
-        raise HTTPException(
-            status_code=response.status_code,
-            detail=error_data
-        )
+        raise HTTPException(status_code=response.status_code, detail=error_data)
 
     # Agent endpoints
     async def run_supervisor_agent(
@@ -175,6 +170,7 @@ class AIServiceClient:
         mcp_url: Optional[str] = None,
         rag_url: Optional[str] = None,
         knowledge_channel: Optional[str] = None,
+        system_message: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run supervisor agent workflow and return response content."""
         payload: Dict[str, Any] = {
@@ -193,6 +189,8 @@ class AIServiceClient:
             payload["rag_url"] = rag_url
         if knowledge_channel is not None:
             payload["knowledge_channel"] = knowledge_channel
+        if system_message is not None:
+            payload["system_message"] = system_message
 
         response = await self._make_request(
             "POST",
@@ -226,6 +224,7 @@ class AIServiceClient:
         payload: Dict[str, Any] = {
             "message": message,
             "stream": True,
+            "ui_mode": "text",
         }
         if agent_id:
             payload["agent_id"] = agent_id
@@ -261,7 +260,10 @@ class AIServiceClient:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=None) as client:
+            async with httpx.AsyncClient(
+                timeout=None,
+                trust_env=False,
+            ) as client:
                 async with client.stream(
                     "POST",
                     url,
@@ -274,13 +276,17 @@ class AIServiceClient:
                             error_data = await response.json()
                         except Exception:
                             error_body = await response.aread()
-                            error_data = {"error": error_body.decode("utf-8", errors="ignore")}
+                            error_data = {
+                                "error": error_body.decode("utf-8", errors="ignore")
+                            }
                         logger.warning(
                             "AI service stream error: %s",
                             response.status_code,
                             extra={"request_id": request_id, "detail": error_data},
                         )
-                        raise HTTPException(status_code=response.status_code, detail=error_data)
+                        raise HTTPException(
+                            status_code=response.status_code, detail=error_data
+                        )
 
                     event_name: Optional[str] = None
                     data_lines: List[str] = []
@@ -290,7 +296,7 @@ class AIServiceClient:
                             if not data_lines:
                                 event_name = None
                                 continue
-                            data_text = '\n'.join(data_lines)
+                            data_text = "\n".join(data_lines)
                             try:
                                 parsed = json.loads(data_text)
                             except json.JSONDecodeError:
@@ -307,18 +313,26 @@ class AIServiceClient:
                             data_lines.append(line.split(":", 1)[1].strip())
 
                     if data_lines:
-                        data_text = '\n'.join(data_lines)
+                        data_text = "\n".join(data_lines)
                         try:
                             parsed = json.loads(data_text)
                         except json.JSONDecodeError:
                             parsed = data_text
                         yield (event_name or "message", parsed)
         except httpx.TimeoutException:
-            logger.error("AI service stream timeout: %s", url, extra={"request_id": request_id})
+            logger.error(
+                "AI service stream timeout: %s", url, extra={"request_id": request_id}
+            )
             raise HTTPException(status_code=504, detail="AI service stream timed out")
         except httpx.RequestError as exc:
-            logger.error("AI service stream request error: %s", exc, extra={"request_id": request_id})
-            raise HTTPException(status_code=502, detail="Failed to connect to AI service")
+            logger.error(
+                "AI service stream request error: %s",
+                exc,
+                extra={"request_id": request_id},
+            )
+            raise HTTPException(
+                status_code=502, detail="Failed to connect to AI service"
+            )
 
     async def cancel_supervisor_run(
         self,
@@ -338,18 +352,16 @@ class AIServiceClient:
         )
         return await self._handle_response(response)
 
-
-
     async def check_agents_exist(
         self,
         project_id: str,
     ) -> bool:
         """
         Check if any agents exist for the specified project.
-        
+
         Args:
             project_id: Project ID to check
-            
+
         Returns:
             True if agents exist, False otherwise
         """
@@ -390,9 +402,7 @@ class AIServiceClient:
         if is_default is not None:
             params["is_default"] = is_default
 
-        response = await self._make_request(
-            "GET", "/api/v1/agents", params=params
-        )
+        response = await self._make_request("GET", "/api/v1/agents", params=params)
         return await self._handle_response(response)
 
     async def create_agent(
@@ -402,7 +412,10 @@ class AIServiceClient:
     ) -> Dict[str, Any]:
         """Create agent in AI service."""
         response = await self._make_request(
-            "POST", "/api/v1/agents", json_data=agent_data, params={"project_id": project_id}
+            "POST",
+            "/api/v1/agents",
+            json_data=agent_data,
+            params={"project_id": project_id},
         )
         return await self._handle_response(response)
 
@@ -434,7 +447,10 @@ class AIServiceClient:
     ) -> Dict[str, Any]:
         """Update agent in AI service."""
         response = await self._make_request(
-            "PATCH", f"/api/v1/agents/{agent_id}", json_data=agent_data, params={"project_id": project_id}
+            "PATCH",
+            f"/api/v1/agents/{agent_id}",
+            json_data=agent_data,
+            params={"project_id": project_id},
         )
         return await self._handle_response(response)
 
@@ -461,7 +477,7 @@ class AIServiceClient:
             "PATCH",
             f"/api/v1/agents/{agent_id}/tools/{tool_id}/enabled",
             json_data={"enabled": enabled},
-            params={"project_id": project_id}
+            params={"project_id": project_id},
         )
         # 204 No Content response
         if response.status_code == 204:
@@ -480,7 +496,7 @@ class AIServiceClient:
             "PATCH",
             f"/api/v1/agents/{agent_id}/collections/{collection_id}/enabled",
             json_data={"enabled": enabled},
-            params={"project_id": project_id}
+            params={"project_id": project_id},
         )
         # 204 No Content response
         if response.status_code == 204:
@@ -499,13 +515,12 @@ class AIServiceClient:
             "PATCH",
             f"/api/v1/agents/{agent_id}/workflows/{workflow_id}/enabled",
             json_data={"enabled": enabled},
-            params={"project_id": project_id}
+            params={"project_id": project_id},
         )
         # 204 No Content response
         if response.status_code == 204:
             return None
         return await self._handle_response(response)
-
 
     async def clear_session_memory(
         self,
@@ -533,9 +548,7 @@ class AIServiceClient:
         if tool_type:
             params["tool_type"] = tool_type
 
-        response = await self._make_request(
-            "GET", "/api/v1/tools", params=params
-        )
+        response = await self._make_request("GET", "/api/v1/tools", params=params)
         return await self._handle_response(response)
 
     async def create_tool(
@@ -559,7 +572,7 @@ class AIServiceClient:
             "PATCH",
             f"/api/v1/tools/{tool_id}",
             json_data=tool_data,
-            params={"project_id": project_id}
+            params={"project_id": project_id},
         )
         return await self._handle_response(response)
 
@@ -583,7 +596,9 @@ class AIServiceClient:
         tool_name = tool_data.get("name")
         # Check if tool already exists
         existing_tools = await self.list_tools(project_id)
-        existing_tool = next((t for t in existing_tools if t["name"] == tool_name), None)
+        existing_tool = next(
+            (t for t in existing_tools if t["name"] == tool_name), None
+        )
 
         if existing_tool:
             # Update existing tool
@@ -635,17 +650,6 @@ class AIServiceClient:
             )
         return result
 
-
-
-
-
-
-
-
-
-
-
-
     # Chat completions endpoint
     async def chat_completions(
         self,
@@ -659,10 +663,10 @@ class AIServiceClient:
     ) -> Dict[str, Any]:
         """
         Create a chat completion using the AI service.
-        
+
         This proxies to the AI service's /api/v1/chat/completions endpoint,
         which is compatible with OpenAI's Chat Completions API format.
-        
+
         Args:
             project_id: Project ID for authorization
             provider_id: UUID of the LLM provider to use
@@ -671,7 +675,7 @@ class AIServiceClient:
             temperature: Sampling temperature (0-2)
             max_tokens: Maximum tokens to generate
             stream: Whether to stream the response (not supported yet)
-            
+
         Returns:
             Chat completion response with choices
         """
@@ -724,7 +728,6 @@ class AIServiceClient:
             )
         return result
 
-
     # ------------------------------------------------------------------
     # Skill management (proxy to tgo-ai /api/v1/skills)
     # ------------------------------------------------------------------
@@ -733,7 +736,9 @@ class AIServiceClient:
         """Build extra headers for skill requests."""
         return {"X-Project-Id": project_id}
 
-    async def import_skill(self, project_id: str, import_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def import_skill(
+        self, project_id: str, import_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Import a skill from GitHub (proxy to tgo-ai)."""
         response = await self._make_request(
             "POST",
@@ -752,7 +757,9 @@ class AIServiceClient:
         )
         return await self._handle_response(response)
 
-    async def create_skill(self, project_id: str, skill_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def create_skill(
+        self, project_id: str, skill_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Create a new project-private skill."""
         response = await self._make_request(
             "POST",
@@ -761,6 +768,62 @@ class AIServiceClient:
             extra_headers=self._skill_headers(project_id),
         )
         return await self._handle_response(response)
+
+    async def create_humanization_skill(
+        self, project_id: str, skill_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create a trainable humanization skill."""
+        response = await self._make_request(
+            "POST",
+            "/api/v1/skills/humanization",
+            json_data=skill_data,
+            extra_headers=self._skill_headers(project_id),
+        )
+        result = await self._handle_response(response)
+        if not isinstance(result, dict):
+            raise HTTPException(
+                status_code=502,
+                detail="AI skill service returned an invalid response",
+            )
+        return result
+
+    async def add_humanization_training_sample(
+        self,
+        project_id: str,
+        skill_name: str,
+        sample_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Store one pending assist-mode correction."""
+        response = await self._make_request(
+            "POST",
+            f"/api/v1/skills/{skill_name}/training-samples",
+            json_data=sample_data,
+            extra_headers=self._skill_headers(project_id),
+        )
+        result = await self._handle_response(response)
+        if not isinstance(result, dict):
+            raise HTTPException(
+                status_code=502,
+                detail="AI skill service returned an invalid response",
+            )
+        return result
+
+    async def apply_humanization_training(
+        self, project_id: str, skill_name: str
+    ) -> Dict[str, Any]:
+        """Publish all pending corrections for one humanization skill."""
+        response = await self._make_request(
+            "POST",
+            f"/api/v1/skills/{skill_name}/apply-training",
+            extra_headers=self._skill_headers(project_id),
+        )
+        result = await self._handle_response(response)
+        if not isinstance(result, dict):
+            raise HTTPException(
+                status_code=502,
+                detail="AI skill service returned an invalid response",
+            )
+        return result
 
     async def get_skill(self, project_id: str, skill_name: str) -> Dict[str, Any]:
         """Get skill details."""

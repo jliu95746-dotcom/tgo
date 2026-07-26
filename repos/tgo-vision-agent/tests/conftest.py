@@ -1,21 +1,10 @@
 """Pytest configuration and fixtures."""
 from __future__ import annotations
 
-import asyncio
-from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
-import pytest_asyncio
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture

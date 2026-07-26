@@ -18,19 +18,14 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models import (
     Project,
-    Visitor,
-    VisitorServiceStatus,
     Staff,
+    Tag,
+    Visitor,
     VisitorAIInsight,
     VisitorCustomerUpdate,
-    Tag,
     VisitorTag,
-    VisitorWaitingQueue,
-    VisitorSession,
-    SessionStatus,
-    WaitingStatus,
-    AssignmentSource,
 )
+from app.models.tag import TagCategory
 from app.schemas.ai import (
     AIServiceEvent,
     ManualServiceRequestEvent,
@@ -38,15 +33,9 @@ from app.schemas.ai import (
     VisitorSentimentUpdateEvent,
     VisitorTagEvent,
 )
+from app.services.human_handoff_service import request_human_handoff
 from app.services.visitor_notifications import notify_visitor_profile_updated
-from app.services.transfer_service import transfer_to_staff
 from app.utils.intent import localize_intent
-from app.models.tag import TagCategory
-from app.utils.manual_service_tag import (
-    MANUAL_SERVICE_TAG_ID,
-    MANUAL_SERVICE_TAG_NAME,
-    MANUAL_SERVICE_TAG_NAME_ZH,
-)
 
 logger = logging.getLogger("internal.ai_events")
 
@@ -97,182 +86,44 @@ VISITOR_FIELD_MAP = {
 router = APIRouter()
 
 
-def _ensure_manual_service_tag(db: Session, project_id, visitor: Visitor) -> None:
-    """Ensure the visitor carries the manual service escalation tag."""
-    tag_id = MANUAL_SERVICE_TAG_ID
-    tag = (
-        db.query(Tag)
-        .filter(Tag.id == tag_id, Tag.project_id == project_id)
-        .first()
-    )
-
-    if tag is None:
-        tag = Tag(
-            name=MANUAL_SERVICE_TAG_NAME,
-            category=TagCategory.VISITOR,
-            color="#3B82F6",
-            project_id=project_id,
-            name_zh=MANUAL_SERVICE_TAG_NAME_ZH,
-            description="Flag visitors who requested human assistance",
-        )
-        db.add(tag)
-    elif tag.deleted_at is not None:
-        tag.deleted_at = None
-        tag.updated_at = datetime.utcnow()
-
-    visitor_tag = (
-        db.query(VisitorTag)
-        .filter(
-            VisitorTag.visitor_id == visitor.id,
-            VisitorTag.tag_id == tag.id,
-        )
-        .first()
-    )
-
-    if visitor_tag is None:
-        visitor_tag = VisitorTag(
-            project_id=project_id,
-            visitor_id=visitor.id,
-            tag_id=tag.id,
-        )
-        db.add(visitor_tag)
-    elif visitor_tag.deleted_at is not None:
-        visitor_tag.deleted_at = None
-        visitor_tag.updated_at = datetime.utcnow()
-
-
 async def _handle_manual_service_request(event: AIServiceEvent, project: Project, db: Session) -> dict:
-    """Handle a manual service request event.
-
-    1) Tag the visitor with the manual service escalation tag (转人工).
-    2) If the visitor is unassigned, call transfer_to_staff to assign a staff member.
-       Do NOT create VisitorWaitingQueue entries directly here.
-    """
+    """Use the same persistent handoff service as public channel messages."""
     payload = ManualServiceRequestEvent.model_validate(event.payload or {})
-
-    visitor = None
-    if event.user_id:
-        visitor = (
-            db.query(Visitor)
-            .filter(Visitor.id == event.user_id, Visitor.deleted_at.is_(None))
-            .first()
-        )
-        if not visitor:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Visitor not found for manual service request",
-            )
-        if visitor.project_id != project.id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Visitor does not belong to the specified project",
-            )
-        _ensure_manual_service_tag(db, project.id, visitor)
-        # IMPORTANT: Persist the manual service tag immediately.
-        # This handler may return early (e.g., visitor already queued/served),
-        # and without a commit the tag might not be saved.
-        db.commit()
-    else:
+    if not event.user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="user_id is required for manual service requests",
         )
-
-    # Check if visitor can enter queue based on their status
-    if not visitor.is_unassigned:
-        # Visitor is already in queue or being served - return existing queue info
-        existing_queue = db.query(VisitorWaitingQueue).filter(
-            VisitorWaitingQueue.visitor_id == visitor.id,
-            VisitorWaitingQueue.project_id == project.id,
-            VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
-        ).first()
-        
-        if existing_queue:
-            visitor.ai_disabled = True
-            db.commit()
-            await notify_visitor_profile_updated(db, visitor)
-            return {
-                "entry_id": str(existing_queue.id),
-                "status": existing_queue.status,
-                "position": existing_queue.position,
-                "priority": existing_queue.priority,
-                "channel_id": existing_queue.channel_id,
-                "channel_type": existing_queue.channel_type,
-                "message": f"Visitor already in queue (status: {visitor.service_status})",
-            }
-
-        active_session = db.query(VisitorSession).filter(
-            VisitorSession.visitor_id == visitor.id,
-            VisitorSession.status == SessionStatus.OPEN.value,
-            VisitorSession.staff_id.isnot(None),
-        ).first()
-        if active_session:
-            visitor.ai_disabled = True
-            db.commit()
-            await notify_visitor_profile_updated(db, visitor)
-            return {
-                "assigned_staff_id": str(active_session.staff_id),
-                "session_id": str(active_session.id),
-                "status": VisitorServiceStatus.ACTIVE.value,
-                "message": "Visitor is already assigned to staff; AI replies are now disabled",
-            }
-
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Visitor cannot be handed off because no active staff session "
-                f"or waiting queue exists (status: {visitor.service_status})"
-            ),
-        )
-
-    reason = (payload.reason or "").strip()
-    if not reason:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Manual service request reason cannot be empty",
-        )
-
-    transfer_result = await transfer_to_staff(
-        db=db,
-        visitor_id=visitor.id,
-        project_id=project.id,
-        source=AssignmentSource.RULE,
-        visitor_message=reason,
-        add_to_queue_if_no_staff=True,
-        # manual_service.request implies AI should be disabled
-        ai_disabled=True,
+    visitor = (
+        db.query(Visitor)
+        .filter(Visitor.id == event.user_id, Visitor.deleted_at.is_(None))
+        .first()
     )
-
-    if not transfer_result.success:
+    if visitor is None:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to transfer visitor to staff: {transfer_result.message}",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Visitor not found for manual service request",
         )
-
-    if transfer_result.assigned_staff_id:
-        return {
-            "assigned_staff_id": str(transfer_result.assigned_staff_id),
-            "session_id": str(transfer_result.session.id) if transfer_result.session else None,
-            "message": transfer_result.message,
-        }
-
-    if transfer_result.waiting_queue:
-        q = transfer_result.waiting_queue
-        return {
-            "entry_id": str(q.id),
-            "status": q.status,
-            "position": q.position,
-            "priority": q.priority,
-            "channel_id": q.channel_id,
-            "channel_type": q.channel_type,
-            "message": transfer_result.message,
-        }
-
-    raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=(
-            "Transfer reported success but created no staff session or waiting queue"
-        ),
+    channel_id: str | None = None
+    channel_type = 251
+    if payload.session_id:
+        session_parts = payload.session_id.rsplit("@", 1)
+        if len(session_parts) != 2 or not session_parts[1].isdigit():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="session_id must follow {channel_id}@{channel_type} format",
+            )
+        channel_id, channel_type_raw = session_parts
+        channel_type = int(channel_type_raw)
+    return await request_human_handoff(
+        db=db,
+        project=project,
+        visitor=visitor,
+        reason=payload.reason or "",
+        routing_reason="ai_service_event",
+        channel=payload.channel,
+        channel_id=channel_id,
+        channel_type=channel_type,
     )
 
 

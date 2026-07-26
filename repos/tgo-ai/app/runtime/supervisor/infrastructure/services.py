@@ -3,45 +3,40 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import uuid
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 # settings import removed; no longer using default_team_model
 from app.core.logging import get_logger
+from app.exceptions import NotFoundError
 from app.models.agent import Agent as DBAgent
-from app.models.internal import (
-    Agent as InternalAgent,
-    AgentCollection as InternalAgentCollection,
-    AgentWorkflow as InternalAgentWorkflow,
-    AgentExecutionRequest,
-    AgentExecutionResponse,
-    AgentTool as InternalAgentTool,
+from app.models.internal import Agent as InternalAgent
+from app.models.internal import AgentCollection as InternalAgentCollection
+from app.models.internal import AgentExecutionRequest, AgentExecutionResponse
+from app.models.internal import AgentTool as InternalAgentTool
+from app.models.internal import AgentWorkflow as InternalAgentWorkflow
+from app.runtime.core.exceptions import (
+    AgentExecutionError,
+    DataMappingError,
+    StreamingError,
+    TransformationError,
 )
+from app.runtime.supervisor.streaming.workflow_events import WorkflowEventEmitter
+from app.runtime.tools.executor.service import ToolsRuntimeService
 from app.runtime.tools.models import (
     AgentConfig,
     AgentRunRequest,
-    MCPConfig,
-    RagConfig,
-    WorkflowConfig,
-    LLMProviderCredentials,
     CompleteStreamEvent,
     ContentStreamEvent,
     ErrorStreamEvent,
+    LLMProviderCredentials,
+    MCPConfig,
+    RagConfig,
     ToolCallStreamEvent,
+    WorkflowConfig,
 )
-from app.runtime.tools.executor.service import ToolsRuntimeService
-from app.runtime.supervisor.streaming.workflow_events import WorkflowEventEmitter
 from app.services.agent_service import AgentService
-from app.runtime.core.exceptions import (
-    AgentExecutionError,
-    StreamingError,
-    TransformationError,
-    DataMappingError,
-)
-
-
-
 
 logger = get_logger(__name__)
 
@@ -75,18 +70,13 @@ def _convert_agent(
         if not agent.id:
             raise DataMappingError(
                 "Agent ID is required",
-                agent_name=agent.name if hasattr(agent, 'name') else None
+                agent_name=agent.name if hasattr(agent, "name") else None,
             )
         if not agent.name:
-            raise DataMappingError(
-                "Agent name is required",
-                agent_id=str(agent.id)
-            )
+            raise DataMappingError("Agent name is required", agent_id=str(agent.id))
         if not agent.model:
             raise DataMappingError(
-                "Agent model is required",
-                agent_id=str(agent.id),
-                agent_name=agent.name
+                "Agent model is required", agent_id=str(agent.id), agent_name=agent.name
             )
 
         # Convert tools
@@ -97,15 +87,17 @@ def _convert_agent(
             try:
                 # Get association data for this tool
                 assoc_data = (tool_associations_map or {}).get(tool.id, {})
-                enabled = assoc_data.get('enabled', True)
-                permissions = assoc_data.get('permissions') or []
-                tool_config = assoc_data.get('config') or {}
+                enabled = assoc_data.get("enabled", True)
+                permissions = assoc_data.get("permissions") or []
+                tool_config = assoc_data.get("config") or {}
 
                 tools.append(
                     InternalAgentTool(
                         tool_id=tool.id,
                         tool_name=tool.name,
-                        tool_type=str(tool.tool_type.value) if hasattr(tool.tool_type, 'value') else str(tool.tool_type),
+                        tool_type=str(tool.tool_type.value)
+                        if hasattr(tool.tool_type, "value")
+                        else str(tool.tool_type),
                         enabled=enabled,
                         permissions=permissions,
                         tool_config=tool_config,
@@ -114,9 +106,11 @@ def _convert_agent(
                         base_config=tool.config or {},
                         tool_source_type=(
                             str(tool.tool_source_type.value)
-                            if hasattr(tool.tool_source_type, 'value')
+                            if hasattr(tool.tool_source_type, "value")
                             else str(tool.tool_source_type)
-                        ) if tool.tool_source_type else None,
+                        )
+                        if tool.tool_source_type
+                        else None,
                     )
                 )
             except Exception as e:
@@ -124,10 +118,10 @@ def _convert_agent(
                     "Failed to convert agent tool, skipping",
                     agent_id=str(agent.id),
                     agent_name=agent.name,
-                    tool_id=str(tool.id) if hasattr(tool, 'id') else 'unknown',
-                    tool_name=getattr(tool, 'name', 'unknown'),
+                    tool_id=str(tool.id) if hasattr(tool, "id") else "unknown",
+                    tool_name=getattr(tool, "name", "unknown"),
                     error=str(e),
-                    error_type=type(e).__name__
+                    error_type=type(e).__name__,
                 )
                 continue
 
@@ -151,9 +145,11 @@ def _convert_agent(
                     "Failed to convert agent collection, skipping",
                     agent_id=str(agent.id),
                     agent_name=agent.name,
-                    collection_id=str(binding.collection_id) if hasattr(binding, 'collection_id') else 'unknown',
+                    collection_id=str(binding.collection_id)
+                    if hasattr(binding, "collection_id")
+                    else "unknown",
                     error=str(e),
-                    error_type=type(e).__name__
+                    error_type=type(e).__name__,
                 )
                 continue
 
@@ -173,9 +169,11 @@ def _convert_agent(
                     "Failed to convert agent workflow, skipping",
                     agent_id=str(agent.id),
                     agent_name=agent.name,
-                    workflow_id=str(binding.workflow_id) if hasattr(binding, 'workflow_id') else 'unknown',
+                    workflow_id=str(binding.workflow_id)
+                    if hasattr(binding, "workflow_id")
+                    else "unknown",
                     error=str(e),
-                    error_type=type(e).__name__
+                    error_type=type(e).__name__,
                 )
                 continue
 
@@ -231,9 +229,9 @@ def _convert_agent(
     except Exception as e:
         raise DataMappingError(
             "Failed to convert agent to internal model",
-            agent_id=str(agent.id) if hasattr(agent, 'id') else None,
-            agent_name=agent.name if hasattr(agent, 'name') else None,
-            error=str(e)
+            agent_id=str(agent.id) if hasattr(agent, "id") else None,
+            agent_name=agent.name if hasattr(agent, "name") else None,
+            error=str(e),
         ) from e
 
 
@@ -245,13 +243,19 @@ class AIServiceClient:
         self._project_id = project_id
         self.logger = get_logger(__name__)
 
-    async def __aenter__(self) -> "AIServiceClient":  # pragma: no cover - context manager convenience
+    async def __aenter__(
+        self,
+    ) -> "AIServiceClient":  # pragma: no cover - context manager convenience
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:  # pragma: no cover - nothing to cleanup
+    async def __aexit__(
+        self, exc_type, exc, tb
+    ) -> None:  # pragma: no cover - nothing to cleanup
         return None
 
-    async def get_agent(self, agent_id: str, auth_headers: Dict[str, str]) -> InternalAgent:
+    async def get_agent(
+        self, agent_id: str, auth_headers: Dict[str, str]
+    ) -> InternalAgent:
         """Get a single agent with its tool associations and related resources."""
         del auth_headers  # Interface parity with other service adapters
 
@@ -265,7 +269,11 @@ class AIServiceClient:
             ) from exc
 
         try:
-            db_agent = await self._agent_service.get_agent(self._project_id, agent_uuid)
+            db_agent = await self._agent_service.get_agent(
+                self._project_id,
+                agent_uuid,
+                enrich_resources=False,
+            )
         except Exception as exc:
             raise TransformationError(
                 "Failed to fetch agent from database",
@@ -274,9 +282,42 @@ class AIServiceClient:
                 error=str(exc),
             ) from exc
 
+        return await self._convert_agent_with_associations(db_agent)
+
+    async def get_default_agent(
+        self,
+        auth_headers: Dict[str, str],
+    ) -> InternalAgent:
+        """Load the default agent once without downstream display enrichment."""
+
+        del auth_headers
         try:
-            from app.models.agent import AgentToolAssociation
+            db_agent = await self._agent_service.get_default_agent(
+                self._project_id,
+                enrich_resources=False,
+            )
+        except NotFoundError as exc:
+            raise ValueError("Default agent not configured for project") from exc
+        except Exception as exc:
+            raise TransformationError(
+                "Failed to fetch default agent from database",
+                project_id=str(self._project_id),
+                error=str(exc),
+            ) from exc
+
+        return await self._convert_agent_with_associations(db_agent)
+
+    async def _convert_agent_with_associations(
+        self,
+        db_agent: DBAgent,
+    ) -> InternalAgent:
+        """Attach association-level config and convert a database agent."""
+
+        agent_uuid = db_agent.id
+        try:
             from sqlalchemy import and_, select
+
+            from app.models.agent import AgentToolAssociation
 
             stmt = select(AgentToolAssociation).where(
                 and_(
@@ -304,7 +345,6 @@ class AIServiceClient:
                 project_id=str(self._project_id),
                 error=str(exc),
             ) from exc
-
 
 
 class AgentServiceClient:
@@ -354,7 +394,7 @@ class AgentServiceClient:
                 agent_id=str(agent.id),
                 agent_name=agent.name,
                 session_id=request.session_id,
-                user_id=request.user_id
+                user_id=request.user_id,
             )
 
             run_request = self._build_agent_run_request(
@@ -372,13 +412,13 @@ class AgentServiceClient:
                 agent_name=agent.name,
                 error=str(e),
                 error_type=type(e).__name__,
-                exc_info=True
+                exc_info=True,
             )
             raise TransformationError(
                 "Failed to build agent run request",
                 agent_id=str(agent.id),
                 agent_name=agent.name,
-                error=str(e)
+                error=str(e),
             ) from e
 
         try:
@@ -387,7 +427,7 @@ class AgentServiceClient:
                 agent_id=str(agent.id),
                 agent_name=agent.name,
                 session_id=request.session_id,
-                user_id=request.user_id
+                user_id=request.user_id,
             )
 
             response = await self._tools.run_agent(run_request)
@@ -397,7 +437,7 @@ class AgentServiceClient:
                 agent_id=str(agent.id),
                 agent_name=agent.name,
                 success=response.success,
-                has_content=bool(response.content)
+                has_content=bool(response.content),
             )
         except AgentExecutionError:
             # Re-raise agent execution errors
@@ -411,7 +451,7 @@ class AgentServiceClient:
                 user_id=request.user_id,
                 error=str(e),
                 error_type=type(e).__name__,
-                exc_info=True
+                exc_info=True,
             )
             raise AgentExecutionError(
                 "Agent execution failed",
@@ -419,14 +459,16 @@ class AgentServiceClient:
                 agent_name=agent.name,
                 session_id=request.session_id,
                 user_id=request.user_id,
-                error=str(e)
+                error=str(e),
             ) from e
 
         # Transform response
         try:
             return AgentExecutionResponse(
                 content=response.content,
-                tools=[tool.model_dump() for tool in response.tools] if response.tools else None,
+                tools=[tool.model_dump() for tool in response.tools]
+                if response.tools
+                else None,
                 success=response.success,
                 error=response.error,
                 metadata=response.metadata or {},
@@ -438,13 +480,13 @@ class AgentServiceClient:
                 agent_name=agent.name,
                 error=str(e),
                 error_type=type(e).__name__,
-                exc_info=True
+                exc_info=True,
             )
             raise TransformationError(
                 "Failed to transform agent response",
                 agent_id=str(agent.id),
                 agent_name=agent.name,
-                error=str(e)
+                error=str(e),
             ) from e
 
     async def execute_agent_streaming(
@@ -487,7 +529,7 @@ class AgentServiceClient:
                 agent_name=agent.name,
                 execution_id=execution_id,
                 session_id=request.session_id,
-                user_id=request.user_id
+                user_id=request.user_id,
             )
 
             run_request = self._build_agent_run_request(
@@ -506,14 +548,14 @@ class AgentServiceClient:
                 execution_id=execution_id,
                 error=str(e),
                 error_type=type(e).__name__,
-                exc_info=True
+                exc_info=True,
             )
             raise TransformationError(
                 "Failed to build agent streaming request",
                 agent_id=str(agent.id),
                 agent_name=agent.name,
                 execution_id=execution_id,
-                error=str(e)
+                error=str(e),
             ) from e
 
         content_chunks: List[str] = []
@@ -528,7 +570,7 @@ class AgentServiceClient:
                 "Starting agent streaming",
                 agent_id=str(agent.id),
                 agent_name=agent.name,
-                execution_id=execution_id
+                execution_id=execution_id,
             )
 
             async for event in self._tools.stream_agent(run_request):
@@ -542,7 +584,9 @@ class AgentServiceClient:
                             content_chunk=event.content,
                             chunk_index=chunk_index,
                             is_final=False,
-                            agent_role=agent.config.get("role") if isinstance(agent.config, dict) else None,
+                            agent_role=agent.config.get("role")
+                            if isinstance(agent.config, dict)
+                            else None,
                         )
                         chunk_index += 1
                 elif isinstance(event, ToolCallStreamEvent):
@@ -592,7 +636,7 @@ class AgentServiceClient:
                 execution_id=execution_id,
                 chunks_count=len(content_chunks),
                 tool_calls_count=tool_calls,
-                success=success
+                success=success,
             )
 
         except StreamingError:
@@ -606,14 +650,14 @@ class AgentServiceClient:
                 execution_id=execution_id,
                 error=str(e),
                 error_type=type(e).__name__,
-                exc_info=True
+                exc_info=True,
             )
             raise StreamingError(
                 "Agent streaming failed",
                 agent_id=str(agent.id),
                 agent_name=agent.name,
                 execution_id=execution_id,
-                error=str(e)
+                error=str(e),
             ) from e
 
         # Emit completion event
@@ -652,7 +696,9 @@ class AgentServiceClient:
         rag_url: Optional[str],
         rag_api_key: Optional[str],
     ) -> AgentRunRequest:
-        agent_config = self._build_agent_config(agent, request, mcp_url=mcp_url, rag_url=rag_url, rag_api_key=rag_api_key)
+        agent_config = self._build_agent_config(
+            agent, request, mcp_url=mcp_url, rag_url=rag_url, rag_api_key=rag_api_key
+        )
         return AgentRunRequest(
             message=request.message,
             config=agent_config,
@@ -699,11 +745,16 @@ class AgentServiceClient:
 
         workflow_config = None
         from app.config import settings
+
         workflow_service_url = getattr(settings, "workflow_service_url", None)
         if workflow_service_url and agent.workflows:
             workflow_config = WorkflowConfig(
                 workflow_url=workflow_service_url,
-                workflows=[str(binding.workflow_id) for binding in agent.workflows if binding.enabled],
+                workflows=[
+                    str(binding.workflow_id)
+                    for binding in agent.workflows
+                    if binding.enabled
+                ],
                 project_id=str(getattr(agent, "project_id", None)),
             )
 

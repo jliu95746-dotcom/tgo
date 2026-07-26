@@ -1,7 +1,7 @@
 """Skill schemas for tgo-api gateway (transparent proxy to tgo-ai)."""
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import Field
 
@@ -23,6 +23,12 @@ class SkillSummary(BaseSchema):
     tags: List[str] = Field(default_factory=list, description="Tags for categorization")
     updated_at: Optional[datetime] = Field(default=None, description="Last modification time")
     enabled: bool = Field(default=True, description="Whether this skill is enabled for the project")
+    skill_type: Literal["standard", "humanization"] = Field(
+        default="standard", description="Skill category"
+    )
+    display_name: Optional[str] = Field(default=None, description="Human-facing name")
+    pending_training_count: int = Field(default=0, ge=0)
+    published_version: int = Field(default=1, ge=1)
 
 
 class SkillDetail(SkillSummary):
@@ -96,3 +102,31 @@ class SkillUpdateRequest(BaseSchema):
     tags: Optional[List[str]] = Field(default=None, description="Updated tags")
     is_featured: Optional[bool] = Field(default=None, description="Updated featured status")
     metadata: Optional[Dict[str, str]] = Field(default=None, description="Updated metadata")
+
+
+class HumanizationSkillCreateRequest(BaseSchema):
+    name: Optional[str] = Field(
+        default=None,
+        min_length=2,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+    )
+    display_name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(..., min_length=1, max_length=1024)
+
+
+class HumanizationTrainingSampleRequest(BaseSchema):
+    customer_message: str = Field(..., min_length=1, max_length=10000)
+    ai_draft: str = Field(..., min_length=1, max_length=10000)
+    final_reply: str = Field(..., min_length=1, max_length=10000)
+    source_message_id: Optional[str] = Field(default=None, max_length=255)
+
+
+class HumanizationTrainingStatus(BaseSchema):
+    name: str
+    pending_training_count: int = Field(ge=0)
+    published_version: int = Field(ge=1)
+
+
+class HumanizationTrainingApplyResponse(HumanizationTrainingStatus):
+    applied_count: int = Field(ge=0)

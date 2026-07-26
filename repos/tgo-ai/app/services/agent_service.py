@@ -1,7 +1,7 @@
 """Agent service for business logic."""
 
 import uuid
-from typing import List, Optional, Tuple, Dict
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import and_, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,8 +10,8 @@ from sqlalchemy.orm import selectinload
 from app.exceptions import NotFoundError, ValidationError
 from app.models.agent import Agent, AgentToolAssociation
 from app.models.collection import AgentCollection
-from app.models.workflow import AgentWorkflow
 from app.models.tool import Tool
+from app.models.workflow import AgentWorkflow
 from app.schemas.agent import AgentCreate, AgentUpdate
 from app.services.rag_service import rag_service_client
 from app.services.workflow_service import workflow_service_client
@@ -23,7 +23,9 @@ class AgentService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def create_agent(self, project_id: uuid.UUID, agent_data: AgentCreate) -> Agent:
+    async def create_agent(
+        self, project_id: uuid.UUID, agent_data: AgentCreate
+    ) -> Agent:
         """
         Create a new agent.
 
@@ -97,7 +99,13 @@ class AgentService:
         await self.db.refresh(agent)
         return agent
 
-    async def get_agent(self, project_id: uuid.UUID, agent_id: uuid.UUID) -> Agent:
+    async def get_agent(
+        self,
+        project_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        *,
+        enrich_resources: bool = True,
+    ) -> Agent:
         """
         Get an agent by ID.
 
@@ -133,10 +141,20 @@ class AgentService:
         if not agent:
             raise NotFoundError("Agent", agent_id)
 
-        # Enrich agent with collection data, workflow data, and tool details
-        enriched_agents = await self.enrich_agents_with_collection_data([agent], project_id)
-        enriched_agents = await self.enrich_agents_with_workflow_data(enriched_agents, project_id)
-        enriched_agents = await self.enrich_agents_with_tool_details(enriched_agents, project_id)
+        if not enrich_resources:
+            return agent
+
+        # API responses need display details from downstream services. Runtime
+        # execution only needs the persisted bindings already loaded above.
+        enriched_agents = await self.enrich_agents_with_collection_data(
+            [agent], project_id
+        )
+        enriched_agents = await self.enrich_agents_with_workflow_data(
+            enriched_agents, project_id
+        )
+        enriched_agents = await self.enrich_agents_with_tool_details(
+            enriched_agents, project_id
+        )
         return enriched_agents[0]
 
     async def list_agents(
@@ -146,6 +164,8 @@ class AgentService:
         is_default: Optional[bool] = None,
         limit: int = 20,
         offset: int = 0,
+        *,
+        enrich_resources: bool = True,
     ) -> Tuple[List[Agent], int]:
         """
         List agents for a project.
@@ -193,11 +213,19 @@ class AgentService:
         result = await self.db.execute(stmt)
         agents = result.scalars().all()
 
-        # Enrich agents with collection data, workflow data, and tool details
-        enriched_agents = await self.enrich_agents_with_collection_data(list(agents), project_id)
-        enriched_agents = await self.enrich_agents_with_workflow_data(enriched_agents, project_id)
-        enriched_agents = await self.enrich_agents_with_tool_details(enriched_agents, project_id)
+        if not enrich_resources:
+            return list(agents), total_count
 
+        # Enrich agents with collection data, workflow data, and tool details
+        enriched_agents = await self.enrich_agents_with_collection_data(
+            list(agents), project_id
+        )
+        enriched_agents = await self.enrich_agents_with_workflow_data(
+            enriched_agents, project_id
+        )
+        enriched_agents = await self.enrich_agents_with_tool_details(
+            enriched_agents, project_id
+        )
         return enriched_agents, total_count
 
     async def update_agent(
@@ -222,11 +250,15 @@ class AgentService:
 
         # Validate collections if provided
         if agent_data.collections is not None:
-            await self._validate_collections_belong_to_project(agent_data.collections, project_id)
+            await self._validate_collections_belong_to_project(
+                agent_data.collections, project_id
+            )
 
         # Validate workflows if provided
         if agent_data.workflows is not None:
-            await self._validate_workflows_belong_to_project(agent_data.workflows, project_id)
+            await self._validate_workflows_belong_to_project(
+                agent_data.workflows, project_id
+            )
 
         # Validate tools if provided
         if agent_data.tools is not None:
@@ -234,7 +266,9 @@ class AgentService:
             await self._validate_tools_belong_to_project(tool_ids, project_id)
 
         # Update basic fields
-        update_data = agent_data.model_dump(exclude_unset=True, exclude={"tools", "collections", "workflows"})
+        update_data = agent_data.model_dump(
+            exclude_unset=True, exclude={"tools", "collections", "workflows"}
+        )
         for field, value in update_data.items():
             setattr(agent, field, value)
 
@@ -303,7 +337,12 @@ class AgentService:
         await self.db.refresh(agent)
         return agent
 
-    async def get_default_agent(self, project_id: uuid.UUID) -> Agent:
+    async def get_default_agent(
+        self,
+        project_id: uuid.UUID,
+        *,
+        enrich_resources: bool = True,
+    ) -> Agent:
         """Get the current default agent for a project."""
 
         agents, _ = await self.list_agents(
@@ -311,6 +350,7 @@ class AgentService:
             is_default=True,
             limit=1,
             offset=0,
+            enrich_resources=enrich_resources,
         )
         if not agents:
             raise NotFoundError(
@@ -335,12 +375,20 @@ class AgentService:
         await self.db.commit()
 
     async def set_tool_enabled(
-        self, project_id: uuid.UUID, agent_id: uuid.UUID, tool_id: uuid.UUID, enabled: bool
+        self,
+        project_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        tool_id: uuid.UUID,
+        enabled: bool,
     ) -> None:
         """Enable or disable a specific tool binding for an agent."""
         # Verify agent belongs to project
         stmt_agent = select(Agent).where(
-            and_(Agent.id == agent_id, Agent.project_id == project_id, Agent.deleted_at.is_(None))
+            and_(
+                Agent.id == agent_id,
+                Agent.project_id == project_id,
+                Agent.deleted_at.is_(None),
+            )
         )
         res = await self.db.execute(stmt_agent)
         agent = res.scalar_one_or_none()
@@ -358,18 +406,28 @@ class AgentService:
         res_tool = await self.db.execute(stmt_tool)
         binding = res_tool.scalar_one_or_none()
         if not binding:
-            raise NotFoundError("AgentToolAssociation", details={"tool_id": str(tool_id)})
+            raise NotFoundError(
+                "AgentToolAssociation", details={"tool_id": str(tool_id)}
+            )
 
         binding.enabled = enabled
         await self.db.commit()
 
     async def set_collection_enabled(
-        self, project_id: uuid.UUID, agent_id: uuid.UUID, collection_id: str, enabled: bool
+        self,
+        project_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        collection_id: str,
+        enabled: bool,
     ) -> None:
         """Enable or disable a specific collection binding for an agent."""
         # Verify agent belongs to project
         stmt_agent = select(Agent).where(
-            and_(Agent.id == agent_id, Agent.project_id == project_id, Agent.deleted_at.is_(None))
+            and_(
+                Agent.id == agent_id,
+                Agent.project_id == project_id,
+                Agent.deleted_at.is_(None),
+            )
         )
         res = await self.db.execute(stmt_agent)
         agent = res.scalar_one_or_none()
@@ -387,18 +445,28 @@ class AgentService:
         res_col = await self.db.execute(stmt_col)
         binding = res_col.scalar_one_or_none()
         if not binding:
-            raise NotFoundError("AgentCollection", details={"collection_id": collection_id})
+            raise NotFoundError(
+                "AgentCollection", details={"collection_id": collection_id}
+            )
 
         binding.enabled = enabled
         await self.db.commit()
 
     async def set_workflow_enabled(
-        self, project_id: uuid.UUID, agent_id: uuid.UUID, workflow_id: str, enabled: bool
+        self,
+        project_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        workflow_id: str,
+        enabled: bool,
     ) -> None:
         """Enable or disable a specific workflow binding for an agent."""
         # Verify agent belongs to project
         stmt_agent = select(Agent).where(
-            and_(Agent.id == agent_id, Agent.project_id == project_id, Agent.deleted_at.is_(None))
+            and_(
+                Agent.id == agent_id,
+                Agent.project_id == project_id,
+                Agent.deleted_at.is_(None),
+            )
         )
         res = await self.db.execute(stmt_agent)
         agent = res.scalar_one_or_none()
@@ -424,7 +492,7 @@ class AgentService:
         self, session_id: str, project_id: uuid.UUID, user_id: Optional[str] = None
     ) -> None:
         """Clear all memory and session history for a specific session.
-        
+
         This deletes records from agno memory and session tables in the 'ai' schema.
         If user_id is provided, it also clears personal memories for that user from agno_memories.
         """
@@ -435,21 +503,21 @@ class AgentService:
                 try:
                     await self.db.execute(
                         text("DELETE FROM ai.agno_memories WHERE user_id = :user_id"),
-                        {"user_id": user_id}
+                        {"user_id": user_id},
                     )
                 except Exception:
                     pass
-            
+
             # Delete from agno_sessions (session history)
             # The table may not exist if Agno hasn't created it yet
             try:
                 await self.db.execute(
                     text("DELETE FROM ai.agno_sessions WHERE session_id = :session_id"),
-                    {"session_id": session_id}
+                    {"session_id": session_id},
                 )
             except Exception:
                 pass
-            
+
             await self.db.commit()
         except Exception:
             await self.db.rollback()
@@ -483,9 +551,7 @@ class AgentService:
             conditions.append(Agent.id != exclude_agent_id)
 
         await self.db.execute(
-            update(Agent)
-            .where(and_(*conditions))
-            .values(is_default=False)
+            update(Agent).where(and_(*conditions)).values(is_default=False)
         )
 
     async def _validate_collections_belong_to_project(
@@ -577,7 +643,9 @@ class AgentService:
                 "Some tools belong to a different project",
                 "tool_ids",
                 {
-                    "wrong_project_tool_ids": [str(tool.id) for tool in wrong_project_tools],
+                    "wrong_project_tool_ids": [
+                        str(tool.id) for tool in wrong_project_tools
+                    ],
                     "expected_project_id": str(project_id),
                 },
             )
@@ -603,7 +671,7 @@ class AgentService:
         # Collect all unique collection IDs from all agents
         all_collection_ids = set()
         for agent in agents:
-            for ac in (agent.collections or []):
+            for ac in agent.collections or []:
                 all_collection_ids.add(ac.collection_id)
 
         if not all_collection_ids:
@@ -628,12 +696,14 @@ class AgentService:
             # Attach collection data (with enabled from binding) to each agent
             for agent in agents:
                 agent_collection_data = []
-                for ac in (agent.collections or []):
+                for ac in agent.collections or []:
                     cid = str(ac.collection_id)
                     if cid in collection_data_map:
                         col = collection_data_map[cid]
                         try:
-                            col_with_enabled = col.model_copy(update={"enabled": bool(getattr(ac, "enabled", True))})
+                            col_with_enabled = col.model_copy(
+                                update={"enabled": bool(getattr(ac, "enabled", True))}
+                            )
                         except Exception:
                             col_with_enabled = col
                         agent_collection_data.append(col_with_enabled)
@@ -665,7 +735,7 @@ class AgentService:
         # Collect all unique workflow IDs from all agents
         all_workflow_ids = set()
         for agent in agents:
-            for aw in (agent.workflows or []):
+            for aw in agent.workflows or []:
                 all_workflow_ids.add(aw.workflow_id)
 
         if not all_workflow_ids:
@@ -682,20 +752,19 @@ class AgentService:
             )
 
             # Create a mapping of workflow_id -> workflow_data
-            workflow_data_map = {
-                str(workflow.id): workflow
-                for workflow in workflows
-            }
+            workflow_data_map = {str(workflow.id): workflow for workflow in workflows}
 
             # Attach workflow data (with enabled from binding) to each agent
             for agent in agents:
                 agent_workflow_data = []
-                for aw in (agent.workflows or []):
+                for aw in agent.workflows or []:
                     wid = str(aw.workflow_id)
                     if wid in workflow_data_map:
                         wf = workflow_data_map[wid]
                         try:
-                            wf_with_enabled = wf.model_copy(update={"enabled": bool(getattr(aw, "enabled", True))})
+                            wf_with_enabled = wf.model_copy(
+                                update={"enabled": bool(getattr(aw, "enabled", True))}
+                            )
                         except Exception:
                             wf_with_enabled = wf
                         agent_workflow_data.append(wf_with_enabled)
@@ -724,23 +793,23 @@ class AgentService:
             return agents
 
         # Build association map: (agent_id, tool_id) -> (enabled, permissions, config)
-        assoc_stmt = (
-            select(
-                AgentToolAssociation.agent_id,
-                AgentToolAssociation.tool_id,
-                AgentToolAssociation.enabled,
-                AgentToolAssociation.permissions,
-                AgentToolAssociation.config,
-            )
-            .where(
-                and_(
-                    AgentToolAssociation.agent_id.in_([a.id for a in agents]),
-                    AgentToolAssociation.deleted_at.is_(None),
-                )
+        assoc_stmt = select(
+            AgentToolAssociation.agent_id,
+            AgentToolAssociation.tool_id,
+            AgentToolAssociation.enabled,
+            AgentToolAssociation.permissions,
+            AgentToolAssociation.config,
+        ).where(
+            and_(
+                AgentToolAssociation.agent_id.in_([a.id for a in agents]),
+                AgentToolAssociation.deleted_at.is_(None),
             )
         )
         assoc_res = await self.db.execute(assoc_stmt)
-        assoc_map: Dict[Tuple[uuid.UUID, uuid.UUID], Tuple[bool, Optional[List[str]], Optional[dict]]] = {
+        assoc_map: Dict[
+            Tuple[uuid.UUID, uuid.UUID],
+            Tuple[bool, Optional[List[str]], Optional[dict]],
+        ] = {
             (row[0], row[1]): (bool(row[2]), row[3], row[4]) for row in assoc_res.all()
         }
 
@@ -750,12 +819,14 @@ class AgentService:
         # Attach per-agent tool details preserving original binding order
         for agent in agents:
             tool_details = []
-            for tool_entity in (agent.tools or []):
+            for tool_entity in agent.tools or []:
                 if not tool_entity:
                     continue
 
                 # Get association data
-                assoc_data = assoc_map.get((agent.id, tool_entity.id), (True, None, None))
+                assoc_data = assoc_map.get(
+                    (agent.id, tool_entity.id), (True, None, None)
+                )
                 enabled, permissions, tool_config = assoc_data
 
                 # Build AgentToolDetail from Tool entity with association fields

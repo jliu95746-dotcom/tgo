@@ -1,8 +1,7 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { LuMessageCircle, LuSparkles, LuLibrary, LuSettings, LuUsers } from 'react-icons/lu';
-import { DiGoogleCloudPlatform } from "react-icons/di";
+import { LuLibrary, LuMessageCircle, LuRadioTower, LuSettings, LuSparkles, LuUsers } from 'react-icons/lu';
 import { NAVIGATION_ITEMS } from '@/utils/constants';
 import { useAuthStore } from '@/stores/authStore';
 import type { NavigationItem } from '@/types';
@@ -17,7 +16,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   'Sparkles': LuSparkles,
   'Library': LuLibrary,
   'Users': LuUsers,
-  'Platform': DiGoogleCloudPlatform,
+  'Platform': LuRadioTower,
   'Settings': LuSettings
 };
 

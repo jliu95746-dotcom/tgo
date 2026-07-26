@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 from typing import Optional
 from uuid import UUID
@@ -74,6 +73,7 @@ class SessionStatusResponse(BaseModel):
     id: UUID
     status: str
     app_login_status: str
+    message_poll_active: bool = False
     last_heartbeat: Optional[str] = None
     qr_code_base64: Optional[str] = None
 
@@ -200,10 +200,16 @@ async def get_session_status(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    from app.workers.worker_manager import get_worker_manager
+
+    worker_status = get_worker_manager().get_worker_status(session.platform_id)
     return SessionStatusResponse(
         id=session.id,
         status=session.status,
         app_login_status=session.app_login_status,
+        message_poll_active=bool(
+            worker_status and worker_status.get("message_poller_running")
+        ),
         last_heartbeat=session.last_heartbeat.isoformat() if session.last_heartbeat else None,
     )
 

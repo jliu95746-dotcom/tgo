@@ -88,7 +88,7 @@ function Set-ProcessEnv {
 function Set-NativeEnvironment {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('api', 'ai', 'rag', 'workflow', 'web', 'widget')]
+        [ValidateSet('api', 'ai', 'rag', 'workflow', 'device', 'web', 'widget')]
         [string]$Service
     )
 
@@ -157,6 +157,18 @@ function Set-NativeEnvironment {
         Set-ProcessEnv -Name 'ALLOWED_ORIGINS' -Value '["*"]'
     }
 
+    if ($Service -eq 'device') {
+        $deviceStorageDirectory = Join-Path $script:RepoRoot 'data\tgo-device-control\screenshots'
+        Set-ProcessEnv -Name 'REDIS_URL' -Value "redis://127.0.0.1:${redisPort}/3"
+        Set-ProcessEnv -Name 'HOST' -Value '127.0.0.1'
+        Set-ProcessEnv -Name 'PORT' -Value '8085'
+        Set-ProcessEnv -Name 'API_SERVICE_URL' -Value 'http://127.0.0.1:18000'
+        Set-ProcessEnv -Name 'AI_SERVICE_URL' -Value 'http://127.0.0.1:8081'
+        Set-ProcessEnv -Name 'STORAGE_LOCAL_PATH' -Value $deviceStorageDirectory
+        Set-ProcessEnv -Name 'TCP_RPC_HOST' -Value '0.0.0.0'
+        Set-ProcessEnv -Name 'TCP_RPC_PORT' -Value '9876'
+    }
+
     if ($Service -eq 'web') {
         Set-ProcessEnv -Name 'VITE_API_BASE_URL' -Value '/api'
         Set-ProcessEnv -Name 'VITE_API_PROXY_TARGET' -Value 'http://127.0.0.1:18000'
@@ -220,6 +232,32 @@ function Wait-TcpPort {
     } while ((Get-Date) -lt $deadline)
 
     throw "Timed out waiting for $Label on port $Port"
+}
+
+function Wait-DockerServiceHealthy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Service,
+        [int]$TimeoutSeconds = 120
+    )
+
+    $docker = (Get-Command docker -ErrorAction Stop).Source
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            $containerId = & $docker (Get-ComposeArguments -Tail @('ps', '-q', $Service)) 2>$null
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($containerId)) {
+                $health = & $docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' $containerId 2>$null
+                if ($LASTEXITCODE -eq 0 -and $health.Trim() -eq 'healthy') {
+                    return
+                }
+            }
+        } catch {
+        }
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $deadline)
+
+    throw "Timed out waiting for Docker service $Service to become healthy"
 }
 
 function Wait-Http {

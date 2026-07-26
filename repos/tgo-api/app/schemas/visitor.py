@@ -8,6 +8,7 @@ from pydantic import EmailStr, Field, field_validator
 
 from app.core.config import settings
 from app.models.platform import PlatformType
+from app.models.visitor import VisitorServiceMode
 from app.schemas.base import BaseSchema, PaginatedResponse, SoftDeleteMixin, TimestampMixin
 from app.schemas.tag import TagResponse
 from app.schemas.platform_schema import PlatformAISettings
@@ -262,6 +263,19 @@ class VisitorUpdate(VisitorAttributesUpdate):
         None,
         description="Whether AI responses are disabled for this visitor"
     )
+    service_mode: Optional[VisitorServiceMode] = Field(
+        None,
+        description="Per-visitor service mode: auto, assist, or manual",
+    )
+    humanization_skill_name: Optional[str] = Field(
+        None,
+        max_length=64,
+        description="Selected humanization skill slug",
+    )
+    humanization_skill_enabled: Optional[bool] = Field(
+        None,
+        description="Whether the selected humanization skill is active",
+    )
     last_visit_time: Optional[datetime] = Field(
         None,
         description="Updated last visit time"
@@ -293,6 +307,15 @@ class VisitorInDB(VisitorBase, TimestampMixin, SoftDeleteMixin):
     is_last_message_from_visitor: bool = Field(False, description="Whether the last message in the channel was sent by the visitor")
     is_last_message_from_ai: bool = Field(False, description="Whether the last message in the channel was sent by an AI")
     ai_fallback_retry_count: int = Field(0, description="Number of failed AI fallback attempts")
+    service_mode: Optional[VisitorServiceMode] = Field(
+        None, description="Per-visitor service mode"
+    )
+    humanization_skill_name: Optional[str] = Field(
+        None, description="Selected humanization skill slug"
+    )
+    humanization_skill_enabled: bool = Field(
+        False, description="Whether the selected humanization skill is active"
+    )
     ip_address: Optional[str] = Field(
         None,
         description="Visitor IP address (supports both IPv4 and IPv6)"
@@ -391,6 +414,15 @@ class VisitorBasicResponse(BaseSchema):
     ai_disabled: Optional[bool] = Field(
         None, description="Whether AI responses are disabled for this visitor"
     )
+    service_mode: Optional[VisitorServiceMode] = Field(
+        None, description="Per-visitor service mode"
+    )
+    humanization_skill_name: Optional[str] = Field(
+        None, description="Selected humanization skill slug"
+    )
+    humanization_skill_enabled: bool = Field(
+        False, description="Whether the selected humanization skill is active"
+    )
     is_online: bool = Field(..., description="Whether the visitor is currently online/active")
     last_offline_time: Optional[datetime] = Field(None, description="Most recent time visitor went offline")
     last_message_at: Optional[datetime] = Field(None, description="Time of the last message in the channel")
@@ -448,6 +480,14 @@ class VisitorBasicResponse(BaseSchema):
     def resolve_avatar_url(cls, v: Optional[str]) -> Optional[str]:
         """Resolve relative avatar URL to full URL."""
         return _resolve_avatar_url(v)
+
+
+class VisitorServiceModeUpdate(BaseSchema):
+    """Update collaboration mode and the selected humanization skill."""
+
+    service_mode: VisitorServiceMode
+    humanization_skill_name: Optional[str] = Field(default=None, max_length=64)
+    humanization_skill_enabled: bool = False
 
 
 class VisitorListResponse(PaginatedResponse):

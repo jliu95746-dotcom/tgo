@@ -7,6 +7,10 @@ from fastapi import APIRouter, Header, HTTPException, Response, status
 from app.config import settings
 from app.core.logging import get_logger
 from app.schemas.skill import (
+    HumanizationSkillCreateRequest,
+    HumanizationTrainingApplyResponse,
+    HumanizationTrainingSampleRequest,
+    HumanizationTrainingStatus,
     SkillCreateRequest,
     SkillDetail,
     SkillImportRequest,
@@ -78,6 +82,77 @@ async def create_skill(
         return await service.create_skill(x_project_id, data)
     except SkillConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+
+
+@router.post(
+    "/humanization",
+    response_model=SkillDetail,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a humanization skill",
+    description="Create a manually trained customer-service humanization skill.",
+)
+async def create_humanization_skill(
+    data: HumanizationSkillCreateRequest,
+    x_project_id: str = Header(..., alias="X-Project-Id"),
+) -> SkillDetail:
+    service = _get_skill_service()
+    try:
+        return await service.create_humanization_skill(x_project_id, data)
+    except SkillConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+
+
+@router.post(
+    "/{skill_name}/training-samples",
+    response_model=HumanizationTrainingStatus,
+    summary="Add a pending humanization correction",
+    description="Store an assist-mode edit without changing the published skill.",
+)
+async def add_humanization_training_sample(
+    skill_name: str,
+    data: HumanizationTrainingSampleRequest,
+    x_project_id: str = Header(..., alias="X-Project-Id"),
+) -> HumanizationTrainingStatus:
+    service = _get_skill_service()
+    try:
+        return await service.add_humanization_training_sample(
+            x_project_id, skill_name, data
+        )
+    except SkillNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+
+
+@router.post(
+    "/{skill_name}/apply-training",
+    response_model=HumanizationTrainingApplyResponse,
+    summary="Publish pending humanization corrections",
+    description="Apply pending samples only after an explicit administrator action.",
+)
+async def apply_humanization_training(
+    skill_name: str,
+    x_project_id: str = Header(..., alias="X-Project-Id"),
+) -> HumanizationTrainingApplyResponse:
+    service = _get_skill_service()
+    try:
+        return await service.apply_humanization_training(
+            x_project_id, skill_name
+        )
+    except SkillNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except SkillReadOnlyError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)

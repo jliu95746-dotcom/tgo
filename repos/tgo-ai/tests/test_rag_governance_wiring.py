@@ -9,11 +9,11 @@ from pydantic import ValidationError
 
 from app.models.internal import Agent, AgentCollection, AgentExecutionContext
 from app.runtime.supervisor.agents.builder import AgnoAgentBuilder
+from app.runtime.tools import utils as tool_utils
 from app.runtime.tools.builder import agent_builder as agent_builder_module
 from app.runtime.tools.builder.agent_builder import AgentBuilder
 from app.runtime.tools.config import ToolsRuntimeSettings
 from app.runtime.tools.models import RagConfig
-from app.runtime.tools import utils as tool_utils
 from app.schemas.agent_run import SupervisorRunRequest
 from app.schemas.knowledge import KnowledgeChannel
 
@@ -98,6 +98,7 @@ async def test_rag_tool_uses_automatic_answer_endpoint_and_channel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured_posts: list[dict[str, object]] = []
+    record_usage = AsyncMock()
 
     class FakeResponse:
         def __init__(self, payload: dict[str, object]) -> None:
@@ -135,14 +136,19 @@ async def test_rag_tool_uses_automatic_answer_endpoint_and_channel(
             return FakeResponse({"results": []})
 
     monkeypatch.setattr(tool_utils.aiohttp, "ClientSession", FakeSession)
+    monkeypatch.setattr(tool_utils, "_record_collection_usage", record_usage)
     collection_id = str(uuid4())
     project_id = str(uuid4())
+    agent_id = str(uuid4())
 
     tool = await tool_utils.create_rag_tool(
         "http://tgo-rag:18082",
         collection_id,
         project_id,
         knowledge_channel=KnowledgeChannel.WECOM_KF,
+        agent_id=agent_id,
+        session_id="session-1",
+        user_id="visitor-1",
     )
     result = await tool.entrypoint(query="退款政策")
 
@@ -156,10 +162,81 @@ async def test_rag_tool_uses_automatic_answer_endpoint_and_channel(
             "params": {"project_id": project_id},
             "json": {
                 "query": "退款政策",
-                "limit": 10,
+                "limit": 4,
                 "filters": None,
                 "channel": "wecom_kf",
                 "min_score": 0.37,
             },
         }
     ]
+    record_usage.assert_awaited_once()
+    assert record_usage.await_args.kwargs["agent_id"] == agent_id
+    assert record_usage.await_args.kwargs["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_rag_tool_allows_only_one_remote_search_per_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    post_count = 0
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self.payload = payload
+
+        async def __aenter__(self) -> "FakeResponse":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def raise_for_status(self) -> None:
+            return None
+
+        async def json(self) -> dict[str, object]:
+            return self.payload
+
+    class FakeSession:
+        async def __aenter__(self) -> "FakeSession":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def get(self, url: str, params: dict[str, str]) -> FakeResponse:
+            return FakeResponse({"display_name": "产品知识库"})
+
+        def post(
+            self,
+            url: str,
+            params: dict[str, str],
+            json: dict[str, object],
+        ) -> FakeResponse:
+            nonlocal post_count
+            post_count += 1
+            return FakeResponse(
+                {
+                    "results": [
+                        {
+                            "document_id": "doc-1",
+                            "content": "定价：1299 元。" * 500,
+                        }
+                    ]
+                }
+            )
+
+    monkeypatch.setattr(tool_utils.aiohttp, "ClientSession", FakeSession)
+    tool = await tool_utils.create_rag_tool(
+        "http://tgo-rag:18082",
+        str(uuid4()),
+        str(uuid4()),
+        knowledge_channel=KnowledgeChannel.WECOM_KF,
+    )
+
+    first = await tool.entrypoint(query="2-3K 的女包")
+    second = await tool.entrypoint(query="再搜一次其他款")
+
+    assert post_count == 1
+    assert "定价：1299 元" in first
+    assert len(first) < 4000
+    assert "search_limit_reached" in second

@@ -1,4 +1,4 @@
-import { useContext } from 'react';
+import { useContext, useMemo } from 'react';
 import { ToastContext } from '@/components/ui/ToastContainer';
 
 /**
@@ -13,15 +13,15 @@ export const useToast = () => {
 
   const { showToast } = context;
 
-  return {
+  return useMemo(() => ({
     showToast,
-    showSuccess: (title: string, message?: string, duration?: number) => 
+    showSuccess: (title: string, message?: string, duration?: number) =>
       showToast('success', title, message, duration),
-    showError: (title: string, message?: string, duration?: number) => 
+    showError: (title: string, message?: string, duration?: number) =>
       showToast('error', title, message, duration),
-    showWarning: (title: string, message?: string, duration?: number) => 
+    showWarning: (title: string, message?: string, duration?: number) =>
       showToast('warning', title, message, duration),
-    showInfo: (title: string, message?: string, duration?: number) => 
+    showInfo: (title: string, message?: string, duration?: number) =>
       showToast('info', title, message, duration),
-  };
+  }), [showToast]);
 };

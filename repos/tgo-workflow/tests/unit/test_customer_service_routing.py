@@ -182,7 +182,7 @@ def test_confidence_thresholds_fail_closed(
     assert decision.reason is expected_reason
 
 
-def test_default_route_is_handoff() -> None:
+def test_sales_lead_profile_fact_route_continues_to_ai() -> None:
     routing_input = make_routing_input(
         intent=CustomerServiceIntent.SALES_LEAD,
         recommended_route=RecommendedRoute.AUTO_REPLY,
@@ -190,8 +190,8 @@ def test_default_route_is_handoff() -> None:
 
     decision = CustomerServiceRoutingService.route(routing_input)
 
-    assert decision.target is CustomerServiceRoutingTarget.HUMAN_HANDOFF
-    assert decision.reason is RoutingReason.UNSUPPORTED_ROUTE
+    assert decision.target is CustomerServiceRoutingTarget.RAG
+    assert decision.reason is RoutingReason.REVIEWED_KNOWLEDGE
 
 
 def test_media_and_customer_content_remain_untrusted_metadata() -> None:

@@ -229,6 +229,52 @@ function mapHistoryToChatMessage(m: WuKongIMMessage, myUid?: string): ChatMessag
   }
 }
 
+function mergeHistoryMessages(
+  currentMessages: ChatMessage[],
+  incomingMessages: ChatMessage[],
+): ChatMessage[] {
+  const merged = currentMessages.slice()
+  for (const incoming of incomingMessages) {
+    const existingIndex = merged.findIndex((current) => {
+      if (
+        incoming.messageSeq != null &&
+        current.messageSeq != null &&
+        incoming.messageSeq === current.messageSeq
+      ) {
+        return true
+      }
+      if (
+        incoming.clientMsgNo &&
+        current.clientMsgNo &&
+        incoming.clientMsgNo === current.clientMsgNo
+      ) {
+        return true
+      }
+      return incoming.id === current.id
+    })
+
+    if (existingIndex >= 0) {
+      merged[existingIndex] = {
+        ...merged[existingIndex],
+        ...incoming,
+        status: undefined,
+        streamData: (
+          incoming.payload.type === 1 && incoming.payload.content?.trim()
+        ) ? undefined : merged[existingIndex].streamData,
+      }
+      continue
+    }
+    merged.push(incoming)
+  }
+
+  return merged.sort((left, right) => {
+    if (left.messageSeq != null && right.messageSeq != null) {
+      return left.messageSeq - right.messageSeq
+    }
+    return left.time.getTime() - right.time.getTime()
+  })
+}
+
 const inflightStaff = new Set<string>()
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -435,7 +481,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (!clientMsgNo) return
             // Flush parser before finalizing
             const closeParser = activeParsers.get(clientMsgNo)
-            if (closeParser) { closeParser.flush(); activeParsers.delete(clientMsgNo) }
+            const reconciledMessage = get().messages.find(
+              message => message.clientMsgNo === clientMsgNo,
+            )
+            const alreadyReconciled = Boolean(
+              reconciledMessage?.payload.type === 1 &&
+              reconciledMessage.payload.content?.trim() &&
+              !reconciledMessage.streamData,
+            )
+            if (closeParser) {
+              if (!alreadyReconciled) closeParser.flush()
+              activeParsers.delete(clientMsgNo)
+            }
             const errorMessage = eventData?.payload?.end_reason > 0 ? '流异常结束' : undefined
             console.log('[Chat] Stream closed for message:', clientMsgNo, errorMessage ? `error: ${errorMessage}` : '')
             get().finalizeStreamMessage(clientMsgNo, errorMessage)
@@ -610,6 +667,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         from_uid: myUid,
         wukongim_only: true,
         forward_user_message_to_wukongim: false,
+        source_message_id: clientMsgNo,
         stream: false,
       }
       if (channelId) payload.channel_id = channelId
@@ -643,6 +701,51 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set(state => ({
         messages: state.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: result.reasonCode } : m)
       }))
+
+      // WuKongIM custom stream notifications can be missed by a reconnecting
+      // browser. Reconcile the persisted stream snapshot until the matching AI
+      // reply appears, so visitors never need to refresh the page manually.
+      const lastKnownSequence = Math.max(
+        0,
+        ...get().messages.map(message => message.messageSeq ?? 0),
+      )
+      void (async () => {
+        const maxAttempts = 20
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+          await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 1000 : 2000))
+          const current = get()
+          if (!current.apiBase || !current.channelId || !current.channelType) return
+
+          try {
+            const history = await syncVisitorMessages({
+              apiBase: current.apiBase,
+              channelId: current.channelId,
+              channelType: current.channelType,
+              startSeq: 0,
+              endSeq: 0,
+              limit: 20,
+              pullMode: 1,
+            })
+            const latest = [...history.messages]
+              .sort((left, right) => (left.message_seq || 0) - (right.message_seq || 0))
+              .map(message => mapHistoryToChatMessage(message, current.myUid))
+
+            set(state => ({
+              messages: mergeHistoryMessages(state.messages, latest),
+            }))
+
+            const completedReply = latest.some(message => (
+              message.role === 'agent' &&
+              (message.messageSeq ?? 0) > lastKnownSequence &&
+              message.payload.type === 1 &&
+              Boolean(message.payload.content?.trim())
+            ))
+            if (completedReply) return
+          } catch (historyError) {
+            console.warn('[Chat] Reply history reconciliation failed:', historyError)
+          }
+        }
+      })()
     } catch (e) {
       console.error('[Chat] Send failed:', e)
       try { get().markStreamingEnd() } catch {}

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock
-import uuid
 
 import pytest
 
@@ -14,7 +14,9 @@ from app.runtime.supervisor.infrastructure.services import AIServiceClient
 from app.schemas.agent_run import SupervisorRunRequest
 
 
-def _build_internal_agent(*, agent_id: uuid.UUID | None = None, name: str = "Support Agent") -> InternalAgent:
+def _build_internal_agent(
+    *, agent_id: uuid.UUID | None = None, name: str = "Support Agent"
+) -> InternalAgent:
     now = datetime.now(timezone.utc)
     return InternalAgent(
         id=agent_id or uuid.uuid4(),
@@ -35,7 +37,9 @@ def _build_internal_agent(*, agent_id: uuid.UUID | None = None, name: str = "Sup
 async def test_prepare_context_uses_explicit_agent_id(monkeypatch) -> None:
     agent = _build_internal_agent()
     project_id = uuid.uuid4()
-    service = SupervisorRuntimeService(session_factory=Mock(), tools_runtime_service=Mock())
+    service = SupervisorRuntimeService(
+        session_factory=Mock(), tools_runtime_service=Mock()
+    )
 
     fake_agent_service = Mock()
     fake_agent_service.get_default_agent = AsyncMock()
@@ -44,7 +48,9 @@ async def test_prepare_context_uses_explicit_agent_id(monkeypatch) -> None:
     async def fake_agent_service_context():
         yield fake_agent_service
 
-    monkeypatch.setattr(service, "_agent_service_context", fake_agent_service_context, raising=False)
+    monkeypatch.setattr(
+        service, "_agent_service_context", fake_agent_service_context, raising=False
+    )
     monkeypatch.setattr(
         AIServiceClient,
         "get_agent",
@@ -53,33 +59,44 @@ async def test_prepare_context_uses_explicit_agent_id(monkeypatch) -> None:
     )
 
     context, resolved_agent_id = await service._prepare_context(
-        SupervisorRunRequest(message="hello", agent_id=str(agent.id)),
+        SupervisorRunRequest(
+            message="hello",
+            agent_id=str(agent.id),
+            excluded_tool_ids=(uuid.uuid4(),),
+        ),
         project_id,
         {"X-Request-ID": "req-explicit"},
     )
 
     assert context.agent.id == agent.id
     assert resolved_agent_id == str(agent.id)
+    assert context.excluded_tool_ids
     fake_agent_service.get_default_agent.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_prepare_context_uses_project_default_agent_when_agent_id_missing(monkeypatch) -> None:
+async def test_prepare_context_uses_project_default_agent_when_agent_id_missing(
+    monkeypatch,
+) -> None:
     agent = _build_internal_agent()
     project_id = uuid.uuid4()
-    service = SupervisorRuntimeService(session_factory=Mock(), tools_runtime_service=Mock())
+    service = SupervisorRuntimeService(
+        session_factory=Mock(), tools_runtime_service=Mock()
+    )
 
     fake_agent_service = Mock()
-    fake_agent_service.get_default_agent = AsyncMock(return_value=Mock(id=agent.id))
+    fake_agent_service.get_default_agent = AsyncMock()
 
     @asynccontextmanager
     async def fake_agent_service_context():
         yield fake_agent_service
 
-    monkeypatch.setattr(service, "_agent_service_context", fake_agent_service_context, raising=False)
+    monkeypatch.setattr(
+        service, "_agent_service_context", fake_agent_service_context, raising=False
+    )
     monkeypatch.setattr(
         AIServiceClient,
-        "get_agent",
+        "get_default_agent",
         AsyncMock(return_value=agent),
         raising=False,
     )
@@ -92,13 +109,18 @@ async def test_prepare_context_uses_project_default_agent_when_agent_id_missing(
 
     assert context.agent.id == agent.id
     assert resolved_agent_id == str(agent.id)
-    fake_agent_service.get_default_agent.assert_awaited_once_with(project_id)
+    AIServiceClient.get_default_agent.assert_awaited_once()
+    fake_agent_service.get_default_agent.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_run_returns_failure_when_project_default_agent_missing(monkeypatch) -> None:
+async def test_run_returns_failure_when_project_default_agent_missing(
+    monkeypatch,
+) -> None:
     project_id = uuid.uuid4()
-    service = SupervisorRuntimeService(session_factory=Mock(), tools_runtime_service=Mock())
+    service = SupervisorRuntimeService(
+        session_factory=Mock(), tools_runtime_service=Mock()
+    )
     service._agent_builder = Mock()
     service._agent_builder.build_agent = AsyncMock()
     service._agent_runner = Mock()
@@ -111,7 +133,9 @@ async def test_run_returns_failure_when_project_default_agent_missing(monkeypatc
     async def fake_agent_service_context():
         yield fake_agent_service
 
-    monkeypatch.setattr(service, "_agent_service_context", fake_agent_service_context, raising=False)
+    monkeypatch.setattr(
+        service, "_agent_service_context", fake_agent_service_context, raising=False
+    )
 
     response = await service.run(
         SupervisorRunRequest(message="hello"),

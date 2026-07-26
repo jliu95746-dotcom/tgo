@@ -2446,9 +2446,9 @@
     "input": {
       "placeholder": "Type a message...",
       "disabled": {
-        "placeholder": "AI assistant enabled, manual input disabled",
-        "tooltip": "AI assistant enabled, manual input disabled",
-        "cannotSendTooltip": "AI assistant enabled, manual send disabled"
+        "placeholder": "Manual input is not needed in AI Service mode",
+        "tooltip": "AI replies automatically. Switch to Assist or Manual to edit replies",
+        "cannotSendTooltip": "Manual sending is disabled in AI Service mode"
       },
       "emoji": {
         "aria": "Open emoji picker",
@@ -2476,6 +2476,35 @@
         "enabledMessage": "Visitor AI assistant has been enabled",
         "disabledTitle": "AI Disabled",
         "disabledMessage": "Visitor AI assistant has been disabled"
+      },
+      "mode": {
+        "auto": "AI Service",
+        "assist": "Assist",
+        "manual": "Manual",
+        "changedTitle": "Service mode changed",
+        "autoDescription": "AI generates and sends replies automatically",
+        "assistDescription": "AI creates a draft for staff to edit and send",
+        "manualDescription": "Staff reply directly without an AI draft"
+      },
+      "humanization": {
+        "label": "Humanization skill",
+        "trainingLabel": "Train humanization",
+        "none": "Select a humanization skill",
+        "selectAria": "Select a humanization skill",
+        "toggleAria": "Enable humanization skill",
+        "selectFirstTitle": "Select a humanization skill first",
+        "selectFirstMessage": "A skill is required before it can be enabled or trained",
+        "sampleSavedTitle": "Correction recorded",
+        "sampleSavedMessage": "It will take effect after a manual update in Skills Management",
+        "sampleFailedTitle": "Reply sent, but training record failed"
+      },
+      "assist": {
+        "generating": "Generating a reply draft...",
+        "draftReady": "AI draft is ready; edit it before sending",
+        "waiting": "Assist mode never auto-sends; staff confirmation is required",
+        "regenerate": "Regenerate",
+        "discard": "Discard draft",
+        "placeholder": "Edit the AI draft, then confirm and send..."
       },
       "screenshotTip": {
         "aria": "Screenshot send tip",
@@ -4059,6 +4088,34 @@
       "placeholder": "Search skills..."
     },
     "createSkill": "Create Skill",
+    "standardSectionTitle": "Standard Skills",
+    "enable": "Enable skill",
+    "disable": "Disable skill",
+    "filter": "Filter skills",
+    "toggleFailed": "Failed to change skill status",
+    "humanization": {
+      "badge": "Humanization",
+      "sectionTitle": "Humanization Skills",
+      "sectionDescription": "Assist mode collects staff corrections. They affect AI replies only after a manual update.",
+      "empty": "No humanization skills yet. Create one to start assist-mode training.",
+      "createAction": "Create Humanization Skill",
+      "createTitle": "Create Humanization Skill",
+      "editTitle": "Edit Humanization Skill",
+      "modalHint": "Staff corrections stay pending until you manually update the skill",
+      "displayName": "Display name",
+      "displayNamePlaceholder": "For example: Natural after-sales replies",
+      "internalName": "Internal name",
+      "internalNameHint": "Optional; generated automatically. Lowercase letters, numbers, and hyphens only",
+      "descriptionPlaceholder": "Describe the tone to learn and where it should be used",
+      "validationTitle": "Complete the humanization skill information",
+      "validationMessage": "Name and description are required",
+      "createSuccess": "Humanization skill created",
+      "editSuccess": "Humanization skill saved",
+      "saveFailed": "Failed to save humanization skill",
+      "applyPending": "Update {{count}} training items",
+      "applySuccess": "Applied {{count}} training items; v{{version}} is now active",
+      "applyFailed": "Failed to update humanization skill"
+    },
     "banner": {
       "title": "Build Professional Skills",
       "description": "By creating skills, you can break down complex tasks into standardized instruction templates. Enable AI agents to complete specific tasks like code review, copywriting, and data analysis like experts following best practices."

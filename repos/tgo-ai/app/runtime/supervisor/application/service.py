@@ -21,7 +21,7 @@ from app.runtime.supervisor.streaming.workflow_events import create_workflow_eve
 from app.runtime.tools.executor.service import ToolsRuntimeService
 from app.schemas.agent_run import SupervisorRunRequest, SupervisorRunResponse
 from app.services.agent_service import AgentService
-from app.streaming.event_emitter import cleanup_event_emitter, get_event_emitter
+from app.streaming.event_emitter import get_event_emitter
 from app.streaming.sse_handler import create_sse_response
 
 
@@ -109,7 +109,9 @@ class SupervisorRuntimeService:
         async def coordination_task() -> None:
             execution_id: Optional[str] = None
             try:
-                context, _ = await self._prepare_context(payload, project_id, auth_headers)
+                context, _ = await self._prepare_context(
+                    payload, project_id, auth_headers
+                )
                 workflow_events.emit_workflow_started(request_id, context)
                 built_agent = await self._agent_builder.build_agent(context)
                 execution_id = str(uuid.uuid4())
@@ -155,12 +157,13 @@ class SupervisorRuntimeService:
             finally:
                 if execution_id is not None:
                     await self._unregister_run(execution_id)
-                cleanup_event_emitter(request_id, correlation_id)
 
         asyncio.create_task(coordination_task())
         return create_sse_response(event_emitter, http_request)
 
-    async def cancel(self, run_id: str, project_id: uuid.UUID, reason: Optional[str] = None) -> bool:
+    async def cancel(
+        self, run_id: str, project_id: uuid.UUID, reason: Optional[str] = None
+    ) -> bool:
         """Cancel a running single-agent execution by run_id."""
         async with self._runs_lock:
             entry = self._runs.get(run_id)
@@ -190,7 +193,9 @@ class SupervisorRuntimeService:
             cancel_run(run_id)
             return True
         except Exception as exc:  # pragma: no cover - defensive
-            self._logger.exception("Cancel request failed", run_id=run_id, error=str(exc))
+            self._logger.exception(
+                "Cancel request failed", run_id=run_id, error=str(exc)
+            )
             return False
 
     async def _register_run(self, run_id: str, entry: RunRegistryEntry) -> None:
@@ -221,9 +226,12 @@ class SupervisorRuntimeService:
         headers: Dict[str, str],
     ) -> Tuple[AgentExecutionContext, str]:
         async with self._agent_service_context() as agent_service:
-            agent_id = await self._resolve_agent_id(payload, project_id, agent_service)
             async with AIServiceClient(agent_service, project_id) as ai_client:
-                agent = await ai_client.get_agent(agent_id, headers)
+                if payload.agent_id:
+                    agent = await ai_client.get_agent(str(payload.agent_id), headers)
+                else:
+                    agent = await ai_client.get_default_agent(headers)
+            agent_id = str(agent.id)
 
         context = AgentExecutionContext(
             agent=agent,
@@ -240,6 +248,7 @@ class SupervisorRuntimeService:
             knowledge_channel=payload.knowledge_channel,
             enable_memory=payload.enable_memory,
             excluded_tool_ids=payload.excluded_tool_ids,
+            ui_mode=payload.ui_mode,
         )
         return context, agent_id
 
@@ -274,7 +283,9 @@ class SupervisorRuntimeService:
         return str(default_agent.id)
 
     @staticmethod
-    def _build_auth_headers(project_id: uuid.UUID, extra_headers: Optional[Dict[str, str]]) -> Dict[str, str]:
+    def _build_auth_headers(
+        project_id: uuid.UUID, extra_headers: Optional[Dict[str, str]]
+    ) -> Dict[str, str]:
         headers = dict(extra_headers or {})
         headers.setdefault("X-Project-ID", str(project_id))
         headers.setdefault("X-Request-ID", str(uuid.uuid4()))

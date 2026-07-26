@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 from app.schemas.intent import (
@@ -28,11 +29,21 @@ class IntentRoutingPolicy:
     _READ_ONLY_TOOL_INTENTS = frozenset(
         {IntentName.ORDER_QUERY, IntentName.LOGISTICS_QUERY}
     )
-    _SENSITIVE_INTENTS = frozenset(
-        {IntentName.COMPLAINT, IntentName.HUMAN_HANDOFF}
+    _SENSITIVE_INTENTS = frozenset({IntentName.COMPLAINT, IntentName.HUMAN_HANDOFF})
+    _HANDOFF_PHRASES = (
+        "转人工",
+        "人工客服",
+        "真人客服",
+        "人工服务",
+        "找人工",
+        "人工处理",
+        "客服介入",
     )
-    _HANDOFF_PHRASES = ("转人工", "人工客服", "真人客服", "人工服务")
-    _COMPLAINT_PHRASES = ("我要投诉", "投诉你们", "投诉客服", "我要举报")
+    _COMPLAINT_PHRASES = (
+        "投诉",
+        "举报",
+        "维权",
+    )
     _WRITE_ACTION_PHRASES = (
         "立即退款",
         "直接退款",
@@ -56,6 +67,49 @@ class IntentRoutingPolicy:
         "修改密码",
     )
 
+    _PROFILE_PHONE_PATTERN = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
+    _PROFILE_PHONE_LABELS = (
+        "手机号",
+        "手机",
+        "联系电话",
+        "电话",
+        "联系方式",
+    )
+    _PROFILE_ADDRESS_LABELS = (
+        "收货地址",
+        "配送地址",
+        "联系地址",
+        "住址",
+        "地址",
+    )
+    _PROFILE_ADDRESS_HINTS = (
+        "省",
+        "市",
+        "区",
+        "县",
+        "镇",
+        "街",
+        "路",
+        "号",
+        "栋",
+        "单元",
+        "室",
+    )
+    _PROFILE_FAST_PATH_BLOCKERS = (
+        "密码",
+        "验证码",
+        "银行卡",
+        "身份证",
+        "支付账户",
+        "支付账号",
+        "快递单号",
+        "物流单号",
+        "运单号",
+        "订单号",
+        "token",
+        "secret",
+    )
+
     def __init__(self, *, automated_routes_enabled: bool = False) -> None:
         self._automated_routes_enabled = automated_routes_enabled
 
@@ -71,9 +125,12 @@ class IntentRoutingPolicy:
         if self._contains(normalized_text, self._COMPLAINT_PHRASES):
             return self._rule_result(IntentName.COMPLAINT)
         if self._contains(normalized_text, self._WRITE_ACTION_PHRASES):
-            return self._rule_result(
-                self._write_action_intent(normalized_text)
-            )
+            write_intent = self._write_action_intent(normalized_text)
+            return self._rule_result(write_intent)
+        if self._looks_like_explicit_profile_facts(normalized_text):
+            if not self._automated_routes_enabled:
+                return self._rule_result(IntentName.SALES_LEAD)
+            return self._profile_fact_result()
         return None
 
     def decide(
@@ -203,6 +260,31 @@ class IntentRoutingPolicy:
     def _contains(text: str, phrases: tuple[str, ...]) -> bool:
         return any(phrase in text for phrase in phrases)
 
+    @classmethod
+    def _looks_like_explicit_profile_facts(cls, text: str) -> bool:
+        """Recognize contact facts without treating secrets as profile data."""
+
+        if cls._contains(text, cls._PROFILE_FAST_PATH_BLOCKERS):
+            return False
+
+        has_phone = cls._PROFILE_PHONE_PATTERN.search(text) is not None
+        has_phone_label = has_phone and cls._contains(
+            text,
+            cls._PROFILE_PHONE_LABELS,
+        )
+        has_address_label = cls._contains(text, cls._PROFILE_ADDRESS_LABELS)
+        address_hint_count = sum(
+            hint in text for hint in cls._PROFILE_ADDRESS_HINTS
+        )
+        has_unlabelled_address = len(text) >= 8 and address_hint_count >= 3
+
+        return (
+            has_phone_label
+            or has_address_label
+            or (has_phone and has_unlabelled_address)
+            or has_unlabelled_address
+        )
+
     @staticmethod
     def _write_action_intent(text: str) -> IntentName:
         if "退款" in text or "退货" in text:
@@ -222,6 +304,20 @@ class IntentRoutingPolicy:
             risk_level=RiskLevel.HIGH,
             recommended_route=IntentRoute.HUMAN_HANDOFF,
             need_human=True,
+            taxonomy_version="v1",
+            routing_reason=RoutingReason.RULE_MATCH,
+            classification_source=ClassificationSource.RULE,
+        )
+
+    @staticmethod
+    def _profile_fact_result() -> IntentClassificationResult:
+        return IntentClassificationResult(
+            intent=IntentName.SALES_LEAD,
+            confidence=1.0,
+            entities=IntentEntities(),
+            risk_level=RiskLevel.LOW,
+            recommended_route=IntentRoute.AUTO_REPLY,
+            need_human=False,
             taxonomy_version="v1",
             routing_reason=RoutingReason.RULE_MATCH,
             classification_source=ClassificationSource.RULE,

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useTranslation } from 'react-i18next';
@@ -7,10 +7,15 @@ import { useTranslation } from 'react-i18next';
 import { useChatStore, chatSelectors, useMessageStore } from '@/stores';
 import { useChannelStore } from '@/stores/channelStore';
 import { useAuthStore } from '@/stores/authStore';
-import type { ChannelVisitorExtra, Message } from '@/types';
-import { MessagePayloadType, PlatformType } from '@/types';
+import {
+  MessagePayloadType,
+  PlatformType,
+  type ChannelVisitorExtra,
+  type Message,
+  type VisitorServiceMode,
+} from '@/types';
 import { DEFAULT_CHANNEL_TYPE } from '@/constants';
-import { visitorApiService } from '@/services/visitorApi';
+import { visitorApiService, type VisitorResponse } from '@/services/visitorApi';
 import { conversationsApi } from '@/services/conversationsApi';
 import { useToast } from '@/hooks/useToast';
 import { showApiError, showSuccess } from '@/utils/toastHelpers';
@@ -22,9 +27,10 @@ import { WsSendError } from '@/services/wukongimWebSocket';
 import { toAbsoluteApiUrl } from '@/utils/url';
 import { getFileIcon } from '@/utils/fileIcons';
 import { chatMessagesApiService } from '@/services/chatMessagesApi';
+import SkillsApiService, { type SkillSummary } from '@/services/skillsApi';
 import { APIError } from '@/services/api';
 
-import { Smile, Scissors, Image as ImageIcon, Folder, Pause, Loader2, UserPlus } from 'lucide-react';
+import { Smile, Scissors, Image as ImageIcon, Folder, Pause, Loader2, UserPlus, Sparkles, RefreshCw, X } from 'lucide-react';
 import ChatToolbarPluginButtons from '../plugin/ChatToolbarPluginButtons';
 
 /**
@@ -56,9 +62,10 @@ const getErrorMessage = (
 };
 
 interface MessageInputProps {
-  onSendMessage?: (message: string) => void;
+  onSendMessage?: (message: string) => boolean | void | Promise<boolean | void>;
   isSending?: boolean;
   onAcceptVisitor?: () => void;
+  latestVisitorMessage?: Message;
 }
 
 /**
@@ -68,11 +75,32 @@ const MessageInput: React.FC<MessageInputProps> = ({
   onSendMessage,
   isSending = false,
   onAcceptVisitor,
+  latestVisitorMessage,
 }) => {
   const { t } = useTranslation();
   const [message, setMessage] = useState<string>('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isComposing, setIsComposing] = useState<boolean>(false);
+
+  const resizeTextarea = useCallback((): void => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const maxHeight = Math.min(320, Math.max(96, Math.floor(window.innerHeight * 0.4)));
+    textarea.style.height = 'auto';
+    const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, []);
+
+  useLayoutEffect(() => {
+    resizeTextarea();
+  }, [message, resizeTextarea]);
+
+  useEffect(() => {
+    window.addEventListener('resize', resizeTextarea);
+    return () => window.removeEventListener('resize', resizeTextarea);
+  }, [resizeTextarea]);
 
   const shouldMaintainFocus = useRef<boolean>(false);
   // Emoji picker state and anchor
@@ -233,14 +261,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const isQueued = serviceStatus === 'queued' || serviceStatus === 'new';
   const isClosed = serviceStatus === 'closed';
   
-  // AI status logic:
-  // 1. If ai_disabled is not set (null/undefined), use ai_mode (auto -> ON, others -> OFF)
-  // 2. If ai_disabled is set, use its value (!ai_disabled -> ON)
+  // Prefer the new three-state visitor mode and fall back to legacy fields.
   const aiDisabledRaw = visitorExtra?.ai_disabled;
   const aiMode = visitorExtra?.ai_settings?.ai_mode ?? 'auto';
-  const isAIEnabled = (aiDisabledRaw === null || aiDisabledRaw === undefined) 
-    ? (aiMode === 'auto') 
-    : !aiDisabledRaw;
+  const serviceMode: VisitorServiceMode = visitorExtra?.service_mode
+    ?? ((aiDisabledRaw === null || aiDisabledRaw === undefined)
+      ? (aiMode === 'assist' ? 'assist' : aiMode === 'auto' ? 'auto' : 'manual')
+      : aiDisabledRaw ? 'manual' : 'auto');
+  const isAssistMode = serviceMode === 'assist';
   
   // 获取分配坐席的频道信息（用于显示坐席名字）
   const assignedStaffChannelId = assignedStaffId ? `${assignedStaffId}-staff` : undefined;
@@ -250,7 +278,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const assignedStaffName = assignedStaffChannelInfo?.name;
   
   // agent 会话时不禁用手动输入
-  const isManualDisabled = isAIChat ? false : isAIEnabled;
+  const isManualDisabled = isAIChat ? false : serviceMode === 'auto';
   // 流消息进行中时不禁用输入框，但发送按钮会变成暂停按钮
   const { showToast, showError } = useToast();
   useEffect(() => {
@@ -269,7 +297,51 @@ const MessageInput: React.FC<MessageInputProps> = ({
   }, [assignedStaffChannelId, assignedStaffChannelInfo, ensureChannel]);
 
   const [isTogglingAI, setIsTogglingAI] = useState(false);
+  const [humanizationSkills, setHumanizationSkills] = useState<SkillSummary[]>([]);
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
+  const [assistDraft, setAssistDraft] = useState<string | null>(null);
+  const [assistSourceMessageId, setAssistSourceMessageId] = useState<string | null>(null);
+  const lastGeneratedSourceRef = useRef<string | null>(null);
+  const assistRequestIdRef = useRef(0);
   const [isAccepting, setIsAccepting] = useState(false);
+
+  const selectedHumanizationSkill = visitorExtra?.humanization_skill_name || '';
+  const isHumanizationEnabled = Boolean(visitorExtra?.humanization_skill_enabled);
+
+  const patchVisitorSettings = useCallback((updated: VisitorResponse) => {
+    if (!channelId || typeof channelType !== 'number') return;
+    const chatStore = useChatStore.getState();
+    const channelStore = useChannelStore.getState();
+    const current = channelStore.getChannel(channelId, channelType);
+    const currentExtra = current?.extra as ChannelVisitorExtra | undefined;
+    if (!current || !currentExtra) return;
+    const newExtra: ChannelVisitorExtra = {
+      ...currentExtra,
+      ai_disabled: updated.ai_disabled ?? undefined,
+      service_mode: updated.service_mode ?? undefined,
+      humanization_skill_name: updated.humanization_skill_name ?? undefined,
+      humanization_skill_enabled: updated.humanization_skill_enabled,
+    };
+    channelStore.seedChannel(channelId, channelType, { extra: newExtra });
+    chatStore.applyChannelInfo(channelId, channelType, { ...current, extra: newExtra });
+  }, [channelId, channelType]);
+
+  useEffect(() => {
+    if (!visitorId || isAIChat) return;
+    let cancelled = false;
+    const loadHumanizationSkills = async () => {
+      try {
+        const list = await SkillsApiService.listSkills();
+        if (!cancelled) {
+          setHumanizationSkills(list.filter((skill) => skill.skill_type === 'humanization'));
+        }
+      } catch (error) {
+        if (!cancelled) console.warn('Failed to load humanization skills', error);
+      }
+    };
+    void loadHumanizationSkills();
+    return () => { cancelled = true; };
+  }, [isAIChat, visitorId]);
   
   // Handle accepting a visitor from the waiting queue
   const handleAcceptVisitor = useCallback(async () => {
@@ -491,42 +563,135 @@ const MessageInput: React.FC<MessageInputProps> = ({
   }, [pastedItems, getImageDimensions, showError]);
 
 
-  const handleChangeAI = useCallback(async (nextEnabled: boolean) => {
-    if (!visitorId || !channelId || typeof channelType !== 'number') return;
-    if (nextEnabled === isAIEnabled) return; // no change
+  const updateVisitorMode = useCallback(async (
+    nextMode: VisitorServiceMode,
+    skillName: string,
+    humanizationEnabled: boolean,
+  ) => {
+    if (!visitorId) return;
+    setIsTogglingAI(true);
     try {
-
-      setIsTogglingAI(true);
-
-      const chatStore = useChatStore.getState();
-      const channelStore = useChannelStore.getState();
-
-      // Call appropriate API to reach desired state
-      const updated = nextEnabled
-        ? await visitorApiService.enableAI(visitorId)
-        : await visitorApiService.disableAI(visitorId);
-
-      // Toast success
-      if (nextEnabled) {
-        showSuccess(showToast, t('chat.input.ai.enabledTitle', 'AI已启用'), t('chat.input.ai.enabledMessage', '访客AI助手已启用'));
-      } else {
-        showSuccess(showToast, t('chat.input.ai.disabledTitle', 'AI已禁用'), t('chat.input.ai.disabledMessage', '访客AI助手已禁用'));
-      }
-
-      // Patch local store state to reflect new status immediately
-      const current = channelStore.getChannel(channelId, channelType);
-      if (current) {
-        const newAiDisabled = (updated as any)?.ai_disabled ?? !nextEnabled;
-        const newExtra = { ...(current.extra as any), ai_disabled: newAiDisabled };
-        channelStore.seedChannel(channelId, channelType, { extra: newExtra });
-        chatStore.applyChannelInfo(channelId, channelType, { ...current, extra: newExtra });
-      }
-    } catch (error) {
-      showApiError(showToast, error);
+      const updated = await visitorApiService.updateServiceMode(visitorId, {
+        service_mode: nextMode,
+        humanization_skill_name: skillName || null,
+        humanization_skill_enabled: nextMode !== 'manual' && humanizationEnabled,
+      });
+      patchVisitorSettings(updated);
     } finally {
       setIsTogglingAI(false);
     }
-  }, [visitorId, channelId, channelType, isAIEnabled, showToast]);
+  }, [patchVisitorSettings, visitorId]);
+
+  const handleServiceModeChange = useCallback(async (nextMode: VisitorServiceMode) => {
+    if (nextMode === serviceMode) return;
+    try {
+      await updateVisitorMode(nextMode, selectedHumanizationSkill, isHumanizationEnabled);
+      if (nextMode === 'assist') {
+        lastGeneratedSourceRef.current = null;
+      } else {
+        assistRequestIdRef.current += 1;
+        setAssistDraft(null);
+        setAssistSourceMessageId(null);
+      }
+      showSuccess(
+        showToast,
+        t('chat.input.mode.changedTitle', '接待模式已切换'),
+        t(`chat.input.mode.${nextMode}Description`, '新模式已生效'),
+      );
+    } catch (error) {
+      showApiError(showToast, error);
+    }
+  }, [isHumanizationEnabled, selectedHumanizationSkill, serviceMode, showToast, t, updateVisitorMode]);
+
+  const handleHumanizationSkillChange = useCallback(async (skillName: string) => {
+    try {
+      await updateVisitorMode(
+        serviceMode,
+        skillName,
+        Boolean(skillName) && isHumanizationEnabled,
+      );
+    } catch (error) {
+      showApiError(showToast, error);
+    }
+  }, [isHumanizationEnabled, serviceMode, showToast, updateVisitorMode]);
+
+  const handleHumanizationToggle = useCallback(async (enabled: boolean) => {
+    if (enabled && !selectedHumanizationSkill) {
+      showError(
+        t('chat.input.humanization.selectFirstTitle', '请先选择拟人技能'),
+        t('chat.input.humanization.selectFirstMessage', '选择后才能启用或训练该技能'),
+      );
+      return;
+    }
+    try {
+      await updateVisitorMode(serviceMode, selectedHumanizationSkill, enabled);
+    } catch (error) {
+      showApiError(showToast, error);
+    }
+  }, [selectedHumanizationSkill, serviceMode, showError, showToast, t, updateVisitorMode]);
+
+  const generateAssistDraft = useCallback(async () => {
+    if (!visitorId || !latestVisitorMessage || !isAssistMode) return;
+    const customerMessage = latestVisitorMessage.content.trim();
+    if (!customerMessage) return;
+    const sourceId = String(latestVisitorMessage.sourceMessageId
+      || latestVisitorMessage.clientMsgNo
+      || latestVisitorMessage.messageId
+      || latestVisitorMessage.timestamp);
+    const requestId = ++assistRequestIdRef.current;
+    setIsGeneratingDraft(true);
+    try {
+      const result = await chatMessagesApiService.generateAssistDraft({
+        visitor_id: visitorId,
+        customer_message: customerMessage,
+        humanization_skill_name: isHumanizationEnabled && selectedHumanizationSkill
+          ? selectedHumanizationSkill
+          : null,
+        source_message_id: sourceId,
+      });
+      if (requestId !== assistRequestIdRef.current) return;
+      setMessage(result.draft);
+      setAssistDraft(result.draft);
+      setAssistSourceMessageId(result.source_message_id || sourceId);
+      maintainTextareaFocus();
+    } catch (error) {
+      showApiError(showToast, error);
+    } finally {
+      if (requestId === assistRequestIdRef.current) {
+        setIsGeneratingDraft(false);
+      }
+    }
+  }, [isAssistMode, isHumanizationEnabled, latestVisitorMessage, maintainTextareaFocus, selectedHumanizationSkill, showToast, visitorId]);
+
+  useEffect(() => {
+    assistRequestIdRef.current += 1;
+    lastGeneratedSourceRef.current = null;
+    setAssistDraft(null);
+    setAssistSourceMessageId(null);
+  }, [channelId]);
+
+  useEffect(() => {
+    if (!isAssistMode) {
+      assistRequestIdRef.current += 1;
+      setIsGeneratingDraft(false);
+    }
+  }, [isAssistMode]);
+
+  useEffect(() => {
+    if (!isAssistMode || !latestVisitorMessage || latestVisitorMessage.type !== 'visitor') return;
+    const hasEditedInput = Boolean(
+      message.trim()
+      && (!assistDraft || message.trim() !== assistDraft.trim()),
+    );
+    if (hasEditedInput) return;
+    const sourceId = String(latestVisitorMessage.sourceMessageId
+      || latestVisitorMessage.clientMsgNo
+      || latestVisitorMessage.messageId
+      || latestVisitorMessage.timestamp);
+    if (lastGeneratedSourceRef.current === sourceId) return;
+    lastGeneratedSourceRef.current = sourceId;
+    void generateAssistDraft();
+  }, [assistDraft, generateAssistDraft, isAssistMode, latestVisitorMessage, message]);
 
   useEffect(() => {
     if (shouldMaintainFocus.current) {
@@ -622,9 +787,42 @@ const MessageInput: React.FC<MessageInputProps> = ({
         setIsSendingLocal(true);
         await sendSelectedFilesOnly();
       } else if (hasText) {
-        onSendMessage?.(message.trim());
+        const finalReply = message.trim();
+        const sendResult = await onSendMessage?.(finalReply);
+        if (sendResult === false) return;
         setMessage('');
-
+        if (
+          isAssistMode
+          && assistDraft
+          && selectedHumanizationSkill
+          && isHumanizationEnabled
+          && finalReply !== assistDraft.trim()
+          && latestVisitorMessage
+        ) {
+          try {
+            await SkillsApiService.addHumanizationTrainingSample(
+              selectedHumanizationSkill,
+              {
+                customer_message: latestVisitorMessage.content,
+                ai_draft: assistDraft,
+                final_reply: finalReply,
+                source_message_id: assistSourceMessageId || undefined,
+              },
+            );
+            showSuccess(
+              showToast,
+              t('chat.input.humanization.sampleSavedTitle', '已记录修正'),
+              t('chat.input.humanization.sampleSavedMessage', '将在技能管理中手动更新后生效'),
+            );
+          } catch (error) {
+            showError(
+              t('chat.input.humanization.sampleFailedTitle', '回复已发送，但训练记录失败'),
+              getErrorMessage(error),
+            );
+          }
+        }
+        setAssistDraft(null);
+        setAssistSourceMessageId(null);
       }
     } finally {
       setIsSendingLocal(false);
@@ -1302,7 +1500,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   }
 
   return (
-    <footer className="p-4 border-t border-gray-200/80 dark:border-gray-700/80 bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg sticky bottom-0 z-10">
+    <footer className="shrink-0 border-t border-gray-200/80 bg-white/80 p-4 backdrop-blur-lg dark:border-gray-700/80 dark:bg-gray-800/80">
 
 
       {/* Toolbar */}
@@ -1364,16 +1562,65 @@ const MessageInput: React.FC<MessageInputProps> = ({
         disabled={isManualDisabled}
       />
 
-        {/* AI 助手开关 - agent 会话时不显示 */}
+        {/* 接待模式与拟人技能 - agent 会话时不显示 */}
         {!isAIChat && (
-          <div className="flex items-center space-x-2" title={isAIEnabled ? t('chat.input.ai.enabled', 'AI已启用') : t('chat.input.ai.disabled', 'AI已禁用')}>
-            <span className="text-xs text-gray-600 dark:text-gray-400 select-none">{t('chat.input.ai.label', 'AI助手')}</span>
-            <Toggle
-              aria-label={t('chat.input.ai.toggleAria', '切换AI助手')}
-              checked={isAIEnabled}
-              onChange={handleChangeAI}
-              disabled={!visitorId || isTogglingAI}
-            />
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
+              {(['auto', 'assist', 'manual'] as VisitorServiceMode[]).map((mode) => {
+                const active = serviceMode === mode;
+                const activeClass = mode === 'assist'
+                  ? 'bg-violet-600 text-white shadow-sm'
+                  : mode === 'auto'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100';
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => void handleServiceModeChange(mode)}
+                    disabled={!visitorId || isTogglingAI}
+                    title={t(`chat.input.mode.${mode}Description`, '切换接待模式')}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      active ? activeClass : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100'
+                    }`}
+                  >
+                    {t(`chat.input.mode.${mode}`, mode)}
+                  </button>
+                );
+              })}
+            </div>
+
+            {serviceMode !== 'manual' && (
+              <>
+                <select
+                  value={selectedHumanizationSkill}
+                  onChange={(event) => void handleHumanizationSkillChange(event.target.value)}
+                  disabled={!visitorId || isTogglingAI}
+                  aria-label={t('chat.input.humanization.selectAria', '选择拟人技能')}
+                  className="max-w-44 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 focus:border-violet-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  <option value="">{t('chat.input.humanization.none', '选择拟人技能')}</option>
+                  {humanizationSkills.map((skill) => (
+                    <option key={skill.name} value={skill.name}>
+                      {skill.display_name || skill.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-600 dark:text-gray-400">
+                    {isAssistMode
+                      ? t('chat.input.humanization.trainingLabel', '训练拟人技能')
+                      : t('chat.input.humanization.label', '拟人技能')}
+                  </span>
+                  <Toggle
+                    aria-label={t('chat.input.humanization.toggleAria', '启用拟人技能')}
+                    checked={isHumanizationEnabled}
+                    onChange={(checked) => void handleHumanizationToggle(checked)}
+                    disabled={!visitorId || isTogglingAI || !selectedHumanizationSkill}
+                  />
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1509,11 +1756,55 @@ const MessageInput: React.FC<MessageInputProps> = ({
         </div>
       )}
 
+      {isAssistMode && (
+        <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs dark:border-violet-900/70 dark:bg-violet-950/30">
+          <div className="flex min-w-0 items-center gap-2 text-violet-700 dark:text-violet-300">
+            {isGeneratingDraft ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Sparkles className="h-4 w-4 shrink-0" />}
+            <span className="truncate">
+              {isGeneratingDraft
+                ? t('chat.input.assist.generating', '正在生成回复草稿...')
+                : assistDraft
+                  ? t('chat.input.assist.draftReady', 'AI 草稿已填入，修改后再发送')
+                  : t('chat.input.assist.waiting', '辅助模式不会自动发送，草稿需要人工确认')}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void generateAssistDraft()}
+              disabled={isGeneratingDraft || !latestVisitorMessage}
+              title={t('chat.input.assist.regenerate', '重新生成')}
+              className="rounded p-1 text-violet-600 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-violet-300 dark:hover:bg-violet-900/50"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            {assistDraft && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAssistDraft(null);
+                  setAssistSourceMessageId(null);
+                  setMessage('');
+                }}
+                title={t('chat.input.assist.discard', '丢弃草稿')}
+                className="rounded p-1 text-gray-500 hover:bg-violet-100 dark:text-gray-400 dark:hover:bg-violet-900/50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Message input */}
       <div className="mt-2">
         <textarea
           ref={textareaRef}
-          placeholder={isManualDisabled ? t('chat.input.disabled.placeholder', 'AI助手已启用，无法手动输入') : t('chat.input.placeholder', '输入消息...')}
+          placeholder={isManualDisabled
+            ? t('chat.input.disabled.placeholder', 'AI客服模式下无需人工输入')
+            : isAssistMode
+              ? t('chat.input.assist.placeholder', '修改 AI 草稿，确认后发送...')
+              : t('chat.input.placeholder', '输入消息...')}
           rows={2}
           value={message}
           onChange={handleMessageChange}
@@ -1524,7 +1815,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
           readOnly={isSending || isSendingLocal || isManualDisabled}
           disabled={isManualDisabled}
           title={isManualDisabled ? t('chat.input.disabled.placeholder', 'AI助手已启用，无法手动输入') : undefined}
-          className={`w-full text-sm p-2 border border-transparent rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400 resize-none bg-transparent dark:text-gray-200 ${
+          className={`block min-h-[4.5rem] w-full resize-none overflow-y-hidden rounded-md border border-transparent bg-transparent p-2 text-sm leading-6 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:text-gray-200 dark:focus:ring-blue-400 ${
             isSending || isSendingLocal || isManualDisabled ? 'opacity-50 cursor-not-allowed' : ''
           }`}
         />

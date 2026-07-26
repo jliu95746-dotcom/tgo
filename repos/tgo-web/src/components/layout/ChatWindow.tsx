@@ -104,6 +104,22 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
     );
   }, [allRealtimeMessages, channelId, channelType, isWuKongIMChat]);
 
+  const latestVisitorMessage = React.useMemo(() => {
+    const visitorMessages = [
+      ...historicalMessages.map(convertWuKongIMToMessage),
+      ...realtimeMessages,
+    ].filter((message) => message.type === 'visitor');
+    return visitorMessages.reduce<Message | undefined>((latest, current) => {
+      if (!latest) return current;
+      const currentSeq = current.messageSeq ?? 0;
+      const latestSeq = latest.messageSeq ?? 0;
+      if (currentSeq !== latestSeq) return currentSeq > latestSeq ? current : latest;
+      const currentTime = Date.parse(current.timestamp) || 0;
+      const latestTime = Date.parse(latest.timestamp) || 0;
+      return currentTime >= latestTime ? current : latest;
+    }, undefined);
+  }, [convertWuKongIMToMessage, historicalMessages, realtimeMessages]);
+
   // Use WebSocket directly
   const { sendMessage: sendWsMessage, isConnected } = useWuKongIMWebSocket();
 
@@ -128,10 +144,10 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
 
   // Enhanced message sending with platform-aware flow (REST first for non-website, then WebSocket)
   // For agent chats, use REST API instead of WebSocket
-  const handleSendMessage = useCallback(async (message: string): Promise<void> => {
+  const handleSendMessage = useCallback(async (message: string): Promise<boolean> => {
     if (!message.trim()) {
       console.warn('Cannot send empty message');
-      return;
+      return false;
     }
     setIsSending(true);
     try {
@@ -159,13 +175,14 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
               clientMsgNo: response.client_msg_no
             });
             onSendMessage?.(message);
+            return true;
           } catch (e: any) {
             const errorKey = 'chat.send.agentErrorLog';
             const errorDefault = 'AI员工消息发送失败';
             console.error(t(errorKey, errorDefault), e);
             showApiError(showToast, e);
+            return false;
           }
-          return;
         }
 
         // For regular visitor chats: add local message for immediate UI feedback
@@ -211,6 +228,7 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
           // Update message metadata to mark as successfully sent
           updateMessageByClientMsgNo(nowId, { metadata: { ws_sent: true, ws_send_error: false } as any });
           onSendMessage?.(message);
+          return true;
         } catch (e) {
           // 使用 i18n 翻译 WsSendError
           let errMsg: string;
@@ -223,15 +241,17 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
           }
           updateMessageByClientMsgNo(nowId, { metadata: { ws_send_error: true, error_text: errMsg } as any });
           showApiError(showToast, e);
-          return;
+          return false;
         }
       } else {
         // Non-WuKongIM flow
         onSendMessage?.(message);
+        return true;
       }
     } catch (error) {
       console.error(t('chat.send.failedLogPrefix', '\u53d1\u9001\u6d88\u606f\u5931\u8d25:'), error);
       showApiError(showToast, error);
+      return false;
     } finally {
       setIsSending(false);
     }
@@ -291,7 +311,7 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
   }
 
   return (
-    <main className="min-w-0 flex-1 flex flex-col bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
+    <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       {/* Chat Header */}
       <ChatHeader
         activeChat={activeChat}
@@ -329,6 +349,7 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
         onSendMessage={handleSendMessage}
         isSending={isSending}
         onAcceptVisitor={onAcceptVisitor}
+        latestVisitorMessage={latestVisitorMessage}
       />
     </main>
   );

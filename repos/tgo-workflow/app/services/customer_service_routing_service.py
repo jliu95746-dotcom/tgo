@@ -20,12 +20,13 @@ class CustomerServiceRoutingService:
     LOW_CONFIDENCE_THRESHOLD = 0.60
     AUTO_ROUTE_CONFIDENCE_THRESHOLD = 0.85
 
-    _FAQ_INTENTS = frozenset(
+    _AUTO_REPLY_INTENTS = frozenset(
         {
             CustomerServiceIntent.PRODUCT_INQUIRY,
             CustomerServiceIntent.PRICING_PROMOTION,
             CustomerServiceIntent.AFTER_SALES_ISSUE,
             CustomerServiceIntent.REFUND_RETURN_INQUIRY,
+            CustomerServiceIntent.SALES_LEAD,
         }
     )
     _READ_ONLY_QUERY_INTENTS = frozenset(
@@ -72,7 +73,7 @@ class CustomerServiceRoutingService:
             )
 
         if (
-            classification.intent in cls._FAQ_INTENTS
+            classification.intent in cls._AUTO_REPLY_INTENTS
             and classification.recommended_route is RecommendedRoute.AUTO_REPLY
         ):
             return cls._decision(

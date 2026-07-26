@@ -45,6 +45,7 @@
   },
   "system": {
     "staffAssigned": "You have been connected to customer service. Agent {{name0}} will assist you.",
+    "humanHandoffRequested": "Your human-support request was received. Agent {{name0}} will take over.",
     "sessionTransferred": "Session transferred. Agent {{name0}} has transferred you to Agent {{name1}}.",
     "sessionClosed": "Session ended. Agent {{name0}} has completed the service.",
     "sessionClosedNoAgent": "Session ended."

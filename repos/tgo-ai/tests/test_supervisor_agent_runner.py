@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
-import uuid
 
 import pytest
+from agno.agent import RunCompletedEvent, RunContentEvent
 
 from app.models.internal import Agent as InternalAgent
 from app.models.internal import AgentExecutionContext
@@ -44,11 +45,14 @@ def _build_context() -> AgentExecutionContext:
         mcp_url="http://mcp",
         rag_url="http://rag",
         enable_memory=True,
+        excluded_tool_ids=(uuid.uuid4(),),
     )
 
 
 @pytest.mark.asyncio
-async def test_builder_passes_single_agent_overrides_to_agent_builder(monkeypatch) -> None:
+async def test_builder_passes_single_agent_overrides_to_agent_builder(
+    monkeypatch,
+) -> None:
     captured: dict[str, object] = {}
 
     async def fake_build_agent(self, request, internal_agent=None):
@@ -70,6 +74,7 @@ async def test_builder_passes_single_agent_overrides_to_agent_builder(monkeypatc
     assert request.config.system_prompt == context.agent.instruction
     assert request.config.system_message == context.system_message
     assert request.config.expected_output == context.expected_output
+    assert request.excluded_tool_ids == context.excluded_tool_ids
 
 
 @pytest.mark.asyncio
@@ -93,3 +98,56 @@ async def test_runner_returns_single_agent_response_shape() -> None:
     assert response.metadata is not None
     assert response.metadata.agent_id == context.agent.id
     assert response.metadata.agent_name == context.agent.name
+
+
+@pytest.mark.asyncio
+async def test_stream_uses_content_chunks_when_completed_event_is_empty() -> None:
+    async def event_stream():
+        yield RunContentEvent(content="链路")
+        yield RunContentEvent(content="测试成功")
+        yield RunCompletedEvent(content="")
+
+    context = _build_context()
+    agent = SimpleNamespace(arun=Mock(return_value=event_stream()))
+    workflow_events = Mock()
+    runner = AgnoAgentRunner()
+
+    result = await runner.stream(
+        SimpleNamespace(agent=agent),
+        context,
+        workflow_events,
+        execution_id="execution-1",
+    )
+
+    assert result.content == "链路测试成功"
+    assert workflow_events.emit_agent_content_chunk.call_count == 2
+    workflow_events.emit_agent_response_complete.assert_called_once_with(
+        agent_id=str(context.agent.id),
+        agent_name=context.agent.name,
+        execution_id="execution-1",
+        final_content="链路测试成功",
+        success=True,
+        total_chunks=2,
+        tool_calls_count=0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_duplicate_completed_content_after_chunks() -> None:
+    async def event_stream():
+        yield RunContentEvent(content="链路")
+        yield RunContentEvent(content="测试成功")
+        yield RunCompletedEvent(content="链路测试成功")
+
+    context = _build_context()
+    agent = SimpleNamespace(arun=Mock(return_value=event_stream()))
+    runner = AgnoAgentRunner()
+
+    result = await runner.stream(
+        SimpleNamespace(agent=agent),
+        context,
+        Mock(),
+        execution_id="execution-2",
+    )
+
+    assert result.content == "链路测试成功"

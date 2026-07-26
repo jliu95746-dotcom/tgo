@@ -50,6 +50,8 @@ from app.models import (
 )
 from app.schemas import ChatFileUploadResponse, StaffSendPlatformMessageRequest
 from app.schemas.chat import (
+    AssistDraftRequest,
+    AssistDraftResponse,
     ChatCompletionRequest,
     OpenAIChatCompletionChoice,
     OpenAIChatCompletionChunk,
@@ -78,6 +80,10 @@ from app.services.ai_interaction_run_service import (
     mark_ai_interaction_finished,
 )
 from app.services.chat_service import get_or_create_visitor
+from app.services.humanization_service import (
+    append_humanization_prompt,
+    get_humanization_skill_prompt,
+)
 from app.services.file_service import get_safe_ascii_filename, sanitize_filename
 from app.services.message_intent_orchestrator import (
     MessageIntentOrchestrator,
@@ -122,6 +128,27 @@ def _append_trusted_system_context(
 ) -> str:
     """Append server-generated instructions without changing customer text."""
     return f"{current}\n\n{addition}" if current else addition
+
+
+async def _append_selected_humanization_context(
+    project_id: str,
+    visitor: Visitor,
+    current: str | None,
+) -> str | None:
+    skill_name = getattr(visitor, "humanization_skill_name", None)
+    enabled = bool(getattr(visitor, "humanization_skill_enabled", False))
+    if not enabled or not skill_name:
+        return current
+    try:
+        prompt = await get_humanization_skill_prompt(project_id, skill_name)
+    except Exception as exc:
+        logger.warning(
+            "Unable to load selected humanization skill %s: %s",
+            skill_name,
+            exc,
+        )
+        return current
+    return append_humanization_prompt(current, prompt)
 
 
 # ============================================================================
@@ -538,8 +565,7 @@ async def chat_completion(
     if ai_disabled:
         # Check if this is specifically assist mode (visitor not explicitly disabled)
         is_assist_mode = (
-            getattr(visitor, "ai_disabled", None) is None
-            and getattr(platform, "ai_mode", None) == "assist"
+            chat_service.resolve_service_mode(platform, visitor) == "assist"
         )
         event_type = "assist_mode" if is_assist_mode else "ai_disabled"
         message = (
@@ -560,6 +586,9 @@ async def chat_completion(
         return StreamingResponse(disabled_gen(), media_type="text/event-stream")
 
     # 7) AI is enabled: directly call AI service and stream response
+    req.system_message = await _append_selected_humanization_context(
+        str(project.id), visitor, req.system_message
+    )
     agent_runtime_kwargs = _build_platform_agent_kwargs(platform)
     excluded_tool_ids = (
         intent_outcome.excluded_tool_ids if intent_outcome is not None else ()
@@ -713,6 +742,112 @@ async def chat_completion(
             )
 
     return StreamingResponse(ai_event_generator(), media_type="text/event-stream")
+
+
+@router.post(
+    "/assist/draft",
+    response_model=AssistDraftResponse,
+    tags=["Chat"],
+    summary="Generate an unsent assist-mode reply draft",
+)
+async def generate_assist_draft(
+    req: AssistDraftRequest,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(require_permission("chat:send")),
+) -> AssistDraftResponse:
+    visitor = (
+        db.query(Visitor)
+        .options(joinedload(Visitor.platform))
+        .filter(
+            Visitor.id == req.visitor_id,
+            Visitor.project_id == current_user.project_id,
+            Visitor.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not visitor or not visitor.platform:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Visitor not found",
+        )
+    if chat_service.resolve_service_mode(visitor.platform, visitor) != "assist":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Visitor is not in assist mode",
+        )
+
+    channel_id = build_visitor_channel_id(visitor.id)
+    membership = (
+        db.query(ChannelMember)
+        .filter(
+            ChannelMember.channel_id == channel_id,
+            ChannelMember.channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE,
+            ChannelMember.member_id == current_user.id,
+            ChannelMember.member_type == MEMBER_TYPE_STAFF,
+            ChannelMember.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Staff not assigned to this channel",
+        )
+
+    configured_skill = (
+        visitor.humanization_skill_name
+        if visitor.humanization_skill_enabled
+        else None
+    )
+    selected_skill = req.humanization_skill_name or configured_skill
+    if (
+        req.humanization_skill_name
+        and req.humanization_skill_name != configured_skill
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Humanization skill is not enabled for this visitor",
+        )
+
+    system_message = (
+        "你是人工客服的回复助手。根据客户当前消息生成一条可以直接发送的中文回复。"
+        "只输出回复正文，不描述思考、查询、工具调用或内部工作过程；"
+        "不确定的业务事实要明确说明并交给人工确认。"
+    )
+    if selected_skill:
+        try:
+            prompt = await get_humanization_skill_prompt(
+                str(current_user.project_id), selected_skill
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+        system_message = append_humanization_prompt(system_message, prompt)
+
+    agent_kwargs = _build_platform_agent_kwargs(visitor.platform)
+    result = await AIServiceClient().run_supervisor_agent(
+        message=req.customer_message,
+        project_id=str(current_user.project_id),
+        agent_id=agent_kwargs.get("agent_id"),
+        session_id=f"assist-{visitor.id}",
+        user_id=str(visitor.id),
+        knowledge_channel=agent_kwargs.get("knowledge_channel"),
+        system_message=system_message,
+    )
+    draft_value = result.get("content") or result.get("message")
+    draft = draft_value.strip() if isinstance(draft_value, str) else ""
+    if not draft:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="AI service returned an empty assist draft",
+        )
+    return AssistDraftResponse(
+        draft=draft,
+        humanization_skill_name=selected_skill,
+        source_message_id=req.source_message_id,
+    )
 
 
 @router.post(
@@ -1187,8 +1322,7 @@ async def chat_completion_openai_compatible(
     if ai_disabled:
         # Check if this is specifically assist mode (visitor not explicitly disabled)
         is_assist_mode = (
-            getattr(visitor, "ai_disabled", None) is None
-            and getattr(platform, "ai_mode", None) == "assist"
+            chat_service.resolve_service_mode(platform, visitor) == "assist"
         )
         status_code = status.HTTP_202_ACCEPTED if is_assist_mode else status.HTTP_403_FORBIDDEN
         detail = (
@@ -1200,6 +1334,10 @@ async def chat_completion_openai_compatible(
             status_code=status_code,
             detail=detail
         )
+
+    system_message = await _append_selected_humanization_context(
+        str(project.id), visitor, system_message
+    )
 
     # 8) Call AI service directly
     agent_runtime_kwargs = _build_platform_agent_kwargs(platform)

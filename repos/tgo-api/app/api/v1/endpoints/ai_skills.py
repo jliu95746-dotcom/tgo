@@ -7,6 +7,10 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 from app.core.logging import get_logger
 from app.core.security import get_authenticated_project
 from app.schemas.skill import (
+    HumanizationSkillCreateRequest,
+    HumanizationTrainingApplyResponse,
+    HumanizationTrainingSampleRequest,
+    HumanizationTrainingStatus,
     SkillCreateRequest,
     SkillDetail,
     SkillImportRequest,
@@ -56,6 +60,56 @@ async def create_skill(
     project_id = str(project.id)
     result = await ai_client.create_skill(project_id, data.model_dump(exclude_none=True))
     return SkillDetail(**result)
+
+
+@router.post(
+    "/humanization",
+    response_model=SkillDetail,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a humanization skill",
+)
+async def create_humanization_skill(
+    data: HumanizationSkillCreateRequest,
+    auth_data: tuple[Any, str] = Depends(get_authenticated_project),
+) -> SkillDetail:
+    project, _ = auth_data
+    result = await ai_client.create_humanization_skill(
+        str(project.id), data.model_dump(exclude_none=True)
+    )
+    return SkillDetail(**result)
+
+
+@router.post(
+    "/{skill_name}/training-samples",
+    response_model=HumanizationTrainingStatus,
+    summary="Add a pending humanization correction",
+)
+async def add_humanization_training_sample(
+    skill_name: str,
+    data: HumanizationTrainingSampleRequest,
+    auth_data: tuple[Any, str] = Depends(get_authenticated_project),
+) -> HumanizationTrainingStatus:
+    project, _ = auth_data
+    result = await ai_client.add_humanization_training_sample(
+        str(project.id), skill_name, data.model_dump(exclude_none=True)
+    )
+    return HumanizationTrainingStatus(**result)
+
+
+@router.post(
+    "/{skill_name}/apply-training",
+    response_model=HumanizationTrainingApplyResponse,
+    summary="Publish pending humanization corrections",
+)
+async def apply_humanization_training(
+    skill_name: str,
+    auth_data: tuple[Any, str] = Depends(get_authenticated_project),
+) -> HumanizationTrainingApplyResponse:
+    project, _ = auth_data
+    result = await ai_client.apply_humanization_training(
+        str(project.id), skill_name
+    )
+    return HumanizationTrainingApplyResponse(**result)
 
 
 @router.get(

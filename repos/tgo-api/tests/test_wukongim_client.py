@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 
 from app.services.wukongim_client import WuKongIMClient
 
@@ -93,3 +93,22 @@ class WuKongIMClientTests(unittest.IsolatedAsyncioTestCase):
             red_dot=False,
             sync_once=True,
         )
+
+    async def test_make_request_reuses_one_http_client(self) -> None:
+        """Local WuKongIM calls should not rebuild a connection pool per event."""
+
+        response = Mock(status_code=200, text="{}")
+        response.json.return_value = {}
+        request = AsyncMock(return_value=response)
+        fake_http_client = Mock(request=request, is_closed=False)
+
+        with patch(
+            "app.services.wukongim_client.httpx.AsyncClient",
+            return_value=fake_http_client,
+        ) as client_factory:
+            client = WuKongIMClient()
+            await client._make_request("POST", "/message/send", json_data={})
+            await client._make_request("POST", "/message/event", json_data={})
+
+        client_factory.assert_called_once()
+        self.assertEqual(request.await_count, 2)

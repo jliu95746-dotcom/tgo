@@ -29,7 +29,6 @@ class PlatformCallbackService:
     async def notify_new_message(
         self,
         platform_id: str,
-        platform_api_key: str,
         contact_id: str,
         contact_name: str,
         message_content: str,
@@ -43,7 +42,6 @@ class PlatformCallbackService:
 
         Args:
             platform_id: Platform ID from tgo-api
-            platform_api_key: API key for the platform
             contact_id: Contact identifier
             contact_name: Contact display name
             message_content: Message content
@@ -68,16 +66,10 @@ class PlatformCallbackService:
             },
         }
 
-        headers = {
-            "Content-Type": "application/json",
-            "X-Platform-API-Key": platform_api_key,
-        }
-
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
                     f"{self.platform_url}/internal/vision-agent/inbound",
-                    headers=headers,
                     json=payload,
                 )
                 response.raise_for_status()

@@ -249,7 +249,7 @@ const ChatPage: React.FC = () => {
   }, [isVisitorDrawerOpen]);
 
   return (
-    <div className="relative flex h-full min-w-0 flex-1 bg-gray-50 dark:bg-gray-900">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-gray-50 dark:bg-gray-900">
       {/* Chat List */}
       <div className={`h-full shrink-0 ${isCompactListOpen ? 'max-[899px]:flex max-[899px]:w-full' : 'max-[899px]:hidden'}`}>
         <ChatList
@@ -265,7 +265,7 @@ const ChatPage: React.FC = () => {
       </div>
 
       {/* Main Chat Window */}
-      <div className={`min-w-0 flex-1 ${isCompactListOpen ? 'max-[899px]:hidden' : 'max-[899px]:flex'}`}>
+      <div className={`flex h-full min-h-0 min-w-0 flex-1 overflow-hidden ${isCompactListOpen ? 'max-[899px]:hidden' : 'max-[899px]:flex'}`}>
         <ChatWindow
           key={activeChat ? getChannelKey(activeChat.channelId, activeChat.channelType) : 'no-active'}
           activeChat={activeChat ?? undefined}

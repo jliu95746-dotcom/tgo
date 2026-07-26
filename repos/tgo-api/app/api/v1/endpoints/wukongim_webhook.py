@@ -16,15 +16,15 @@ from app.core.database import SessionLocal
 from app.models import ChannelMember, Platform, Project, Staff, Visitor
 from app.models.staff import StaffStatus
 from app.services.ai_client import AIServiceClient
+from app.services.customer_logistics_service import CustomerLogisticsService
 from app.services.message_analysis_service import (
     MessageAnalysisLookupKey,
     MessageAnalysisService,
 )
 from app.services.message_intent_orchestrator import MessageIntentOrchestrator
-from app.services.customer_logistics_service import CustomerLogisticsService
-from app.services.wukongim_client import WuKongIMClient
 from app.services.visitor_notifications import notify_visitor_profile_updated
-from app.utils.const import MEMBER_TYPE_VISITOR, CHANNEL_TYPE_CUSTOMER_SERVICE
+from app.services.wukongim_client import WuKongIMClient
+from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_VISITOR
 from app.utils.encoding import parse_visitor_channel_id
 
 logger = logging.getLogger("webhooks.wukongim")
@@ -60,6 +60,19 @@ def _extract_text_message(message: Dict[str, Any]) -> str | None:
         return None
     content = payload.get("content")
     return content.strip() if isinstance(content, str) and content.strip() else None
+
+
+def _classify_message_sender(message: Dict[str, Any]) -> str:
+    """Classify a persisted channel message for session counters."""
+    from_uid = message.get("from_uid")
+    client_msg_no = message.get("client_msg_no")
+    if isinstance(from_uid, str) and from_uid.endswith(VISITOR_UID_SUFFIX):
+        return "visitor"
+    if isinstance(client_msg_no, str) and client_msg_no.startswith("ai_"):
+        return "ai"
+    if isinstance(from_uid, str) and from_uid.endswith(STAFF_UID_SUFFIX):
+        return "staff"
+    return "system"
 
 
 
@@ -186,7 +199,7 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
         db: Database session
     """
     from sqlalchemy import text
-    
+
     # Normalize input to list
     if not isinstance(messages, list):
         messages = [messages] if isinstance(messages, dict) else []
@@ -195,7 +208,7 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
         return
     
     # Group messages by visitor_id for efficient batch processing
-    # Structure: {visitor_id: {"max_seq": int, "client_msg_no": str, "send_count": int, "is_last_from_visitor": bool}}
+    # Structure: one latest-message snapshot plus per-sender counters.
     visitor_stats: Dict[UUID, Dict[str, Any]] = {}
     analysis_jobs: List[Tuple[UUID, str, str]] = []
     logistics_jobs: List[Tuple[UUID, str, str, str]] = []
@@ -223,7 +236,8 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
         
         message_seq = msg.get("message_seq", 0)
         client_msg_no = msg.get("client_msg_no")
-        is_from_visitor = bool(from_uid and from_uid.endswith(VISITOR_UID_SUFFIX))
+        sender_type = _classify_message_sender(msg)
+        is_from_visitor = sender_type == "visitor"
         if isinstance(client_msg_no, str) and client_msg_no:
             message_text = _extract_text_message(msg)
             if message_text is not None:
@@ -247,6 +261,10 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 "client_msg_no": None,
                 "send_count": 0,
                 "is_last_from_visitor": False,
+                "is_last_from_ai": False,
+                "visitor_message_count": 0,
+                "staff_message_count": 0,
+                "ai_message_count": 0,
             }
         
         stats = visitor_stats[visitor_id]
@@ -256,10 +274,16 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
             stats["max_seq"] = message_seq
             stats["client_msg_no"] = client_msg_no
             stats["is_last_from_visitor"] = is_from_visitor
+            stats["is_last_from_ai"] = sender_type == "ai"
         
         # Count messages sent by visitor
         if is_from_visitor:
             stats["send_count"] += 1
+            stats["visitor_message_count"] += 1
+        elif sender_type == "ai":
+            stats["ai_message_count"] += 1
+        elif sender_type == "staff":
+            stats["staff_message_count"] += 1
     
     if not visitor_stats:
         return
@@ -277,12 +301,14 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
             update_parts = [
                 "last_message_at = :last_message_at",
                 "is_last_message_from_visitor = :is_last_from_visitor",
+                "is_last_message_from_ai = :is_last_message_from_ai",
                 "updated_at = now()",
             ]
             params: Dict[str, Any] = {
                 "visitor_id": str(visitor_id),
                 "last_message_at": now,
                 "is_last_from_visitor": stats["is_last_from_visitor"],
+                "is_last_message_from_ai": stats["is_last_from_ai"],
             }
             
             if stats["max_seq"] > 0:
@@ -308,17 +334,60 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                     SELECT id FROM api_visitors 
                     WHERE id = :visitor_id 
                       AND deleted_at IS NULL
+                      AND last_message_seq < :incoming_last_message_seq
                     FOR UPDATE SKIP LOCKED
                 )
             """)
+            params["incoming_last_message_seq"] = stats["max_seq"]
             
             # visitor_id is already a UUID object from stats grouping, 
             # SQLAlchemy will handle the conversion
             result = db.execute(update_sql, params)
             db.commit()
+            affected_rows = int(getattr(result, "rowcount", 0) or 0)
             
-            if result.rowcount > 0:
+            if affected_rows > 0:
                 updated_count += 1
+                message_count = (
+                    stats["visitor_message_count"]
+                    + stats["staff_message_count"]
+                    + stats["ai_message_count"]
+                )
+                if message_count > 0:
+                    db.execute(
+                        text(
+                            """
+                            UPDATE api_visitor_sessions
+                            SET message_count = message_count + :message_count,
+                                visitor_message_count = visitor_message_count + :visitor_message_count,
+                                staff_message_count = staff_message_count + :staff_message_count,
+                                ai_message_count = ai_message_count + :ai_message_count,
+                                last_message_at = :last_message_at,
+                                last_message_seq = :last_message_seq,
+                                updated_at = now()
+                            WHERE id IN (
+                                SELECT id
+                                FROM api_visitor_sessions
+                                WHERE visitor_id = :visitor_id
+                                  AND status = 'open'
+                                  AND COALESCE(last_message_seq, 0) < :last_message_seq
+                                ORDER BY created_at DESC
+                                LIMIT 1
+                                FOR UPDATE SKIP LOCKED
+                            )
+                            """
+                        ),
+                        {
+                            "visitor_id": str(visitor_id),
+                            "message_count": message_count,
+                            "visitor_message_count": stats["visitor_message_count"],
+                            "staff_message_count": stats["staff_message_count"],
+                            "ai_message_count": stats["ai_message_count"],
+                            "last_message_at": now,
+                            "last_message_seq": stats["max_seq"],
+                        },
+                    )
+                    db.commit()
             else:
                 # Row was either not found or locked by another transaction
                 skipped_count += 1

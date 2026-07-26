@@ -1074,6 +1074,7 @@ export interface VisitorAISettings {
 
 // Visitor service status enum
 export type VisitorServiceStatus = 'new' | 'queued' | 'assigned_pending' | 'active' | 'closed';
+export type VisitorServiceMode = 'auto' | 'assist' | 'manual';
 
 export interface ChannelVisitorExtra {
   id: string;
@@ -1099,6 +1100,9 @@ export interface ChannelVisitorExtra {
   last_offline_time?: string;
   is_online?: boolean;
   ai_disabled?: boolean; // True means AI is disabled for this visitor
+  service_mode?: VisitorServiceMode | null;
+  humanization_skill_name?: string | null;
+  humanization_skill_enabled?: boolean;
   ai_settings?: VisitorAISettings | null;
   assigned_staff_id?: string; // ID of the staff member assigned to this visitor
   ai_insights?: ChannelAIInsights | null; // AI insights from backend

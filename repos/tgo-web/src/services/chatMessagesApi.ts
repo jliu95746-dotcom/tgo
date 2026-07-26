@@ -27,12 +27,26 @@ export interface StaffAgentChatResponse {
   client_msg_no: string; // Message correlation ID for tracking
 }
 
+export interface AssistDraftRequest {
+  visitor_id: string;
+  customer_message: string;
+  humanization_skill_name?: string | null;
+  source_message_id?: string | null;
+}
+
+export interface AssistDraftResponse {
+  draft: string;
+  humanization_skill_name?: string | null;
+  source_message_id?: string | null;
+}
+
 class ChatMessagesApiService extends BaseApiService {
   protected readonly apiVersion = 'v1';
   protected readonly endpoints = {
     sendPlatformMessage: '/v1/chat/messages/send',
     agentChat: '/v1/chat/agent',
     clearMemory: '/v1/chat/memory',
+    assistDraft: '/v1/chat/assist/draft',
   } as const;
 
   /**
@@ -53,6 +67,12 @@ class ChatMessagesApiService extends BaseApiService {
     data: StaffAgentChatRequest
   ): Promise<StaffAgentChatResponse> {
     return this.post<StaffAgentChatResponse>(this.endpoints.agentChat, data);
+  }
+
+  async generateAssistDraft(
+    data: AssistDraftRequest,
+  ): Promise<AssistDraftResponse> {
+    return this.post<AssistDraftResponse>(this.endpoints.assistDraft, data);
   }
 
   /**

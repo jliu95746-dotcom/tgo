@@ -15,12 +15,12 @@ logger = get_logger("workflow_client")
 
 class WorkflowServiceClient:
     """Client for communicating with the internal Workflow service."""
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.base_url = settings.WORKFLOW_SERVICE_URL.rstrip("/")
         self.timeout = settings.WORKFLOW_SERVICE_TIMEOUT
         self.api_key = settings.WORKFLOW_SERVICE_API_KEY
-        
+
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for Workflow service requests."""
         headers = {
@@ -51,11 +51,14 @@ class WorkflowServiceClient:
                 "method": method,
                 "url": url,
                 "params": params,
-            }
+            },
         )
-        
+
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                trust_env=False,
+            ) as client:
                 response = await client.request(
                     method=method,
                     url=url,
@@ -63,25 +66,31 @@ class WorkflowServiceClient:
                     json=json_data,
                     params=params,
                 )
-                
+
                 logger.info(
                     f"Workflow service response: {response.status_code}",
                     extra={
                         "request_id": request_id,
                         "status_code": response.status_code,
-                        "response_time": response.elapsed.total_seconds() if response.elapsed else None,
-                    }
+                        "response_time": response.elapsed.total_seconds()
+                        if response.elapsed
+                        else None,
+                    },
                 )
-                
+
                 return response
-                
-        except httpx.TimeoutException as e:
+
+        except httpx.TimeoutException:
             logger.error(f"Workflow service timeout: {url}")
-            raise HTTPException(status_code=504, detail="Workflow service request timed out")
+            raise HTTPException(
+                status_code=504, detail="Workflow service request timed out"
+            )
         except httpx.RequestError as e:
             logger.error(f"Workflow service request error: {e}")
-            raise HTTPException(status_code=502, detail="Failed to connect to Workflow service")
-    
+            raise HTTPException(
+                status_code=502, detail="Failed to connect to Workflow service"
+            )
+
     async def _handle_response(self, response: httpx.Response) -> Any:
         """Handle Workflow service response and convert errors."""
         if response.is_success:
@@ -91,17 +100,14 @@ class WorkflowServiceClient:
                 return response.json()
             except json.JSONDecodeError:
                 return response.text
-        
+
         # Handle error responses
         try:
             error_data = response.json()
         except json.JSONDecodeError:
             error_data = {"error": {"message": response.text or "Unknown error"}}
-        
-        raise HTTPException(
-            status_code=response.status_code,
-            detail=error_data
-        )
+
+        raise HTTPException(status_code=response.status_code, detail=error_data)
 
     # Workflow endpoints (aligned with Workflow service OpenAPI: /v1/...)
     async def list_workflows(
@@ -152,7 +158,10 @@ class WorkflowServiceClient:
     ) -> Dict[str, Any]:
         params = {"project_id": project_id}
         response = await self._make_request(
-            "PUT", f"/v1/workflows/{workflow_id}", json_data=workflow_data, params=params
+            "PUT",
+            f"/v1/workflows/{workflow_id}",
+            json_data=workflow_data,
+            params=params,
         )
         return await self._handle_response(response)
 
@@ -187,14 +196,18 @@ class WorkflowServiceClient:
         )
         return await self._handle_response(response)
 
-    async def validate_workflow(self, workflow_id: str, project_id: str) -> Dict[str, Any]:
+    async def validate_workflow(
+        self, workflow_id: str, project_id: str
+    ) -> Dict[str, Any]:
         params = {"project_id": project_id}
         response = await self._make_request(
             "POST", f"/v1/workflows/{workflow_id}/validate", params=params
         )
         return await self._handle_response(response)
 
-    async def publish_workflow(self, workflow_id: str, project_id: str) -> Dict[str, Any]:
+    async def publish_workflow(
+        self, workflow_id: str, project_id: str
+    ) -> Dict[str, Any]:
         params = {"project_id": project_id}
         response = await self._make_request(
             "POST", f"/v1/workflows/{workflow_id}/publish", params=params
@@ -223,7 +236,10 @@ class WorkflowServiceClient:
         if request.get("stream"):
 
             async def stream_generator():
-                async with httpx.AsyncClient(timeout=None) as client:
+                async with httpx.AsyncClient(
+                    timeout=None,
+                    trust_env=False,
+                ) as client:
                     async with client.stream(
                         "POST", url, json=request, params=params, headers=headers
                     ) as response:
@@ -231,7 +247,7 @@ class WorkflowServiceClient:
                             await response.aread()
                             try:
                                 error_detail = response.json()
-                            except:
+                            except ValueError:
                                 error_detail = response.text
                             raise HTTPException(
                                 status_code=response.status_code, detail=error_detail
@@ -245,7 +261,10 @@ class WorkflowServiceClient:
 
         # Regular sync/async JSON response
         response = await self._make_request(
-            "POST", f"/v1/workflows/{workflow_id}/execute", json_data=request, params=params
+            "POST",
+            f"/v1/workflows/{workflow_id}/execute",
+            json_data=request,
+            params=params,
         )
         return await self._handle_response(response)
 
@@ -265,7 +284,9 @@ class WorkflowServiceClient:
         )
         return await self._handle_response(response)
 
-    async def cancel_execution(self, execution_id: str, project_id: str) -> Dict[str, Any]:
+    async def cancel_execution(
+        self, execution_id: str, project_id: str
+    ) -> Dict[str, Any]:
         params = {"project_id": project_id}
         response = await self._make_request(
             "POST", f"/v1/workflows/executions/{execution_id}/cancel", params=params
@@ -293,4 +314,3 @@ class WorkflowServiceClient:
 
 # Global workflow client instance
 workflow_client = WorkflowServiceClient()
-

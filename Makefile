@@ -24,8 +24,8 @@ COMPOSE_ALL_PROFILES := $(COMPOSE_BASE) $(KNOWN_PROFILE_FLAGS)
 BUILDKIT_PROGRESS ?= auto
 
 INFRA_SERVICES := postgres redis wukongim
-BUILD_SERVICES := tgo-rag tgo-ai tgo-api tgo-plugin-runtime tgo-device-control tgo-platform tgo-workflow
-CORE_APP_SERVICES := tgo-rag tgo-rag-worker tgo-rag-beat tgo-ai tgo-plugin-runtime tgo-device-control tgo-platform tgo-workflow tgo-workflow-worker tgo-api tgo-web tgo-widget-js
+BUILD_SERVICES := tgo-rag tgo-ai tgo-api tgo-plugin-runtime tgo-device-control tgo-platform tgo-vision-agent tgo-workflow
+CORE_APP_SERVICES := tgo-rag tgo-rag-worker tgo-rag-beat tgo-ai tgo-plugin-runtime tgo-device-control tgo-platform tgo-vision-agent tgo-workflow tgo-workflow-worker tgo-api tgo-web tgo-widget-js
 MONITORING_SERVICES := tgo-celery-flower adminer
 AGENTOS_SERVICES := tgo-device-control-agentos
 PROFILE_SERVICES := $(if $(filter monitoring,$(PROFILES_LIST)),$(MONITORING_SERVICES),) $(if $(filter agentos,$(PROFILES_LIST)),$(AGENTOS_SERVICES),)

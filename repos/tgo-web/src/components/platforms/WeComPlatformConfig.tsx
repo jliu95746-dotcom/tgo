@@ -1,20 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { MessageCircle } from 'lucide-react';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import PlatformAISettings from '@/components/platforms/PlatformAISettings';
 import type { Platform, PlatformConfig, PlatformAIMode } from '@/types';
 import { usePlatformStore } from '@/stores/platformStore';
 import { useToast } from '@/hooks/useToast';
 import { showApiError, showSuccess } from '@/utils/toastHelpers';
-import { toAbsoluteUrl } from '@/utils/config';
+import { getWidgetPreviewUrl, toAbsoluteUrl } from '@/utils/config';
 
 interface Props {
   platform: Platform; // expected: platform.type === 'wecom'
 }
 
 const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const updatePlatformConfig = usePlatformStore(s => s.updatePlatformConfig);
   const resetPlatformConfig = usePlatformStore(s => s.resetPlatformConfig);
@@ -30,6 +31,30 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
   const isEnabled = platform.status === 'connected';
+  const apiKey = useMemo(
+    () => String((platform.config as PlatformConfig | undefined)?.apiKey ?? ''),
+    [platform.config],
+  );
+
+  const openCustomerSimulator = () => {
+    if (!apiKey) {
+      showToast(
+        'warning',
+        t('platforms.wecom.simulator.unavailable', '暂时无法打开客户模拟器'),
+        t('platforms.wecom.simulator.missingApiKey', '当前渠道缺少 API Key，请刷新页面后重试。'),
+      );
+      return;
+    }
+
+    const simulatorUrl = new URL(getWidgetPreviewUrl() || 'http://127.0.0.1:5174', window.location.origin);
+    simulatorUrl.searchParams.set('apiKey', apiKey);
+    simulatorUrl.searchParams.set(
+      'mode',
+      document.documentElement.classList.contains('dark') ? 'dark' : 'light',
+    );
+    simulatorUrl.searchParams.set('lang', i18n.resolvedLanguage || i18n.language || 'zh-CN');
+    window.open(simulatorUrl.toString(), '_blank', 'noopener,noreferrer');
+  };
 
   // Name editing
   const [platformName, setPlatformName] = useState<string>(platform.name);
@@ -149,6 +174,23 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t('platforms.wecom.header.subtitle', '配置企业微信（WeCom）对接所需的凭据与回调。')}</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            disabled={!apiKey}
+            onClick={openCustomerSimulator}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border ${
+              apiKey
+                ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/50'
+                : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed dark:border-gray-700 dark:bg-gray-800 dark:text-gray-500'
+            }`}
+            title={t(
+              'platforms.wecom.simulator.hint',
+              '绕过企业微信公网回调，使用当前企微渠道模拟客户发消息',
+            )}
+          >
+            <MessageCircle size={16} aria-hidden="true" />
+            {t('platforms.wecom.buttons.openCustomerSimulator', '客户模拟器')}
+          </button>
           <button
             disabled={isUpdating || isDeleting}
             onClick={() => setConfirmOpen(true)}

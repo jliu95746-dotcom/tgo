@@ -89,6 +89,15 @@ ACTION_DECISION_PROMPT = """你是一个 Android UI 自动化 Agent。根据当�
    - 如果按钮位置可能不准：尝试滑动到屏幕中央后再点击
    - 如果界面卡住：等待 2-3 秒后重新观察
 3. **如果多次替代方案都失败**：返回 action_type: "fail" 并说明原因
+
+## 结构化任务结果（必须遵守）
+- 当任务要求识别登录状态时，使用 `complete`，并在 `parameters.login_status` 返回
+  `logged_in`、`qr_pending`、`offline`、`expired` 中最准确的一项。
+- 当任务要求提取未读联系人时，使用 `complete`，并在
+  `parameters.contacts` 返回数组。每项格式为
+  `{{"id": "稳定联系人标识或名称", "name": "联系人名称", "preview": "最新未读消息预览"}}`。
+- 没有未读联系人时仍然使用 `complete`，并返回 `{{"contacts": []}}`。
+- 不要只在 `reasoning` 中描述提取结果；可供程序消费的数据必须放在 `parameters` 中。
 """
 
 ERROR_RECOVERY_PROMPT = """你是一个 Android UI 自动化 Agent。上一个动作执行失败，需要决定恢复策略。

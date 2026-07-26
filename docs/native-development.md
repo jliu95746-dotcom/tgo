@@ -5,9 +5,14 @@
 此模式用于内存较小的 Windows 开发机：
 
 - Docker 仅运行 PostgreSQL、Redis、WuKongIM。
-- `tgo-api`、`tgo-ai`、`tgo-rag`、`tgo-workflow`、`tgo-web`、`tgo-widget-js` 作为 Windows 本机进程运行。
+- `tgo-api`、`tgo-ai`、`tgo-rag`、`tgo-workflow`、`tgo-device-control`、
+  `tgo-web`、`tgo-widget-js` 作为 Windows 本机进程运行。
 - RAG 文档处理使用 Windows 本机 Celery `solo` worker，避免 Docker 应用容器占用额外内存。
 - `tgo-api` 使用 `18000`，避免与本机 Agent Memory 的 `8000` 冲突。
+- 管理端固定使用项目专属入口端口 `5173`，由 `.env.dev` 中的
+  `TGO_WEB_PORT` 配置。
+- 混合启动会移除 Docker 版 `tgo-web` 和 `tgo-widget-js` 容器，避免与
+  Windows 本机前端重复运行或打开到错误页面。
 - 本机进程不启用 Python 自动重载，以降低内存占用；修改后运行重启脚本。
 
 ## 首次安装
@@ -16,8 +21,9 @@
 powershell -ExecutionPolicy Bypass -File scripts\native-dev\install.ps1
 ```
 
-安装过程使用 API、AI、RAG、Workflow 各自的锁文件，并在服务目录创建 `.venv`。前端依赖安装到
-`repos\tgo-web\node_modules` 和 `repos\tgo-widget-js\node_modules`。这些目录均不会提交到 Git。
+安装过程使用 API、AI、RAG、Workflow、Device Control 各自的锁文件，并在服务目录创建
+`.venv`。前端依赖安装到 `repos\tgo-web\node_modules` 和
+`repos\tgo-widget-js\node_modules`。这些目录均不会提交到 Git。
 
 ## 启动
 
@@ -37,6 +43,19 @@ powershell -ExecutionPolicy Bypass -File scripts\native-dev\start.ps1
 
 - 管理端：`http://127.0.0.1:5173/chat`
 - 访客端：`http://127.0.0.1:5174`
+- 设备控制 HTTP：`http://127.0.0.1:8085`
+- 设备接入 TCP：`本机局域网 IP:9876`
+
+## 桌面一键启动
+
+运行 `scripts\native-dev\create-shortcut.ps1` 会在当前用户桌面创建
+`TGO 客服系统.lnk`。双击后会自动：
+
+1. 检查并启动 Docker Desktop；
+2. 防止重复启动第二套 TGO；
+3. 启动混合开发栈并等待全部健康检查通过；
+4. 打开 `http://127.0.0.1:5173/chat`；
+5. 启动失败时显示中文错误，并将详细日志写入 `.tmp\native-dev`。
 
 需要测试自动意图路由时，在本机私有的 `.env.dev` 中设置
 `INTENT_AUTOMATION_ENABLED=true`，并确保 `tgo-workflow` 的

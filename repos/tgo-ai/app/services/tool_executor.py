@@ -14,6 +14,128 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+def _resolve_store_method(tool_model: Tool, args: Dict[str, Any]) -> str:
+    """Resolve the concrete Store method represented by a service tool."""
+
+    config = tool_model.config or {}
+    for key in ("default_method", "method", "tool_name"):
+        configured_method = config.get(key)
+        if isinstance(configured_method, str) and configured_method.strip():
+            return configured_method.strip()
+
+    methods = config.get("methods")
+    if not isinstance(methods, dict) or not methods:
+        return tool_model.name
+    if tool_model.name in methods:
+        return tool_model.name
+
+    argument_names = set(args)
+    candidates: List[tuple[int, int, str]] = []
+    for method_name, method_config in methods.items():
+        if not isinstance(method_name, str) or not isinstance(
+            method_config, dict
+        ):
+            continue
+        params = method_config.get("params")
+        if not isinstance(params, list):
+            continue
+
+        accepted_names: set[str] = set()
+        required_names: set[str] = set()
+        for param in params:
+            if not isinstance(param, dict):
+                continue
+            param_name = param.get("name")
+            if not isinstance(param_name, str) or not param_name:
+                continue
+            accepted_names.add(param_name)
+            if param.get("required") is True:
+                required_names.add(param_name)
+
+        if not required_names.issubset(argument_names):
+            continue
+        if not argument_names.issubset(accepted_names):
+            continue
+        candidates.append(
+            (
+                len(argument_names & accepted_names),
+                len(required_names),
+                method_name,
+            )
+        )
+
+    if not candidates:
+        raise ValueError(
+            f"Unable to resolve Store method for tool '{tool_model.name}' "
+            f"from arguments: {sorted(argument_names)}"
+        )
+
+    candidates.sort(reverse=True)
+    best_score = candidates[0][:2]
+    best_methods = [
+        method_name
+        for matched_count, required_count, method_name in candidates
+        if (matched_count, required_count) == best_score
+    ]
+    if len(best_methods) != 1:
+        raise ValueError(
+            f"Ambiguous Store method for tool '{tool_model.name}': "
+            f"{sorted(best_methods)}"
+        )
+    return best_methods[0]
+
+
+def _format_store_jsonrpc_error(error: Any) -> str:
+    """Format a Store JSON-RPC error as failed tool output."""
+
+    if not isinstance(error, dict):
+        return str(error)
+    code = error.get("code")
+    message = error.get("message") or "Unknown JSON-RPC error"
+    if code is None:
+        return str(message)
+    return f"JSON-RPC {code}: {message}"
+
+
+def _extract_store_output(result: Any) -> str:
+    """Unwrap Store JSON-RPC responses into ToolExecutor output text."""
+
+    if not isinstance(result, dict):
+        return json.dumps(result, ensure_ascii=False)
+    if result.get("error") is not None:
+        error_message = _format_store_jsonrpc_error(result["error"])
+        return f"<error>Store execution failed: {error_message}</error>"
+
+    payload = result.get("result", result)
+    if isinstance(payload, dict) and payload.get("error") is not None:
+        error_message = _format_store_jsonrpc_error(payload["error"])
+        return f"<error>Store execution failed: {error_message}</error>"
+
+    if isinstance(payload, dict) and "content" in payload:
+        content = payload["content"]
+        output_text: str
+        if isinstance(content, list):
+            texts = [
+                item.get("text")
+                for item in content
+                if isinstance(item, dict) and item.get("text")
+            ]
+            if texts:
+                output_text = "\n".join(str(text) for text in texts)
+            else:
+                output_text = json.dumps(content, ensure_ascii=False)
+        else:
+            output_text = json.dumps(content, ensure_ascii=False)
+        if payload.get("isError") is True:
+            return f"<error>Store execution failed: {output_text}</error>"
+        return output_text
+
+    if isinstance(payload, (dict, list)):
+        return json.dumps(payload, ensure_ascii=False)
+    return str(payload)
+
+
 class ToolExecutor:
     """Executor for dynamic tools referenced by IDs in Chat Completions API."""
 
@@ -184,42 +306,46 @@ class ToolExecutor:
             credential = await api_service_client.get_store_credential(str(self.project_id))
             if not credential or not credential.get("api_key"):
                 return "<error>Project not bound to Store. Please bind credentials first.</error>"
-            
+
             api_key = credential["api_key"]
-            
+
             # 2. 调用商店执行 API
             url = tool_model.endpoint
             if not url:
-                 return "<error>Store tool missing endpoint</error>"
+                return "<error>Store tool missing endpoint</error>"
 
+            method_name = _resolve_store_method(tool_model, args)
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
                     url,
                     json={
-                        "method": tool_model.name,
-                        "params": args
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {
+                            "name": method_name,
+                            "arguments": args,
+                        },
                     },
-                    headers={"X-API-Key": api_key}
+                    headers={
+                        "X-API-Key": api_key,
+                        "Accept": "application/json, text/event-stream",
+                    },
                 )
-                
+
                 if response.status_code == 402:
                     return "<error>工具商店余额不足，请充值</error>"
-                
+
                 response.raise_for_status()
-                
+
                 result = response.json()
-                # 商店返回的是原始 MCP 结果，我们需要提取内容
-                if isinstance(result, dict) and "content" in result:
-                    content = result["content"]
-                    if isinstance(content, list):
-                        texts = [c.get("text") for c in content if isinstance(c, dict) and c.get("text")]
-                        if texts:
-                            return "\n".join(texts)
-                    return str(content)
-                return str(result)
+                return _extract_store_output(result)
 
         except Exception as e:
-            logger.error(f"Store tool execution failed: {str(e)}", exc_info=True)
+            logger.error(
+                f"Store tool execution failed: {str(e)}",
+                exc_info=True,
+            )
             return f"<error>Store execution failed: {str(e)}</error>"
 
     async def _execute_plugin(self, tool_model: Tool, args: Dict[str, Any]) -> str:

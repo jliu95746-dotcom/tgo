@@ -57,7 +57,7 @@ services:
     ports:
       - "5100:5100"   # tcp
       - "5200:5200"   # websocket
-      - "5300:5300"   # admin
+      - "${WUKONGIM_ADMIN_PORT:-15300}:5300"   # admin
     healthcheck:
       test: ["CMD-SHELL", "wget -q -Y off -O /dev/null http://localhost:5001/health > /dev/null 2>&1 || exit 1"]
       interval: 10s
@@ -366,6 +366,8 @@ services:
   # Vision Agent service (UI automation via VLM + AgentBay)
   tgo-vision-agent:
     image: ghcr.io/tgoai/tgo/tgo-vision-agent:latest
+    build:
+      context: ./repos/tgo-vision-agent
     container_name: tgo-vision-agent
     env_file:
       - .env

@@ -196,6 +196,7 @@ from app.schemas.visitor import (
     VisitorRegisterRequest,
     VisitorRegisterResponse,
     VisitorMessageSyncRequest,
+    VisitorServiceModeUpdate,
 )
 from app.schemas.visitor_activity import (
     VisitorActivityContext,
@@ -318,6 +319,7 @@ __all__ = [
     "VisitorBasicResponse",
     "VisitorListResponse",
     "VisitorAvatarUploadResponse",
+    "VisitorServiceModeUpdate",
     # Tag schemas
     "TagCreate",
     "TagUpdate",

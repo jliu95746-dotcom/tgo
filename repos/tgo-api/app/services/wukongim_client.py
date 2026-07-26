@@ -2,7 +2,6 @@
 
 import base64
 import binascii
-from datetime import datetime
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -12,29 +11,30 @@ import httpx
 from fastapi import HTTPException
 
 from app.core.config import settings
-from app.utils.const import MessageType
 from app.schemas.wukongim import (
-    WuKongIMRouteResponse,
-    WuKongIMMessageSendResponse,
     WuKongIMChannelLastMessage,
-    WuKongIMConversation,
     WuKongIMChannelMessageSyncResponse,
+    WuKongIMConversation,
     WuKongIMMessage,
+    WuKongIMMessageSendResponse,
+    WuKongIMOnlineStatusItem,
+    WuKongIMRouteResponse,
     WuKongIMSearchMessagesResponse,
     WuKongIMSearchResult,
-    WuKongIMOnlineStatusItem,
 )
+from app.utils.const import MessageType
 
 logger = logging.getLogger(__name__)
 
 
 class EventType:
     """WuKongIM event type constants.
-    
+
     Event types for real-time notifications:
         - VISITOR_PROFILE_UPDATED: Visitor profile has been updated
         - QUEUE_UPDATED: Waiting queue has been updated (new visitor waiting)
     """
+
     VISITOR_PROFILE_UPDATED = "visitor.profile.updated"
     QUEUE_UPDATED = "queue.updated"
 
@@ -47,6 +47,23 @@ class WuKongIMClient:
         self.base_url = settings.WUKONGIM_SERVICE_URL.rstrip("/")
         self.timeout = settings.WUKONGIM_SERVICE_TIMEOUT
         self.enabled = settings.WUKONGIM_ENABLED
+        self._http_client: Optional[httpx.AsyncClient] = None
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        """Reuse the local HTTP connection pool across message events."""
+
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=self.timeout,
+                trust_env=False,
+            )
+        return self._http_client
+
+    async def aclose(self) -> None:
+        """Close the shared HTTP connection pool."""
+
+        if self._http_client is not None and not self._http_client.is_closed:
+            await self._http_client.aclose()
 
     def _decode_message_payload(self, payload: str) -> Dict[str, Any]:
         """
@@ -61,7 +78,7 @@ class WuKongIMClient:
         try:
             # Decode base64 string
             decoded_bytes = base64.b64decode(payload)
-            decoded_str = decoded_bytes.decode('utf-8')
+            decoded_str = decoded_bytes.decode("utf-8")
             json_payload = self._normalize_decoded_payload(
                 decoded_str,
                 raw_payload=payload,
@@ -82,7 +99,7 @@ class WuKongIMClient:
             logger.warning(f"Failed to parse JSON from decoded payload: {e}")
             # Return decoded string in a structured format
             try:
-                decoded_str = base64.b64decode(payload).decode('utf-8')
+                decoded_str = base64.b64decode(payload).decode("utf-8")
                 return {
                     "raw_content": decoded_str,
                     "decode_error": "json_parse_failed",
@@ -165,49 +182,47 @@ class WuKongIMClient:
         logger.debug(f"WuKongIM request: {method} {url}")
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.request(
-                    method=method,
-                    url=url,
-                    json=json_data,
-                    params=params,
+            client = self._get_http_client()
+            response = await client.request(
+                method=method,
+                url=url,
+                json=json_data,
+                params=params,
+            )
+
+            logger.debug(f"WuKongIM response: {response.status_code}")
+
+            # WuKongIM API returns 200 for success, other codes for errors
+            if response.status_code == 200:
+                # Some endpoints return empty response body on success
+                try:
+                    return response.json() if response.text else {}
+                except Exception:
+                    return {}
+
+            try:
+                error_data = response.json()
+                error_msg = error_data.get(
+                    "msg",
+                    f"WuKongIM error: {response.status_code}",
                 )
+            except Exception:
+                error_msg = f"WuKongIM HTTP error: {response.status_code}"
 
-                logger.debug(f"WuKongIM response: {response.status_code}")
-
-                # WuKongIM API returns 200 for success, other codes for errors
-                if response.status_code == 200:
-                    # Some endpoints return empty response body on success
-                    try:
-                        return response.json() if response.text else {}
-                    except Exception:
-                        return {}
-                else:
-                    # Handle error responses
-                    try:
-                        error_data = response.json()
-                        error_msg = error_data.get("msg", f"WuKongIM error: {response.status_code}")
-                    except Exception:
-                        error_msg = f"WuKongIM HTTP error: {response.status_code}"
-
-                    logger.error(f"WuKongIM error response: {response.status_code} - {error_msg}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"WuKongIM service error: {error_msg}"
-                    )
+            logger.error(
+                f"WuKongIM error response: {response.status_code} - {error_msg}"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"WuKongIM service error: {error_msg}",
+            )
 
         except httpx.TimeoutException:
             logger.error(f"WuKongIM request timeout: {method} {url}")
-            raise HTTPException(
-                status_code=500,
-                detail="WuKongIM service timeout"
-            )
+            raise HTTPException(status_code=500, detail="WuKongIM service timeout")
         except httpx.RequestError as e:
             logger.error(f"WuKongIM request error: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="WuKongIM service unavailable"
-            )
+            raise HTTPException(status_code=500, detail="WuKongIM service unavailable")
 
     async def send_event(
         self,
@@ -251,7 +266,6 @@ class WuKongIMClient:
             red_dot=False,
             sync_once=True,
         )
-
 
     async def send_stream_message(
         self,
@@ -372,7 +386,9 @@ class WuKongIMClient:
             return None
 
         # Encode payload to base64
-        payload_encoded = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
+        payload_encoded = base64.b64encode(json.dumps(payload).encode("utf-8")).decode(
+            "utf-8"
+        )
 
         request_data: Dict[str, Any] = {
             "payload": payload_encoded,
@@ -411,7 +427,7 @@ class WuKongIMClient:
                 "channel_type": channel_type,
                 "client_msg_no": client_msg_no,
                 "has_subscribers": subscribers is not None,
-            }
+            },
         )
 
         result = await self._make_request(
@@ -498,7 +514,9 @@ class WuKongIMClient:
             Response with message_id, message_seq, client_msg_no
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping send_staff_assigned_message")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping send_staff_assigned_message"
+            )
             return None
 
         # System message: Staff assigned
@@ -518,7 +536,7 @@ class WuKongIMClient:
                 "channel_type": channel_type,
                 "staff_uid": staff_uid,
                 "staff_name": staff_name,
-            }
+            },
         )
 
         return await self.send_message(
@@ -556,7 +574,9 @@ class WuKongIMClient:
             WuKongIMMessageSendResponse with message_id, message_seq, client_msg_no
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping send_session_closed_message")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping send_session_closed_message"
+            )
             return None
 
         # System message: Session closed
@@ -583,7 +603,7 @@ class WuKongIMClient:
                 "channel_type": channel_type,
                 "staff_uid": staff_uid,
                 "staff_name": staff_name,
-            }
+            },
         )
 
         return await self.send_message(
@@ -625,7 +645,9 @@ class WuKongIMClient:
             WuKongIMMessageSendResponse with message_id, client_msg_no
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping send_session_transferred_message")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping send_session_transferred_message"
+            )
             return None
 
         # System message: Session transferred
@@ -648,7 +670,7 @@ class WuKongIMClient:
                 "from_staff_name": from_staff_name,
                 "to_staff_uid": to_staff_uid,
                 "to_staff_name": to_staff_name,
-            }
+            },
         )
 
         return await self.send_message(
@@ -669,6 +691,7 @@ class WuKongIMClient:
         from_uid: Optional[str] = None,
         extra: Optional[Any] = None,
         client_msg_no: Optional[str] = None,
+        red_dot: bool = True,
     ) -> Optional[WuKongIMMessageSendResponse]:
         """Send a general system message.
 
@@ -680,12 +703,15 @@ class WuKongIMClient:
             from_uid: Sender UID (optional)
             extra: Optional extra JSON data
             client_msg_no: Optional client-provided message ID
+            red_dot: Whether subscribers should receive an unread notification
 
         Returns:
             WuKongIMMessageSendResponse or None if disabled
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping send_system_message")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping send_system_message"
+            )
             return None
 
         # Build payload for system message
@@ -703,7 +729,7 @@ class WuKongIMClient:
                 "channel_id": channel_id,
                 "channel_type": channel_type,
                 "msg_type": msg_type,
-            }
+            },
         )
 
         return await self.send_message(
@@ -712,6 +738,7 @@ class WuKongIMClient:
             channel_id=channel_id,
             channel_type=channel_type,
             client_msg_no=client_msg_no or str(uuid4()),
+            red_dot=red_dot,
         )
 
     async def send_visitor_profile_updated(
@@ -737,7 +764,9 @@ class WuKongIMClient:
             WuKongIMMessageSendResponse or None if disabled
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping send_visitor_profile_updated")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping send_visitor_profile_updated"
+            )
             return None
 
         event_type = EventType.VISITOR_PROFILE_UPDATED
@@ -753,7 +782,7 @@ class WuKongIMClient:
                 "visitor_id": visitor_id,
                 "channel_id": channel_id,
                 "channel_type": channel_type,
-            }
+            },
         )
 
         return await self.send_event(
@@ -789,7 +818,9 @@ class WuKongIMClient:
             WuKongIMMessageSendResponse or None if disabled
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping send_queue_updated_event")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping send_queue_updated_event"
+            )
             return None
 
         event_type = EventType.QUEUE_UPDATED
@@ -805,7 +836,7 @@ class WuKongIMClient:
                 "channel_type": channel_type,
                 "project_id": project_id,
                 "waiting_count": waiting_count,
-            }
+            },
         )
 
         return await self.send_event(
@@ -835,7 +866,9 @@ class WuKongIMClient:
             WuKongIMChannelLastMessage or None if channel not found or no messages
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping get_channel_last_message")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping get_channel_last_message"
+            )
             return None
 
         params: Dict[str, Any] = {
@@ -850,19 +883,21 @@ class WuKongIMClient:
             extra={
                 "channel_id": channel_id,
                 "channel_type": channel_type,
-            }
+            },
         )
 
         try:
-            response = await self._make_request("GET", "/channel/last_message", params=params)
-            
+            response = await self._make_request(
+                "GET", "/channel/last_message", params=params
+            )
+
             if not response:
                 return None
-            
+
             # Decode payload if present
             if "payload" in response and isinstance(response["payload"], str):
                 response["payload"] = self._decode_message_payload(response["payload"])
-            
+
             return WuKongIMChannelLastMessage(**response)
         except Exception as e:
             # 404 means no messages, return None
@@ -887,7 +922,9 @@ class WuKongIMClient:
             Max message sequence number or None if failed
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping get_channel_max_message_seq")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping get_channel_max_message_seq"
+            )
             return None
 
         params = {
@@ -902,11 +939,13 @@ class WuKongIMClient:
                 "channel_id": channel_id,
                 "channel_type": channel_type,
                 "login_uid": login_uid,
-            }
+            },
         )
 
         try:
-            response = await self._make_request("GET", "/channel/max_message_seq", params=params)
+            response = await self._make_request(
+                "GET", "/channel/max_message_seq", params=params
+            )
             if response and "message_seq" in response:
                 return response["message_seq"]
             return None
@@ -932,7 +971,9 @@ class WuKongIMClient:
             WuKongIMMessage with decoded payload, or None if not found
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping get_message_by_client_msg_no")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping get_message_by_client_msg_no"
+            )
             return None
 
         if not client_msg_no:
@@ -941,7 +982,7 @@ class WuKongIMClient:
         request_data = {
             "channel_id": channel_id,
             "channel_type": channel_type,
-            "client_msg_no": client_msg_no
+            "client_msg_no": client_msg_no,
         }
 
         logger.info(
@@ -949,8 +990,8 @@ class WuKongIMClient:
             extra={
                 "channel_id": channel_id,
                 "channel_type": channel_type,
-                "client_msg_no": client_msg_no
-            }
+                "client_msg_no": client_msg_no,
+            },
         )
 
         try:
@@ -1040,7 +1081,9 @@ class WuKongIMClient:
             Response from WuKongIM service
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping add_channel_subscribers")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping add_channel_subscribers"
+            )
             return {}
 
         if not subscribers:
@@ -1104,7 +1147,9 @@ class WuKongIMClient:
             Response from WuKongIM service
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping remove_channel_subscribers")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping remove_channel_subscribers"
+            )
             return {}
 
         if not subscribers:
@@ -1154,8 +1199,8 @@ class WuKongIMClient:
     ) -> Dict[str, Any]:
         """Remove all subscribers from a WuKongIM channel.
 
-        This method removes all subscribers from a channel. Not supported for 
-        person channels (channel_type=1). Will also delete all related 
+        This method removes all subscribers from a channel. Not supported for
+        person channels (channel_type=1). Will also delete all related
         conversations and tags.
 
         Args:
@@ -1166,7 +1211,9 @@ class WuKongIMClient:
             Response from WuKongIM service
         """
         if not self.enabled:
-            logger.debug("WuKongIM integration is disabled; skipping remove_all_channel_subscribers")
+            logger.debug(
+                "WuKongIM integration is disabled; skipping remove_all_channel_subscribers"
+            )
             return {}
 
         request_data: Dict[str, Any] = {
@@ -1298,7 +1345,6 @@ class WuKongIMClient:
         total = response.get("total", len(processed_messages))
         return WuKongIMSearchMessagesResponse(messages=processed_messages, total=total)
 
-
     async def register_or_login_user(
         self,
         uid: str,
@@ -1324,8 +1370,12 @@ class WuKongIMClient:
 
         # Use provided values or defaults from settings
         token = token or str(uuid4())
-        device_flag = device_flag if device_flag is not None else settings.WUKONGIM_DEVICE_FLAG
-        device_level = device_level if device_level is not None else settings.WUKONGIM_DEVICE_LEVEL
+        device_flag = (
+            device_flag if device_flag is not None else settings.WUKONGIM_DEVICE_FLAG
+        )
+        device_level = (
+            device_level if device_level is not None else settings.WUKONGIM_DEVICE_LEVEL
+        )
 
         request_data = {
             "uid": uid,
@@ -1335,12 +1385,12 @@ class WuKongIMClient:
         }
 
         logger.info(
-            f"Registering user with WuKongIM",
+            "Registering user with WuKongIM",
             extra={
                 "uid": uid,
                 "device_flag": device_flag,
                 "device_level": device_level,
-            }
+            },
         )
 
         try:
@@ -1356,7 +1406,7 @@ class WuKongIMClient:
         except Exception as e:
             logger.error(
                 f"Failed to register user {uid} with WuKongIM: {e}",
-                extra={"uid": uid, "error": str(e)}
+                extra={"uid": uid, "error": str(e)},
             )
             # Re-raise the exception to be handled by the caller
             raise
@@ -1388,10 +1438,16 @@ class WuKongIMClient:
             )
 
             # Response is a list of objects like: [{"uid": "...", "online": 1, ...}, ...]
-            online_items = [WuKongIMOnlineStatusItem(**item) for item in result] if isinstance(result, list) else []
+            online_items = (
+                [WuKongIMOnlineStatusItem(**item) for item in result]
+                if isinstance(result, list)
+                else []
+            )
             online_uids = [item.uid for item in online_items if item.online == 1]
-            
-            logger.debug(f"Found {len(online_uids)} online users out of {len(uids)} checked")
+
+            logger.debug(
+                f"Found {len(online_uids)} online users out of {len(uids)} checked"
+            )
             return online_uids
 
         except Exception as e:
@@ -1551,7 +1607,7 @@ class WuKongIMClient:
                 "version": version,
                 "msg_count": msg_count,
                 "has_last_msg_seqs": bool(last_msg_seqs),
-            }
+            },
         )
 
         try:
@@ -1565,16 +1621,22 @@ class WuKongIMClient:
 
             # Decode base64 payloads in recent messages
             for conversation in conversations:
-                if "recents" in conversation and isinstance(conversation["recents"], list):
+                if "recents" in conversation and isinstance(
+                    conversation["recents"], list
+                ):
                     for message in conversation["recents"]:
                         if "payload" in message and isinstance(message["payload"], str):
                             # Decode the base64 payload to JSON
-                            message["payload"] = self._decode_message_payload(message["payload"])
+                            message["payload"] = self._decode_message_payload(
+                                message["payload"]
+                            )
 
                         # Remove stream_data from response — replaced by event_meta
                         message.pop("stream_data", None)
 
-            logger.info(f"Successfully synced {len(conversations)} conversations for user {uid}")
+            logger.info(
+                f"Successfully synced {len(conversations)} conversations for user {uid}"
+            )
             # Convert to WuKongIMConversation objects
             return [WuKongIMConversation(**conv) for conv in conversations]
 
@@ -1622,7 +1684,7 @@ class WuKongIMClient:
                 "uid": uid,
                 "channel_count": len(channels),
                 "msg_count": msg_count,
-            }
+            },
         )
 
         try:
@@ -1636,21 +1698,29 @@ class WuKongIMClient:
 
             # Decode base64 payloads in recent messages
             for conversation in conversations:
-                if "recents" in conversation and isinstance(conversation["recents"], list):
+                if "recents" in conversation and isinstance(
+                    conversation["recents"], list
+                ):
                     for message in conversation["recents"]:
                         if "payload" in message and isinstance(message["payload"], str):
                             # Decode the base64 payload to JSON
-                            message["payload"] = self._decode_message_payload(message["payload"])
+                            message["payload"] = self._decode_message_payload(
+                                message["payload"]
+                            )
 
                         # Remove stream_data from response — replaced by event_meta
                         message.pop("stream_data", None)
 
-            logger.info(f"Successfully synced {len(conversations)} conversations by channels for user {uid}")
+            logger.info(
+                f"Successfully synced {len(conversations)} conversations by channels for user {uid}"
+            )
             # Convert to WuKongIMConversation objects
             return [WuKongIMConversation(**conv) for conv in conversations]
 
         except Exception as e:
-            logger.error(f"Failed to sync conversations by channels for user {uid}: {e}")
+            logger.error(
+                f"Failed to sync conversations by channels for user {uid}: {e}"
+            )
             raise
 
     async def set_conversation_unread(
@@ -1690,7 +1760,7 @@ class WuKongIMClient:
                 "channel_id": channel_id,
                 "channel_type": channel_type,
                 "unread": unread,
-            }
+            },
         )
 
         try:
@@ -1700,11 +1770,15 @@ class WuKongIMClient:
                 json_data=request_data,
             )
 
-            logger.info(f"Successfully set unread count for user {uid}, channel {channel_id}")
+            logger.info(
+                f"Successfully set unread count for user {uid}, channel {channel_id}"
+            )
             return result
 
         except Exception as e:
-            logger.error(f"Failed to set unread count for user {uid}, channel {channel_id}: {e}")
+            logger.error(
+                f"Failed to set unread count for user {uid}, channel {channel_id}: {e}"
+            )
             raise
 
     async def delete_conversation(
@@ -1740,7 +1814,7 @@ class WuKongIMClient:
                 "uid": uid,
                 "channel_id": channel_id,
                 "channel_type": channel_type,
-            }
+            },
         )
 
         try:
@@ -1750,11 +1824,15 @@ class WuKongIMClient:
                 json_data=request_data,
             )
 
-            logger.info(f"Successfully deleted conversation for user {uid}, channel {channel_id}")
+            logger.info(
+                f"Successfully deleted conversation for user {uid}, channel {channel_id}"
+            )
             return result
 
         except Exception as e:
-            logger.error(f"Failed to delete conversation for user {uid}, channel {channel_id}: {e}")
+            logger.error(
+                f"Failed to delete conversation for user {uid}, channel {channel_id}: {e}"
+            )
             raise
 
     async def sync_channel_messages(
@@ -1792,7 +1870,7 @@ class WuKongIMClient:
                 start_message_seq=start_message_seq,
                 end_message_seq=end_message_seq,
                 more=0,
-                messages=[]
+                messages=[],
             )
 
         request_data = {
@@ -1820,7 +1898,7 @@ class WuKongIMClient:
                 "limit": limit,
                 "pull_mode": pull_mode,
                 "stream_v2": 1,
-            }
+            },
         )
 
         try:
@@ -1835,13 +1913,17 @@ class WuKongIMClient:
                 for message in result["messages"]:
                     # Decode the base64 payload to JSON
                     if "payload" in message and isinstance(message["payload"], str):
-                        message["payload"] = self._decode_message_payload(message["payload"])
+                        message["payload"] = self._decode_message_payload(
+                            message["payload"]
+                        )
 
                     # Remove stream_data from response — replaced by event_meta
                     message.pop("stream_data", None)
 
             message_count = len(result.get("messages", []))
-            logger.info(f"Successfully synced {message_count} channel messages for user {login_uid}")
+            logger.info(
+                f"Successfully synced {message_count} channel messages for user {login_uid}"
+            )
             return WuKongIMChannelMessageSyncResponse(**result)
 
         except Exception as e:
@@ -1860,10 +1942,7 @@ class WuKongIMClient:
         """
         if not self.enabled:
             logger.debug("WuKongIM integration is disabled")
-            raise HTTPException(
-                status_code=503,
-                detail="WuKongIM service is disabled"
-            )
+            raise HTTPException(status_code=503, detail="WuKongIM service is disabled")
 
         logger.info(f"Getting route for user {uid}")
 

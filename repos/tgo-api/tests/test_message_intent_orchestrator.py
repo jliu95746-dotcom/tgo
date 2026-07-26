@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
 from app.models import (
     MediaAnalysisResult,
@@ -91,6 +92,13 @@ class _WorkflowClient:
         return {"target": "read_only_tool", "reason": "read_only_query"}
 
 
+class _UnavailableWorkflowClient:
+    async def route_customer_service(
+        self, _routing_data: dict[str, object]
+    ) -> dict[str, object]:
+        raise RuntimeError("workflow unavailable")
+
+
 class _PluginClient:
     last_request: dict[str, object] | None = None
 
@@ -168,6 +176,11 @@ class _LogisticsService:
 
     async def query_shipment(self, _project_id, _shipment_id):
         return self.shipment, ()
+
+
+class _FailingLogisticsService(_LogisticsService):
+    async def query_shipment(self, _project_id, _shipment_id):
+        raise HTTPException(status_code=502, detail="logistics provider unavailable")
 
 
 @pytest.mark.asyncio
@@ -367,6 +380,149 @@ async def test_logistics_archive_excludes_the_tool_already_executed() -> None:
 
     assert outcome.routing_target == "read_only_tool"
     assert outcome.excluded_tool_ids == (str(logistics_service.query_tool_id),)
+
+
+@pytest.mark.asyncio
+async def test_explicit_tracking_number_skips_intent_model() -> None:
+    project = Project(id=uuid4(), name="test", api_key="ak_test")
+    platform = Platform(
+        id=uuid4(),
+        project_id=project.id,
+        name="web",
+        type="website",
+        api_key="platform-key",
+        is_active=True,
+    )
+    visitor = Visitor(
+        id=uuid4(),
+        project_id=project.id,
+        platform_id=platform.id,
+        platform_open_id="visitor-open-id",
+    )
+    config = ProjectAIConfig(
+        project_id=project.id,
+        default_chat_provider_id=uuid4(),
+        default_chat_model="deepseek-v4-flash",
+    )
+    ai_client = _UnexpectedAIClient()
+    orchestrator = MessageIntentOrchestrator(
+        _Session(config, visitor),  # type: ignore[arg-type]
+        ai_client=ai_client,  # type: ignore[arg-type]
+        workflow_client=_WorkflowClient(),  # type: ignore[arg-type]
+        logistics_service=_LogisticsService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await orchestrator.analyze_text_message(
+        project=project,
+        platform=platform,
+        visitor=visitor,
+        source_message_id="user-message-explicit-tracking",
+        user_text="321143976686919",
+    )
+
+    assert ai_client.called is False
+    assert outcome.intent_result.intent == "logistics_query"
+    assert outcome.routing_target == "read_only_tool"
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    (
+        ("15110345442", None),
+        ("手机号 15110345442", None),
+        ("快递单号 15110345442", "15110345442"),
+        ("SF1234567890", "SF1234567890"),
+        ("321143976686919", "321143976686919"),
+    ),
+)
+def test_tracking_number_detection_does_not_mistake_phone_number(
+    message: str,
+    expected: str | None,
+) -> None:
+    assert MessageIntentOrchestrator._explicit_tracking_number(message) == expected
+
+
+@pytest.mark.asyncio
+async def test_tracking_number_workflow_failure_does_not_handoff() -> None:
+    project = Project(id=uuid4(), name="test", api_key="ak_test")
+    platform = Platform(
+        id=uuid4(),
+        project_id=project.id,
+        name="web",
+        type="website",
+        api_key="platform-key",
+        is_active=True,
+    )
+    visitor = Visitor(
+        id=uuid4(),
+        project_id=project.id,
+        platform_id=platform.id,
+        platform_open_id="visitor-open-id",
+    )
+    config = ProjectAIConfig(
+        project_id=project.id,
+        default_chat_provider_id=uuid4(),
+        default_chat_model="deepseek-v4-flash",
+    )
+    orchestrator = MessageIntentOrchestrator(
+        _Session(config, visitor),  # type: ignore[arg-type]
+        ai_client=_UnexpectedAIClient(),  # type: ignore[arg-type]
+        workflow_client=_UnavailableWorkflowClient(),  # type: ignore[arg-type]
+        logistics_service=_LogisticsService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await orchestrator.analyze_text_message(
+        project=project,
+        platform=platform,
+        visitor=visitor,
+        source_message_id="user-message-workflow-unavailable",
+        user_text="快递单号 SF1234567890",
+    )
+
+    assert outcome.routing_target == "clarify"
+    assert outcome.routing_reason == "workflow_service_unavailable"
+    assert outcome.handoff_result is None
+
+
+@pytest.mark.asyncio
+async def test_logistics_query_failure_clarifies_without_handoff() -> None:
+    project = Project(id=uuid4(), name="test", api_key="ak_test")
+    platform = Platform(
+        id=uuid4(),
+        project_id=project.id,
+        name="web",
+        type="website",
+        api_key="platform-key",
+        is_active=True,
+    )
+    visitor = Visitor(
+        id=uuid4(),
+        project_id=project.id,
+        platform_id=platform.id,
+        platform_open_id="visitor-open-id",
+    )
+    config = ProjectAIConfig(
+        project_id=project.id,
+        default_chat_provider_id=uuid4(),
+        default_chat_model="deepseek-v4-flash",
+    )
+    orchestrator = MessageIntentOrchestrator(
+        _Session(config, visitor),  # type: ignore[arg-type]
+        ai_client=_UnexpectedAIClient(),  # type: ignore[arg-type]
+        workflow_client=_WorkflowClient(),  # type: ignore[arg-type]
+        logistics_service=_FailingLogisticsService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await orchestrator.analyze_text_message(
+        project=project,
+        platform=platform,
+        visitor=visitor,
+        source_message_id="user-message-failed-tracking",
+        user_text="快递单号 SF1234567890",
+    )
+
+    assert outcome.routing_target == "clarify"
+    assert outcome.handoff_result is None
 
 
 @pytest.mark.asyncio

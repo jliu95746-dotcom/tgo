@@ -1,12 +1,15 @@
 """API Service client for interacting with the core TGO API service."""
 
 import logging
+import time
 from typing import Any, Dict, Optional
 
 import httpx
+
 from app.config import settings
 
 logger = logging.getLogger("services.api_service")
+
 
 class APIServiceClient:
     """Client for interacting with the core TGO API service."""
@@ -15,29 +18,56 @@ class APIServiceClient:
         """Initialize the API service client."""
         # Use docker service name instead of localhost for internal communication
         self.api_base_url = settings.api_service_url
-        internal_base = (settings.api_internal_service_url or self.api_base_url).rstrip("/")
+        internal_base = (settings.api_internal_service_url or self.api_base_url).rstrip(
+            "/"
+        )
         self.internal_api_url = f"{internal_base}/internal"
-            
+
         self.plugin_runtime_url = settings.plugin_runtime_url
         self.timeout = 30.0
+        self._http_client: Optional[httpx.AsyncClient] = None
+        self._credential_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+        self._credential_cache_ttl_seconds = 300.0
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=self.timeout,
+                trust_env=False,
+            )
+        return self._http_client
+
+    async def aclose(self) -> None:
+        if self._http_client is not None and not self._http_client.is_closed:
+            await self._http_client.aclose()
 
     async def get_store_credential(self, project_id: str) -> Optional[Dict[str, Any]]:
         """
         Fetch store credential for a project from the internal API.
         """
-        urls = [f"{self.internal_api_url}/store/{project_id}/credential"]
-        
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            for url in urls:
-                try:
-                    response = await client.get(url)
-                    if response.status_code == 200:
-                        return response.json()
-                except Exception:
-                    continue
-            
-            logger.error(f"Failed to fetch store credential from all candidate URLs for project {project_id}")
-            return None
+        cached = self._credential_cache.get(project_id)
+        now = time.monotonic()
+        if cached and cached[0] > now:
+            return cached[1]
+
+        url = f"{self.internal_api_url}/store/{project_id}/credential"
+        try:
+            response = await self._get_http_client().get(url)
+            if response.status_code == 200:
+                credential = response.json()
+                self._credential_cache[project_id] = (
+                    now + self._credential_cache_ttl_seconds,
+                    credential,
+                )
+                return credential
+        except Exception:
+            pass
+
+        logger.error(
+            "Failed to fetch store credential for project %s",
+            project_id,
+        )
+        return None
 
     async def execute_plugin_tool(
         self,
@@ -59,7 +89,7 @@ class APIServiceClient:
             Tool result dictionary
         """
         url = f"{self.plugin_runtime_url}/plugins/tools/execute/{plugin_id}/{tool_name}"
-        
+
         payload = {
             "arguments": arguments,
             "context": context,
@@ -72,15 +102,17 @@ class APIServiceClient:
                     json=payload,
                     headers={"Content-Type": "application/json"},
                 )
-                
+
                 if response.status_code == 200:
                     return response.json()
                 else:
-                    logger.error(f"API service error executing plugin tool: {response.status_code} {response.text}")
+                    logger.error(
+                        f"API service error executing plugin tool: {response.status_code} {response.text}"
+                    )
                     return {
                         "success": False,
                         "error": f"API service error: {response.status_code}",
-                        "content": f"工具执行失败 (HTTP {response.status_code})"
+                        "content": f"工具执行失败 (HTTP {response.status_code})",
                     }
 
             except httpx.RequestError as e:
@@ -88,8 +120,9 @@ class APIServiceClient:
                 return {
                     "success": False,
                     "error": str(e),
-                    "content": "无法连接到 TGO API 服务"
+                    "content": "无法连接到 TGO API 服务",
                 }
+
 
 # Global API service client instance
 api_service_client = APIServiceClient()

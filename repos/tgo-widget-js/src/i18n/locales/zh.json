@@ -45,6 +45,7 @@
   },
   "system": {
     "staffAssigned": "已为您接入人工客服，客服 {{name0}} 为您服务。",
+    "humanHandoffRequested": "已收到您的人工客服请求，客服 {{name0}} 将接手处理。",
     "sessionTransferred": "会话已转接。客服 {{name0}} 已将您转接给客服 {{name1}}。",
     "sessionClosed": "会话已结束。客服 {{name0}} 已完成本次服务。",
     "sessionClosedNoAgent": "会话已结束。"

@@ -73,6 +73,7 @@ from app.schemas import (
     VisitorRegisterRequest,
     VisitorRegisterResponse,
     VisitorMessageSyncRequest,
+    VisitorServiceModeUpdate,
 )
 from app.schemas.visitor import (
     set_visitor_display_nickname,
@@ -1222,6 +1223,7 @@ async def enable_ai_for_visitor(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
 
     visitor.ai_disabled = False
+    visitor.service_mode = "auto"
     visitor.updated_at = datetime.utcnow()
 
     db.commit()
@@ -1260,6 +1262,8 @@ async def disable_ai_for_visitor(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
 
     visitor.ai_disabled = True
+    visitor.service_mode = "manual"
+    visitor.humanization_skill_enabled = False
     visitor.updated_at = datetime.utcnow()
 
     db.commit()
@@ -1270,6 +1274,57 @@ async def disable_ai_for_visitor(
     response = VisitorResponse.model_validate(visitor)
     populate_visitor_ai_settings(response, visitor.platform)
     localize_visitor_response_intent(response, request.headers.get("Accept-Language"))
+    set_visitor_display_nickname(response, user_language)
+    return response
+
+
+@router.put("/{visitor_id}/service-mode", response_model=VisitorResponse)
+async def update_visitor_service_mode(
+    request: Request,
+    visitor_id: UUID,
+    data: VisitorServiceModeUpdate,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(require_permission("visitors:update")),
+    user_language: UserLanguage = Depends(get_user_language),
+) -> VisitorResponse:
+    """Set AI customer service, assist, or fully manual mode."""
+    visitor = (
+        db.query(Visitor)
+        .options(joinedload(Visitor.platform))
+        .filter(
+            Visitor.id == visitor_id,
+            Visitor.project_id == current_user.project_id,
+            Visitor.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not visitor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Visitor not found",
+        )
+
+    try:
+        await visitor_service.configure_service_mode(
+            visitor,
+            str(current_user.project_id),
+            data,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    db.commit()
+    db.refresh(visitor)
+    await notify_visitor_profile_updated(db, visitor)
+
+    response = VisitorResponse.model_validate(visitor)
+    populate_visitor_ai_settings(response, visitor.platform)
+    localize_visitor_response_intent(
+        response, request.headers.get("Accept-Language")
+    )
     set_visitor_display_nickname(response, user_language)
     return response
 

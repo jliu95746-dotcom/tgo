@@ -23,7 +23,9 @@ class RagConfig(BaseModel):
 
     api_key: Optional[str] = Field(default=None, description="RAG服务API Key")
     rag_url: Optional[str] = Field(default=None, description="RAG服务地址")
-    project_id: Optional[str] = Field(default=None, description="Project ID for RAG service calls")
+    project_id: Optional[str] = Field(
+        default=None, description="Project ID for RAG service calls"
+    )
     knowledge_channel: Optional[KnowledgeChannel] = Field(
         default=None,
         description="Channel used for automatic-answer knowledge governance",
@@ -32,14 +34,14 @@ class RagConfig(BaseModel):
     filters: Optional[Dict[str, Any]] = Field(default=None, description="搜索过滤条件")
 
 
-
 class WorkflowConfig(BaseModel):
     """工作流配置."""
 
     workflow_url: Optional[str] = Field(default=None, description="工作流服务地址")
-    project_id: Optional[str] = Field(default=None, description="Project ID for Workflow service calls")
+    project_id: Optional[str] = Field(
+        default=None, description="Project ID for Workflow service calls"
+    )
     workflows: Optional[List[str]] = Field(default=None, description="启用的工作流ID列表")
-
 
 
 class LLMProviderCredentials(BaseModel):
@@ -62,12 +64,17 @@ class LLMProviderCredentials(BaseModel):
         default=None, description="Vendor label (e.g., deepseek, openai, openrouter)"
     )
 
+
 class AgentConfig(BaseModel):
     """单个智能体的模型配置."""
 
     model_name: Optional[str] = Field(default=None, description="模型标识")
     temperature: Optional[float] = Field(default=None, description="采样温度")
     max_tokens: Optional[int] = Field(default=None, description="最大生成token数")
+    thinking_enabled: Optional[bool] = Field(
+        default=None,
+        description="是否启用支持该能力的模型深度思考；未设置时由模型策略决定",
+    )
     system_prompt: Optional[str] = Field(
         default=None,
         description="系统提示词",
@@ -81,8 +88,12 @@ class AgentConfig(BaseModel):
 
     # 扩展配置参数
     markdown: Optional[bool] = Field(default=None, description="是否使用markdown格式输出")
-    add_datetime_to_context: Optional[bool] = Field(default=None, description="是否添加日期时间到上下文")
-    add_location_to_context: Optional[bool] = Field(default=None, description="是否添加位置信息到上下文")
+    add_datetime_to_context: Optional[bool] = Field(
+        default=None, description="是否添加日期时间到上下文"
+    )
+    add_location_to_context: Optional[bool] = Field(
+        default=None, description="是否添加位置信息到上下文"
+    )
     timezone_identifier: Optional[str] = Field(default=None, description="时区标识")
     tool_call_limit: Optional[int] = Field(default=None, description="单次运行工具调用次数限制")
     num_history_runs: Optional[int] = Field(default=None, description="历史会话轮数限制")

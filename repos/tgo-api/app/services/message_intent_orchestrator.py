@@ -195,6 +195,19 @@ class MessageIntentOrchestrator:
         project: Project,
         user_text: str,
     ) -> dict[str, object]:
+        explicit_tracking_number = self._explicit_tracking_number(user_text)
+        if explicit_tracking_number is not None:
+            return {
+                "intent": "logistics_query",
+                "confidence": 1.0,
+                "entities": {"logistics_no": explicit_tracking_number},
+                "risk_level": "low",
+                "recommended_route": "read_only_tool",
+                "need_human": False,
+                "taxonomy_version": "v1",
+                "routing_reason": "high_confidence_read_only",
+                "classification_source": "rule",
+            }
         if self._can_use_safe_auto_reply(user_text):
             return {
                 "intent": "product_inquiry",
@@ -242,6 +255,31 @@ class MessageIntentOrchestrator:
             return self._fail_closed_payload()
 
     @staticmethod
+    def _explicit_tracking_number(user_text: str) -> str | None:
+        candidates = detect_tracking_numbers(user_text)
+        if len(candidates) != 1:
+            return None
+
+        candidate = candidates[0]
+        normalized_text = unicodedata.normalize("NFKC", user_text).lower()
+        has_logistics_label = any(
+            marker in normalized_text
+            for marker in (
+                "快递",
+                "物流",
+                "运单",
+                "单号",
+                "包裹",
+                "tracking",
+            )
+        )
+        has_alpha_prefix = any(character.isalpha() for character in candidate)
+        is_non_phone_numeric = candidate.isdigit() and len(candidate) >= 12
+        if has_logistics_label or has_alpha_prefix or is_non_phone_numeric:
+            return candidate
+        return None
+
+    @staticmethod
     def _can_use_safe_auto_reply(user_text: str) -> bool:
         """Skip a redundant model call only when no special route is possible."""
         normalized_text = "".join(
@@ -281,6 +319,14 @@ class MessageIntentOrchestrator:
                 "Workflow routing failed closed",
                 extra={"error": str(exc)},
             )
+            if (
+                request.recommended_route.value == "read_only_tool"
+                and request.intent.value in {"order_query", "logistics_query"}
+            ):
+                return {
+                    "target": "clarify",
+                    "reason": "workflow_service_unavailable",
+                }
             return {
                 "target": "human_handoff",
                 "reason": "workflow_service_unavailable",
@@ -338,14 +384,14 @@ class MessageIntentOrchestrator:
                 extra={"error": str(exc), "operation": operation},
             )
             return (
-                {"target": "human_handoff", "reason": "business_tool_unavailable"},
-                None,
+                {"target": "clarify", "reason": "business_tool_unavailable"},
+                "业务查询暂时不可用，请说明要查询的订单或物流信息，稍后再试。",
                 (),
             )
         if result is None:
             return (
-                {"target": "human_handoff", "reason": "business_tool_unavailable"},
-                None,
+                {"target": "clarify", "reason": "business_tool_unavailable"},
+                "业务查询暂时不可用，请说明要查询的订单或物流信息，稍后再试。",
                 (),
             )
         return (
@@ -368,7 +414,11 @@ class MessageIntentOrchestrator:
         try:
             settings_row = self._logistics_service.get_settings(project.id)
             if not settings_row.enabled:
-                return None
+                return (
+                    {"target": "clarify", "reason": "logistics_tool_not_configured"},
+                    "物流查询暂未启用，请保留快递单号并稍后再试。",
+                    (),
+                )
             if not logistics_no and not settings_row.auto_query_on_mention:
                 return None
             if logistics_no:
@@ -418,8 +468,18 @@ class MessageIntentOrchestrator:
                 extra={"project_id": str(project.id), "error": str(exc.detail)},
             )
             return (
-                {"target": "human_handoff", "reason": "logistics_query_failed"},
-                None,
+                {"target": "clarify", "reason": "logistics_query_failed"},
+                "物流查询暂时失败，请核对快递单号或稍后再试。",
+                (),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Customer logistics archive query failed",
+                extra={"project_id": str(project.id), "error": str(exc)},
+            )
+            return (
+                {"target": "clarify", "reason": "logistics_query_failed"},
+                "物流查询暂时失败，请核对快递单号或稍后再试。",
                 (),
             )
         context = {

@@ -1,141 +1,188 @@
-"""Tests for MessagePoller worker."""
+"""Tests for the Agent-based message polling worker."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import pytest
 
+from app.domain.agent.entities import AgentResult
 from app.workers.message_poller import MessagePoller
+
+
+def _build_poller(sample_platform_id):
+    agent = MagicMock()
+    agent.session_id = "test-session"
+    callback = AsyncMock()
+    callback.notify_new_message.return_value = True
+    callback.notify_status_change.return_value = True
+    login_status_callback = AsyncMock()
+
+    poller = MessagePoller(
+        platform_id=sample_platform_id,
+        app_type="wechat",
+        agent=agent,
+        poll_interval=5,
+        message_callback=callback,
+        login_status_callback=login_status_callback,
+    )
+    return poller, callback, login_status_callback
 
 
 class TestMessagePoller:
     """Tests for MessagePoller class."""
 
-    def test_init(self, mock_agentbay_controller, mock_vlm_client, sample_platform_id):
-        """Test MessagePoller initialization."""
-        poller = MessagePoller(
-            platform_id=sample_platform_id,
-            app_type="wechat",
-            session_id="test-session",
-            controller=mock_agentbay_controller,
-            vlm_client=mock_vlm_client,
-            poll_interval=5,
-        )
+    def test_init(self, sample_platform_id):
+        poller, _, _ = _build_poller(sample_platform_id)
 
         assert poller.platform_id == sample_platform_id
         assert poller.app_type == "wechat"
-        assert poller.session_id == "test-session"
+        assert poller.agent.session_id == "test-session"
         assert poller.poll_interval == 5
         assert poller._running is False
 
-    def test_generate_fingerprint(
-        self, mock_agentbay_controller, mock_vlm_client, sample_platform_id
-    ):
-        """Test message fingerprint generation."""
-        poller = MessagePoller(
-            platform_id=sample_platform_id,
-            app_type="wechat",
-            session_id="test-session",
-            controller=mock_agentbay_controller,
-            vlm_client=mock_vlm_client,
-        )
+    def test_generate_fingerprint(self, sample_platform_id):
+        poller, _, _ = _build_poller(sample_platform_id)
 
         fp1 = poller._generate_fingerprint("contact1", "hello")
         fp2 = poller._generate_fingerprint("contact1", "hello")
         fp3 = poller._generate_fingerprint("contact2", "hello")
 
-        # Same inputs should produce same fingerprint
         assert fp1 == fp2
-        # Different contact should produce different fingerprint
         assert fp1 != fp3
 
-    def test_is_message_processed(
-        self, mock_agentbay_controller, mock_vlm_client, sample_platform_id
-    ):
-        """Test message processing tracking."""
-        poller = MessagePoller(
-            platform_id=sample_platform_id,
-            app_type="wechat",
-            session_id="test-session",
-            controller=mock_agentbay_controller,
-            vlm_client=mock_vlm_client,
-        )
+    def test_mark_message_processed_bounds_set_size(self, sample_platform_id):
+        poller, _, _ = _build_poller(sample_platform_id)
 
-        fingerprint = "test-fingerprint"
-        assert poller._is_message_processed(fingerprint) is False
+        for index in range(10005):
+            poller._mark_message_processed(f"fp-{index}")
 
-        poller._mark_message_processed(fingerprint)
-        assert poller._is_message_processed(fingerprint) is True
-
-    def test_mark_message_processed_bounds_set_size(
-        self, mock_agentbay_controller, mock_vlm_client, sample_platform_id
-    ):
-        """Test that fingerprint set is bounded."""
-        poller = MessagePoller(
-            platform_id=sample_platform_id,
-            app_type="wechat",
-            session_id="test-session",
-            controller=mock_agentbay_controller,
-            vlm_client=mock_vlm_client,
-        )
-
-        # Add more than 10000 fingerprints
-        for i in range(10005):
-            poller._mark_message_processed(f"fp-{i}")
-
-        # Set should be bounded
         assert len(poller._processed_fingerprints) <= 10000
 
     @pytest.mark.asyncio
-    async def test_start_stop(
-        self, mock_agentbay_controller, mock_vlm_client, sample_platform_id
+    async def test_poll_once_persists_login_and_forwards_unread_contact(
+        self,
+        sample_platform_id,
     ):
-        """Test start and stop methods."""
-        poller = MessagePoller(
-            platform_id=sample_platform_id,
-            app_type="wechat",
-            session_id="test-session",
-            controller=mock_agentbay_controller,
-            vlm_client=mock_vlm_client,
-            poll_interval=1,
+        poller, callback, login_status_callback = _build_poller(sample_platform_id)
+        automator = MagicMock()
+        automator.get_app_display_name.return_value = "微信"
+        automator.run_custom_task = AsyncMock(
+            side_effect=[
+                AgentResult(
+                    success=True,
+                    message="ready",
+                    data={"login_status": "logged_in"},
+                ),
+                AgentResult(
+                    success=True,
+                    message="found",
+                    data={
+                        "contacts": [
+                            {
+                                "id": "wx-user-1",
+                                "name": "测试客户",
+                                "preview": "请问今天营业吗？",
+                            }
+                        ]
+                    },
+                ),
+            ]
         )
 
-        # Mock the automator factory
-        with patch("app.workers.message_poller.AppAutomatorFactory") as mock_factory:
-            mock_automator = AsyncMock()
-            mock_automator.get_login_status = AsyncMock(
-                return_value=MagicMock(login_status=MagicMock(value="offline"))
-            )
-            mock_factory.create.return_value = mock_automator
+        with patch(
+            "app.workers.message_poller.AppAutomatorFactory.create",
+            return_value=automator,
+        ):
+            await poller._poll_once()
 
+        login_status_callback.assert_awaited_once_with("logged_in")
+        callback.notify_new_message.assert_awaited_once_with(
+            platform_id=str(sample_platform_id),
+            contact_id="wx-user-1",
+            contact_name="测试客户",
+            message_content="请问今天营业吗？",
+            message_type="text",
+        )
+
+    @pytest.mark.asyncio
+    async def test_poll_once_stops_before_message_scan_when_not_logged_in(
+        self,
+        sample_platform_id,
+    ):
+        poller, callback, login_status_callback = _build_poller(sample_platform_id)
+        automator = MagicMock()
+        automator.get_app_display_name.return_value = "微信"
+        automator.run_custom_task = AsyncMock(
+            return_value=AgentResult(
+                success=True,
+                message="waiting for QR scan",
+                data={"login_status": "qr_pending"},
+            )
+        )
+
+        with patch(
+            "app.workers.message_poller.AppAutomatorFactory.create",
+            return_value=automator,
+        ):
+            await poller._poll_once()
+
+        assert automator.run_custom_task.await_count == 1
+        login_status_callback.assert_awaited_once_with("qr_pending")
+        callback.notify_new_message.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_message_is_forwarded_only_once(self, sample_platform_id):
+        poller, callback, _ = _build_poller(sample_platform_id)
+        result = AgentResult(
+            success=True,
+            message="found",
+            data={
+                "contacts": [
+                    {
+                        "id": "wx-user-1",
+                        "name": "测试客户",
+                        "preview": "同一条消息",
+                    }
+                ]
+            },
+        )
+
+        await poller._process_messages(result)
+        await poller._process_messages(result)
+
+        assert callback.notify_new_message.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_callback_is_not_marked_processed(self, sample_platform_id):
+        poller, callback, _ = _build_poller(sample_platform_id)
+        callback.notify_new_message.return_value = False
+        result = AgentResult(
+            success=True,
+            message="found",
+            data={
+                "contacts": [
+                    {
+                        "id": "wx-user-1",
+                        "name": "测试客户",
+                        "preview": "需要重试",
+                    }
+                ]
+            },
+        )
+
+        await poller._process_messages(result)
+        await poller._process_messages(result)
+
+        assert callback.notify_new_message.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_start_stop(self, sample_platform_id):
+        poller, _, _ = _build_poller(sample_platform_id)
+
+        with patch.object(poller, "_poll_loop", new=AsyncMock()):
             await poller.start()
             assert poller._running is True
 
             await poller.stop()
             assert poller._running is False
-
-    @pytest.mark.asyncio
-    async def test_start_twice_does_nothing(
-        self, mock_agentbay_controller, mock_vlm_client, sample_platform_id
-    ):
-        """Test that starting twice doesn't create duplicate tasks."""
-        poller = MessagePoller(
-            platform_id=sample_platform_id,
-            app_type="wechat",
-            session_id="test-session",
-            controller=mock_agentbay_controller,
-            vlm_client=mock_vlm_client,
-            poll_interval=60,  # Long interval to prevent actual polling
-        )
-
-        with patch("app.workers.message_poller.AppAutomatorFactory"):
-            await poller.start()
-            first_task = poller._task
-
-            await poller.start()  # Should log warning and return
-            second_task = poller._task
-
-            assert first_task is second_task
-
-            await poller.stop()

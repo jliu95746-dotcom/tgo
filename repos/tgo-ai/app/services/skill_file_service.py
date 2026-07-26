@@ -25,16 +25,22 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Literal, Optional, Set
+from uuid import uuid4
 
 import yaml
 
 from app.schemas.skill import (
+    HumanizationSkillCreateRequest,
+    HumanizationTrainingApplyResponse,
+    HumanizationTrainingSampleRequest,
+    HumanizationTrainingStatus,
     SkillCreateRequest,
     SkillDetail,
     SkillSummary,
     SkillUpdateRequest,
 )
+from app.services.humanization_skill_training import HumanizationTrainingStore
 
 import logging
 
@@ -136,6 +142,7 @@ class SkillFileService:
     def __init__(self, base_dir: str) -> None:
         self.base_dir = Path(base_dir)
         self.official_dir = self.base_dir / "_official"
+        self.training_store = HumanizationTrainingStore(self.base_dir)
 
     # ------------------------------------------------------------------
     # Path helpers
@@ -245,6 +252,12 @@ class SkillFileService:
                     summary = self._parse_skill_summary(child, is_official=False)
                     if summary is not None:
                         summary.enabled = child.name not in disabled
+                        if summary.skill_type == "humanization":
+                            summary.pending_training_count = (
+                                self.training_store.pending_count(
+                                    project_id, child.name
+                                )
+                            )
                         skills.append(summary)
 
         # 2. Official (global) skills
@@ -261,7 +274,13 @@ class SkillFileService:
     async def get_skill(self, project_id: str, skill_name: str) -> SkillDetail:
         """Read a skill's full detail (frontmatter + body + file list)."""
         skill_dir = self._resolve_skill_dir(project_id, skill_name)
-        return self._parse_skill_detail(skill_dir)
+        detail = self._parse_skill_detail(skill_dir)
+        detail.enabled = skill_name not in self._load_disabled_skills(project_id)
+        if detail.skill_type == "humanization":
+            detail.pending_training_count = self.training_store.pending_count(
+                project_id, skill_name
+            )
+        return detail
 
     async def create_skill(
         self, project_id: str, data: SkillCreateRequest
@@ -283,7 +302,47 @@ class SkillFileService:
         if data.references:
             self._write_files(skill_dir / "references", data.references)
 
-        return self._parse_skill_detail(skill_dir)
+        detail = self._parse_skill_detail(skill_dir)
+        detail.enabled = data.name not in self._load_disabled_skills(project_id)
+        return detail
+
+    async def create_humanization_skill(
+        self,
+        project_id: str,
+        data: HumanizationSkillCreateRequest,
+    ) -> SkillDetail:
+        """Create a trainable skill that stays outside global skill loading."""
+        skill_name = data.name or f"humanization-{uuid4().hex[:8]}"
+        instructions = f"""# {data.display_name}
+
+将客户回复改写得自然、简洁，像真实客服在聊天。
+
+## 规则
+
+- 直接回应客户，不描述分析、查询、工具调用或内部工作过程。
+- 保留订单、价格、政策、时效等业务事实，不根据表达样本发明事实。
+- 优先使用短句和口语化表达，避免模板化标题、总结和重复复述。
+- `references/approved-examples.md` 存在时，参考其中人工确认的最终表达，但不要照搬其中的客户信息。
+"""
+        detail = await self.create_skill(
+            project_id,
+            SkillCreateRequest(
+                name=skill_name,
+                description=data.description,
+                instructions=instructions,
+                tags=["customer-service", "humanization"],
+                metadata={
+                    "skill_type": "humanization",
+                    "display_name": data.display_name,
+                    "published_version": "1",
+                },
+            ),
+        )
+        await self.toggle_skill(project_id, skill_name, False)
+        detail.enabled = False
+        detail.skill_type = "humanization"
+        detail.display_name = data.display_name
+        return detail
 
     async def update_skill(
         self, project_id: str, skill_name: str, data: SkillUpdateRequest
@@ -298,7 +357,92 @@ class SkillFileService:
 
         # Merge update into existing frontmatter
         self._write_skill_md(skill_dir, data, merge=True)
-        return self._parse_skill_detail(skill_dir)
+        detail = self._parse_skill_detail(skill_dir)
+        detail.enabled = skill_name not in self._load_disabled_skills(project_id)
+        if detail.skill_type == "humanization":
+            detail.pending_training_count = self.training_store.pending_count(
+                project_id, skill_name
+            )
+        return detail
+
+    async def add_humanization_training_sample(
+        self,
+        project_id: str,
+        skill_name: str,
+        data: HumanizationTrainingSampleRequest,
+    ) -> HumanizationTrainingStatus:
+        detail = await self.get_skill(project_id, skill_name)
+        if detail.skill_type != "humanization":
+            raise ValueError(f"Skill '{skill_name}' is not a humanization skill")
+        pending_count = self.training_store.append(project_id, skill_name, data)
+        return HumanizationTrainingStatus(
+            name=skill_name,
+            pending_training_count=pending_count,
+            published_version=detail.published_version,
+        )
+
+    async def apply_humanization_training(
+        self,
+        project_id: str,
+        skill_name: str,
+    ) -> HumanizationTrainingApplyResponse:
+        detail = await self.get_skill(project_id, skill_name)
+        if detail.skill_type != "humanization":
+            raise ValueError(f"Skill '{skill_name}' is not a humanization skill")
+
+        samples = self.training_store.list_pending(project_id, skill_name)
+        if not samples:
+            return HumanizationTrainingApplyResponse(
+                name=skill_name,
+                applied_count=0,
+                pending_training_count=0,
+                published_version=detail.published_version,
+            )
+
+        skill_dir = self._skill_dir(project_id, skill_name)
+        examples_path = skill_dir / "references" / "approved-examples.md"
+        examples_path.parent.mkdir(parents=True, exist_ok=True)
+        examples_existed = examples_path.exists()
+        previous_examples = (
+            examples_path.read_text(encoding="utf-8")
+            if examples_existed
+            else ""
+        )
+        existing = previous_examples.rstrip()
+        rendered = self.training_store.render_approved_examples(samples)
+        next_version = detail.published_version + 1
+        if existing:
+            batch = rendered.replace(
+                "# 已确认的人工修正样本",
+                f"## 训练批次 v{next_version}",
+                1,
+            )
+            content = f"{existing}\n\n{batch}"
+        else:
+            content = rendered
+        examples_path.write_text(content, encoding="utf-8")
+
+        try:
+            await self.update_skill(
+                project_id,
+                skill_name,
+                SkillUpdateRequest(
+                    metadata={"published_version": str(next_version)}
+                ),
+            )
+        except Exception:
+            if examples_existed:
+                examples_path.write_text(previous_examples, encoding="utf-8")
+            elif examples_path.exists():
+                examples_path.unlink()
+            raise
+        self.training_store.delete(project_id, skill_name)
+        return HumanizationTrainingApplyResponse(
+            name=skill_name,
+            applied_count=len(samples),
+            pending_training_count=0,
+            published_version=next_version,
+        )
 
     async def delete_skill(self, project_id: str, skill_name: str) -> None:
         """Delete a project-private skill directory entirely."""
@@ -312,6 +456,11 @@ class SkillFileService:
             )
 
         shutil.rmtree(skill_dir)
+        self.training_store.delete(project_id, skill_name)
+        disabled = self._load_disabled_skills(project_id)
+        if skill_name in disabled:
+            disabled.discard(skill_name)
+            self._save_disabled_skills(project_id, disabled)
 
     # ------------------------------------------------------------------
     # Sub-file CRUD
@@ -399,6 +548,16 @@ class SkillFileService:
         except OSError:
             updated_at = None
 
+        skill_type: Literal["standard", "humanization"] = (
+            "humanization"
+            if meta.get("skill_type") == "humanization"
+            else "standard"
+        )
+        try:
+            published_version = max(1, int(meta.get("published_version", 1)))
+        except (TypeError, ValueError):
+            published_version = 1
+
         return SkillSummary(
             name=fm.get("name", skill_dir.name),
             description=fm.get("description", ""),
@@ -407,6 +566,9 @@ class SkillFileService:
             is_featured=meta.get("is_featured", False),
             tags=meta.get("tags", []),
             updated_at=updated_at,
+            skill_type=skill_type,
+            display_name=meta.get("display_name"),
+            published_version=published_version,
         )
 
     def _parse_skill_detail(self, skill_dir: Path) -> SkillDetail:
@@ -434,6 +596,16 @@ class SkillFileService:
         scripts = self._list_relative_files(skill_dir / "scripts")
         references = self._list_relative_files(skill_dir / "references")
 
+        skill_type: Literal["standard", "humanization"] = (
+            "humanization"
+            if meta.get("skill_type") == "humanization"
+            else "standard"
+        )
+        try:
+            published_version = max(1, int(meta.get("published_version", 1)))
+        except (TypeError, ValueError):
+            published_version = 1
+
         return SkillDetail(
             name=fm.get("name", skill_dir.name),
             description=fm.get("description", ""),
@@ -445,9 +617,25 @@ class SkillFileService:
             instructions=body,
             license=fm.get("license"),
             version=meta.get("version"),
-            metadata={k: str(v) for k, v in meta.items() if k not in ("author", "version", "tags", "is_featured")},
+            metadata={
+                k: str(v)
+                for k, v in meta.items()
+                if k
+                not in (
+                    "author",
+                    "version",
+                    "tags",
+                    "is_featured",
+                    "skill_type",
+                    "display_name",
+                    "published_version",
+                )
+            },
             scripts=scripts,
             references=references,
+            skill_type=skill_type,
+            display_name=meta.get("display_name"),
+            published_version=published_version,
         )
 
     # ------------------------------------------------------------------
@@ -487,8 +675,9 @@ class SkillFileService:
             meta["tags"] = data.tags
         if hasattr(data, "is_featured") and getattr(data, "is_featured", None) is not None:
             meta["is_featured"] = data.is_featured
-        if hasattr(data, "metadata") and getattr(data, "metadata", None) is not None:
-            for k, v in data.metadata.items():
+        metadata = getattr(data, "metadata", None)
+        if metadata is not None:
+            for k, v in metadata.items():
                 meta[k] = v
         if meta:
             fm["metadata"] = meta

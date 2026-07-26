@@ -3322,9 +3322,9 @@
     "input": {
       "placeholder": "输入消息...",
       "disabled": {
-        "placeholder": "AI助手已启用，无法手动输入",
-        "tooltip": "AI助手已启用，无法手动输入",
-        "cannotSendTooltip": "AI助手已启用，无法手动发送"
+        "placeholder": "AI 客服模式下无需人工输入",
+        "tooltip": "AI 客服会自动回复，如需人工编辑请切到辅助或人工模式",
+        "cannotSendTooltip": "AI 客服模式下不能手动发送"
       },
       "emoji": {
         "aria": "打开表情选择器",
@@ -3352,6 +3352,35 @@
         "enabledMessage": "访客AI助手已启用",
         "disabledTitle": "AI已禁用",
         "disabledMessage": "访客AI助手已禁用"
+      },
+      "mode": {
+        "auto": "AI客服",
+        "assist": "辅助",
+        "manual": "人工",
+        "changedTitle": "接待模式已切换",
+        "autoDescription": "AI 会自动生成并发送回复",
+        "assistDescription": "AI 只生成草稿，由人工修改和发送",
+        "manualDescription": "由人工直接回复，不生成 AI 草稿"
+      },
+      "humanization": {
+        "label": "拟人技能",
+        "trainingLabel": "训练拟人技能",
+        "none": "选择拟人技能",
+        "selectAria": "选择拟人技能",
+        "toggleAria": "启用拟人技能",
+        "selectFirstTitle": "请先选择拟人技能",
+        "selectFirstMessage": "选择后才能启用或训练该技能",
+        "sampleSavedTitle": "已记录修正",
+        "sampleSavedMessage": "将在技能管理中手动更新后生效",
+        "sampleFailedTitle": "回复已发送，但训练记录失败"
+      },
+      "assist": {
+        "generating": "正在生成回复草稿...",
+        "draftReady": "AI 草稿已填入，修改后再发送",
+        "waiting": "辅助模式不会自动发送，草稿需要人工确认",
+        "regenerate": "重新生成",
+        "discard": "丢弃草稿",
+        "placeholder": "修改 AI 草稿，确认后发送..."
       },
       "screenshotTip": {
         "aria": "截图发送提示",
@@ -4070,6 +4099,34 @@
       "placeholder": "搜索技能..."
     },
     "createSkill": "创建技能",
+    "standardSectionTitle": "普通技能",
+    "enable": "启用技能",
+    "disable": "停用技能",
+    "filter": "筛选技能",
+    "toggleFailed": "切换技能状态失败",
+    "humanization": {
+      "badge": "拟人技能",
+      "sectionTitle": "拟人技能",
+      "sectionDescription": "辅助模式收集人工修正，手动更新后才会用于 AI 回复。",
+      "empty": "还没有拟人技能，可以先创建一个用于辅助训练。",
+      "createAction": "创建拟人技能",
+      "createTitle": "创建拟人技能",
+      "editTitle": "编辑拟人技能",
+      "modalHint": "人工修改先进入待更新区，手动更新后才会生效",
+      "displayName": "显示名称",
+      "displayNamePlaceholder": "例如：售后真人话术",
+      "internalName": "内部名称",
+      "internalNameHint": "可留空自动生成；仅支持小写字母、数字和连字符",
+      "descriptionPlaceholder": "说明要训练的语气和适用场景",
+      "validationTitle": "请完善拟人技能信息",
+      "validationMessage": "名称和描述不能为空",
+      "createSuccess": "拟人技能已创建",
+      "editSuccess": "拟人技能已保存",
+      "saveFailed": "保存拟人技能失败",
+      "applyPending": "更新 {{count}} 条训练",
+      "applySuccess": "已更新 {{count}} 条训练内容，v{{version}} 开始生效",
+      "applyFailed": "更新拟人技能失败"
+    },
     "banner": {
       "title": "打造专业技能",
       "description": "通过创建技能，您可以将复杂的任务拆解为标准化的指令模板。让 AI 员工像专家一样，遵循最佳实践来完成代码审查、文案创作、数据分析等特定任务。"

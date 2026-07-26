@@ -15,7 +15,8 @@ from app.models import (
     VisitorSystemInfo,
     ChannelMember,
 )
-from app.schemas.visitor import VisitorSystemInfoRequest
+from app.schemas.visitor import VisitorServiceModeUpdate, VisitorSystemInfoRequest
+from app.services.humanization_service import get_humanization_skill_prompt
 from app.services.wukongim_client import wukongim_client
 from app.services.geoip_service import geoip_service
 from app.utils.const import (
@@ -61,6 +62,28 @@ AVATAR_ALLOWED_MIME_TYPES = {
 }
 AVATAR_ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
 AVATAR_MAX_SIZE_MB = 5  # 5MB limit for avatar
+
+
+async def configure_service_mode(
+    visitor: Visitor,
+    project_id: str,
+    data: VisitorServiceModeUpdate,
+) -> None:
+    """Apply a three-state service mode and validate its selected skill."""
+    skill_name = data.humanization_skill_name
+    humanization_enabled = (
+        data.service_mode.value != "manual" and data.humanization_skill_enabled
+    )
+    if humanization_enabled and not skill_name:
+        raise ValueError("A humanization skill must be selected before enabling it")
+    if skill_name:
+        await get_humanization_skill_prompt(project_id, skill_name)
+
+    visitor.service_mode = data.service_mode.value
+    visitor.ai_disabled = data.service_mode.value != "auto"
+    visitor.humanization_skill_name = skill_name
+    visitor.humanization_skill_enabled = humanization_enabled
+    visitor.updated_at = datetime.utcnow()
 
 
 def generate_default_visitor_name(visitor_id: str) -> str:

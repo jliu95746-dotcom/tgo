@@ -6,11 +6,13 @@ Simplified message poller that delegates complex logic to AgentLoop.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
-from typing import TYPE_CHECKING, Optional
+from collections import deque
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 from uuid import UUID
 
-from app.domain.agent.entities import AgentContext, AgentResult
+from app.domain.agent.entities import AgentResult
 from app.domain.base.app_automator import BaseAppAutomator, AppAutomatorFactory
 
 if TYPE_CHECKING:
@@ -39,6 +41,7 @@ class MessagePoller:
         agent: "AgentLoop",
         poll_interval: int = 10,
         message_callback: Optional["MessageCallback"] = None,
+        login_status_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ):
         """Initialize the message poller.
 
@@ -48,17 +51,22 @@ class MessagePoller:
             agent: AgentLoop instance for task execution
             poll_interval: Polling interval in seconds
             message_callback: Callback for new messages
+            login_status_callback: Callback for persisting app login status
         """
         self.platform_id = platform_id
         self.app_type = app_type
         self.agent = agent
         self.poll_interval = poll_interval
         self.message_callback = message_callback
+        self.login_status_callback = login_status_callback
 
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._automator: Optional[BaseAppAutomator] = None
         self._last_status: Optional[str] = None
+        self._processed_fingerprints: set[str] = set()
+        self._fingerprint_order: deque[str] = deque()
+        self._max_processed_fingerprints = 10000
         self._consecutive_errors = 0
         self._max_consecutive_errors = 5
 
@@ -133,9 +141,18 @@ class MessagePoller:
             await self._notify_status("not_ready", result.message)
             return
 
-        # Update status to logged in
-        if self._last_status != "logged_in":
-            await self._notify_status("logged_in", f"{automator.get_app_display_name()} 已登录")
+        login_status = str(result.data.get("login_status", "offline"))
+        if login_status != "logged_in":
+            await self._notify_status(
+                login_status,
+                f"{automator.get_app_display_name()} 尚未登录",
+            )
+            return
+
+        await self._notify_status(
+            "logged_in",
+            f"{automator.get_app_display_name()} 已登录",
+        )
 
         # Step 2: Check for new messages
         check_result = await automator.run_custom_task(
@@ -152,24 +169,63 @@ class MessagePoller:
 
         The agent should return message info in result.data.
         """
-        # Note: In a full implementation, the AgentLoop would return
-        # structured message data. For now, we log the result.
-        if result.data.get("contacts"):
-            contacts = result.data["contacts"]
-            logger.info(f"Detected {len(contacts)} contacts with new messages")
+        contacts = result.data.get("contacts", [])
+        if not isinstance(contacts, list):
+            logger.warning("Agent returned invalid contacts payload")
+            return
 
-            for contact in contacts:
-                if self.message_callback:
-                    try:
-                        await self.message_callback.notify_new_message(
-                            platform_id=str(self.platform_id),
-                            contact_id=contact.get("id", contact.get("name", "")),
-                            contact_name=contact.get("name", ""),
-                            message_content=contact.get("preview", ""),
-                            message_type="text",
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to notify message: {e}")
+        logger.info(f"Detected {len(contacts)} contacts with new messages")
+        for contact in contacts:
+            if not isinstance(contact, dict):
+                continue
+
+            contact_name = str(contact.get("name", "")).strip()
+            contact_id = str(contact.get("id") or contact_name).strip()
+            message_content = str(contact.get("preview", "")).strip()
+            if not contact_id or not message_content:
+                logger.warning("Skipping incomplete contact payload: %s", contact)
+                continue
+
+            fingerprint = self._generate_fingerprint(contact_id, message_content)
+            if self._is_message_processed(fingerprint):
+                logger.debug("Skipping duplicate message for contact %s", contact_id)
+                continue
+
+            if self.message_callback:
+                try:
+                    delivered = await self.message_callback.notify_new_message(
+                        platform_id=str(self.platform_id),
+                        contact_id=contact_id,
+                        contact_name=contact_name,
+                        message_content=message_content,
+                        message_type="text",
+                    )
+                    if delivered:
+                        self._mark_message_processed(fingerprint)
+                except Exception as e:
+                    logger.error(f"Failed to notify message: {e}")
+
+    @staticmethod
+    def _generate_fingerprint(contact_id: str, message_content: str) -> str:
+        """Generate a stable fingerprint for a visible message preview."""
+        value = f"{contact_id}\0{message_content}".encode("utf-8")
+        return hashlib.sha256(value).hexdigest()
+
+    def _is_message_processed(self, fingerprint: str) -> bool:
+        """Check whether a message preview was already delivered."""
+        return fingerprint in self._processed_fingerprints
+
+    def _mark_message_processed(self, fingerprint: str) -> None:
+        """Remember a delivered message while keeping memory bounded."""
+        if fingerprint in self._processed_fingerprints:
+            return
+
+        if len(self._fingerprint_order) >= self._max_processed_fingerprints:
+            oldest = self._fingerprint_order.popleft()
+            self._processed_fingerprints.discard(oldest)
+
+        self._fingerprint_order.append(fingerprint)
+        self._processed_fingerprints.add(fingerprint)
 
     async def _notify_status(self, status: str, message: str) -> None:
         """Notify about status change."""
@@ -178,6 +234,20 @@ class MessagePoller:
 
         self._last_status = status
         logger.info(f"Status change for {self.platform_id}: {status} - {message}")
+
+        if self.login_status_callback and status in {
+            "logged_in",
+            "qr_pending",
+            "offline",
+            "expired",
+            "app_not_installed",
+            "app_installing",
+            "app_not_running",
+        }:
+            try:
+                await self.login_status_callback(status)
+            except Exception as e:
+                logger.error(f"Failed to persist login status: {e}")
 
         if self.message_callback:
             try:

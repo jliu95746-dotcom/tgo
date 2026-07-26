@@ -26,6 +26,25 @@ class StaffSendPlatformMessageRequest(BaseSchema):
     )
 
 
+class AssistDraftRequest(BaseSchema):
+    """Generate a staff-visible draft without sending it to the customer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    visitor_id: UUID
+    customer_message: str = Field(..., min_length=1, max_length=10000)
+    humanization_skill_name: Optional[str] = Field(default=None, max_length=64)
+    source_message_id: Optional[str] = Field(default=None, max_length=255)
+
+
+class AssistDraftResponse(BaseSchema):
+    """Unsent draft returned only to the authenticated staff UI."""
+
+    draft: str
+    humanization_skill_name: Optional[str] = None
+    source_message_id: Optional[str] = None
+
+
 class ChatFileUploadResponse(BaseSchema):
     """Response for chat file upload."""
 

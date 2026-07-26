@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -31,25 +31,6 @@ class _FakeDB:
 
     def query(self, model: object) -> _FakeQuery:
         return _FakeQuery(self._results[model])
-
-
-class _ManualServiceDB:
-    def __init__(self, visitor: object, active_session: object) -> None:
-        self.visitor = visitor
-        self.active_session = active_session
-        self.commits = 0
-
-    def query(self, model: object) -> _FakeQuery:
-        if model is ai_events.Visitor:
-            return _FakeQuery(self.visitor)
-        if model is ai_events.VisitorWaitingQueue:
-            return _FakeQuery(None)
-        if model is ai_events.VisitorSession:
-            return _FakeQuery(self.active_session)
-        raise AssertionError(f"Unexpected model query: {model}")
-
-    def commit(self) -> None:
-        self.commits += 1
 
 
 class InternalAIEventsTests(unittest.IsolatedAsyncioTestCase):
@@ -102,83 +83,55 @@ class InternalAIEventsTests(unittest.IsolatedAsyncioTestCase):
             service_status="active",
             ai_disabled=None,
         )
-        active_session = SimpleNamespace(
-            id=session_id,
-            staff_id=staff_id,
-            status="open",
-        )
         project = SimpleNamespace(id=project_id)
-        db = _ManualServiceDB(visitor=visitor, active_session=active_session)
+        db = _FakeDB(visitor=visitor, project=project)
         event = AIServiceEvent(
             event_type="manual_service.request",
             user_id=str(visitor_id),
             payload={"reason": "customer requested human support"},
         )
+        handoff_result = {
+            "assigned_staff_id": str(staff_id),
+            "session_id": str(session_id),
+            "status": "active",
+        }
 
-        with (
-            patch.object(ai_events, "_ensure_manual_service_tag"),
-            patch.object(
-                ai_events,
-                "notify_visitor_profile_updated",
-                new=AsyncMock(),
-            ) as notify,
-        ):
+        with patch.object(
+            ai_events,
+            "request_human_handoff",
+            new=AsyncMock(return_value=handoff_result),
+        ) as request_handoff:
             result = await ai_events._handle_manual_service_request(
                 event=event,
                 project=project,
                 db=db,
             )
 
-        self.assertTrue(visitor.ai_disabled)
-        self.assertEqual(result["assigned_staff_id"], str(staff_id))
-        self.assertEqual(result["session_id"], str(session_id))
-        self.assertEqual(result["status"], "active")
-        self.assertGreaterEqual(db.commits, 2)
-        notify.assert_awaited_once_with(db, visitor)
+        self.assertEqual(result, handoff_result)
+        request_handoff.assert_awaited_once()
+        self.assertEqual(
+            request_handoff.await_args.kwargs["reason"],
+            "customer requested human support",
+        )
 
-    async def test_manual_handoff_rejects_transfer_without_human_state(
+    async def test_manual_handoff_requires_visitor_id(
         self,
     ) -> None:
-        """A nominal transfer result cannot be reported as success without state."""
-        visitor_id = uuid4()
+        """The internal event cannot create an anonymous handoff request."""
         project_id = uuid4()
-        visitor = SimpleNamespace(
-            id=visitor_id,
-            project_id=project_id,
-            deleted_at=None,
-            is_unassigned=True,
-            service_status="unassigned",
-            ai_disabled=None,
-        )
         project = SimpleNamespace(id=project_id)
-        db = _ManualServiceDB(visitor=visitor, active_session=None)
+        db = _FakeDB(visitor=None, project=project)
         event = AIServiceEvent(
             event_type="manual_service.request",
-            user_id=str(visitor_id),
+            user_id=None,
             payload={"reason": "customer requested human support"},
         )
-        transfer_result = SimpleNamespace(
-            success=True,
-            assigned_staff_id=None,
-            session=None,
-            waiting_queue=None,
-            message="transfer completed",
-        )
 
-        with (
-            patch.object(ai_events, "_ensure_manual_service_tag"),
-            patch.object(
-                ai_events,
-                "transfer_to_staff",
-                new=AsyncMock(return_value=transfer_result),
-            ),
-        ):
-            with self.assertRaises(ai_events.HTTPException) as raised:
-                await ai_events._handle_manual_service_request(
-                    event=event,
-                    project=project,
-                    db=db,
-                )
+        with self.assertRaises(ai_events.HTTPException) as raised:
+            await ai_events._handle_manual_service_request(
+                event=event,
+                project=project,
+                db=db,
+            )
 
-        self.assertEqual(raised.exception.status_code, 500)
-        self.assertIn("no staff session or waiting queue", raised.exception.detail)
+        self.assertEqual(raised.exception.status_code, 400)

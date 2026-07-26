@@ -1,7 +1,7 @@
 """Skill-related Pydantic schemas for file-system-based skill management."""
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import Field
 
@@ -48,6 +48,24 @@ class SkillSummary(BaseSchema):
     enabled: bool = Field(
         default=True,
         description="Whether this skill is enabled for the project",
+    )
+    skill_type: Literal["standard", "humanization"] = Field(
+        default="standard",
+        description="Skill category used by the management UI and runtime",
+    )
+    display_name: Optional[str] = Field(
+        default=None,
+        description="Human-facing name; may contain Chinese characters",
+    )
+    pending_training_count: int = Field(
+        default=0,
+        ge=0,
+        description="Humanization corrections waiting for manual publication",
+    )
+    published_version: int = Field(
+        default=1,
+        ge=1,
+        description="Published humanization training version",
     )
 
 
@@ -202,3 +220,50 @@ class SkillUpdateRequest(BaseSchema):
         default=None,
         description="Updated metadata (replaces existing)",
     )
+
+
+class HumanizationSkillCreateRequest(BaseSchema):
+    """Create a trainable humanization skill with a stable ASCII slug."""
+
+    name: Optional[str] = Field(
+        default=None,
+        min_length=2,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+        description="Optional ASCII slug; generated when omitted",
+    )
+    display_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Human-facing name; Chinese is supported",
+    )
+    description: str = Field(
+        ...,
+        min_length=1,
+        max_length=1024,
+        description="Purpose and target customer-service scenarios",
+    )
+
+
+class HumanizationTrainingSampleRequest(BaseSchema):
+    """A staff-approved correction captured from assist mode."""
+
+    customer_message: str = Field(..., min_length=1, max_length=10000)
+    ai_draft: str = Field(..., min_length=1, max_length=10000)
+    final_reply: str = Field(..., min_length=1, max_length=10000)
+    source_message_id: Optional[str] = Field(default=None, max_length=255)
+
+
+class HumanizationTrainingStatus(BaseSchema):
+    """Pending and published state for one humanization skill."""
+
+    name: str
+    pending_training_count: int = Field(ge=0)
+    published_version: int = Field(ge=1)
+
+
+class HumanizationTrainingApplyResponse(HumanizationTrainingStatus):
+    """Result of manually publishing pending correction samples."""
+
+    applied_count: int = Field(ge=0)

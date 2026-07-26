@@ -624,7 +624,6 @@ async def install_agent_from_store(
             "is_remote_store_agent": True,
             "remote_agent_url": f"{settings.STORE_SERVICE_URL.rstrip('/')}/api/v1/agentos",
             "store_agent_id": str(agent_template.id),
-            "project_id": str(project_id),
             "instruction": agent_template.instruction_zh or agent_template.instruction,
             "model": agent_template.model.name if agent_template.model else "gpt-4o",
             "config": agent_template.default_config,

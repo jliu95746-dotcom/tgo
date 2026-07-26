@@ -62,24 +62,35 @@ def validate_platform_and_project(
     return platform, project
 
 
-def is_ai_disabled(platform: Platform, visitor: Optional[Visitor]) -> bool:
-    """Check if AI is disabled for the platform or visitor.
-
-    Logic priority:
-    1. If visitor.ai_disabled is not None, use that value
-    2. Otherwise, check platform.ai_mode:
-       - "auto" means AI is enabled (return False)
-       - Any other value means AI is disabled (return True)
-    """
-    # Check visitor's ai_disabled first (if explicitly set)
+def resolve_service_mode(platform: Platform, visitor: Optional[Visitor]) -> str:
+    """Resolve the effective service mode while preserving legacy fields."""
     if visitor is not None:
+        explicit_mode = getattr(visitor, "service_mode", None)
         visitor_ai_disabled = getattr(visitor, "ai_disabled", None)
+        if isinstance(explicit_mode, str) and explicit_mode in {
+            "auto",
+            "assist",
+            "manual",
+        }:
+            # Existing handoff code still sets ai_disabled directly. Preserve
+            # that safety override even when a previous explicit mode was auto.
+            if explicit_mode == "auto" and visitor_ai_disabled is True:
+                return "manual"
+            return explicit_mode
         if visitor_ai_disabled is not None:
-            return visitor_ai_disabled
+            return "manual" if visitor_ai_disabled else "auto"
 
-    # Fall back to ai_mode: "auto" means AI enabled, others mean disabled
-    ai_mode = getattr(platform, "ai_mode", None)
-    return ai_mode != "auto"
+    platform_mode = getattr(platform, "ai_mode", None)
+    if platform_mode == "assist":
+        return "assist"
+    if platform_mode == "auto":
+        return "auto"
+    return "manual"
+
+
+def is_ai_disabled(platform: Platform, visitor: Optional[Visitor]) -> bool:
+    """Return whether customer-facing AI auto-send must be blocked."""
+    return resolve_service_mode(platform, visitor) != "auto"
 
 
 def sse_format(event: Dict[str, Any]) -> str:

@@ -29,6 +29,11 @@ export default function SystemMessage({ type, content, extra }: SystemMessagePro
         return t('system.sessionClosed', { ...params, defaultValue: formatSystemMessageContent(content, extra) })
       case 1002: // SESSION_TRANSFERRED
         return t('system.sessionTransferred', { ...params, defaultValue: formatSystemMessageContent(content, extra) })
+      case 1004: // HUMAN_HANDOFF_REQUESTED
+        if (!extra || extra.length === 0) {
+          return formatSystemMessageContent(content, extra)
+        }
+        return t('system.humanHandoffRequested', { ...params, defaultValue: formatSystemMessageContent(content, extra) })
       default:
         return formatSystemMessageContent(content, extra)
     }

@@ -7,6 +7,8 @@ import { BaseApiService } from './base/BaseApiService';
 import { apiClient } from './api';
 import type { Visitor, ChannelAIInsights, VisitorAISettings } from '@/types';
 
+export type VisitorServiceMode = 'auto' | 'assist' | 'manual';
+
 // API Request/Response Types based on OpenAPI specification
 
 // Tag response structure from API
@@ -69,6 +71,9 @@ export interface VisitorResponse {
   last_online_duration_minutes?: number | null;
   is_online: boolean;
   ai_disabled?: boolean; // True if AI is disabled for this visitor
+  service_mode?: VisitorServiceMode | null;
+  humanization_skill_name?: string | null;
+  humanization_skill_enabled: boolean;
   ai_settings?: VisitorAISettings | null;
   tags: TagResponse[];
   ai_profile?: any | null;
@@ -178,6 +183,7 @@ class VisitorApiService extends BaseApiService {
     visitorByChannel: '/v1/visitors/by-channel',
     enableAI: (id: string) => `/v1/visitors/${id}/enable-ai`,
     disableAI: (id: string) => `/v1/visitors/${id}/disable-ai`,
+    serviceMode: (id: string) => `/v1/visitors/${id}/service-mode`,
     closeSession: (visitorId: string) => `/v1/sessions/visitor/${visitorId}/close`,
     transferSession: (visitorId: string) => `/v1/sessions/visitor/${visitorId}/transfer`,
   };
@@ -256,6 +262,17 @@ class VisitorApiService extends BaseApiService {
   async disableAI(visitorId: string): Promise<VisitorResponse> {
     const endpoint = (this.endpoints.disableAI as (id: string) => string)(visitorId);
     return this.post<VisitorResponse>(endpoint, {});
+  }
+
+  async updateServiceMode(
+    visitorId: string,
+    data: {
+      service_mode: VisitorServiceMode;
+      humanization_skill_name?: string | null;
+      humanization_skill_enabled: boolean;
+    },
+  ): Promise<VisitorResponse> {
+    return this.put<VisitorResponse>(this.endpoints.serviceMode(visitorId), data);
   }
 
   /**

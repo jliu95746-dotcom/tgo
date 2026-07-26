@@ -174,6 +174,28 @@ services:
       - "8003"
       - --reload
 
+  tgo-vision-agent:
+    image: tgo-vision-agent:local
+    env_file:
+      - .env.dev
+    working_dir: /workspace
+    environment:
+      TGO_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tgo}:${POSTGRES_PASSWORD:-tgo}@postgres:5432/${POSTGRES_DB:-tgo}
+      TGO_REDIS_URL: redis://redis:6379/3
+      TGO_API_URL: http://tgo-api:8000
+      TGO_API_INTERNAL_URL: http://tgo-api:8001
+      TGO_PLATFORM_URL: http://tgo-platform:8003
+      TGO_AGENTBAY_API_KEY: ${AGENTBAY_API_KEY:-}
+      TGO_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./repos/tgo-vision-agent:/workspace
+    ports:
+      - "${TGO_VISION_AGENT_PORT:-18085}:8000"
+    command:
+      - /bin/sh
+      - -lc
+      - alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
   tgo-workflow:
     <<: *backend-dev
     environment:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from functools import partial
 from typing import Optional
 from uuid import UUID
 
@@ -17,8 +18,9 @@ from app.core.llm.vision import VisionClient
 from app.db.base import SessionLocal
 from app.db.models import VisionAgentSession
 from app.domain.agent.agent_loop import AgentLoop
-from app.domain.entities import SessionStatus
+from app.domain.entities import AppLoginStatus, SessionStatus
 from app.services.platform_callback import PlatformCallbackService
+from app.services.session_service import SessionService
 from app.workers.message_poller import MessagePoller
 from app.workers.session_keeper import SessionKeeper
 
@@ -156,6 +158,10 @@ class WorkerManager:
                     agent=agent,
                     poll_interval=poll_interval,
                     message_callback=self._platform_callback,
+                    login_status_callback=partial(
+                        self._persist_app_login_status,
+                        platform_id,
+                    ),
                 )
 
                 # Create session keeper
@@ -322,6 +328,37 @@ class WorkerManager:
                     await db.commit()
         except Exception as e:
             logger.error(f"Failed to update session status: {e}")
+
+    async def _persist_app_login_status(
+        self,
+        platform_id: UUID,
+        login_status: str,
+    ) -> None:
+        """Persist the app login status detected by the message poller."""
+        valid_statuses = {status.value for status in AppLoginStatus}
+        if login_status not in valid_statuses:
+            logger.warning("Ignoring unsupported login status: %s", login_status)
+            return
+
+        async with SessionLocal() as db:
+            result = await db.execute(
+                select(VisionAgentSession).where(
+                    VisionAgentSession.platform_id == platform_id
+                )
+            )
+            session = result.scalar_one_or_none()
+            if not session:
+                logger.warning(
+                    "Cannot persist login status; session not found for %s",
+                    platform_id,
+                )
+                return
+
+            service = SessionService(db)
+            await service.update_session_status(
+                session.id,
+                app_login_status=login_status,
+            )
 
 
 def get_worker_manager() -> WorkerManager:

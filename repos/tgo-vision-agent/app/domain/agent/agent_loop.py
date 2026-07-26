@@ -20,7 +20,6 @@ from app.domain.agent.entities import (
     AgentContext,
     AgentResult,
     Observation,
-    Position,
     Step,
     StepResult,
 )
@@ -178,10 +177,19 @@ class AgentLoop:
                 # 3. Check for completion
                 if action.action_type == ActionType.COMPLETE:
                     logger.info(f"Task completed: {action.reasoning}")
+                    completion_data = dict(action.parameters)
+                    if (
+                        observation.app_state
+                        and "login_status" not in completion_data
+                    ):
+                        completion_data["login_status"] = (
+                            observation.app_state.login_status.value
+                        )
                     return AgentResult(
                         success=True,
                         message=action.reasoning,
                         steps_taken=step_num + 1,
+                        data=completion_data,
                         history=context.history,
                     )
 

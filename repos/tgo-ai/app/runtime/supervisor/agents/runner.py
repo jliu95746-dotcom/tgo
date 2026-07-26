@@ -19,7 +19,11 @@ from agno.agent import (
 from app.core.logging import get_logger
 from app.models.internal import AgentExecutionContext
 from app.runtime.supervisor.streaming.workflow_events import WorkflowEventEmitter
-from app.schemas.agent_run import AgentExecutionResult, AgentRunMetadata, SupervisorRunResponse
+from app.schemas.agent_run import (
+    AgentExecutionResult,
+    AgentRunMetadata,
+    SupervisorRunResponse,
+)
 
 from .builder import BuiltAgent
 
@@ -40,7 +44,9 @@ class AgnoAgentRunner:
     def __init__(self) -> None:
         self._logger = get_logger("runtime.supervisor.agents.runner")
 
-    async def run(self, built_agent: BuiltAgent, context: AgentExecutionContext) -> SupervisorRunResponse:
+    async def run(
+        self, built_agent: BuiltAgent, context: AgentExecutionContext
+    ) -> SupervisorRunResponse:
         """Run a single agent and translate the result into the public response schema."""
         start_time = time.time()
         output = await built_agent.agent.arun(
@@ -88,6 +94,7 @@ class AgnoAgentRunner:
         """Run a single agent with streaming workflow events."""
         start_time = time.time()
         content_chunks: list[str] = []
+        completed_content = ""
         success = True
         error: Optional[str] = None
         chunk_index = 0
@@ -96,7 +103,7 @@ class AgnoAgentRunner:
         async for event in built_agent.agent.arun(
             context.message,
             stream=True,
-            stream_intermediate_steps=True,
+            stream_events=True,
             session_id=context.session_id,
             user_id=context.user_id,
         ):
@@ -141,9 +148,7 @@ class AgnoAgentRunner:
                 continue
 
             if isinstance(event, RunCompletedEvent):
-                final_content = self._ensure_text(getattr(event, "content", None))
-                if final_content:
-                    content_chunks.append(final_content)
+                completed_content = self._ensure_text(getattr(event, "content", None))
                 continue
 
             if isinstance(event, RunErrorEvent):
@@ -169,14 +174,15 @@ class AgnoAgentRunner:
                     error=error,
                 )
 
-        final_content = "".join(content_chunks)
+        streamed_content = "".join(content_chunks)
+        final_content = completed_content or streamed_content
         workflow_events.emit_agent_response_complete(
             agent_id=str(context.agent.id),
             agent_name=context.agent.name,
             execution_id=execution_id,
             final_content=final_content,
             success=success,
-            total_chunks=len(content_chunks),
+            total_chunks=chunk_index,
             tool_calls_count=tool_calls,
         )
         return AgentRunResult(

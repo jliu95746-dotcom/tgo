@@ -48,6 +48,14 @@ class VisitorServiceStatus(str, Enum):
     CLOSED = "closed"                 # Service session closed
 
 
+class VisitorServiceMode(str, Enum):
+    """Per-visitor AI collaboration mode."""
+
+    AUTO = "auto"
+    ASSIST = "assist"
+    MANUAL = "manual"
+
+
 # Statuses indicating visitor is unassigned (can be assigned to staff)
 UNASSIGNED_STATUSES = {VisitorServiceStatus.NEW.value, VisitorServiceStatus.CLOSED.value}
 
@@ -193,6 +201,25 @@ class Visitor(Base):
         nullable=True,
         default=None,
         comment="Whether AI responses are disabled for this visitor"
+    )
+    service_mode: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+        default=None,
+        comment="Per-visitor service mode: auto, assist, or manual",
+    )
+    humanization_skill_name: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        default=None,
+        comment="Selected trainable humanization skill slug",
+    )
+    humanization_skill_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="Whether the selected humanization skill applies to AI replies",
     )
     ai_fallback_retry_count: Mapped[int] = mapped_column(
         Integer,

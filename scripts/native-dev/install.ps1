@@ -29,7 +29,13 @@ if ($Force -or $LASTEXITCODE -ne 0) {
 
 $env:POETRY_VIRTUALENVS_IN_PROJECT = 'true'
 
-foreach ($service in @('tgo-api', 'tgo-ai', 'tgo-rag', 'tgo-workflow')) {
+foreach ($service in @(
+    'tgo-api',
+    'tgo-ai',
+    'tgo-rag',
+    'tgo-workflow',
+    'tgo-device-control'
+)) {
     $serviceDirectory = Join-Path $script:RepoRoot "repos\$service"
     Write-Host "Installing locked Python dependencies for $service..."
     Push-Location $serviceDirectory

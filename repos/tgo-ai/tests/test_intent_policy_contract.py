@@ -189,9 +189,7 @@ def test_high_risk_and_sensitive_intents_always_force_human() -> None:
             risk_level=RiskLevel.HIGH,
         )
     )
-    complaint = policy.decide(
-        make_output(intent=IntentName.COMPLAINT, confidence=0.99)
-    )
+    complaint = policy.decide(make_output(intent=IntentName.COMPLAINT, confidence=0.99))
     repeated_unknown = policy.decide(
         make_output(intent=IntentName.UNKNOWN, confidence=0.99),
         IntentRoutingContext(consecutive_unknown_count=2),
@@ -241,6 +239,54 @@ async def test_explicit_write_action_rule_forces_human_without_model() -> None:
     assert result.risk_level is RiskLevel.HIGH
     assert result.recommended_route is IntentRoute.HUMAN_HANDOFF
     assert result.need_human is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    (
+        "收货地址：长沙市岳麓区北大资源时光二栋2508，手机：15110345442",
+        "长沙市岳麓区北大资源时光二栋2508 15110345442",
+    ),
+)
+async def test_explicit_contact_profile_facts_auto_reply_without_model(
+    message: str,
+) -> None:
+    client = FakeStructuredOutputClient([model_output_json()])
+    classifier = IntentClassifier(
+        client,
+        policy=IntentRoutingPolicy(automated_routes_enabled=True),
+    )
+
+    result = await classifier.classify(message)
+
+    assert client.requests == []
+    assert result.intent is IntentName.SALES_LEAD
+    assert result.risk_level is RiskLevel.LOW
+    assert result.recommended_route is IntentRoute.AUTO_REPLY
+    assert result.need_human is False
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "验证码 123456，手机号 15110345442",
+        "银行卡 6212345678901234，地址长沙市岳麓区",
+        "帮我修改收货地址到长沙市岳麓区，手机号15110345442",
+        "快递单号15110345442，送到长沙市岳麓区",
+    ),
+)
+def test_sensitive_or_transactional_text_is_not_profile_fact_fast_path(
+    message: str,
+) -> None:
+    policy = IntentRoutingPolicy(automated_routes_enabled=True)
+
+    result = policy.match_local_rule(message)
+
+    assert (
+        result is None
+        or result.recommended_route is IntentRoute.HUMAN_HANDOFF
+    )
 
 
 @pytest.mark.asyncio
@@ -309,9 +355,7 @@ def test_automated_routes_are_disabled_by_default() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unicode_and_punctuation_cannot_bypass_write_action_rule() -> (
-    None
-):
+async def test_unicode_and_punctuation_cannot_bypass_write_action_rule() -> (None):
     client = FakeStructuredOutputClient([model_output_json()])
     classifier = IntentClassifier(client)
 
@@ -335,6 +379,25 @@ def test_medium_risk_never_auto_routes() -> None:
 
     assert result.recommended_route is IntentRoute.CLARIFY
     assert result.routing_reason.value == "medium_risk"
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "投诉，听懂了吗",
+        "我要找人工处理",
+        "举报你们这个客服",
+    ),
+)
+def test_explicit_complaint_variants_always_handoff(message: str) -> None:
+    policy = IntentRoutingPolicy(automated_routes_enabled=True)
+
+    result = policy.match_local_rule(message)
+
+    assert result is not None
+    assert result.recommended_route is IntentRoute.HUMAN_HANDOFF
+    assert result.need_human is True
+    assert result.risk_level is RiskLevel.HIGH
 
 
 @pytest.mark.asyncio
@@ -394,9 +457,7 @@ async def test_ocr_prompt_injection_cannot_directly_trigger_tool() -> None:
 
 
 @pytest.mark.asyncio
-async def test_classification_input_with_sensitive_media_forces_human() -> (
-    None
-):
+async def test_classification_input_with_sensitive_media_forces_human() -> (None):
     client = FakeStructuredOutputClient([model_output_json()])
     classifier = IntentClassifier(
         client,

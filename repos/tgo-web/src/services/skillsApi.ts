@@ -21,6 +21,10 @@ export interface SkillSummary {
   tags: string[];
   updated_at: string | null;
   enabled: boolean;
+  skill_type: 'standard' | 'humanization';
+  display_name: string | null;
+  pending_training_count: number;
+  published_version: number;
 }
 
 /** Response for a skill toggle operation. */
@@ -70,6 +74,30 @@ export interface SkillImportRequest {
   github_token?: string;
 }
 
+export interface HumanizationSkillCreateRequest {
+  name?: string;
+  display_name: string;
+  description: string;
+}
+
+export interface HumanizationTrainingSampleRequest {
+  customer_message: string;
+  ai_draft: string;
+  final_reply: string;
+  source_message_id?: string;
+}
+
+export interface HumanizationTrainingStatus {
+  name: string;
+  pending_training_count: number;
+  published_version: number;
+}
+
+export interface HumanizationTrainingApplyResponse
+  extends HumanizationTrainingStatus {
+  applied_count: number;
+}
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -79,9 +107,14 @@ export class SkillsApiService extends BaseApiService {
   protected readonly endpoints = {
     SKILLS: `/${this.apiVersion}/ai/skills`,
     SKILLS_IMPORT: `/${this.apiVersion}/ai/skills/import`,
+    HUMANIZATION_SKILLS: `/${this.apiVersion}/ai/skills/humanization`,
     SKILL_BY_NAME: (name: string) => `/${this.apiVersion}/ai/skills/${name}`,
     SKILL_TOGGLE: (name: string) =>
       `/${this.apiVersion}/ai/skills/${name}/toggle`,
+    HUMANIZATION_TRAINING: (name: string) =>
+      `/${this.apiVersion}/ai/skills/${name}/training-samples`,
+    HUMANIZATION_APPLY: (name: string) =>
+      `/${this.apiVersion}/ai/skills/${name}/apply-training`,
     SKILL_FILE: (name: string, filePath: string) =>
       `/${this.apiVersion}/ai/skills/${name}/files/${filePath}`,
   } as const;
@@ -115,6 +148,34 @@ export class SkillsApiService extends BaseApiService {
   static async createSkill(data: SkillCreateRequest): Promise<SkillDetail> {
     const service = new SkillsApiService();
     return service.post<SkillDetail>(service.endpoints.SKILLS, data);
+  }
+
+  static async createHumanizationSkill(
+    data: HumanizationSkillCreateRequest,
+  ): Promise<SkillDetail> {
+    const service = new SkillsApiService();
+    return service.post<SkillDetail>(service.endpoints.HUMANIZATION_SKILLS, data);
+  }
+
+  static async addHumanizationTrainingSample(
+    name: string,
+    data: HumanizationTrainingSampleRequest,
+  ): Promise<HumanizationTrainingStatus> {
+    const service = new SkillsApiService();
+    return service.post<HumanizationTrainingStatus>(
+      service.endpoints.HUMANIZATION_TRAINING(name),
+      data,
+    );
+  }
+
+  static async applyHumanizationTraining(
+    name: string,
+  ): Promise<HumanizationTrainingApplyResponse> {
+    const service = new SkillsApiService();
+    return service.post<HumanizationTrainingApplyResponse>(
+      service.endpoints.HUMANIZATION_APPLY(name),
+      {},
+    );
   }
 
   /** Import a skill from a GitHub directory URL. */

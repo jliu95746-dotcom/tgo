@@ -12,6 +12,20 @@ if (Test-Path -LiteralPath $script:StateFile) {
             continue
         }
 
+        $recordedExecutable = [System.IO.Path]::GetFullPath([string]$entry.executable)
+        $runningExecutable = $process.Path
+        if (
+            [string]::IsNullOrWhiteSpace($runningExecutable) -or
+            -not [string]::Equals(
+                [System.IO.Path]::GetFullPath($runningExecutable),
+                $recordedExecutable,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        ) {
+            Write-Warning "Skipping stale PID $($entry.pid) for $($entry.name); executable no longer matches."
+            continue
+        }
+
         Write-Host "Stopping $($entry.name) (PID $($entry.pid))..."
         & taskkill.exe /PID $entry.pid /T /F | Out-Null
     }
