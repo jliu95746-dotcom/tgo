@@ -1,10 +1,9 @@
 import React, { useState, useCallback } from 'react';
-import { X, FileText, Globe, ChevronDown, ChevronUp, Info, Loader2, RefreshCw, MessageSquare, FolderOpen, Store, ShoppingBag } from 'lucide-react';
+import { X, FileText, Globe, ChevronDown, ChevronUp, Info, Loader2, RefreshCw, MessageSquare, FolderOpen } from 'lucide-react';
 import { TagInput } from '@/components/ui/TagInput';
 import type { KnowledgeBaseType, WebsiteCrawlConfig, CrawlOptions } from '@/types';
 import KnowledgeBaseApiService from '@/services/knowledgeBaseApi';
 import { useTranslation } from 'react-i18next';
-import { SiTaobao } from 'react-icons/si';
 
 // Helper function to get default icon based on knowledge base type
 const getDefaultIconByType = (type: KnowledgeBaseType): string => {
@@ -378,44 +377,6 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                   )}
                 </button>
 
-                {/* Separator */}
-                <div className="w-px h-8 bg-gray-200 dark:bg-gray-700 self-center mx-1" />
-
-                {/* Tmall - Coming Soon */}
-                <div
-                  className="flex items-center gap-2 px-3 py-2 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/30 opacity-50 cursor-not-allowed"
-                  title={t('knowledge.comingSoon', '即将推出')}
-                >
-                  <Store className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-                  <span className="text-sm text-gray-400 dark:text-gray-500">{t('knowledge.typeTmall', '天猫')}</span>
-                  <span className="text-xs px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 rounded">
-                    {t('knowledge.comingSoonBadge', '即将推出')}
-                  </span>
-                </div>
-
-                {/* Taobao - Coming Soon */}
-                <div
-                  className="flex items-center gap-2 px-3 py-2 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/30 opacity-50 cursor-not-allowed"
-                  title={t('knowledge.comingSoon', '即将推出')}
-                >
-                  <SiTaobao className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-                  <span className="text-sm text-gray-400 dark:text-gray-500">{t('knowledge.typeTaobao', '淘宝')}</span>
-                  <span className="text-xs px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 rounded">
-                    {t('knowledge.comingSoonBadge', '即将推出')}
-                  </span>
-                </div>
-
-                {/* JD - Coming Soon */}
-                <div
-                  className="flex items-center gap-2 px-3 py-2 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/30 opacity-50 cursor-not-allowed"
-                  title={t('knowledge.comingSoon', '即将推出')}
-                >
-                  <ShoppingBag className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-                  <span className="text-sm text-gray-400 dark:text-gray-500">{t('knowledge.typeJD', '京东')}</span>
-                  <span className="text-xs px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 rounded">
-                    {t('knowledge.comingSoonBadge', '即将推出')}
-                  </span>
-                </div>
               </div>
             </div>
 

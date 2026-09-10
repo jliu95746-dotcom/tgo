@@ -146,7 +146,7 @@ export class FileManagementService {
           // Update progress state with real progress data
           const uploadProgress = new Map(this.state.uploadProgress);
           uploadProgress.set(fileId, {
-            fileId: fileId, // Use our local fileId for consistency
+            fileId, // Use our local fileId for consistency
             fileName: event.fileName,
             progress: event.progress,
             status: event.status,
@@ -292,28 +292,6 @@ export class FileManagementService {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Failed to download file:', error);
-      throw error;
-    }
-  }
-
-  // Preview file (placeholder - would open in modal or new tab)
-  async previewFile(fileId: string): Promise<void> {
-    try {
-      const file = this.state.files.find(f => f.id === fileId);
-      if (!file) {
-        throw new Error('File not found');
-      }
-
-      // For now, just log the preview action
-      console.log('Previewing file:', file.name);
-
-      // In a real implementation, this might:
-      // - Open a modal with file content
-      // - Navigate to a preview page
-      // - Open file in a new tab
-      alert(`预览文件: ${file.name}\n\n此功能正在开发中...`);
-    } catch (error) {
-      console.error('Failed to preview file:', error);
       throw error;
     }
   }

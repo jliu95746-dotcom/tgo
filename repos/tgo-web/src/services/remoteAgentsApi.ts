@@ -34,16 +34,6 @@ export interface RemoteAgentConfig {
 }
 
 /**
- * Request to register a custom remote agent
- */
-export interface RemoteAgentRegisterRequest {
-  base_url: string;
-  agent_id: string;
-  display_name?: string;
-  description?: string;
-}
-
-/**
  * Response from list remote agents
  */
 export interface RemoteAgentsListResponse {
@@ -83,22 +73,6 @@ export async function getRemoteAgentConfig(agentId: string): Promise<RemoteAgent
 }
 
 /**
- * Register a custom remote agent
- */
-export async function registerRemoteAgent(
-  request: RemoteAgentRegisterRequest
-): Promise<RemoteAgentInfo> {
-  return apiClient.post<RemoteAgentInfo>(REMOTE_AGENTS_BASE_URL, request);
-}
-
-/**
- * Unregister a custom remote agent
- */
-export async function unregisterRemoteAgent(agentId: string): Promise<void> {
-  await apiClient.delete(`${REMOTE_AGENTS_BASE_URL}/${agentId}`);
-}
-
-/**
  * Test a remote agent by sending a message
  */
 export async function testRemoteAgent(
@@ -115,7 +89,5 @@ export default {
   listRemoteAgents,
   getRemoteAgent,
   getRemoteAgentConfig,
-  registerRemoteAgent,
-  unregisterRemoteAgent,
   testRemoteAgent,
 };
