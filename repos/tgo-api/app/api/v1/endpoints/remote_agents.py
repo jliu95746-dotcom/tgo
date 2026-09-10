@@ -1,14 +1,13 @@
-"""Remote Agents API endpoints - Manage Remote Agent registrations.
+"""Read and test the configured built-in remote agents.
 
 This module provides APIs for managing remote agents (agents running on
 external AgentOS instances) that can be bound to platform agents.
 """
 
 from typing import Any, Dict, List, Optional
-from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Depends, Body
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 import httpx
 
 from app.core.logging import get_logger
@@ -44,15 +43,6 @@ class RemoteAgentConfig(BaseModel):
     instructions: Optional[str] = None
     tools: Optional[List[str]] = None
     model: Optional[str] = None
-
-
-class RemoteAgentRegisterRequest(BaseModel):
-    """Request to register a custom remote agent."""
-    
-    base_url: str = Field(description="AgentOS base URL")
-    agent_id: str = Field(description="Agent ID to register")
-    display_name: Optional[str] = Field(default=None, description="Custom display name")
-    description: Optional[str] = Field(default=None, description="Custom description")
 
 
 async def _fetch_remote_agent_info(
@@ -110,12 +100,11 @@ async def _fetch_remote_agent_info(
 @router.get("", response_model=Dict[str, Any])
 async def list_remote_agents(
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> Dict[str, JsonValue]:
     """List available remote agents.
     
     Returns a list of known remote agents including:
     - Built-in Computer Use Agent from tgo-device-control
-    - Custom registered agents
     """
     agents: List[RemoteAgentInfo] = []
     
@@ -160,7 +149,6 @@ async def list_remote_agents(
     
     agents.append(computer_use_agent)
     
-    # TODO: Add custom registered agents from database
     
     return {
         "items": [agent.model_dump() for agent in agents],
@@ -172,7 +160,7 @@ async def list_remote_agents(
 async def get_remote_agent(
     agent_id: str,
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> RemoteAgentInfo:
     """Get information about a specific remote agent."""
     
     # Check if it's the built-in Computer Use Agent
@@ -213,7 +201,6 @@ async def get_remote_agent(
             ],
         )
     
-    # TODO: Look up custom registered agents
     raise HTTPException(status_code=404, detail="Remote agent not found")
 
 
@@ -221,7 +208,7 @@ async def get_remote_agent(
 async def get_remote_agent_config(
     agent_id: str,
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> RemoteAgentConfig:
     """Get configuration of a remote agent from its AgentOS.
     
     This fetches the agent's configuration directly from the remote
@@ -231,7 +218,6 @@ async def get_remote_agent_config(
     if agent_id == settings.DEVICE_CONTROL_AGENT_ID:
         base_url = settings.DEVICE_CONTROL_AGENTOS_URL
     else:
-        # TODO: Look up custom registered agents for base_url
         raise HTTPException(status_code=404, detail="Remote agent not found")
     
     # Fetch from remote
@@ -246,65 +232,12 @@ async def get_remote_agent_config(
     return config
 
 
-@router.post("", response_model=RemoteAgentInfo)
-async def register_remote_agent(
-    request: RemoteAgentRegisterRequest,
-    current_user: Staff = Depends(get_current_active_user),
-):
-    """Register a custom remote agent.
-    
-    This allows registering agents from external AgentOS instances
-    to be bound to platform agents.
-    """
-    # Validate the remote agent exists
-    config = await _fetch_remote_agent_info(request.base_url, request.agent_id)
-    
-    if config is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not connect to remote AgentOS or agent not found"
-        )
-    
-    # TODO: Save to database for persistence
-    
-    return RemoteAgentInfo(
-        agent_id=request.agent_id,
-        name=request.display_name or config.name,
-        type="custom",
-        base_url=request.base_url,
-        description=request.description or config.description,
-        status="available",
-        supports_device_control=False,
-    )
-
-
-@router.delete("/{agent_id}")
-async def unregister_remote_agent(
-    agent_id: str,
-    current_user: Staff = Depends(get_current_active_user),
-):
-    """Unregister a custom remote agent.
-    
-    Note: Built-in agents (like Computer Use Agent) cannot be unregistered.
-    """
-    # Check if it's a built-in agent
-    if agent_id == settings.DEVICE_CONTROL_AGENT_ID:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot unregister built-in agents"
-        )
-    
-    # TODO: Delete from database
-    
-    return {"success": True}
-
-
 @router.post("/{agent_id}/test")
 async def test_remote_agent(
     agent_id: str,
     message: str = Body(..., embed=True),
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> Dict[str, JsonValue]:
     """Test a remote agent by sending a simple message.
     
     This can be used to verify connectivity and basic functionality.
@@ -313,7 +246,6 @@ async def test_remote_agent(
     if agent_id == settings.DEVICE_CONTROL_AGENT_ID:
         base_url = settings.DEVICE_CONTROL_AGENTOS_URL
     else:
-        # TODO: Look up custom registered agents
         raise HTTPException(status_code=404, detail="Remote agent not found")
     
     try:
