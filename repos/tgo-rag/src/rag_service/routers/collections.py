@@ -973,7 +973,7 @@ async def list_collection_pages(
     status: Optional[str] = Query(None, description="Filter by page status"),
     project_id: UUID = Query(..., description="Project ID"),
     db: AsyncSession = Depends(get_db_session_dependency),
-):
+) -> WebsitePageListResponse:
     """
     Retrieve all crawled pages for a specific website collection.
 
@@ -1029,8 +1029,9 @@ async def list_collection_pages(
     page_responses = [
         WebsitePageResponse(
             id=page.id,
-            crawl_job_id=page.crawl_job_id,
             collection_id=page.collection_id,
+            parent_page_id=page.parent_page_id,
+            crawl_source=page.crawl_source,
             url=page.url,
             title=page.title,
             depth=page.depth,
