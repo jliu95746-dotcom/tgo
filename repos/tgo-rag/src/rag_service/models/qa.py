@@ -5,14 +5,18 @@ This module provides database models for managing QA knowledge bases,
 storing question-answer pairs for direct embedding and retrieval.
 """
 
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID as PyUUID
 
-from sqlalchemy import ARRAY, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import ARRAY, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, SoftDeleteMixin, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from .collections import Collection
+    from .documents import FileDocument
 
 
 class QAPair(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
@@ -79,7 +83,7 @@ class QAPair(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     )
 
     # Metadata
-    qa_metadata: Mapped[Optional[dict]] = mapped_column(
+    qa_metadata: Mapped[Optional[dict[str, object]]] = mapped_column(
         JSONB,
         nullable=True,
         doc="Additional metadata (source, author, etc.)",
@@ -146,8 +150,11 @@ class QAPair(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
         Index("idx_qa_pairs_created_at", "created_at"),
         Index("idx_qa_pairs_deleted_at", "deleted_at"),
         Index("idx_qa_pairs_tags", "tags", postgresql_using="gin"),
-        # Unique constraint on question within a collection
-        Index("idx_qa_pairs_collection_question", "collection_id", "question_hash", unique=True),
+        # Deleted history must not block creating a new, independent QA pair.
+        Index(
+            "idx_qa_pairs_collection_question", "collection_id", "question_hash",
+            unique=True, postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
     def __repr__(self) -> str:

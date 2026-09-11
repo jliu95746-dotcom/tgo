@@ -87,7 +87,7 @@ class OpenAIEmbeddingClient(BaseEmbeddingClient):
             self._compat_mode = True
             self._compat_client = OpenAI(api_key=api_key, base_url=base_url)
             self._client = None
-            logger.info(f"Initialized OpenAI-compatible embedding client via OpenAI SDK with model: {model} at {base_url}")
+            logger.info("Initialized OpenAI-compatible embedding client", model=model)
                 
         else:
             # Standard OpenAI embeddings via LangChain
@@ -111,7 +111,10 @@ class OpenAIEmbeddingClient(BaseEmbeddingClient):
             )
             return [item.embedding for item in response.data]
         except Exception as e:
-            logger.error(f"OpenAI-compatible embeddings request failed: {str(e)}")
+            logger.error(
+                "OpenAI-compatible embeddings request failed",
+                error_type=type(e).__name__,
+            )
             raise
 
     async def embed_query(self, text: str) -> List[float]:
@@ -183,7 +186,7 @@ class Qwen3EmbeddingClient(BaseEmbeddingClient):
             base_url=base_url
         )
 
-        logger.info(f"Initialized Qwen3-Embedding client with model: {model} at {base_url}")
+        logger.info("Initialized Qwen3-Embedding client", model=model)
 
     def _make_embeddings_request(self, texts: List[str]) -> List[List[float]]:
         """Make embeddings request using OpenAI client."""
@@ -204,7 +207,9 @@ class Qwen3EmbeddingClient(BaseEmbeddingClient):
             return embeddings
 
         except Exception as e:
-            logger.error(f"OpenAI client embeddings request failed: {str(e)}")
+            logger.error(
+                "OpenAI client embeddings request failed", error_type=type(e).__name__,
+            )
             raise Exception(f"Qwen3 embeddings API request failed: {str(e)}")
 
     async def embed_query(self, text: str) -> List[float]:
@@ -224,7 +229,10 @@ class Qwen3EmbeddingClient(BaseEmbeddingClient):
             else:
                 raise ValueError("No embedding returned for query")
         except Exception as e:
-            logger.error(f"Failed to generate Qwen3 embedding for query: {str(e)}")
+            logger.error(
+                "Failed to generate Qwen3 embedding for query",
+                error_type=type(e).__name__,
+            )
             raise
 
     async def embed_documents(self, texts: List[str]) -> List[List[float]]:
@@ -250,7 +258,10 @@ class Qwen3EmbeddingClient(BaseEmbeddingClient):
             logger.debug(f"Generated Qwen3 embeddings for {len(texts)} documents")
             return all_embeddings
         except Exception as e:
-            logger.error(f"Failed to generate Qwen3 embeddings for documents: {str(e)}")
+            logger.error(
+                "Failed to generate Qwen3 embeddings for documents",
+                error_type=type(e).__name__,
+            )
             raise
 
     def get_dimensions(self) -> int:
@@ -406,7 +417,10 @@ class EmbeddingService:
             return embedding
 
         except Exception as e:
-            logger.error(f"Failed to generate embedding using {self._provider.value}: {str(e)}")
+            logger.error(
+                "Failed to generate embedding", provider=self._provider.value,
+                error_type=type(e).__name__,
+            )
             raise
 
     async def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
@@ -447,7 +461,10 @@ class EmbeddingService:
             return all_embeddings
 
         except Exception as e:
-            logger.error(f"Failed to generate batch embeddings using {self._provider.value}: {str(e)}")
+            logger.error(
+                "Failed to generate batch embeddings", provider=self._provider.value,
+                error_type=type(e).__name__,
+            )
             raise
 
     def get_embedding_dimensions(self) -> int:

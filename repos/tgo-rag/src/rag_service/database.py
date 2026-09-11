@@ -65,6 +65,7 @@ def create_database_engine():
     # Create async engine with connection pooling
     engine_kwargs = {
         "echo": settings.debug,
+        "hide_parameters": True,
         "pool_pre_ping": True,
     }
 

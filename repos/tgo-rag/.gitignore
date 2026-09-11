@@ -225,6 +225,9 @@ test_*.py
 !tests/test_automatic_answer_search.py
 !tests/test_qwen3_embedding_client.py
 !tests/test_vector_store_similarity.py
+!tests/test_qa_processing.py
+!tests/test_qa_import.py
+!tests/test_database_logging.py
 !tests/test_collection_pages.py
 
 # Coverage reports

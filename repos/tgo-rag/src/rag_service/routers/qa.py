@@ -5,20 +5,19 @@ This module provides API endpoints for managing QA knowledge bases,
 including creating, updating, deleting, and listing QA pairs.
 """
 
-import csv
-import io
-import json
 from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, select, delete
+from sqlalchemy import and_, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db_session_dependency
 from ..logging_config import get_logger
 from ..models import Collection, CollectionType, QAPair
 from ..schemas.common import ErrorResponse
+from ..services.qa_errors import QA_QUEUE_FAILURE
 from ..schemas.qa import (
     QAPairCreateRequest,
     QAPairUpdateRequest,
@@ -33,6 +32,24 @@ from ..schemas.qa import (
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+def is_duplicate_question(error: IntegrityError) -> bool:
+    """Match only the question index, not unrelated integrity violations."""
+    return "idx_qa_pairs_collection_question" in str(error.orig)
+
+
+async def commit_qa_changes(db: AsyncSession) -> None:
+    try:
+        await db.commit()
+    except IntegrityError as error:
+        await db.rollback()
+        if is_duplicate_question(error):
+            raise HTTPException(
+                status_code=400,
+                detail="此知识库中已存在相同问题，请编辑已有问答。",
+            ) from error
+        raise
 
 
 async def validate_qa_collection(
@@ -84,7 +101,7 @@ async def create_qa_pair(
 ):
     """Create a new QA pair in the specified collection."""
     # Validate collection
-    collection = await validate_qa_collection(db, collection_id, project_id)
+    await validate_qa_collection(db, collection_id, project_id)
 
     # Check for duplicate question
     question_hash = compute_question_hash(request.question)
@@ -119,7 +136,7 @@ async def create_qa_pair(
         status="pending",
     )
     db.add(qa_pair)
-    await db.commit()
+    await commit_qa_changes(db)
     await db.refresh(qa_pair)
 
     # Trigger async processing
@@ -128,7 +145,13 @@ async def create_qa_pair(
         process_qa_pair_task.delay(str(qa_pair.id), str(project_id))
         logger.info(f"Queued QA pair {qa_pair.id} for processing")
     except Exception as e:
-        logger.warning(f"Failed to queue QA pair for processing: {e}")
+        logger.warning(
+            "Failed to queue QA pair for processing", error_type=type(e).__name__,
+        )
+        qa_pair.status = "failed"
+        qa_pair.error_message = QA_QUEUE_FAILURE
+        await db.commit()
+        await db.refresh(qa_pair)
 
     return QAPairResponse.model_validate(qa_pair)
 
@@ -279,7 +302,7 @@ async def update_qa_pair(
                 QAPair.project_id == project_id,
                 QAPair.deleted_at.is_(None),
             )
-        )
+        ).with_for_update()
     )
     qa_pair = result.scalar_one_or_none()
 
@@ -313,21 +336,29 @@ async def update_qa_pair(
         qa_pair.answer != original_answer
     )
 
-    # Mark for re-processing if content changed
-    if content_changed:
+    # A failed queue/provider attempt can be retried by saving the same content.
+    needs_processing = content_changed or qa_pair.status == "failed"
+    if needs_processing:
         qa_pair.status = "pending"
+        qa_pair.error_message = None
 
-    await db.commit()
+    await commit_qa_changes(db)
     await db.refresh(qa_pair)
 
     # Trigger re-processing if content changed
-    if content_changed:
+    if needs_processing:
         from ..tasks.qa_processing import process_qa_pair_task
         try:
             process_qa_pair_task.delay(str(qa_pair.id), str(project_id), True)
             logger.info(f"Queued QA pair {qa_pair.id} for re-processing")
         except Exception as e:
-            logger.warning(f"Failed to queue QA pair for re-processing: {e}")
+            logger.warning(
+                "Failed to queue QA pair for re-processing", error_type=type(e).__name__,
+            )
+            qa_pair.status = "failed"
+            qa_pair.error_message = QA_QUEUE_FAILURE
+            await db.commit()
+            await db.refresh(qa_pair)
 
     return QAPairResponse.model_validate(qa_pair)
 
@@ -354,29 +385,18 @@ async def delete_qa_pair(
                 QAPair.project_id == project_id,
                 QAPair.deleted_at.is_(None),
             )
-        )
+        ).with_for_update()
     )
     qa_pair = result.scalar_one_or_none()
 
     if not qa_pair:
         raise HTTPException(status_code=404, detail="QA pair not found")
 
-    # Delete associated document if exists
-    if qa_pair.document_id:
-        from ..tasks.qa_processing import delete_qa_pair_document_async
-        import asyncio
-        try:
-            await delete_qa_pair_document_async(
-                qa_pair.id,
-                qa_pair.document_id,
-                project_id
-            )
-        except Exception as e:
-            logger.warning(f"Failed to delete document for QA pair: {e}")
-
-    # Soft delete the QA pair
+    # Remove the vector column and text with the QA deletion in one transaction.
+    from ..services.qa_documents import remove_qa_document
     from datetime import datetime, timezone
     qa_pair.deleted_at = datetime.now(timezone.utc)
+    await remove_qa_document(db, qa_pair)
     await db.commit()
 
     return None
@@ -443,17 +463,25 @@ async def batch_create_qa_pairs(
                 source_type="import",
                 status="pending",
             )
-            db.add(qa_pair)
-            await db.flush()  # Get the ID
+            # Isolate a rejected row so later rows do not inherit an aborted transaction.
+            async with db.begin_nested():
+                db.add(qa_pair)
+                await db.flush()  # Get the ID
             created_ids.append(qa_pair.id)
             existing_hashes.add(question_hash)
 
+        except IntegrityError as e:
+            if is_duplicate_question(e):
+                skipped_count += 1
+                existing_hashes.add(question_hash)
+            else:
+                failed_count += 1
+                errors.append({"index": idx, "error": "IntegrityError: 问答未通过数据库约束校验。"})
         except Exception as e:
             failed_count += 1
             errors.append({
                 "index": idx,
-                "question": qa_request.question[:100],
-                "error": str(e),
+                "error": f"{type(e).__name__}: 问答保存失败，请检查 RAG 服务日志。",
             })
 
     await db.commit()
@@ -468,7 +496,17 @@ async def batch_create_qa_pairs(
             )
             logger.info(f"Queued {len(created_ids)} QA pairs for batch processing")
         except Exception as e:
-            logger.warning(f"Failed to queue QA pairs for batch processing: {e}")
+            logger.warning(
+                "Failed to queue QA pairs for batch processing",
+                error_type=type(e).__name__,
+            )
+            from sqlalchemy import update
+            await db.execute(update(QAPair).where(
+                QAPair.id.in_(created_ids), QAPair.project_id == project_id,
+            ).values(status="failed", error_message=QA_QUEUE_FAILURE))
+            await db.commit()
+            failed_count += len(created_ids)
+            errors.append({"stage": "queue", "error": "后台任务未能入队，请检查 RAG worker 和 Redis。"})
 
     return QAPairBatchCreateResponse(
         success=failed_count == 0,
@@ -501,45 +539,11 @@ async def import_qa_pairs(
     # Validate collection
     await validate_qa_collection(db, collection_id, project_id)
 
-    # Parse data based on format
-    qa_items = []
+    from ..services.qa_import import parse_qa_import
     try:
-        if request.format == "json":
-            qa_items = json.loads(request.data)
-            if not isinstance(qa_items, list):
-                raise ValueError("JSON data must be an array")
-        elif request.format == "csv":
-            reader = csv.DictReader(io.StringIO(request.data))
-            qa_items = list(reader)
-    except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Failed to parse {request.format} data: {str(e)}"
-        )
-
-    if not qa_items:
-        raise HTTPException(status_code=400, detail="No QA pairs found in data")
-
-    if len(qa_items) > 1000:
-        raise HTTPException(status_code=400, detail="Maximum 1000 QA pairs per import")
-
-    # Convert to QAPairCreateRequest objects
-    qa_requests = []
-    for item in qa_items:
-        if "question" not in item or "answer" not in item:
-            raise HTTPException(
-                status_code=400,
-                detail="Each item must have 'question' and 'answer' fields"
-            )
-        qa_requests.append(QAPairCreateRequest(
-            question=item["question"],
-            answer=item["answer"],
-            category=item.get("category") or request.category,
-            subcategory=item.get("subcategory"),
-            tags=item.get("tags") or request.tags,
-            qa_metadata=item.get("metadata"),
-            priority=item.get("priority", 0),
-        ))
+        qa_requests = parse_qa_import(request)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
     # Use batch create logic
     batch_request = QAPairBatchCreateRequest(qa_pairs=qa_requests)

@@ -9,6 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from ..services.qa_errors import safe_qa_failure
+
 
 def compute_question_hash(question: str) -> str:
     """Compute SHA-256 hash of a question for deduplication."""
@@ -63,6 +65,15 @@ class QAPairCreateRequest(BaseModel):
         description="Priority for ordering (0-100, higher = more important)"
     )
 
+    @field_validator("question", "answer", mode="before")
+    @classmethod
+    def clean_text(cls, value: object) -> object:
+        if isinstance(value, str):
+            if "\x00" in value:
+                raise ValueError("问答内容不能包含 NUL 字符")
+            return value.strip()
+        return value
+
 
 class QAPairUpdateRequest(BaseModel):
     """Schema for updating a QA pair."""
@@ -84,6 +95,11 @@ class QAPairUpdateRequest(BaseModel):
     tags: Optional[List[str]] = None
     qa_metadata: Optional[Dict[str, Any]] = None
     priority: Optional[int] = Field(None, ge=0, le=100)
+
+    @field_validator("question", "answer", mode="before")
+    @classmethod
+    def clean_text(cls, value: object) -> object:
+        return QAPairCreateRequest.clean_text(value)
 
 
 class QAPairBatchCreateRequest(BaseModel):
@@ -134,10 +150,17 @@ class QAPairResponse(BaseModel):
     qa_metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
     source_type: str = Field(..., description="Source type: manual, import, ai_generated")
     status: str = Field(..., description="Processing status")
+    error_message: Optional[str] = Field(None, description="Processing failure reason")
     priority: int = Field(..., description="Priority")
     document_id: Optional[UUID] = Field(None, description="Associated document ID")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
+
+    @field_validator("error_message")
+    @classmethod
+    def public_failure_reason(cls, value: Optional[str]) -> Optional[str]:
+        """Expose an actionable cause, not provider bodies or SQL credentials."""
+        return safe_qa_failure(value) if value else None
 
     class Config:
         from_attributes = True
