@@ -9,6 +9,10 @@ import { transformCollectionToKnowledgeBase } from '@/utils/knowledgeBaseTransfo
 import { useToast } from '@/hooks/useToast';
 import type { KnowledgeBase } from '@/types';
 import { useTranslation } from 'react-i18next';
+import { SourceGovernanceSection } from '@/components/knowledge/SourceGovernanceSection';
+import { KnowledgeVersionsPanel } from '@/components/knowledge/KnowledgeVersionsPanel';
+import { knowledgeVersionsApi } from '@/services/knowledgeVersionsApi';
+import { useAuthStore } from '@/stores/authStore';
 
 // Tree node interface for hierarchical page display
 interface PageTreeNode extends WebsitePageResponse {
@@ -17,6 +21,20 @@ interface PageTreeNode extends WebsitePageResponse {
   isLoading: boolean;
   hasChildren: boolean;
 }
+
+// Pure conversion: independent of page state and stable across refreshes.
+const pageToTreeNode = (page: WebsitePageResponse, defaultExpanded: boolean = false): PageTreeNode => {
+  const childNodes: PageTreeNode[] = page.children
+    ? page.children.map(child => pageToTreeNode(child, false))
+    : [];
+  return {
+    ...page,
+    children: childNodes,
+    isExpanded: defaultExpanded && childNodes.length > 0,
+    isLoading: false,
+    hasChildren: page.has_children ?? childNodes.length > 0,
+  };
+};
 
 /**
  * Website Knowledge Base Detail Page Component
@@ -27,6 +45,8 @@ const WebsiteKnowledgeBaseDetail: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const { t } = useTranslation();
+  const admin = useAuthStore(state => state.user?.role === 'admin');
+  const [versionRefresh, setVersionRefresh] = useState(0);
 
   // State
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBase | null>(null);
@@ -47,23 +67,6 @@ const WebsiteKnowledgeBaseDetail: React.FC = () => {
   const [deletingPages, setDeletingPages] = useState<Set<string>>(new Set());
   const [recrawlingPages, setRecrawlingPages] = useState<Set<string>>(new Set());
   const [crawlingDeeperPages, setCrawlingDeeperPages] = useState<Set<string>>(new Set());
-
-  // Convert API response to tree node (recursive to handle children)
-  const pageToTreeNode = (page: WebsitePageResponse, defaultExpanded: boolean = false): PageTreeNode => {
-    // Recursively convert children if present
-    const childNodes: PageTreeNode[] = page.children
-      ? page.children.map(child => pageToTreeNode(child, false)) // Children are not expanded by default
-      : [];
-
-    return {
-      ...page,
-      children: childNodes,
-      isExpanded: defaultExpanded && childNodes.length > 0, // Only expand if has loaded children
-      isLoading: false,
-      // Use API's has_children field, fallback to checking children array length
-      hasChildren: page.has_children ?? childNodes.length > 0,
-    };
-  };
 
   // Flatten tree to list for parent page selector
   const flattenTree = useCallback((nodes: PageTreeNode[], prefix: string = ''): Array<{ id: string; label: string; depth: number }> => {
@@ -327,35 +330,13 @@ const WebsiteKnowledgeBaseDetail: React.FC = () => {
     }
   };
 
-  // Update a single node's status while preserving tree state
-  const updateNodeStatus = useCallback((nodeId: string, newStatus: PageTreeNode['status']) => {
-    const updateNode = (nodes: PageTreeNode[]): PageTreeNode[] => {
-      return nodes.map(node => {
-        if (node.id === nodeId) {
-          return { ...node, status: newStatus };
-        }
-        if (node.children.length > 0) {
-          return { ...node, children: updateNode(node.children) };
-        }
-        return node;
-      });
-    };
-    setRootPages(prev => updateNode(prev));
-  }, []);
-
   // Recrawl a page
   const handleRecrawlPage = async (pageId: string) => {
     setRecrawlingPages(prev => new Set(prev).add(pageId));
     try {
-      const response = await KnowledgeBaseApiService.recrawlWebsitePage(pageId);
-      if (response.success) {
-        showToast('success', t('knowledge.website.recrawlPage.success'));
-        // Update the node status to 'pending' and refresh crawl progress
-        updateNodeStatus(pageId, 'pending');
-        await loadCrawlProgress();
-      } else {
-        showToast('warning', t('knowledge.website.recrawlPage.skipped'), response.message);
-      }
+      const response = await knowledgeVersionsApi.change('website', pageId, {}, admin ? 'publish' : 'submit');
+      showToast(response.state === 'failed' ? 'error' : 'success', response.error || t('knowledge.versions.queued', '已提交处理，完成前继续使用原生效内容。'));
+      setVersionRefresh(value => value + 1);
     } catch (err) {
       console.error('Failed to recrawl page:', err);
       showToast('error', t('knowledge.website.recrawlPage.failed'), err instanceof Error ? err.message : undefined);
@@ -705,6 +686,8 @@ const WebsiteKnowledgeBaseDetail: React.FC = () => {
 
         {/* Content - Pages Tree */}
         <div className="flex-grow overflow-y-auto">
+          <KnowledgeVersionsPanel collectionId={knowledgeBase.id} kind="website" refreshKey={versionRefresh} />
+          <SourceGovernanceSection collectionId={knowledgeBase.id} collectionName={knowledgeBase.name} sourceType="website" />
           {isLoadingPages ? (
             <div className="flex justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-blue-500" />

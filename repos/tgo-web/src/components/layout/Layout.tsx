@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import OnboardingWelcome from '@/components/onboarding/OnboardingWelcome';
 import { useOnboardingStore } from '@/stores/onboardingStore';
+import NotificationPermissionNotice from '@/components/notifications/NotificationPermissionNotice';
 
 /**
  * Main layout component with sidebar and content area
@@ -37,8 +38,9 @@ const Layout: React.FC = () => {
   }, [hasInitialized, isCompleted, startPolling, stopPolling]);
 
   return (
-    <div className="bg-gray-100 dark:bg-gray-900 h-screen overflow-hidden font-sans antialiased">
-      <div className="flex h-full w-full">
+    <div className="flex flex-col bg-gray-100 dark:bg-gray-900 h-screen overflow-hidden font-sans antialiased">
+      <NotificationPermissionNotice />
+      <div className="flex flex-1 min-h-0 w-full">
         {/* Sidebar Navigation */}
         <Sidebar />
 

@@ -26,6 +26,17 @@ class ExecutionContext:
         for key, value in outputs.items():
             self.set_variable(reference_key, key, value)
 
+    def get_expression_context(self) -> dict[str, object]:
+        """Expose node namespaces to expressions while preserving flat lookups."""
+        names: dict[str, object] = dict(self.data)
+        namespaces: dict[str, dict[str, object]] = {}
+        for path, value in self.data.items():
+            if "." in path:
+                reference_key, variable = path.split(".", 1)
+                namespaces.setdefault(reference_key, {})[variable] = value
+        names.update(namespaces)
+        return names
+
     def resolve_template(self, template: str) -> str:
         """
         Resolve {{reference_key.var_name}} in a string

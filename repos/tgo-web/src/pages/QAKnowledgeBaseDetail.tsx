@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -22,6 +22,11 @@ import { useToast } from '@/hooks/useToast';
 import { KnowledgeBaseApiService, type QAPairResponse, type QAPairListResponse, type QACategoryListResponse } from '@/services/knowledgeBaseApi';
 import { transformCollectionToKnowledgeBase } from '@/utils/knowledgeBaseTransforms';
 import type { KnowledgeBase } from '@/types';
+import QAPairProcessingNotice from '@/components/knowledge/QAPairProcessingNotice';
+import { SourceGovernanceSection } from '@/components/knowledge/SourceGovernanceSection';
+import { KnowledgeVersionsPanel } from '@/components/knowledge/KnowledgeVersionsPanel';
+import { knowledgeVersionsApi } from '@/services/knowledgeVersionsApi';
+import { useAuthStore } from '@/stores/authStore';
 
 /**
  * QA Knowledge Base Detail Page Component
@@ -32,12 +37,16 @@ const QAKnowledgeBaseDetail: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const { t } = useTranslation();
+  const admin = useAuthStore(state => state.user?.role === 'admin');
+  const [versionRefresh, setVersionRefresh] = useState(0);
 
   // State
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBase | null>(null);
   const [qaPairs, setQaPairs] = useState<QAPairResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingPairs, setIsLoadingPairs] = useState(false);
+  const [pairsError, setPairsError] = useState(false);
+  const pairsRequestVersion = useRef(0);
   const [error, setError] = useState<string | null>(null);
 
   // Pagination state
@@ -74,7 +83,7 @@ const QAKnowledgeBaseDetail: React.FC = () => {
 
   // Statistics
   const stats = {
-    total: total,
+    total,
     pending: qaPairs.filter(p => p.status === 'pending').length,
     processing: qaPairs.filter(p => p.status === 'processing').length,
     processed: qaPairs.filter(p => p.status === 'processed').length,
@@ -104,7 +113,9 @@ const QAKnowledgeBaseDetail: React.FC = () => {
   // Load QA pairs
   const loadQAPairs = useCallback(async () => {
     if (!id) return;
+    const requestVersion = ++pairsRequestVersion.current;
     setIsLoadingPairs(true);
+    setPairsError(false);
     try {
       const response: QAPairListResponse = await KnowledgeBaseApiService.getQAPairs(id, {
         limit,
@@ -112,15 +123,17 @@ const QAKnowledgeBaseDetail: React.FC = () => {
         category: categoryFilter || undefined,
         status: statusFilter || undefined,
       });
+      if (requestVersion !== pairsRequestVersion.current) return;
       setQaPairs(response.data);
       setTotal(response.total);
     } catch (err) {
+      if (requestVersion !== pairsRequestVersion.current) return;
       console.error('Failed to load QA pairs:', err);
-      showToast('error', t('knowledge.qa.loadPairsFailed'));
+      setPairsError(true);
     } finally {
-      setIsLoadingPairs(false);
+      if (requestVersion === pairsRequestVersion.current) setIsLoadingPairs(false);
     }
-  }, [id, limit, offset, categoryFilter, statusFilter, showToast, t]);
+  }, [id, limit, offset, categoryFilter, statusFilter]);
 
   // Load categories
   const loadCategories = useCallback(async () => {
@@ -133,6 +146,11 @@ const QAKnowledgeBaseDetail: React.FC = () => {
       // Don't show toast for category loading failure, it's not critical
     }
   }, [id]);
+
+  // Invalidate requests when leaving this query or unmounting the page.
+  useEffect(() => () => {
+    pairsRequestVersion.current += 1;
+  }, [id, limit, offset, categoryFilter, statusFilter]);
 
   // Initial load
   useEffect(() => {
@@ -152,6 +170,34 @@ const QAKnowledgeBaseDetail: React.FC = () => {
     }
   }, [knowledgeBase, loadQAPairs, loadCategories]);
 
+  // Poll only while the visible page has active work; never replace another page.
+  useEffect(() => {
+    if (!id || isLoadingPairs || pairsError
+      || !qaPairs.some(pair => ['pending', 'processing'].includes(pair.status))) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      if (cancelled) return;
+      const requestVersion = ++pairsRequestVersion.current;
+      try {
+        const response = await KnowledgeBaseApiService.getQAPairs(id, {
+          limit, offset, category: categoryFilter || undefined, status: statusFilter || undefined,
+        });
+        if (!cancelled && requestVersion === pairsRequestVersion.current) {
+          setQaPairs(response.data);
+          setTotal(response.total);
+        }
+      } catch {
+        // Keep the last result, and retry without repeated toast notifications.
+        if (!cancelled && requestVersion === pairsRequestVersion.current) {
+          timer = setTimeout(refresh, 5000);
+        }
+      }
+    };
+    timer = setTimeout(refresh, 2000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [id, qaPairs, limit, offset, categoryFilter, statusFilter, isLoadingPairs, pairsError]);
+
   // Reset form
   const resetForm = () => {
     setFormQuestion('');
@@ -165,13 +211,14 @@ const QAKnowledgeBaseDetail: React.FC = () => {
     if (!id || !formQuestion.trim() || !formAnswer.trim()) return;
     setIsSubmitting(true);
     try {
-      await KnowledgeBaseApiService.createQAPair(id, {
+      const created = await KnowledgeBaseApiService.createQAPair(id, {
         question: formQuestion.trim(),
         answer: formAnswer.trim(),
         category: formCategory.trim() || null,
         tags: formTags.trim() ? formTags.split(',').map(t => t.trim()) : null,
       });
-      showToast('success', t('knowledge.qa.addSuccess'));
+      showToast(created.status === 'failed' ? 'error' : 'success',
+        created.status === 'failed' ? created.error_message || t('knowledge.qa.failureUnknown') : t('knowledge.qa.addSuccess'));
       setIsAddDialogOpen(false);
       resetForm();
       loadQAPairs();
@@ -189,13 +236,15 @@ const QAKnowledgeBaseDetail: React.FC = () => {
     if (!editingPair || !formQuestion.trim() || !formAnswer.trim()) return;
     setIsSubmitting(true);
     try {
-      await KnowledgeBaseApiService.updateQAPair(editingPair.id, {
+      const updated = await knowledgeVersionsApi.change('qa', editingPair.id, {
         question: formQuestion.trim(),
         answer: formAnswer.trim(),
         category: formCategory.trim() || null,
         tags: formTags.trim() ? formTags.split(',').map(t => t.trim()) : null,
-      });
-      showToast('success', t('knowledge.qa.editSuccess'));
+      }, admin ? 'publish' : 'submit');
+      showToast(updated.state === 'failed' ? 'error' : 'success',
+        updated.state === 'failed' ? updated.error || t('knowledge.qa.failureUnknown') : t('knowledge.versions.queued', '已提交处理，完成前继续使用原生效内容。'));
+      setVersionRefresh(value => value + 1);
       setIsEditDialogOpen(false);
       setEditingPair(null);
       resetForm();
@@ -238,12 +287,14 @@ const QAKnowledgeBaseDetail: React.FC = () => {
         format: importFormat,
         data: importData,
       });
-      showToast(
-        'success',
-        t('knowledge.qa.importSuccess', { count: response.created_count })
-      );
-      setIsImportDialogOpen(false);
-      setImportData('');
+      showToast(response.success ? 'success' : 'error',
+        t('knowledge.qa.importSummary', {
+          created: response.created_count, skipped: response.skipped_count, failed: response.failed_count,
+        }));
+      if (response.success) {
+        setIsImportDialogOpen(false);
+        setImportData('');
+      }
       loadQAPairs();
       loadCategories(); // Refresh categories in case new ones were imported
     } catch (err) {
@@ -369,22 +420,24 @@ const QAKnowledgeBaseDetail: React.FC = () => {
 
       {/* Scrollable Content */}
       <div className="flex-1 w-full overflow-y-auto px-6 pb-6" style={{ height: 0 }}>
+        <KnowledgeVersionsPanel collectionId={knowledgeBase.id} kind="qa" refreshKey={versionRefresh} />
+        <SourceGovernanceSection collectionId={knowledgeBase.id} collectionName={knowledgeBase.name} sourceType="qa" />
         {/* Statistics Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">{stats.total}</div>
+            <div className="text-2xl font-bold text-gray-900 dark:text-white">{pairsError || isLoadingPairs ? '—' : stats.total}</div>
             <div className="text-sm text-gray-500">{t('knowledge.qa.stats.total')}</div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-            <div className="text-2xl font-bold text-yellow-500">{stats.pending}</div>
+            <div className="text-2xl font-bold text-yellow-500">{pairsError || isLoadingPairs ? '—' : stats.pending}</div>
             <div className="text-sm text-gray-500">{t('knowledge.qa.stats.pending')}</div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-            <div className="text-2xl font-bold text-green-500">{stats.processed}</div>
+            <div className="text-2xl font-bold text-green-500">{pairsError || isLoadingPairs ? '—' : stats.processed}</div>
             <div className="text-sm text-gray-500">{t('knowledge.qa.stats.processed')}</div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-            <div className="text-2xl font-bold text-red-500">{stats.failed}</div>
+            <div className="text-2xl font-bold text-red-500">{pairsError || isLoadingPairs ? '—' : stats.failed}</div>
             <div className="text-sm text-gray-500">{t('knowledge.qa.stats.failed')}</div>
           </div>
         </div>
@@ -436,6 +489,16 @@ const QAKnowledgeBaseDetail: React.FC = () => {
         {isLoadingPairs ? (
           <div className="flex items-center justify-center h-32">
             <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+          </div>
+        ) : pairsError ? (
+          <div className="text-center py-12 text-red-600 dark:text-red-400" role="alert">
+            <p>{t('knowledge.qa.loadPairsFailed')}</p>
+            <button
+              onClick={() => void loadQAPairs()}
+              className="mt-3 rounded-lg border border-current px-4 py-2 hover:bg-red-50 dark:hover:bg-red-900/20"
+            >
+              {t('common.retry')}
+            </button>
           </div>
         ) : filteredPairs.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
@@ -493,13 +556,14 @@ const QAKnowledgeBaseDetail: React.FC = () => {
                     <span>{pair.tags.join(', ')}</span>
                   )}
                 </div>
+                <QAPairProcessingNotice status={pair.status} errorMessage={pair.error_message} />
               </div>
             ))}
           </div>
         )}
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {!pairsError && !isLoadingPairs && totalPages > 1 && (
           <div className="flex items-center justify-center gap-2 mt-6">
             <button
               onClick={() => goToPage(currentPage - 1)}

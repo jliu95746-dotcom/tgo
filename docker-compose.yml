@@ -109,7 +109,7 @@ services:
       tgo-rag:
         condition: service_started
     command: >
-      sh -c "celery -A src.rag_service.tasks.celery_app worker --loglevel=info --hostname=worker@tgo-rag-worker -Q document_processing,embedding,website_crawling,qa_processing,celery"
+      sh -c "exec celery -A src.rag_service.tasks.celery_app worker --loglevel=info --hostname=worker@tgo-rag-worker -Q document_processing,embedding,website_crawling,qa_processing,celery"
     healthcheck:
       test: ["CMD-SHELL", "celery -A src.rag_service.tasks.celery_app inspect ping -d worker@tgo-rag-worker --timeout=10 || exit 1"]
       interval: 30s
@@ -316,9 +316,6 @@ services:
       WUKONGIM_ENABLED: "true"
       WUKONGIM_DEVICE_FLAG: 1
       WUKONGIM_DEVICE_LEVEL: 1
-      # Vision Agent service URL for UI automation
-      VISION_AGENT_SERVICE_URL: http://tgo-vision-agent:8000
-      VISION_AGENT_SERVICE_TIMEOUT: 60
       # Internal service configuration (for inter-service communication)
       INTERNAL_SERVICE_HOST: "0.0.0.0"
       INTERNAL_SERVICE_PORT: 8001

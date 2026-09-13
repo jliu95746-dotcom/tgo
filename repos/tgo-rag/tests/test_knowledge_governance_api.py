@@ -37,6 +37,7 @@ def test_router_exposes_governance_management_endpoints() -> None:
 
     assert ("", "GET") in route_signatures
     assert ("/files/{file_id}", "PUT") in route_signatures
+    assert ("/qa-pairs/{qa_pair_id}", "PUT") in route_signatures
     assert ("/{record_id}/submit", "POST") in route_signatures
     assert ("/{record_id}/review", "POST") in route_signatures
     assert ("/backfill", "POST") in route_signatures

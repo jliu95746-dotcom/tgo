@@ -3,13 +3,13 @@
  */
 export const formatNumber = (num: number): string => {
   if (num >= 1000000000) {
-    return (num / 1000000000).toFixed(1).replace(/\.0$/, '') + 'B';
+    return `${(num / 1000000000).toFixed(1).replace(/\.0$/, '')  }B`;
   }
   if (num >= 1000000) {
-    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    return `${(num / 1000000).toFixed(1).replace(/\.0$/, '')  }M`;
   }
   if (num >= 1000) {
-    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return `${(num / 1000).toFixed(1).replace(/\.0$/, '')  }K`;
   }
   return num.toString();
 };
@@ -51,5 +51,5 @@ export const formatFileSize = (bytes: number): string => {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))  } ${  sizes[i]}`;
 };

@@ -9,11 +9,13 @@ and all tool calls are forwarded as-is via ``tools/call``.
 The ``device_id`` is resolved from the URL path (``/mcp/{device_id}``).
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from app.config import settings
 from app.core.logging import get_logger
 from app.services.tcp_connection_manager import tcp_connection_manager
+from app.schemas.device_access import DeviceServicePrincipal
+from app.services.device_session_recording import record_device_tool
 
 logger = get_logger("services.mcp_server")
 
@@ -59,7 +61,8 @@ class MCPProxy:
         return {"tools": raw_tools or []}
 
     async def handle_call_tool(
-        self, device_id: str, params: Dict[str, Any]
+        self, device_id: str, params: Dict[str, Any],
+        principal: DeviceServicePrincipal | None = None,
     ) -> Dict[str, Any]:
         """Forward tool call to device as-is (no mapping, no transformation).
 
@@ -71,6 +74,11 @@ class MCPProxy:
             Raw tool call result from the device.
         """
         name: str = params.get("name", "")
+        if principal is not None and principal.session_id is not None:
+            return await record_device_tool(
+                principal, device_id, name,
+                lambda: self.handle_call_tool(device_id, params),
+            )
         arguments: Dict[str, Any] = params.get("arguments", {})
 
         connection = tcp_connection_manager.get_connection(device_id)
@@ -89,7 +97,10 @@ class MCPProxy:
         if result is None:
             return {
                 "content": [
-                    {"type": "text", "text": "Error: Device request timed out"}
+                    {
+                        "type": "text",
+                        "text": "Error: Device request failed or timed out",
+                    }
                 ],
                 "isError": True,
             }
@@ -102,7 +113,8 @@ class MCPProxy:
     # ------------------------------------------------------------------ #
 
     async def handle_jsonrpc(
-        self, device_id: str, body: Dict[str, Any]
+        self, device_id: str, body: Dict[str, Any],
+        principal: DeviceServicePrincipal | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Dispatch a JSON-RPC 2.0 request to the appropriate handler.
 
@@ -128,7 +140,9 @@ class MCPProxy:
         elif method == "tools/list":
             result = await self.handle_list_tools(device_id)
         elif method == "tools/call":
-            result = await self.handle_call_tool(device_id, params)
+            result = await self.handle_call_tool(device_id, params, principal)
+            if set(result) == {"error"}:
+                return {"jsonrpc": "2.0", "id": request_id, "error": result["error"]}
         elif method == "ping":
             result = {}
         else:

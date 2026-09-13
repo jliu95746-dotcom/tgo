@@ -228,6 +228,17 @@ test_*.py
 !tests/test_qa_processing.py
 !tests/test_qa_import.py
 !tests/test_database_logging.py
+!tests/test_website_crawler.py
+!tests/test_crawler_cleanup.py
+!tests/test_website_browser_runtime.py
+!tests/test_website_processing_status.py
+!tests/test_website_documents.py
+!tests/test_website_recrawl.py
+!tests/test_website_options.py
+!tests/test_website_discovery.py
+!tests/test_website_dispatch.py
+!tests/test_maintenance_health.py
+!tests/test_observability.py
 !tests/test_collection_pages.py
 
 # Coverage reports

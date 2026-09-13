@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.schemas.base import BaseSchema
 
@@ -51,6 +51,13 @@ class ToolUpdateRequest(BaseSchema):
     transport_type: Optional[str] = Field(None, description="Updated transport type (e.g., http, stdio, sse)")
     endpoint: Optional[str] = Field(None, description="Updated endpoint URL or path")
     config: Optional[Dict[str, Any]] = Field(None, description="Updated tool configuration JSON object")
+
+    @field_validator("name", "tool_type", mode="before")
+    @classmethod
+    def reject_null_required_fields(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("名称和工具类型不能设为空值；不修改时请省略该字段")
+        return value
 
 
 class ToolResponse(BaseSchema):

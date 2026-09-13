@@ -80,7 +80,7 @@ export const uploadChatImageWithProgress = (
           const response: ChatFileUploadResponse = JSON.parse(xhr.responseText);
           options.onProgress?.({ progress: 100, loaded: 1, total: 1, status: 'completed' });
           resolve(response);
-        } catch (e) {
+        } catch {
           reject(new APIError(status, {
             error: { code: 'PARSE_ERROR', message: '无法解析上传响应', details: { status_code: status } },
             request_id: 'unknown'
@@ -165,7 +165,7 @@ export const uploadChatFileWithProgress = (
           const response: ChatFileUploadResponse = JSON.parse(xhr.responseText);
           options.onProgress?.({ progress: 100, loaded: 1, total: 1, status: 'completed' });
           resolve(response);
-        } catch (e) {
+        } catch {
           reject(new APIError(status, {
             error: { code: 'PARSE_ERROR', message: '无法解析上传响应', details: { status_code: status } },
             request_id: 'unknown'

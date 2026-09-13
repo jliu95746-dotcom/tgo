@@ -1,7 +1,7 @@
 """Plugin API endpoints - Proxies to tgo-plugin-runtime service."""
 
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import StreamingResponse
@@ -13,7 +13,7 @@ from jose import jwt
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_admin
 from app.services.plugin_runtime_client import plugin_runtime_client
 from app.models import Visitor, Staff
 from app.schemas.plugin import (
@@ -539,14 +539,18 @@ async def get_plugin_logs(
 @router.post("/dev-token", response_model=DevTokenResponse)
 async def generate_dev_token(
     request: DevTokenRequest,
-    current_user: Staff = Depends(get_current_active_user)
+    current_user: Staff = Depends(require_admin())
 ) -> DevTokenResponse:
     """Generate a dev token for plugin debugging in a specific project."""
-    # TODO: Verify user has access to project
-    
-    expires_at = datetime.utcnow() + timedelta(hours=request.expires_hours)
+    if request.project_id != current_user.project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只能为当前所属项目生成插件调试令牌",
+        )
+
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=request.expires_hours)
     token_data = {
-        "project_id": str(request.project_id),
+        "project_id": str(current_user.project_id),
         "user_id": str(current_user.id),
         "type": "plugin_dev",
         "exp": expires_at

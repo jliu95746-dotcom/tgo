@@ -16,13 +16,15 @@ export const logisticsApi = {
     return apiClient.put<LogisticsSettings>('/v1/logistics/settings', data);
   },
 
-  testTool(trackingNo: string): Promise<{
+  testTool(trackingNo: string, queryToolId?: string, queryDetails?: { carrier_code?: string; phone?: string }): Promise<{
     success: boolean;
     message: string;
     preview: string | null;
   }> {
     return apiClient.post('/v1/logistics/settings/test', {
       tracking_no: trackingNo,
+      ...queryDetails,
+      ...(queryToolId ? { query_tool_id: queryToolId } : {}),
     });
   },
 

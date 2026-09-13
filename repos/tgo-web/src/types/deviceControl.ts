@@ -73,9 +73,40 @@ export interface DeviceControlTool {
 export interface DeviceSession {
   id: string;
   device_id: string;
-  agent_id?: string;
+  device_name: string;
+  agent_id: string | null;
+  agent_name: string | null;
+  status: DeviceSessionStatus;
   started_at: string;
-  ended_at?: string;
+  ended_at: string | null;
+  lease_expires_at: string | null;
   screenshots_count: number;
   actions_count: number;
+  failed_actions_count: number;
+}
+
+export type DeviceSessionStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+export interface DeviceSessionStep {
+  id: string;
+  tool_name: string;
+  status: Exclude<DeviceSessionStatus, 'cancelled'>;
+  started_at: string;
+  ended_at: string | null;
+}
+export interface DeviceSessionDetail extends DeviceSession {
+  steps: DeviceSessionStep[];
+  step_total: number;
+}
+export interface DeviceSessionListResponse {
+  sessions: DeviceSession[];
+  total: number;
+}
+export interface DeviceSessionListParams {
+  device_id?: string;
+  skip?: number;
+  limit?: number;
+}
+export interface DeviceSessionDetailParams {
+  step_skip?: number;
+  step_limit?: number;
 }

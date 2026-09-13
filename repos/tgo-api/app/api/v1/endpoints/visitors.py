@@ -24,6 +24,9 @@ from app.core.config import settings
 from app.core.security import verify_token
 
 from app.services.wukongim_client import wukongim_client
+from app.services.reply_history import reconcile_reply_history
+from app.schemas.employee_style import EmployeeStyle
+from app.services.employee_style import resolve_employee_style
 from app.services.visitor_notifications import notify_visitor_profile_updated
 from app.utils.intent import localize_visitor_response_intent
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_VISITOR
@@ -757,8 +760,7 @@ async def accept_visitor_direct(
     wait_duration = 0
     if queue_entry:
         wait_duration = queue_entry.wait_duration_seconds
-        queue_entry.assign_to_staff(current_user.id)
-        db.commit()
+        # transfer_to_staff updates the queue under the visitor lock.
 
     logger.info(
         f"Staff {current_user.id} accepted visitor {visitor_id} (direct)",
@@ -1278,6 +1280,25 @@ async def disable_ai_for_visitor(
     return response
 
 
+@router.get("/{visitor_id}/humanization-settings", response_model=EmployeeStyle)
+async def get_visitor_humanization_settings(
+    visitor_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_active_user),
+) -> EmployeeStyle:
+    visitor = db.query(Visitor).options(joinedload(Visitor.platform)).filter(
+        Visitor.id == visitor_id, Visitor.project_id == current_user.project_id,
+        Visitor.deleted_at.is_(None),
+    ).first()
+    if not visitor:
+        raise HTTPException(404, "Visitor not found")
+    return await resolve_employee_style(
+        str(current_user.project_id),
+        str(visitor.platform.agent_id) if visitor.platform and visitor.platform.agent_id else None,
+        visitor.humanization_skill_name, visitor.humanization_skill_enabled,
+    )
+
+
 @router.put("/{visitor_id}/service-mode", response_model=VisitorResponse)
 async def update_visitor_service_mode(
     request: Request,
@@ -1477,7 +1498,10 @@ async def sync_visitor_channel_messages(
             "Visitor messages sync success",
             extra={"platform_id": str(platform.id), "channel_id": req.channel_id, "channel_type": req.channel_type, "messages": msg_count},
         )
-        return result
+        return await reconcile_reply_history(
+            result, project_id=str(platform.project_id),
+            channel_id=req.channel_id, channel_type=req.channel_type,
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -1587,7 +1611,10 @@ async def upload_visitor_avatar(
                             pass
                     raise HTTPException(
                         status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                        detail=f"File too large. Maximum size: {AVATAR_MAX_SIZE_MB}MB"
+                        detail=(
+                            "File too large. Maximum size: "
+                            f"{visitor_service.AVATAR_MAX_SIZE_MB}MB"
+                        ),
                     )
                 out.write(chunk)
     except HTTPException:

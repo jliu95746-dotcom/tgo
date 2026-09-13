@@ -13,6 +13,7 @@ import {
 import { useTranslation } from 'react-i18next';
 
 export interface Skill {
+  used_by?: { id: string; name: string; enabled: boolean }[];
   name: string;
   description: string;
   author: string | null;
@@ -128,7 +129,12 @@ const SkillCard: React.FC<SkillCardProps> = ({
           {skill.description}
         </p>
 
-        {isHumanization && skill.pending_training_count > 0 && (
+        {isHumanization && <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+          {skill.used_by?.length
+            ? t('employeeStyle.usedBy', { names: skill.used_by.map(employee => `${employee.name}${employee.enabled ? '' : t('employeeStyle.offSuffix')}`).join('、') })
+            : t('employeeStyle.unbound')}
+        </p>}
+        {isHumanization && (
           <button
             onClick={(event) => {
               event.stopPropagation();
@@ -138,7 +144,7 @@ const SkillCard: React.FC<SkillCardProps> = ({
             className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-60 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-300"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isApplying ? 'animate-spin' : ''}`} />
-            {t('skills.humanization.applyPending', '更新技能（{{count}}条）', { count: skill.pending_training_count })}
+            {t('skills.training.open', '训练与试答 · 待更新 {{count}} 条', { count: skill.pending_training_count })}
           </button>
         )}
       </div>
@@ -160,7 +166,7 @@ const SkillCard: React.FC<SkillCardProps> = ({
 
         {!skill.is_official && (
           <div className="relative" ref={menuRef} onClick={(event) => event.stopPropagation()}>
-            <button onClick={() => setShowMenu((value) => !value)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
+            <button aria-label={`更多操作：${title}`} onClick={() => setShowMenu((value) => !value)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
               <MoreHorizontal className="h-4 w-4" />
             </button>
             {showMenu && (
@@ -168,7 +174,7 @@ const SkillCard: React.FC<SkillCardProps> = ({
                 <button onClick={() => { setShowMenu(false); onClick(skill); }} className="flex w-full items-center px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50">
                   <Eye className="mr-2 h-3.5 w-3.5" /> {t('common.view', '查看')}
                 </button>
-                {isHumanization && onEdit && (
+                {onEdit && (
                   <button onClick={() => { setShowMenu(false); onEdit(skill); }} className="flex w-full items-center px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <Pencil className="mr-2 h-3.5 w-3.5" /> {t('common.edit', '编辑')}
                   </button>

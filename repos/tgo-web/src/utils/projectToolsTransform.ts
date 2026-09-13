@@ -88,10 +88,10 @@ export const transformAiToolResponse = (aiTool: AiToolResponse): AiTool => {
     title_zh: aiTool.title_zh || undefined,
     title_en: aiTool.title_en || undefined,
     description: aiTool.description || '暂无描述',
-    category: category,
+    category,
     status: isActive ? 'active' : 'inactive', // Use deleted_at to determine status
     version: 'v1.0.0', // New API doesn't have version field
-    author: author,
+    author,
     lastUpdated: new Date(aiTool.updated_at).toLocaleDateString('zh-CN'),
     usageCount: mockData.usageCount,
     rating: mockData.rating,
@@ -196,9 +196,9 @@ export const sortProjectTools = (tools: AiTool[], sortBy: 'name' | 'recent' | 'r
  */
 export const getEnabledStatusDisplayName = (enabledFilter: 'all' | 'enabled' | 'disabled'): string => {
   const statusNames: Record<'all' | 'enabled' | 'disabled', string> = {
-    'all': '全部',
-    'enabled': '已启用',
-    'disabled': '已禁用',
+    all: '全部',
+    enabled: '已启用',
+    disabled: '已禁用',
   };
   
   return statusNames[enabledFilter] || '全部';
@@ -218,12 +218,12 @@ export const getEnabledStatusColorClass = (isEnabled: boolean): string => {
  */
 export const getCategoryDisplayName = (category: ToolCategory): string => {
   const categoryNames: Record<ToolCategory, string> = {
-    'all': '全部',
-    'productivity': '效率工具',
-    'communication': '通信工具',
-    'data': '数据分析',
-    'ai': 'AI工具',
-    'integration': '集成服务',
+    all: '全部',
+    productivity: '效率工具',
+    communication: '通信工具',
+    data: '数据分析',
+    ai: 'AI工具',
+    integration: '集成服务',
   };
   
   return categoryNames[category] || '未知分类';

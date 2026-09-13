@@ -1,4 +1,5 @@
 {
+  "brand": { "poweredBy": "Powered by 域见" },
   "common": {
     "retry": "Retry",
     "cancel": "Cancel",
@@ -29,6 +30,8 @@
     "uploading": "Uploading..."
   },
   "errors": {
+    "replyStopUnconfirmed": "The stop has not been confirmed. Please try again.",
+    "mediaReplyFailed": "The attachment was sent, but its reply could not be requested. Please contact a support agent.",
     "authFail": "Authentication failed, cannot send message",
     "subscriberNotExist": "Not a subscriber, cannot send message",
     "notAllowSend": "No permission to send message",

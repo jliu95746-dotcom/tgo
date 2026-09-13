@@ -19,11 +19,10 @@ import { useChannelStore } from '@/stores/channelStore';
 import { useChatStore } from '@/stores/chatStore';
 import { getChannelKey } from '@/utils/channelUtils';
 import { useToast } from '@/hooks/useToast';
-import type { ChannelVisitorExtra } from '@/types';
-import { PlatformType } from '@/types';
+import { PlatformType, type ChannelVisitorExtra } from '@/types';
 import { toPlatformType } from '@/utils/platformUtils';
 import { formatOnlineDuration } from '@/utils/dateUtils';
-import type { ExtendedVisitor, CustomAttribute, VisitorTag } from '@/data/mockVisitor';
+import type { ExtendedVisitor, CustomAttribute, VisitorTag } from '@/types/visitor';
 
 export interface VisitorDetailPanelProps {
   /** 访客ID (用于独立模式) */
@@ -634,7 +633,7 @@ const VisitorDetailPanel: React.FC<VisitorDetailPanelProps> = ({
           } else {
             throw createErr;
           }
-        } catch (e) {
+        } catch {
           throw createErr;
         }
       }

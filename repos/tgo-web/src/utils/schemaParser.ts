@@ -366,7 +366,7 @@ const parseOperationParameters = (operation: any): ParsedParameter[] => {
               description: requestBody.description,
               type: 'body',
               required: requestBody.required || false,
-              schema: schema,
+              schema,
               example: mediaType.example,
               examples: mediaType.examples,
             });
@@ -386,7 +386,7 @@ const parseOperationResponses = (responses: any): Record<string, ParsedResponse>
   const parsedResponses: Record<string, ParsedResponse> = {};
 
   if (!responses || typeof responses !== 'object') {
-    return { '200': { description: 'Success' } };
+    return { 200: { description: 'Success' } };
   }
 
   Object.entries(responses).forEach(([statusCode, response]: [string, any]) => {

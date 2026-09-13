@@ -40,7 +40,7 @@ const DebugPanel: React.FC = () => {
 
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
 
-  const nodes = currentWorkflow?.definition?.nodes || [];
+  const nodes = useMemo(() => currentWorkflow?.definition?.nodes || [], [currentWorkflow?.definition?.nodes]);
   
   // Find all input nodes and their variables
   const inputNodes = useMemo(() => {
@@ -91,6 +91,8 @@ const DebugPanel: React.FC = () => {
         return <CheckCircle2 className="w-4 h-4 text-green-500" />;
       case 'failed':
         return <XCircle className="w-4 h-4 text-red-500" />;
+      case 'cancelled':
+        return <StopCircle className="w-4 h-4 text-gray-400" />;
       default:
         return <Clock className="w-4 h-4 text-gray-300" />;
     }
@@ -101,6 +103,7 @@ const DebugPanel: React.FC = () => {
       case 'running': return t('workflow.debug.running', '正在运行...');
       case 'completed': return t('workflow.debug.success', '执行成功');
       case 'failed': return t('workflow.debug.failed', '执行失败');
+      case 'cancelled': return t('workflow.debug.cancelled', '已取消');
       case 'pending': return t('workflow.debug.pending', '等待中');
       default: return status;
     }
@@ -196,7 +199,7 @@ const DebugPanel: React.FC = () => {
                         value={debugInput[v.name] ?? ''}
                         onChange={(e) => handleInputChange(v.name, e.target.value, v.type)}
                         className="w-full px-4 py-2.5 bg-gray-50/50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm font-bold dark:text-gray-100 shadow-sm focus:bg-white dark:focus:bg-gray-800"
-                        placeholder={t('common.please_input', '请输入') + ` ${v.name}...`}
+                        placeholder={`${t('common.please_input', '请输入')  } ${v.name}...`}
                         disabled={isExecuting}
                       />
                     )}
@@ -254,9 +257,13 @@ const DebugPanel: React.FC = () => {
               <div className="bg-gray-50/50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm">
                 <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between bg-white/50 dark:bg-gray-900/50">
                   <div className="flex items-center gap-2.5">
-                    {currentExecution ? getStatusIcon(currentExecution.status) : <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
+                    {currentExecution ? getStatusIcon(currentExecution.status) : isExecuting
+                      ? <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                      : <XCircle className="w-4 h-4 text-red-500" />}
                     <span className="text-[11px] font-bold text-gray-700 dark:text-gray-200 uppercase tracking-widest">
-                      {currentExecution ? getStatusText(currentExecution.status) : t('workflow.debug.starting', '启动中...')}
+                      {currentExecution ? getStatusText(currentExecution.status) : isExecuting
+                        ? t('workflow.debug.starting', '启动中...')
+                        : t('workflow.debug.incomplete', '执行未完成')}
                     </span>
                   </div>
                   {currentExecution?.duration && (

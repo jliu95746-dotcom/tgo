@@ -9,8 +9,8 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    // TypeScript type checking in dev mode
-    checker({
+    // Native low-memory mode runs type checks separately; build still starts with tsc.
+    process.env.TGO_DEV_TYPECHECK !== '0' && checker({
       typescript: {
         tsconfigPath: './tsconfig.json',
         buildMode: false, // Only check in dev mode
@@ -29,7 +29,7 @@ export default defineConfig({
       'auth-pages': process.env.VITE_EDITION === 'saas'
         ? path.resolve(__dirname, '../../../saas-extensions/tgo-web-saas/src/auth-pages.tsx')
         : path.resolve(__dirname, './src/auth-pages.ts'),
-      'react': path.resolve(__dirname, 'node_modules/react'),
+      react: path.resolve(__dirname, 'node_modules/react'),
       'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
       'react/jsx-runtime': path.resolve(__dirname, 'node_modules/react/jsx-runtime'),
     },

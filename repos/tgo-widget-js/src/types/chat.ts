@@ -12,6 +12,7 @@ export type TextMessagePayload = {
 
 export type ImageMessagePayload = {
   type: 2
+  file_id?: string
   url: string
   width: number
   height: number
@@ -19,6 +20,8 @@ export type ImageMessagePayload = {
 
 export type FileMessagePayload = {
   type: 3
+  file_id?: string
+  mime_type?: string
   content: string
   url: string
   name: string

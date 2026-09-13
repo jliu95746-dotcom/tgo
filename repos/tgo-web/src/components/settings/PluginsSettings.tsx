@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import yaml from 'js-yaml';
 import { 
@@ -20,6 +20,7 @@ const PluginsSettings: React.FC = () => {
   const { 
     installedPlugins, 
     isLoadingInstalled,
+    installedPluginsError,
     fetchInstalledPlugins,
     uninstallPlugin,
     startPlugin,
@@ -50,6 +51,7 @@ const PluginsSettings: React.FC = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const [devToken, setDevToken] = useState<string | null>(null);
   const [isGeneratingToken, setIsGeneratingToken] = useState(false);
+  const generatingTokenRef = useRef(false);
   const [copied, setCopied] = useState(false);
   const [processingPlugins, setProcessingPlugins] = useState<Record<string, string | null>>({});
   
@@ -208,15 +210,17 @@ const PluginsSettings: React.FC = () => {
   };
 
   const handleGenerateToken = async () => {
-    if (!user?.project_id) return;
+    if (user?.role !== 'admin' || !user?.project_id || generatingTokenRef.current) return;
+    generatingTokenRef.current = true;
     setIsGeneratingToken(true);
     try {
       const { token } = await generateDevToken(user.project_id);
       setDevToken(token);
       setShowTokenModal(true);
-    } catch (error) {
+    } catch {
       alert(t('settings.plugins.token.error', '生成令牌失败'));
     } finally {
+      generatingTokenRef.current = false;
       setIsGeneratingToken(false);
     }
   };
@@ -263,7 +267,10 @@ const PluginsSettings: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={handleGenerateToken}
-            disabled={isGeneratingToken}
+            disabled={isGeneratingToken || user?.role !== 'admin' || !user?.project_id}
+            title={user?.role !== 'admin'
+              ? t('settings.plugins.token.adminOnly', '仅项目管理员可以生成调试令牌')
+              : t('settings.plugins.token.lifetimeHint', '仅用于当前项目的插件调试，有效期 24 小时')}
             className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800/50 transition-colors"
           >
             {isGeneratingToken ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
@@ -291,7 +298,24 @@ const PluginsSettings: React.FC = () => {
 
       {/* Content */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-        {isLoadingInstalled && installedPlugins.length === 0 ? (
+        {installedPluginsError ? (
+            <div role="alert" className="p-12 flex flex-col items-center justify-center text-center">
+              <XCircle className="w-10 h-10 mb-4 text-red-500" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                {t('settings.plugins.loadErrorTitle', '插件列表加载失败')}
+              </h3>
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                {t('settings.plugins.loadErrorHint', '请检查插件服务是否运行。这不表示没有安装插件。')}
+              </p>
+              <p className="mt-2 max-w-xl break-words text-sm text-red-600 dark:text-red-400">
+                {installedPluginsError}
+              </p>
+              <button onClick={fetchInstalledPlugins} disabled={isLoadingInstalled}
+                className="mt-4 text-blue-600 hover:underline text-sm font-medium disabled:opacity-50">
+                {t('common.retry', '重试')}
+              </button>
+            </div>
+          ) : isLoadingInstalled && installedPlugins.length === 0 ? (
             <div className="p-12 flex flex-col items-center justify-center text-gray-500">
               <RefreshCcw className="w-8 h-8 animate-spin mb-4" />
               <p>{t('common.loading', '加载中...')}</p>
@@ -1156,8 +1180,8 @@ plugin.run()`}
         <div className="flex items-start gap-3">
           <Info className="w-5 h-5 text-blue-600 mt-0.5" />
           <div className="text-sm text-blue-800 dark:text-blue-300">
-            <p className="font-semibold mb-1">{t('settings.plugins.debug.title', '调试提示')}</p>
-            <p>{t('settings.plugins.debug.description', '在开发模式下，插件可以通过 8005 端口（TCP）连接到 TGO AI 服务。')}</p>
+            <p className="font-semibold mb-1">{t('settings.plugins.debug.title', '开发者提示')}</p>
+            <p>{t('settings.plugins.debug.description', '自行开发的插件可通过本机 8005 端口连接调试。普通使用无需配置。')}</p>
           </div>
         </div>
       </div>

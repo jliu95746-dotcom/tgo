@@ -2,7 +2,7 @@ import React from 'react';
 import EditableField from '../ui/EditableField';
 import CustomAttributeManager from '../ui/CustomAttributeManager';
 import CollapsibleSection from '../ui/CollapsibleSection';
-import type { VisitorBasicInfo } from '@/data/mockVisitor';
+import type { VisitorBasicInfo } from '@/types/visitor';
 import { useTranslation } from 'react-i18next';
 
 interface BasicInfoSectionProps {

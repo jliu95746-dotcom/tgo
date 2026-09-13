@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, field_validator, field_serializer, JsonValue
 
 from app.schemas.base import BaseSchema, IDMixin, TimestampMixin
 from app.models.tool import ToolType, ToolSourceType
@@ -37,6 +37,13 @@ class ToolResponse(ToolBase, IDMixin, TimestampMixin):
     updated_at: datetime = Field(description="Record last update timestamp")
     deleted_at: Optional[datetime] = Field(default=None, description="Soft delete timestamp")
 
+    @field_serializer("config")
+    def redact_logistics_credential(self, config: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
+        if config and config.get("logistics_provider"):
+            from app.services.logistics_provider import public_config
+            return {**config, "logistics_provider": public_config(config["logistics_provider"])}
+        return config
+
 
 
 
@@ -58,6 +65,13 @@ class ToolUpdate(BaseSchema):
     transport_type: Optional[str] = Field(default=None, description="Updated transport type (e.g., http, stdio, sse)")
     endpoint: Optional[str] = Field(default=None, description="Updated endpoint URL or path")
     config: Optional[dict] = Field(default=None, description="Updated tool configuration JSON object")
+
+    @field_validator("name", "tool_type", mode="before")
+    @classmethod
+    def reject_null_required_fields(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("名称和工具类型不能设为空值；不修改时请省略该字段")
+        return value
 
 
 class AgentToolDetail(ToolResponse):

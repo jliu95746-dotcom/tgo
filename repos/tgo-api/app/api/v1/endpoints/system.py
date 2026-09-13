@@ -6,7 +6,7 @@ from datetime import datetime
 
 from fastapi import APIRouter
 
-from app.__init__ import __version__
+from app import __version__
 from app.core.config import settings
 from app.schemas.system_schema import SystemInfoResponse
 

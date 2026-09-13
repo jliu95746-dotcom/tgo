@@ -351,3 +351,29 @@ async def test_failed_pair_can_retry_without_changing_answer(
     enqueue.assert_called_once_with(str(pair.id), str(pair.project_id), True)
     assert pair.status == ('failed' if queue_error else 'pending')
     assert bool(pair.error_message) is queue_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('changed', [False, True])
+async def test_only_content_edits_reset_existing_review(fixture, monkeypatch, changed):
+    from src.rag_service.routers import qa
+    from src.rag_service.schemas.qa import QAPairUpdateRequest
+    from src.rag_service.services.knowledge_governance import KnowledgeGovernanceService
+    from src.rag_service.tasks.qa_processing import process_qa_pair_task
+
+    pair, session, _ = fixture
+    pair.status = 'processed'
+    invalidate = AsyncMock()
+    monkeypatch.setattr(KnowledgeGovernanceService, 'invalidate_qa_review', invalidate)
+    monkeypatch.setattr(process_qa_pair_task, 'delay', Mock())
+    monkeypatch.setattr(qa.QAPairResponse, 'model_validate', lambda value: value)
+    await qa.update_qa_pair(
+        pair.id, QAPairUpdateRequest(answer='新答案' if changed else pair.answer),
+        pair.project_id, session,
+    )
+    if changed:
+        invalidate.assert_awaited_once_with(
+            session, project_id=pair.project_id, qa_pair_id=pair.id,
+        )
+    else:
+        invalidate.assert_not_awaited()

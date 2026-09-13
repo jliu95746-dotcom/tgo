@@ -7,14 +7,13 @@ Crawl configuration is stored in Collection.crawl_config.
 
 import fnmatch
 import hashlib
-import os
 import re
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db_session_dependency
@@ -451,6 +450,8 @@ async def _build_progress(db: AsyncSession, collection_id: UUID) -> CrawlProgres
 async def _delete_file_and_documents(
     db: AsyncSession,
     file_id: UUID,
+    project_id: UUID,
+    collection_id: UUID,
 ) -> Optional[str]:
     """
     Delete a File and all its associated FileDocument records.
@@ -463,18 +464,26 @@ async def _delete_file_and_documents(
         Storage path of the deleted file (for physical file cleanup), or None if file not found
     """
     # Get file record
-    file_query = select(FileModel).where(FileModel.id == file_id)
+    file_query = select(FileModel).where(
+        FileModel.id == file_id, FileModel.project_id == project_id,
+        FileModel.collection_id == collection_id,
+    ).with_for_update()
     file_result = await db.execute(file_query)
     file_record = file_result.scalar_one_or_none()
 
     if not file_record:
         return None
 
-    storage_path = file_record.storage_path
+    storage_path = (
+        file_record.storage_path if file_record.storage_provider == "local" else None
+    )
 
     # Delete associated FileDocument records first
     await db.execute(
-        delete(FileDocument).where(FileDocument.file_id == file_id)
+        delete(FileDocument).where(
+            FileDocument.file_id == file_id, FileDocument.project_id == project_id,
+            FileDocument.collection_id == collection_id,
+        )
     )
     logger.debug(f"Deleted FileDocument records for file {file_id}")
 
@@ -488,7 +497,7 @@ async def _delete_file_and_documents(
 async def _delete_page_cascade(
     db: AsyncSession,
     page: WebsitePage,
-) -> None:
+) -> List[Tuple[UUID, str]]:
     """
     Delete a WebsitePage and its associated File/FileDocument records.
 
@@ -496,22 +505,42 @@ async def _delete_page_cascade(
         db: Database session
         page: WebsitePage to delete
     """
-    storage_path = None
-
-    # Delete associated file if exists
-    if page.file_id:
-        storage_path = await _delete_file_and_documents(db, page.file_id)
-
-    # Delete the page
+    storage_files: List[Tuple[UUID, str]] = []
+    # Failed recrawls can have both a candidate and an older published file.
+    result = await db.execute(select(FileModel.id).where(
+        FileModel.project_id == page.project_id,
+        FileModel.collection_id == page.collection_id,
+        or_(
+            FileModel.id == page.file_id,
+            and_(
+                FileModel.storage_metadata["source"].astext == "website_crawl",
+                FileModel.storage_metadata["page_id"].astext == str(page.id),
+            ),
+        ),
+    ))
+    for file_id in result.scalars().all():
+        storage_path = await _delete_file_and_documents(
+            db, file_id, page.project_id, page.collection_id,
+        )
+        if storage_path:
+            storage_files.append((file_id, storage_path))
     await db.delete(page)
+    return storage_files
 
-    # Delete physical file from storage after DB changes
-    if storage_path and os.path.exists(storage_path):
+
+def cleanup_deleted_page_files(storage_files: List[Tuple[UUID, str]]) -> None:
+    """Called only after commit; reject paths outside generated UUID storage."""
+    from ..config import get_settings
+    from ..services.website_documents import owned_storage_path
+
+    for file_id, storage_path in storage_files:
         try:
-            os.remove(storage_path)
-            logger.debug(f"Deleted physical file from storage: {storage_path}")
-        except Exception as e:
-            logger.warning(f"Failed to delete physical file {storage_path}: {e}")
+            owned_storage_path(
+                get_settings().upload_dir, file_id, storage_path,
+            ).unlink(missing_ok=True)
+        except (OSError, ValueError) as error:
+            logger.warning("Deleted page file cleanup failed", file_id=str(file_id),
+                           error_type=type(error).__name__)
 
 
 # ============================================================================
@@ -682,7 +711,7 @@ async def add_page(
     Deduplication:
     - If the URL already exists in the collection, it will be skipped
     """
-    # Verify collection exists and belongs to project
+    # Lock the collection so manual adds share quota/dedup with discovery.
     coll_query = select(Collection).where(
         and_(
             Collection.id == collection_id,
@@ -690,7 +719,7 @@ async def add_page(
             Collection.deleted_at.is_(None),
         )
     )
-    coll_result = await db.execute(coll_query)
+    coll_result = await db.execute(coll_query.with_for_update())
     collection = coll_result.scalar_one_or_none()
 
     if not collection:
@@ -720,6 +749,16 @@ async def add_page(
                 status="exists",
             )
 
+    page_count = await db.scalar(select(func.count()).select_from(WebsitePage).where(
+        WebsitePage.collection_id == collection_id,
+        WebsitePage.project_id == project_id,
+    ))
+    if (page_count or 0) >= (collection.crawl_config or {}).get("max_pages", 100):
+        return AddPageResponse(
+            success=False, page_id=None, status="limit_reached",
+            message="已达到这个知识库的页面数量上限，请调整上限或删除不需要的页面。",
+        )
+
     # Validate parent page if provided
     parent_page = None
     page_depth = 0
@@ -741,18 +780,20 @@ async def add_page(
 
         page_depth = parent_page.depth + 1
 
-    # Update collection crawl_config if options provided
-    if request.options or request.include_patterns or request.exclude_patterns:
-        crawl_config = collection.crawl_config or {}
-        if request.options:
-            crawl_config.update(request.options.model_dump(exclude_none=True))
-        if request.include_patterns:
-            crawl_config["include_patterns"] = request.include_patterns
-        if request.exclude_patterns:
-            crawl_config["exclude_patterns"] = request.exclude_patterns
-        if request.max_depth:
-            crawl_config["max_depth"] = request.max_depth
-        collection.crawl_config = crawl_config
+    # Only explicitly supplied fields override inherited settings.
+    page_config = dict(parent_page.crawl_config or {}) if parent_page else {}
+    if request.options is not None:
+        page_config.update(request.options.model_dump(
+            exclude_none=True, exclude_unset=True,
+        ))
+        if request.options.headers is not None:
+            page_config["headers_origin"] = url
+    if request.include_patterns is not None:
+        page_config["include_patterns"] = request.include_patterns
+    if request.exclude_patterns is not None:
+        page_config["exclude_patterns"] = request.exclude_patterns
+    absolute_max_depth = page_depth + request.max_depth
+    page_config["max_depth"] = absolute_max_depth
 
     # Create new page record
     new_page = WebsitePage(
@@ -765,6 +806,7 @@ async def add_page(
         status="pending",
         crawl_source="manual",
         content_length=0,
+        crawl_config=page_config,
     )
 
     db.add(new_page)
@@ -779,11 +821,19 @@ async def add_page(
         task = crawl_page_task.delay(
             str(new_page.id),
             auto_discover=(request.max_depth > 0),
-            max_depth=request.max_depth,
+            max_depth=absolute_max_depth,
         )
         logger.info(f"Triggered crawl page task {task.id} for page {new_page.id}")
-    except Exception as e:
-        logger.warning(f"Failed to trigger crawl task: {e}")
+    except Exception as error:
+        logger.warning("Failed to dispatch added page", page_id=str(new_page.id),
+                       error_type=type(error).__name__)
+        message = "抓取任务未能提交，请稍后点击重新抓取。"
+        await db.execute(update(WebsitePage).where(
+            WebsitePage.id == new_page.id, WebsitePage.project_id == project_id,
+            WebsitePage.status == "pending",
+        ).values(status="failed", error_message=message))
+        await db.commit()
+        raise HTTPException(status_code=503, detail=message) from error
 
     return AddPageResponse(
         success=True,
@@ -814,12 +864,15 @@ async def delete_page(
     - Associated FileDocument records (if any)
     - Physical file from storage (if any)
     """
-    query = select(WebsitePage).where(
+    query = select(WebsitePage).join(
+        Collection, Collection.id == WebsitePage.collection_id,
+    ).where(
         and_(
             WebsitePage.id == page_id,
             WebsitePage.project_id == project_id,
+            Collection.project_id == project_id,
         )
-    )
+    ).with_for_update(of=(Collection, WebsitePage))
 
     result = await db.execute(query)
     page = result.scalar_one_or_none()
@@ -828,8 +881,9 @@ async def delete_page(
         raise HTTPException(status_code=404, detail="Page not found")
 
     # Delete page with cascade (File, FileDocument, physical file)
-    await _delete_page_cascade(db, page)
+    storage_files = await _delete_page_cascade(db, page)
     await db.commit()
+    cleanup_deleted_page_files(storage_files)
 
     logger.info(f"Deleted page {page_id} with associated files")
 
@@ -850,12 +904,16 @@ async def recrawl_page(
     """
     Trigger re-crawling of an existing page.
     """
-    query = select(WebsitePage).where(
+    query = select(WebsitePage).join(
+        Collection, Collection.id == WebsitePage.collection_id,
+    ).where(
         and_(
             WebsitePage.id == page_id,
             WebsitePage.project_id == project_id,
+            Collection.project_id == project_id,
+            Collection.deleted_at.is_(None),
         )
-    )
+    ).with_for_update(of=(Collection, WebsitePage))
 
     result = await db.execute(query)
     page = result.scalar_one_or_none()
@@ -863,7 +921,13 @@ async def recrawl_page(
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
 
+    if page.status not in COMPLETED_STATUSES:
+        raise HTTPException(status_code=409, detail="这个页面正在处理中，请完成后再重新抓取。")
+
     # Reset page status
+    from ..services.knowledge_versions import find_source
+    if await find_source(db, project_id, 'website', page_id):
+        raise HTTPException(409, '这份资料已启用版本管理，请使用“更新与历史版本”检查更新。')
     page.status = "pending"
     page.error_message = None
     await db.commit()
@@ -873,8 +937,18 @@ async def recrawl_page(
     try:
         task = crawl_page_task.delay(str(page_id), auto_discover=False)
         logger.info(f"Triggered recrawl task {task.id} for page {page_id}")
-    except Exception as e:
-        logger.warning(f"Failed to trigger recrawl task: {e}")
+    except Exception as error:
+        logger.warning("Failed to trigger recrawl task", page_id=str(page_id),
+                       error_type=type(error).__name__)
+        message = "抓取任务未能提交，请稍后点击重新抓取。"
+        # An uncertain broker response must not overwrite an already claimed task.
+        await db.execute(update(WebsitePage).where(
+            WebsitePage.id == page_id,
+            WebsitePage.project_id == project_id,
+            WebsitePage.status == "pending",
+        ).values(status="failed", error_message=message))
+        await db.commit()
+        raise HTTPException(status_code=503, detail=message) from error
 
     return AddPageResponse(
         success=True,
@@ -961,7 +1035,10 @@ async def crawl_deeper_from_page(
         raise HTTPException(status_code=404, detail="Page not found")
 
     # Get collection for configuration
-    coll_query = select(Collection).where(Collection.id == source_page.collection_id)
+    coll_query = select(Collection).where(
+        Collection.id == source_page.collection_id,
+        Collection.project_id == project_id, Collection.deleted_at.is_(None),
+    )
     coll_result = await db.execute(coll_query)
     collection = coll_result.scalar_one_or_none()
 
@@ -969,7 +1046,9 @@ async def crawl_deeper_from_page(
         raise HTTPException(status_code=404, detail="Collection not found")
 
     # Get crawl config from collection
-    crawl_config = collection.crawl_config or {}
+    crawl_config = {
+        **(collection.crawl_config or {}), **(source_page.crawl_config or {}),
+    }
 
     # Check if page has content or discovered_links
     has_discovered_links = source_page.discovered_links and len(source_page.discovered_links) > 0
@@ -1004,15 +1083,15 @@ async def crawl_deeper_from_page(
     parsed_source = urlparse(source_page.url)
     base_domain = parsed_source.netloc
 
-    raw_links = set()
+    raw_links = []
 
     # First, use discovered_links if available (from crawl4ai)
     if source_page.discovered_links:
         for link_info in source_page.discovered_links:
             if isinstance(link_info, dict):
-                raw_links.add(link_info.get("url", ""))
+                raw_links.append(link_info.get("url", ""))
             elif isinstance(link_info, str):
-                raw_links.add(link_info)
+                raw_links.append(link_info)
 
     # If no discovered_links, extract from content
     if not raw_links and source_page.content_markdown:
@@ -1023,19 +1102,19 @@ async def crawl_deeper_from_page(
 
         # Extract from HTML-style hrefs (if any HTML remnants)
         for match in href_pattern.finditer(source_page.content_markdown):
-            raw_links.add(match.group(1))
+            raw_links.append(match.group(1))
 
         # Extract from markdown links
         for match in md_link_pattern.finditer(source_page.content_markdown):
-            raw_links.add(match.group(2))
+            raw_links.append(match.group(2))
 
     # Also check page_metadata for stored links
     if source_page.page_metadata and "links" in source_page.page_metadata:
         for link in source_page.page_metadata.get("links", []):
             if isinstance(link, str):
-                raw_links.add(link)
+                raw_links.append(link)
             elif isinstance(link, dict):
-                raw_links.add(link.get("href", ""))
+                raw_links.append(link.get("href", ""))
 
     # Normalize and filter links
     def normalize_url(url: str, base_url: str) -> Optional[str]:
@@ -1056,7 +1135,8 @@ async def crawl_deeper_from_page(
                 url += f"?{parsed.query}"
 
             # Only allow same domain
-            if parsed.netloc != base_domain:
+            if (parsed.netloc != base_domain
+                    and not crawl_config.get("follow_external_links", False)):
                 return None
 
             return url
@@ -1066,8 +1146,10 @@ async def crawl_deeper_from_page(
     def should_crawl(url: str) -> bool:
         """Check if URL matches include/exclude patterns."""
         # Use request patterns if provided, otherwise use collection config
-        exclude_patterns = request.exclude_patterns or crawl_config.get("exclude_patterns", [])
-        include_patterns = request.include_patterns or crawl_config.get("include_patterns", [])
+        exclude_patterns = (request.exclude_patterns if request.exclude_patterns is not None
+                            else crawl_config.get("exclude_patterns", []))
+        include_patterns = (request.include_patterns if request.include_patterns is not None
+                            else crawl_config.get("include_patterns", []))
 
         for pattern in exclude_patterns:
             if fnmatch.fnmatch(url, pattern):
@@ -1085,7 +1167,7 @@ async def crawl_deeper_from_page(
         if normalized and should_crawl(normalized):
             valid_links.append(normalized)
 
-    valid_links = list(set(valid_links))  # Deduplicate
+    valid_links = list(dict.fromkeys(valid_links))
     links_found = len(valid_links)
 
     if not valid_links:
@@ -1099,59 +1181,18 @@ async def crawl_deeper_from_page(
             added_urls=[],
         )
 
-    # Check which URLs already exist in collection
-    url_to_hash = {url: compute_url_hash(url) for url in valid_links}
-    existing_hashes = await check_urls_exist_in_collection(
-        db, source_page.collection_id, list(url_to_hash.values())
-    )
-
-    # Filter out existing URLs
-    new_urls = [url for url, h in url_to_hash.items() if h not in existing_hashes]
-    skipped_count = len(valid_links) - len(new_urls)
-
-    if not new_urls:
-        return CrawlDeeperResponse(
-            success=True,
-            source_page_id=page_id,
-            pages_added=0,
-            pages_skipped=skipped_count,
-            links_found=links_found,
-            message="All discovered links already exist in collection",
-            added_urls=[],
-        )
-
-    # Build page-level crawl config to override collection's max_depth
-    # This ensures the deep crawl can go beyond the collection's original max_depth limit
-    page_crawl_config = {
-        "max_depth": max_allowed_depth,  # Absolute depth limit for this deep crawl
-    }
-    # Include any request-level pattern overrides
-    if request.exclude_patterns:
+    from ..services.website_discovery import CrawlOverrides, reserve_child_pages
+    page_crawl_config: CrawlOverrides = {}
+    if request.exclude_patterns is not None:
         page_crawl_config["exclude_patterns"] = request.exclude_patterns
-    if request.include_patterns:
+    if request.include_patterns is not None:
         page_crawl_config["include_patterns"] = request.include_patterns
-
-    # Add new pages to the crawl queue and trigger crawl tasks
-    added_urls = []
-    added_page_ids = []
-    for url in new_urls:
-        new_page = WebsitePage(
-            collection_id=source_page.collection_id,
-            project_id=project_id,
-            parent_page_id=page_id,  # Set parent page
-            url=url,
-            url_hash=url_to_hash[url],
-            depth=new_depth,
-            status="pending",
-            crawl_source="deep_crawl",  # Mark as deep crawl
-            content_length=0,
-            crawl_config=page_crawl_config,  # Store max_depth override in page config
-        )
-        db.add(new_page)
-        await db.flush()  # Get the ID
-        added_urls.append(url)
-        added_page_ids.append(new_page.id)
-
+    reserved = await reserve_child_pages(
+        db, page_id, project_id, valid_links, max_allowed_depth,
+        overrides=page_crawl_config, crawl_source="deep_crawl",
+    )
+    added_urls, added_page_ids = reserved.urls, reserved.page_ids
+    skipped_count = reserved.skipped
     await db.commit()
 
     logger.info(
@@ -1161,6 +1202,7 @@ async def crawl_deeper_from_page(
 
     # Trigger crawl tasks for each new page
     from ..tasks.website_crawling import crawl_page_task
+    failed_dispatches = 0
     for new_page_id in added_page_ids:
         try:
             task = crawl_page_task.delay(
@@ -1169,16 +1211,27 @@ async def crawl_deeper_from_page(
                 max_depth=max_allowed_depth,
             )
             logger.debug(f"Triggered crawl page task {task.id} for page {new_page_id}")
-        except Exception as e:
-            logger.warning(f"Failed to trigger crawl task for page {new_page_id}: {e}")
+        except Exception as error:
+            failed_dispatches += 1
+            logger.warning("Failed to dispatch deep crawl", page_id=str(new_page_id),
+                           error_type=type(error).__name__)
+            await db.execute(update(WebsitePage).where(
+                WebsitePage.id == new_page_id, WebsitePage.project_id == project_id,
+                WebsitePage.status == "pending",
+            ).values(status="failed", error_message="抓取任务未能提交，请稍后重新抓取。"))
+    if failed_dispatches:
+        await db.commit()
 
     return CrawlDeeperResponse(
-        success=True,
+        success=not failed_dispatches,
         source_page_id=page_id,
         pages_added=len(added_urls),
         pages_skipped=skipped_count,
         links_found=links_found,
-        message=f"Added {len(added_urls)} new pages to crawl queue",
+        message=(f"已添加 {len(added_urls)} 个页面。"
+                 + ("已达到页面数量上限。" if reserved.limit_reached else "")
+                 + (f"其中 {failed_dispatches} 个任务未能提交，请稍后重试。"
+                    if failed_dispatches else "")),
         added_urls=added_urls,
     )
 

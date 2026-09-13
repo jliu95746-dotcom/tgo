@@ -22,6 +22,7 @@ interface PluginState {
   
   // UI State
   isLoadingInstalled: boolean;
+  installedPluginsError: string | null;
   isLoadingVisitorPanels: boolean;
   isLoadingToolbarButtons: boolean;
   activeModal: {
@@ -72,17 +73,21 @@ export const usePluginStore = create<PluginState>((set, get) => ({
   visitorPanels: {},
   toolbarButtons: [],
   isLoadingInstalled: false,
+  installedPluginsError: null,
   isLoadingVisitorPanels: false,
   isLoadingToolbarButtons: false,
   activeModal: null,
 
   fetchInstalledPlugins: async () => {
-    set({ isLoadingInstalled: true });
+    set({ isLoadingInstalled: true, installedPluginsError: null });
     try {
       const { plugins } = await pluginApiService.listInstalledPlugins();
       set({ installedPlugins: plugins });
     } catch (error) {
       console.error('Failed to fetch installed plugins:', error);
+      set({ installedPluginsError: error instanceof Error
+        ? error.message
+        : i18next.t('settings.plugins.loadErrorFallback', '无法加载插件列表，请稍后重试。') });
     } finally {
       set({ isLoadingInstalled: false });
     }
@@ -329,7 +334,7 @@ export const usePluginStore = create<PluginState>((set, get) => ({
         if (data.template && data.data) {
           set({
             activeModal: {
-              pluginId: pluginId,
+              pluginId,
               title: data.title || 'Plugin',
               ui: { template: data.template, data: data.data },
               context,

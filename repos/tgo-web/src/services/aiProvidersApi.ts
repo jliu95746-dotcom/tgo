@@ -144,6 +144,14 @@ export interface ProviderTestResponseDTO {
   message?: string;
 }
 
+export interface ProviderConnectionDraft {
+  provider_id?: string;
+  provider: string;
+  api_base_url: string;
+  api_key?: string;
+  config?: Record<string, unknown>;
+}
+
 export class AIProvidersApiService extends BaseApiService {
   protected readonly apiVersion = 'v1';
   protected readonly endpoints = {
@@ -202,6 +210,14 @@ export class AIProvidersApiService extends BaseApiService {
   }
 
   // Test connection
+  async previewModels(payload: ProviderConnectionDraft): Promise<ModelListResponseDTO> {
+    return this.post<ModelListResponseDTO>(`/${this.apiVersion}/ai/providers/preview-models`, payload);
+  }
+
+  async probeModel(payload: ProviderConnectionDraft & { model_id: string; model_type: ModelType }): Promise<ProviderTestResponseDTO> {
+    return this.post<ProviderTestResponseDTO>(`/${this.apiVersion}/ai/providers/probe-model`, payload);
+  }
+
   async testProvider(id: string): Promise<ProviderTestResponseDTO> {
     return this.post<ProviderTestResponseDTO>(this.endpoints.PROVIDER_TEST(id));
   }

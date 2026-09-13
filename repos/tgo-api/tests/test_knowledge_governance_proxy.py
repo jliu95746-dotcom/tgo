@@ -23,6 +23,7 @@ def test_proxy_router_exposes_management_endpoints() -> None:
 
     assert "" in paths
     assert "/files/{file_id}" in paths
+    assert "/qa-pairs/{qa_pair_id}" in paths
     assert "/{record_id}/submit" in paths
     assert "/{record_id}/review" in paths
     assert "/backfill" in paths

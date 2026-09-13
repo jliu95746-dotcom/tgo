@@ -18,6 +18,7 @@ import type {
 /**
  * AI Agents API Service Class
  */
+export const SYSTEM_DEFAULT_MODEL = '__system_default__';
 export class AIAgentsApiService extends BaseApiService {
   protected readonly apiVersion = 'v1';
   protected readonly endpoints = {
@@ -152,7 +153,7 @@ export class AIAgentsTransformUtils {
         tool_id: toolId, // Pass the tool UUID directly
         enabled: true, // Tools are always enabled when attached to an agent
         permissions: null, // No specific permissions for now
-        config: config,
+        config,
       };
     });
   }
@@ -200,11 +201,13 @@ export class AIAgentsTransformUtils {
       model: modelName, // pure model name (no provider prefix)
       is_default: false, // Default to false
       config: configObj,
-      tools: tools,
-      collections: collections,
+      tools,
+      collections,
       workflows: workflowIds,
       bound_device_id: formData.boundDeviceId || null,
       skills_enabled: formData.skills_enabled ?? true,
+      humanization_skill_name: formData.humanization_skill_name || null,
+      humanization_skill_enabled: formData.humanization_skill_enabled ?? false,
     };
   }
 
@@ -224,16 +227,17 @@ export class AIAgentsTransformUtils {
 
     // Preserve full tool objects for display purposes
     const tools = apiAgent.tools || [];
+    const providerId = apiAgent.llm_provider_id ?? apiAgent.ai_provider_id;
 
     return {
       id: apiAgent.id,
       name: apiAgent.name,
       description: apiAgent.instruction || '',
       avatar: '/api/placeholder/40/40', // Default avatar
-      status: 'active' as const,
+      status: apiAgent.is_active === false ? 'inactive' : 'active',
       type: 'expert' as const,
       role: apiAgent.config?.profession || '专家',
-      llmModel: (apiAgent as any).ai_provider_id && apiAgent.model ? `${(apiAgent as any).ai_provider_id}:${apiAgent.model}` : (apiAgent.model || ''),
+      llmModel: apiAgent.model === SYSTEM_DEFAULT_MODEL ? SYSTEM_DEFAULT_MODEL : providerId && apiAgent.model ? `${providerId}:${apiAgent.model}` : (apiAgent.model || ''),
       endpoint: undefined,
       capabilities: apiAgent.config?.capabilities || [],
       lastActive: new Date(apiAgent.updated_at).toISOString().split('T')[0],
@@ -242,14 +246,16 @@ export class AIAgentsTransformUtils {
       responseTime: '1.2s', // Default response time
       tags: [apiAgent.model], // Use model as tag
       tools: toolIds,
-      toolConfigs: toolConfigs,
-      knowledgeBases: knowledgeBases,
-      collections: collections,
+      toolConfigs,
+      knowledgeBases,
+      collections,
       agentTools: tools,
       workflows: (apiAgent as any).workflows || [],
       boundDeviceId: apiAgent.bound_device_id || undefined,
       boundDevice: apiAgent.bound_device || null,
       skills_enabled: (apiAgent as any).skills_enabled ?? true,
+      humanization_skill_name: apiAgent.humanization_skill_name || null,
+      humanization_skill_enabled: apiAgent.humanization_skill_enabled ?? false,
       config: {
         profession: apiAgent.config?.profession,
         markdown: apiAgent.config?.markdown,
@@ -356,15 +362,29 @@ export class AIAgentsTransformUtils {
     return {
       name: agent.name,
       instruction: agent.description,
-      ...(providerId ? { ai_provider_id: providerId } : {}),
+      is_active: agent.status !== 'inactive',
+      ...(modelName === SYSTEM_DEFAULT_MODEL ? { ai_provider_id: null } : providerId ? { ai_provider_id: providerId } : {}),
       ...(modelName ? { model: modelName } : {}),
       config: configObj,
-      tools: tools,
-      collections: collections,
+      tools,
+      collections,
       workflows: agent.workflows || [],
       bound_device_id: agent.boundDeviceId || null,
       skills_enabled: agent.skills_enabled,
+      humanization_skill_name: agent.humanization_skill_name || null,
+      humanization_skill_enabled: agent.humanization_skill_enabled ?? false,
     } as AgentUpdateRequest;
+  }
+
+  static transformAgentPatch(
+    current: import('@/types').Agent,
+    updates: Partial<import('@/types').Agent>,
+    availableTools?: ToolSummary[],
+  ): AgentUpdateRequest {
+    if (Object.keys(updates).length === 1 && updates.status !== undefined) {
+      return { is_active: updates.status === 'active' };
+    }
+    return this.transformAgentToUpdateRequest({ ...current, ...updates }, availableTools);
   }
 
   /**

@@ -58,7 +58,7 @@ const PlatformTypeSelector: React.FC<PlatformTypeSelectorProps> = ({ open, onClo
 
     fetchTypes();
     return () => { cancelled = true; };
-  }, [open]);
+  }, [open, t]);
 
   // Close on ESC
   useEffect(() => {

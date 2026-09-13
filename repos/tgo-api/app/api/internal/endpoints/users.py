@@ -1,15 +1,17 @@
 """Internal user management endpoints."""
 
-from typing import Optional, Union, Any
+from typing import Union
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_user_language, UserLanguage
-from app.models import Visitor, PlatformType, Staff
+from app.models import PlatformType
+from app.schemas.internal_staff import InternalStaffResponse
 from app.schemas.visitor import VisitorResponse, set_visitor_display_nickname
+from app.services.internal_staff_service import get_internal_staff_info
 from app.api.v1.endpoints.channels import _build_enriched_visitor_payload, _get_visitor_with_relations
 
 router = APIRouter()
@@ -38,7 +40,7 @@ def parse_user_id(user_id: str) -> tuple[str, str]:
 
 @router.get(
     "/{user_id}",
-    response_model=Union[VisitorResponse, Any],
+    response_model=Union[VisitorResponse, InternalStaffResponse],
     summary="Get enriched user information",
     description="Retrieve comprehensive user data (visitor or staff).",
 )
@@ -48,7 +50,7 @@ async def get_internal_user_info(
     request: Request,
     db: Session = Depends(get_db),
     user_language: UserLanguage = Depends(get_user_language),
-) -> Union[VisitorResponse, Any]:
+) -> Union[VisitorResponse, InternalStaffResponse]:
     """
     Retrieve enriched user information for internal services.
     Supports both visitors (with -vtr suffix or no suffix) and staff (with -staff suffix).
@@ -56,13 +58,20 @@ async def get_internal_user_info(
     user_type, real_id = parse_user_id(user_id)
     
     if user_type == "staff":
-        # Staff logic left blank as requested
-        # Return a simple placeholder for now
-        return {
-            "id": real_id,
-            "type": "staff",
-            "message": "Staff information retrieval not implemented yet"
-        }
+        try:
+            staff_uuid = UUID(real_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid staff ID format",
+            )
+        staff = get_internal_staff_info(db, staff_uuid, project_id)
+        if staff is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Staff not found",
+            )
+        return staff
 
     # Visitor logic (original logic)
     try:

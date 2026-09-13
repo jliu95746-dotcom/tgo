@@ -68,6 +68,8 @@ class LLMProviderCredentials(BaseModel):
 class AgentConfig(BaseModel):
     """单个智能体的模型配置."""
 
+    expression_only: bool = False
+
     model_name: Optional[str] = Field(default=None, description="模型标识")
     temperature: Optional[float] = Field(default=None, description="采样温度")
     max_tokens: Optional[int] = Field(default=None, description="最大生成token数")

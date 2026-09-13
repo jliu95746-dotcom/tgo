@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -20,43 +17,16 @@ from app.models.customer_logistics import (
 )
 from app.schemas.customer_logistics import LogisticsSettingsUpdate
 from app.services.ai_client import ai_client
+from app.services.logistics_result_parser import (
+    ParsedTrackingResult as ParsedTrackingResult,
+    normalize_tracking_status,
+    parse_tracking_result as parse_tracking_result,
+)
 from app.utils.crypto import decrypt_str, encrypt_str
 
 
 _TRACKING_CANDIDATE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z0-9]{8,32}(?![A-Za-z0-9])")
 _KNOWN_PREFIXES = ("SF", "YT", "JD", "ZTO", "STO", "YTO", "EMS", "JT", "DB")
-_STATUS_MAP = {
-    "delivered": "delivered",
-    "signed": "delivered",
-    "已签收": "delivered",
-    "签收": "delivered",
-    "exception": "exception",
-    "异常": "exception",
-    "in_transit": "in_transit",
-    "transit": "in_transit",
-    "运输中": "in_transit",
-    "派送": "in_transit",
-    "pending": "pending",
-    "揽收": "active",
-    "collected": "active",
-}
-
-
-@dataclass(frozen=True)
-class ParsedTrackingEvent:
-    status: str | None
-    description: str
-    location: str | None
-    event_time: datetime
-
-
-@dataclass(frozen=True)
-class ParsedTrackingResult:
-    status: str
-    carrier_code: str | None
-    carrier_name: str | None
-    summary: str | None
-    events: tuple[ParsedTrackingEvent, ...]
 
 
 def normalize_tracking_no(value: str) -> str:
@@ -66,6 +36,13 @@ def normalize_tracking_no(value: str) -> str:
     if sum(character.isdigit() for character in normalized) < 6:
         raise ValueError("物流单号至少需要包含 6 位数字")
     return normalized
+
+
+def _validated_tracking_no(value: str) -> str:
+    try:
+        return normalize_tracking_no(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def mask_tracking_no(value: str) -> str:
@@ -97,155 +74,13 @@ def detect_tracking_numbers(text: str) -> tuple[str, ...]:
     return tuple(results)
 
 
-def _first_text(data: dict[str, Any], keys: Iterable[str]) -> str | None:
-    for key in keys:
-        value = data.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
-    return None
-
-
-def _parse_datetime(value: Any) -> datetime:
-    if isinstance(value, datetime):
-        parsed = value
-    elif isinstance(value, (int, float)):
-        parsed = datetime.fromtimestamp(value, tz=timezone.utc)
-    elif isinstance(value, str):
-        try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            parsed = datetime.now(timezone.utc)
-    else:
-        parsed = datetime.now(timezone.utc)
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-
-
-def _normalize_status(value: str | None) -> str:
-    if not value:
-        return "unknown"
-    lowered = value.strip().lower()
-    for key, status in _STATUS_MAP.items():
-        if key in lowered:
-            return status
-    return "unknown"
-
-
-def parse_tracking_result(raw: Any) -> ParsedTrackingResult:
-    """Normalize common express-provider response shapes."""
-
-    if isinstance(raw, str):
-        try:
-            data: Any = json.loads(raw)
-        except json.JSONDecodeError:
-            data = {"summary": raw}
-    else:
-        data = raw
-    while isinstance(data, dict):
-        nested = next(
-            (
-                data[key]
-                for key in ("output_data", "result", "data", "logistics")
-                if isinstance(data.get(key), dict)
-            ),
-            None,
-        )
-        if nested is None:
-            break
-        data = nested
-    if isinstance(data, dict) and isinstance(data.get("content"), str):
-        content = data["content"].strip()
-        try:
-            decoded_content = json.loads(content)
-        except json.JSONDecodeError:
-            decoded_content = None
-        if isinstance(decoded_content, (dict, list)):
-            data = decoded_content
-    if isinstance(data, dict) and isinstance(data.get("content"), list):
-        text_blocks = [
-            item.get("text", "").strip()
-            for item in data["content"]
-            if isinstance(item, dict)
-            and isinstance(item.get("text"), str)
-            and item.get("text", "").strip()
-        ]
-        for text_block in text_blocks:
-            try:
-                decoded_content = json.loads(text_block)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(decoded_content, dict):
-                data = decoded_content
-                break
-    if not isinstance(data, dict):
-        data = {"summary": str(data)}
-
-    status_text = _first_text(data, ("status", "state", "delivery_status"))
-    summary = _first_text(
-        data, ("summary", "message", "latest", "description", "content")
-    )
-    carrier_code = _first_text(data, ("carrier_code", "company_code", "code"))
-    carrier_name = _first_text(data, ("carrier_name", "company", "carrier"))
-    raw_events: list[Any] = next(
-        (
-            data[key]
-            for key in ("traces", "events", "tracking", "route")
-            if isinstance(data.get(key), list)
-        ),
-        [],
-    )
-    events: list[ParsedTrackingEvent] = []
-    for item in raw_events:
-        if not isinstance(item, dict):
-            continue
-        description = _first_text(
-            item, ("description", "context", "message", "status_text")
-        )
-        if not description:
-            continue
-        event_status = _first_text(item, ("status", "state"))
-        events.append(
-            ParsedTrackingEvent(
-                status=event_status,
-                description=description,
-                location=_first_text(item, ("location", "city", "area")),
-                event_time=_parse_datetime(
-                    next(
-                        (
-                            item[key]
-                            for key in ("time", "event_time", "datetime", "ftime")
-                            if item.get(key) is not None
-                        ),
-                        None,
-                    )
-                ),
-            )
-        )
-    events.sort(key=lambda event: event.event_time, reverse=True)
-    if summary is None and events:
-        summary = events[0].description
-    derived_status = _normalize_status(status_text)
-    if derived_status == "unknown" and events:
-        derived_status = _normalize_status(
-            f"{events[0].status or ''} {events[0].description}"
-        )
-    return ParsedTrackingResult(
-        status=derived_status,
-        carrier_code=carrier_code,
-        carrier_name=carrier_name,
-        summary=summary,
-        events=tuple(events),
-    )
-
-
 class CustomerLogisticsService:
     def __init__(self, db: Session):
         self.db = db
 
     def get_settings(self, project_id: UUID) -> LogisticsSettings:
         settings_row = (
-            self.db.query(LogisticsSettings)
-            .filter(LogisticsSettings.project_id == project_id)
-            .one_or_none()
+            self.db.query(LogisticsSettings).filter(LogisticsSettings.project_id == project_id).one_or_none()
         )
         if settings_row is None:
             settings_row = LogisticsSettings(project_id=project_id)
@@ -254,9 +89,7 @@ class CustomerLogisticsService:
             self.db.refresh(settings_row)
         return settings_row
 
-    def update_settings(
-        self, project_id: UUID, update: LogisticsSettingsUpdate
-    ) -> LogisticsSettings:
+    def update_settings(self, project_id: UUID, update: LogisticsSettingsUpdate) -> LogisticsSettings:
         settings_row = self.get_settings(project_id)
         for field, value in update.model_dump().items():
             setattr(settings_row, field, value)
@@ -264,23 +97,16 @@ class CustomerLogisticsService:
         self.db.refresh(settings_row)
         return settings_row
 
-    def list_shipments(
-        self, project_id: UUID, visitor_id: UUID
-    ) -> tuple[CustomerShipment, ...]:
+    def list_shipments(self, project_id: UUID, visitor_id: UUID) -> tuple[CustomerShipment, ...]:
         settings_row = self.get_settings(project_id)
-        archive_cutoff = datetime.now(timezone.utc) - timedelta(
-            days=settings_row.archive_after_days
-        )
+        archive_cutoff = datetime.now(timezone.utc) - timedelta(days=settings_row.archive_after_days)
         return tuple(
             self.db.query(CustomerShipment)
             .filter(
                 CustomerShipment.project_id == project_id,
                 CustomerShipment.visitor_id == visitor_id,
                 CustomerShipment.archived_at.is_(None),
-                (
-                    CustomerShipment.delivered_at.is_(None)
-                    | (CustomerShipment.delivered_at >= archive_cutoff)
-                ),
+                (CustomerShipment.delivered_at.is_(None) | (CustomerShipment.delivered_at >= archive_cutoff)),
             )
             .order_by(CustomerShipment.updated_at.desc())
             .all()
@@ -297,7 +123,7 @@ class CustomerLogisticsService:
         carrier_code: str | None = None,
         carrier_name: str | None = None,
     ) -> CustomerShipment:
-        normalized = normalize_tracking_no(tracking_no)
+        normalized = _validated_tracking_no(tracking_no)
         digest = tracking_hash(normalized)
         existing = (
             self.db.query(CustomerShipment)
@@ -338,8 +164,7 @@ class CustomerLogisticsService:
             source=source,
             verification_state=(
                 "verified"
-                if source in {"staff_message", "manual", "order_sync"}
-                or not settings_row.verify_before_binding
+                if source in {"staff_message", "manual", "order_sync"} or not settings_row.verify_before_binding
                 else "pending"
             ),
             last_source_message_id=source_message_id,
@@ -386,24 +211,19 @@ class CustomerLogisticsService:
                     raise
         return tuple(captured)
 
-    def get_shipment(
-        self, project_id: UUID, shipment_id: UUID
-    ) -> CustomerShipment:
-        shipment = (
-            self.db.query(CustomerShipment)
-            .filter(
-                CustomerShipment.project_id == project_id,
-                CustomerShipment.id == shipment_id,
-            )
-            .one_or_none()
+    def get_shipment(self, project_id: UUID, shipment_id: UUID, *, for_update: bool = False) -> CustomerShipment:
+        query = self.db.query(CustomerShipment).filter(
+            CustomerShipment.project_id == project_id,
+            CustomerShipment.id == shipment_id,
         )
+        if for_update:
+            query = query.populate_existing().with_for_update()
+        shipment = query.one_or_none()
         if shipment is None:
             raise HTTPException(status_code=404, detail="物流档案不存在")
         return shipment
 
-    def list_events(
-        self, project_id: UUID, shipment_id: UUID
-    ) -> tuple[ShipmentTrackingEvent, ...]:
+    def list_events(self, project_id: UUID, shipment_id: UUID) -> tuple[ShipmentTrackingEvent, ...]:
         self.get_shipment(project_id, shipment_id)
         return tuple(
             self.db.query(ShipmentTrackingEvent)
@@ -413,42 +233,85 @@ class CustomerLogisticsService:
         )
 
     async def execute_live_query(
-        self, project_id: UUID, tracking_no: str, visitor_id: UUID | None = None
+        self,
+        project_id: UUID,
+        tracking_no: str,
+        visitor_id: UUID | None = None,
+        *,
+        query_tool_id: UUID | None = None,
+        carrier_code: str | None = None,
+        phone: str | None = None,
     ) -> ParsedTrackingResult:
-        settings_row = self.get_settings(project_id)
-        if settings_row.query_tool_id is None:
+        selected_tool_id = query_tool_id
+        if selected_tool_id is None:
+            selected_tool_id = self.get_settings(project_id).query_tool_id
+        if selected_tool_id is None:
             raise HTTPException(
                 status_code=409,
                 detail="尚未在物流设置中选择实时快递查询工具",
             )
+        normalized = _validated_tracking_no(tracking_no)
+        query_input = {"tracking_no": normalized}
+        if carrier_code:
+            query_input["carrier_code"] = carrier_code
+        if phone:
+            query_input["phone"] = phone
         result = await ai_client.execute_tool(
             project_id=str(project_id),
-            tool_id=str(settings_row.query_tool_id),
-            input_data={"tracking_no": normalize_tracking_no(tracking_no)},
+            tool_id=str(selected_tool_id),
+            input_data=query_input,
             visitor_id=str(visitor_id) if visitor_id else None,
         )
-        if not isinstance(result, dict) or result.get("success") is False:
+        if not isinstance(result, dict) or result.get("success") is not True:
             raise HTTPException(status_code=502, detail="快递查询工具执行失败")
-        return parse_tracking_result(result.get("output_data", result))
+        try:
+            return parse_tracking_result(result, expected_tracking_no=normalized)
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="快递查询未返回有效轨迹，请稍后重试。") from exc
 
     async def query_shipment(
         self, project_id: UUID, shipment_id: UUID
     ) -> tuple[CustomerShipment, tuple[ShipmentTrackingEvent, ...]]:
+        started_at = datetime.now(timezone.utc)
         shipment = self.get_shipment(project_id, shipment_id)
+        if shipment.verification_state == "conflict":
+            raise HTTPException(status_code=409, detail="物流单号归属有冲突，请先人工核对。")
         tracking_no = decrypt_str(shipment.tracking_no_ciphertext)
         if tracking_no is None:
             raise HTTPException(status_code=500, detail="物流单号无法解密")
-        parsed = await self.execute_live_query(
-            project_id, tracking_no, shipment.visitor_id
-        )
+        parsed = await self.execute_live_query(project_id, tracking_no, shipment.visitor_id)
+        # A slower request cannot overwrite a newer completed query or erase a
+        # conflict detected while the provider request was in flight.
+        shipment = self.get_shipment(project_id, shipment_id, for_update=True)
+        if shipment.verification_state == "conflict":
+            raise HTTPException(status_code=409, detail="物流单号归属有冲突，请先人工核对。")
+        checked_at = shipment.last_checked_at
+        if checked_at is not None:
+            checked_at = checked_at if checked_at.tzinfo else checked_at.replace(tzinfo=timezone.utc)
+            if checked_at >= started_at:
+                self.db.commit()
+                return shipment, self.list_events(project_id, shipment.id)
         shipment.status = parsed.status
         shipment.carrier_code = parsed.carrier_code or shipment.carrier_code
         shipment.carrier_name = parsed.carrier_name or shipment.carrier_name
         shipment.latest_summary = parsed.summary
         shipment.verification_state = "verified"
-        shipment.last_checked_at = datetime.now(timezone.utc)
-        if parsed.status == "delivered" and shipment.delivered_at is None:
-            shipment.delivered_at = shipment.last_checked_at
+        # Use query start time as the ordering fence: the latest started query
+        # wins regardless of which HTTP response completes first.
+        shipment.last_checked_at = started_at
+        if parsed.status == "delivered":
+            carrier_delivered_at = next(
+                (
+                    event.event_time
+                    for event in parsed.events
+                    if normalize_tracking_status(f"{event.status or ''} {event.description}") == "delivered"
+                ),
+                None,
+            )
+            if carrier_delivered_at is not None:
+                shipment.delivered_at = carrier_delivered_at
+        else:
+            shipment.delivered_at = None
         for event in parsed.events:
             exists = (
                 self.db.query(ShipmentTrackingEvent.id)

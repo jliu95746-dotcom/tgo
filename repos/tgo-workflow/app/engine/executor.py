@@ -1,5 +1,5 @@
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any, Dict, Optional
+from pydantic import JsonValue
 import time
 
 from app.engine.context import ExecutionContext
@@ -14,10 +14,12 @@ class WorkflowExecutor:
             nodes=workflow_definition.get("nodes", []),
             edges=workflow_definition.get("edges", [])
         )
-        self.execution_results = {} # node_id -> output
+        self.execution_results: dict[str, JsonValue] = {}  # node_id -> output
         self.project_id = project_id
 
-    async def run(self, inputs: Dict[str, Any], on_node_start=None, on_node_complete=None) -> Dict[str, Any]:
+    async def run(
+        self, inputs: Dict[str, Any], on_node_start=None, on_node_complete=None,
+    ) -> JsonValue:
         """
         Run the workflow with given inputs.
         on_node_start: callback(node_id, node_type, node_data, index)
@@ -47,8 +49,8 @@ class WorkflowExecutor:
         
         # 2. Get execution order
         topo_order = self.graph.get_topo_sort()
-        if not topo_order:
-            return None
+        if len(topo_order) != len(self.graph.nodes):
+            raise ValueError("工作流包含循环依赖，请检查节点连线。")
             
         # 3. Execute nodes in order
         executed_nodes = set()
@@ -66,6 +68,8 @@ class WorkflowExecutor:
                     continue
                     
                 node = self.graph.get_node(node_id)
+                if node is None:
+                    raise ValueError("工作流节点不存在，请检查节点连线。")
 
                 if on_node_start:
                     await on_node_start(
@@ -78,12 +82,6 @@ class WorkflowExecutor:
 
                 executor_cls = get_executor_class(node["type"])
                 
-                if not executor_cls:
-                    logger.warning(f"No executor found for node type: {node['type']}")
-                    continue
-                
-                executor = executor_cls(node_id, node)
-                
                 start_time = time.time()
                 status = "completed"
                 error = None
@@ -91,6 +89,9 @@ class WorkflowExecutor:
                 next_handle = None
                 
                 try:
+                    if executor_cls is None:
+                        raise NotImplementedError("Node executor is unavailable")
+                    executor = executor_cls(node_id, node)
                     outputs, next_handle = await executor.execute_with_timeout(context)
                     context.set_node_outputs(executor.reference_key, outputs)
                     
@@ -99,8 +100,17 @@ class WorkflowExecutor:
                         
                 except Exception as e:
                     status = "failed"
-                    error = str(e)
-                    logger.error(f"Error executing node {node_id}: {e}")
+                    label = node.get("data", {}).get("label") or node_id
+                    if executor_cls is None:
+                        error = f"节点「{label}」的类型 {node['type']} 暂不支持执行。"
+                    else:
+                        error = (
+                            f"节点「{label}」（{node['type']}）执行失败"
+                            f"（{type(e).__name__}），请检查节点配置。"
+                        )
+                    # Exception text may contain credentials or resolved inputs.
+                    logger.error("Workflow node %s (%s) failed: %s",
+                                 node_id, node["type"], type(e).__name__)
                 
                 duration = int((time.time() - start_time) * 1000)
                 
@@ -116,6 +126,11 @@ class WorkflowExecutor:
                     )
                 
                 executed_nodes.add(node_id)
+
+                if status == "failed":
+                    # All three callers already turn an exception into a failed
+                    # run. Persist/emit the failed node first, then stop the run.
+                    raise RuntimeError(error) from None
                 
                 if status == "completed":
                     # Get next nodes based on handle (for branching)

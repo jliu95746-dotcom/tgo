@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { canApplyAssistDraft, getAssistSourceId, getAssistCustomerInput, type AssistDraftContext } from '@/utils/assistDraftContext';
 
 import { useTranslation } from 'react-i18next';
 
@@ -9,13 +10,12 @@ import { useChannelStore } from '@/stores/channelStore';
 import { useAuthStore } from '@/stores/authStore';
 import {
   MessagePayloadType,
-  PlatformType,
   type ChannelVisitorExtra,
   type Message,
   type VisitorServiceMode,
 } from '@/types';
 import { DEFAULT_CHANNEL_TYPE } from '@/constants';
-import { visitorApiService, type VisitorResponse } from '@/services/visitorApi';
+import { visitorApiService, type VisitorResponse, type EmployeeStyle } from '@/services/visitorApi';
 import { conversationsApi } from '@/services/conversationsApi';
 import { useToast } from '@/hooks/useToast';
 import { showApiError, showSuccess } from '@/utils/toastHelpers';
@@ -27,7 +27,9 @@ import { WsSendError } from '@/services/wukongimWebSocket';
 import { toAbsoluteApiUrl } from '@/utils/url';
 import { getFileIcon } from '@/utils/fileIcons';
 import { chatMessagesApiService } from '@/services/chatMessagesApi';
-import SkillsApiService, { type SkillSummary } from '@/services/skillsApi';
+import { sendCustomerMessage } from '@/services/customerMessageDelivery';
+import type { AssistTrainingIntent, StaffDeliveryPayload } from '@/types/staffDelivery';
+import SkillsApiService, { type SkillSummary, type ConversationTurn } from '@/services/skillsApi';
 import { APIError } from '@/services/api';
 
 import { Smile, Scissors, Image as ImageIcon, Folder, Pause, Loader2, UserPlus, Sparkles, RefreshCw, X } from 'lucide-react';
@@ -62,7 +64,7 @@ const getErrorMessage = (
 };
 
 interface MessageInputProps {
-  onSendMessage?: (message: string) => boolean | void | Promise<boolean | void>;
+  onSendMessage?: (message: string, training?: AssistTrainingIntent) => boolean | Promise<boolean>;
   isSending?: boolean;
   onAcceptVisitor?: () => void;
   latestVisitorMessage?: Message;
@@ -120,6 +122,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
   // Selected files (documents) preview state
   type SelectedFile = { id: string; file: File };
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
+  const pendingRichSendRef = useRef<{
+    signature: string;
+    clientMsgNo: string;
+    payload: StaffDeliveryPayload;
+    training?: AssistTrainingIntent;
+  } | null>(null);
 
 
 
@@ -196,22 +204,21 @@ const MessageInput: React.FC<MessageInputProps> = ({
     : t('chat.input.shortcuts.newline.windows', 'Ctrl + Enter 换行');
 
   // Focus on conversation switch
+  const activeChatId = activeChat?.id;
   useEffect(() => {
     let switchFocusTimeout: number | undefined;
-    if (activeChat && textareaRef.current) {
-      console.log('Conversation switched, focusing input for:', activeChat.channelInfo?.name || activeChat.channelId);
+    if (activeChatId && textareaRef.current) {
       // Small delay to ensure the component is fully rendered
       switchFocusTimeout = window.setTimeout(() => {
         if (textareaRef.current) {
           textareaRef.current.focus();
-          console.log('Focus applied after conversation switch');
         }
       }, 100);
     }
     return () => {
       if (switchFocusTimeout) clearTimeout(switchFocusTimeout);
     };
-  }, [activeChat?.id]); // Only trigger when activeChat ID changes
+  }, [activeChatId]);
 
   // Advanced focus management function with multiple strategies
   const maintainTextareaFocus = useCallback(() => {
@@ -301,12 +308,52 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [assistDraft, setAssistDraft] = useState<string | null>(null);
   const [assistSourceMessageId, setAssistSourceMessageId] = useState<string | null>(null);
+  const sendInFlightRef = useRef(false);
+  const [assistTrainingSource, setAssistTrainingSource] = useState<{
+    customerMessage: string; skillName: string | null; recentMessages: ConversationTurn[];
+  } | null>(null);
   const lastGeneratedSourceRef = useRef<string | null>(null);
   const assistRequestIdRef = useRef(0);
   const [isAccepting, setIsAccepting] = useState(false);
 
-  const selectedHumanizationSkill = visitorExtra?.humanization_skill_name || '';
-  const isHumanizationEnabled = Boolean(visitorExtra?.humanization_skill_enabled);
+  const [employeeStyle, setEmployeeStyle] = useState<(EmployeeStyle & { visitorId: string }) | null>(null);
+  const [styleError, setStyleError] = useState(false);
+  const conversationSkill = visitorExtra?.humanization_skill_name || '';
+  const styleReady = employeeStyle !== null && employeeStyle.visitorId === visitorId;
+  const selectedHumanizationSkill = conversationSkill || (styleReady ? employeeStyle?.skill_name : '') || '';
+  const isHumanizationEnabled = conversationSkill
+    ? Boolean(visitorExtra?.humanization_skill_enabled)
+    : Boolean(styleReady && employeeStyle?.enabled);
+  useEffect(() => {
+    if (!visitorId || isAIChat) return;
+    let cancelled = false;
+    const loadStyle = async () => {
+      try {
+        const setting = await visitorApiService.getHumanizationSettings(visitorId);
+        if (!cancelled) {
+          setEmployeeStyle({ ...setting, visitorId });
+          setStyleError(false);
+        }
+      } catch {
+        if (!cancelled) { setEmployeeStyle(null); setStyleError(true); }
+      }
+    };
+    setEmployeeStyle(null);
+    setStyleError(false);
+    void loadStyle();
+    window.addEventListener('focus', loadStyle);
+    return () => { cancelled = true; window.removeEventListener('focus', loadStyle); };
+  }, [visitorId, isAIChat, conversationSkill, visitorExtra?.humanization_skill_enabled, serviceMode]);
+  const assistSourceId = getAssistSourceId(latestVisitorMessage);
+  const effectiveSkillName = isHumanizationEnabled && selectedHumanizationSkill ? selectedHumanizationSkill : null;
+  const assistContextRef = useRef<AssistDraftContext>({
+    channelId, sourceId: assistSourceId, text: message, enabled: isAssistMode, skillName: effectiveSkillName,
+  });
+  useLayoutEffect(() => {
+    assistContextRef.current = {
+      channelId, sourceId: assistSourceId, text: message, enabled: isAssistMode, skillName: effectiveSkillName,
+    };
+  }, [channelId, assistSourceId, message, isAssistMode, effectiveSkillName]);
 
   const patchVisitorSettings = useCallback((updated: VisitorResponse) => {
     if (!channelId || typeof channelType !== 'number') return;
@@ -511,7 +558,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
         }
       }
     }
-  }, [pastedItems, selectedFiles, setPastedItems, setSelectedFiles, showError]);
+  }, [pastedItems, selectedFiles, setPastedItems, setSelectedFiles, showError, t]);
 
   const handleImageChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const filesList = e.target.files;
@@ -560,7 +607,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     if (newItems.length) {
       setPastedItems(prev => [...prev, ...newItems]);
     }
-  }, [pastedItems, getImageDimensions, showError]);
+  }, [pastedItems, getImageDimensions, showError, t]);
 
 
   const updateVisitorMode = useCallback(async (
@@ -585,7 +632,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const handleServiceModeChange = useCallback(async (nextMode: VisitorServiceMode) => {
     if (nextMode === serviceMode) return;
     try {
-      await updateVisitorMode(nextMode, selectedHumanizationSkill, isHumanizationEnabled);
+      await updateVisitorMode(nextMode, conversationSkill, !!conversationSkill && isHumanizationEnabled);
       if (nextMode === 'assist') {
         lastGeneratedSourceRef.current = null;
       } else {
@@ -601,7 +648,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     } catch (error) {
       showApiError(showToast, error);
     }
-  }, [isHumanizationEnabled, selectedHumanizationSkill, serviceMode, showToast, t, updateVisitorMode]);
+  }, [isHumanizationEnabled, conversationSkill, serviceMode, showToast, t, updateVisitorMode]);
 
   const handleHumanizationSkillChange = useCallback(async (skillName: string) => {
     try {
@@ -631,43 +678,53 @@ const MessageInput: React.FC<MessageInputProps> = ({
   }, [selectedHumanizationSkill, serviceMode, showError, showToast, t, updateVisitorMode]);
 
   const generateAssistDraft = useCallback(async () => {
-    if (!visitorId || !latestVisitorMessage || !isAssistMode) return;
-    const customerMessage = latestVisitorMessage.content.trim();
-    if (!customerMessage) return;
-    const sourceId = String(latestVisitorMessage.sourceMessageId
-      || latestVisitorMessage.clientMsgNo
-      || latestVisitorMessage.messageId
-      || latestVisitorMessage.timestamp);
+    if (!visitorId || !latestVisitorMessage || !isAssistMode || !styleReady) return;
+    const customerInput = getAssistCustomerInput(latestVisitorMessage);
+    if (!customerInput) return;
+    const customerMessage = customerInput.customerMessage;
+    const sourceId = getAssistSourceId(latestVisitorMessage);
+    if (!sourceId) return;
+    const requestContext = { ...assistContextRef.current };
     const requestId = ++assistRequestIdRef.current;
     setIsGeneratingDraft(true);
     try {
       const result = await chatMessagesApiService.generateAssistDraft({
         visitor_id: visitorId,
         customer_message: customerMessage,
+        message_type: customerInput.messageType,
+        media_file_id: customerInput.mediaFileId,
         humanization_skill_name: isHumanizationEnabled && selectedHumanizationSkill
           ? selectedHumanizationSkill
           : null,
         source_message_id: sourceId,
       });
-      if (requestId !== assistRequestIdRef.current) return;
+      if (requestId !== assistRequestIdRef.current
+        || !canApplyAssistDraft(requestContext, assistContextRef.current)) return;
       setMessage(result.draft);
       setAssistDraft(result.draft);
       setAssistSourceMessageId(result.source_message_id || sourceId);
+      setAssistTrainingSource({ customerMessage: result.customer_message || customerMessage,
+        skillName: result.humanization_skill_name || null,
+        recentMessages: result.recent_messages || [] });
       maintainTextareaFocus();
     } catch (error) {
-      showApiError(showToast, error);
+      if (requestId === assistRequestIdRef.current
+        && canApplyAssistDraft(requestContext, assistContextRef.current)) showApiError(showToast, error);
     } finally {
       if (requestId === assistRequestIdRef.current) {
         setIsGeneratingDraft(false);
       }
     }
-  }, [isAssistMode, isHumanizationEnabled, latestVisitorMessage, maintainTextareaFocus, selectedHumanizationSkill, showToast, visitorId]);
+  }, [isAssistMode, isHumanizationEnabled, latestVisitorMessage, maintainTextareaFocus, selectedHumanizationSkill, showToast, visitorId, styleReady]);
 
   useEffect(() => {
     assistRequestIdRef.current += 1;
     lastGeneratedSourceRef.current = null;
     setAssistDraft(null);
     setAssistSourceMessageId(null);
+    setAssistTrainingSource(null);
+    setIsGeneratingDraft(false);
+    return () => { assistRequestIdRef.current += 1; };
   }, [channelId]);
 
   useEffect(() => {
@@ -678,20 +735,17 @@ const MessageInput: React.FC<MessageInputProps> = ({
   }, [isAssistMode]);
 
   useEffect(() => {
-    if (!isAssistMode || !latestVisitorMessage || latestVisitorMessage.type !== 'visitor') return;
+    if (!isAssistMode || !styleReady || !latestVisitorMessage || latestVisitorMessage.type !== 'visitor') return;
     const hasEditedInput = Boolean(
       message.trim()
       && (!assistDraft || message.trim() !== assistDraft.trim()),
     );
     if (hasEditedInput) return;
-    const sourceId = String(latestVisitorMessage.sourceMessageId
-      || latestVisitorMessage.clientMsgNo
-      || latestVisitorMessage.messageId
-      || latestVisitorMessage.timestamp);
+    const sourceId = getAssistSourceId(latestVisitorMessage);
     if (lastGeneratedSourceRef.current === sourceId) return;
     lastGeneratedSourceRef.current = sourceId;
     void generateAssistDraft();
-  }, [assistDraft, generateAssistDraft, isAssistMode, latestVisitorMessage, message]);
+  }, [assistDraft, generateAssistDraft, isAssistMode, latestVisitorMessage, message, styleReady]);
 
   useEffect(() => {
     if (shouldMaintainFocus.current) {
@@ -743,7 +797,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
     try {
       await cancelStreamingMessage(targetClientMsgNo);
-      showSuccess(showToast, t('chat.input.streaming.cancelledTitle', '已暂停'), t('chat.input.streaming.cancelledMessage', '流消息已暂停'));
+      showSuccess(showToast, t('common.replyStoppedTitle'), t('common.replyStoppedMessage'));
     } catch (error) {
       console.error('Failed to cancel stream message:', error);
       showApiError(showToast, error);
@@ -752,7 +806,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
   const handleSend = async (): Promise<void> => {
     if (isManualDisabled) return;
-    if (isSending || isSendingLocal) return;
+    if (isSending || isSendingLocal || sendInFlightRef.current) return;
     
     // If streaming in progress, cancel it instead of sending
     if (isStreamingInProgress) {
@@ -773,40 +827,51 @@ const MessageInput: React.FC<MessageInputProps> = ({
     // 4. File only → FILE message
     // 5. Text only → TEXT message
 
+    sendInFlightRef.current = true;
+    setIsSendingLocal(true);
     try {
+      const finalReply = message.trim();
+      const correction: AssistTrainingIntent | undefined = (
+        isAssistMode && assistDraft && selectedHumanizationSkill && isHumanizationEnabled
+        && finalReply !== assistDraft.trim() && latestVisitorMessage && assistTrainingSource
+        && assistTrainingSource.skillName === selectedHumanizationSkill
+      ) ? {
+        skill_name: selectedHumanizationSkill,
+        customer_message: assistTrainingSource.customerMessage,
+        ai_draft: assistDraft,
+        source_message_id: assistSourceMessageId || undefined,
+        recent_messages: assistTrainingSource.recentMessages,
+      } : undefined;
+      const durableTraining = channelType === 251;
+      const training = durableTraining ? correction : undefined;
+      let sent = false;
       if (hasImages && hasText) {
-        setIsSendingLocal(true);
-        await sendRichTextWithImages();
+        sent = await sendRichTextWithImages(training);
       } else if (hasFiles && hasText) {
-        setIsSendingLocal(true);
-        await sendRichTextWithFile();
+        sent = await sendRichTextWithFile(training);
       } else if (hasImages) {
-        setIsSendingLocal(true);
         await sendImagesOnly();
       } else if (hasFiles) {
-        setIsSendingLocal(true);
         await sendSelectedFilesOnly();
       } else if (hasText) {
-        const finalReply = message.trim();
-        const sendResult = await onSendMessage?.(finalReply);
-        if (sendResult === false) return;
-        setMessage('');
-        if (
-          isAssistMode
-          && assistDraft
-          && selectedHumanizationSkill
-          && isHumanizationEnabled
-          && finalReply !== assistDraft.trim()
-          && latestVisitorMessage
-        ) {
+        sent = await onSendMessage?.(finalReply, training) === true;
+      }
+      if (hasText && sent) {
+        setMessage(current => current.trim() === finalReply ? '' : current);
+        if (training) {
+          showSuccess(
+            showToast, t('chat.delivery.trainingQueuedTitle'), t('chat.delivery.trainingQueued'),
+          );
+        } else if (correction) {
           try {
             await SkillsApiService.addHumanizationTrainingSample(
-              selectedHumanizationSkill,
+              correction.skill_name,
               {
-                customer_message: latestVisitorMessage.content,
-                ai_draft: assistDraft,
+                customer_message: correction.customer_message,
+                ai_draft: correction.ai_draft,
                 final_reply: finalReply,
-                source_message_id: assistSourceMessageId || undefined,
+                source_message_id: correction.source_message_id,
+                recent_messages: correction.recent_messages,
               },
             );
             showSuccess(
@@ -823,8 +888,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
         }
         setAssistDraft(null);
         setAssistSourceMessageId(null);
+        setAssistTrainingSource(null);
       }
     } finally {
+      sendInFlightRef.current = false;
       setIsSendingLocal(false);
       maintainTextareaFocus();
     }
@@ -950,7 +1017,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     if (newItems.length) {
       setPastedItems(prev => [...prev, ...newItems]);
     }
-  }, [pastedItems, getImageDimensions, showError, isManualDisabled]);
+  }, [pastedItems, getImageDimensions, showError, isManualDisabled, t]);
 
   // Cleanup preview URLs on unmount or when items change
   useEffect(() => {
@@ -999,8 +1066,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
         clientMsgNo: nowId,
         messageSeq: 0,
         fromUid: user?.id ? `${user.id}-staff` : 'staff',
-        channelId: channelId,
-        channelType: channelType,
+        channelId,
+        channelType,
         payloadType: MessagePayloadType.IMAGE,
         metadata: {
           isLocal: true,
@@ -1044,25 +1111,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
         } as any;
 
         try {
-          if (visitorExtra?.platform_type && visitorExtra.platform_type !== PlatformType.WEBSITE) {
-            try {
-              await chatMessagesApiService.staffSendPlatformMessage({
-                channel_id: channelId,
-                channel_type: channelType,
-                payload,
-                client_msg_no: nowId,
-              });
-            } catch (err) {
-              const errMsg = err instanceof Error ? err.message : t('chat.input.errors.platformFailed', '平台消息发送失败，请稍后重试');
-              updateMessageByClientMsgNo(nowId, { metadata: { platform_send_error: true, error_text: errMsg } });
-              showApiError(showToast, err);
-              return;
-            }
-          }
-          if (!isConnected) throw new Error(t('chat.input.errors.websocketNotConnected.image', 'WebSocket 未连接，无法发送图片消息'));
-          console.log("Sending image message via WebSocket", payload);
-          await sendWsMessage(channelId, channelType, payload, nowId);
-          updateMessageByClientMsgNo(nowId, { metadata: { ws_sent: true, ws_send_error: false } });
+          const sent = await sendCustomerMessage({
+            staffId: user?.id || '', channelId, channelType, clientMsgNo: nowId, payload,
+            platformType: visitorExtra?.platform_type, isConnected, sendWsMessage,
+            updateMessage: updateMessageByClientMsgNo,
+          });
+          if (!sent) return;
         } catch (err) {
           const errMsg = getErrorMessage(err, t, 'chat.input.errors.websocketFailed', 'WebSocket 发送失败，请检查网络连接');
           updateMessageByClientMsgNo(nowId, { metadata: { ws_send_error: true, error_text: errMsg } });
@@ -1077,7 +1131,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     // Clear previews after triggering sends
     setPastedItems([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [pastedItems, channelId, channelType, user?.id, addMessage, updateConversationLastMessage, moveConversationToTop, updateMessageByClientMsgNo, isConnected, sendWsMessage, showToast, showError, visitorExtra?.platform_type]);
+  }, [pastedItems, channelId, channelType, user?.id, addMessage, updateConversationLastMessage, moveConversationToTop, updateMessageByClientMsgNo, isConnected, sendWsMessage, showToast, showError, visitorExtra?.platform_type, t]);
 
   // Send selected files (each as a separate message)
   const sendSelectedFilesOnly = useCallback(async (): Promise<void> => {
@@ -1105,8 +1159,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
         clientMsgNo: nowId,
         messageSeq: 0,
         fromUid: user?.id ? `${user.id}-staff` : 'staff',
-        channelId: channelId,
-        channelType: channelType,
+        channelId,
+        channelType,
         payloadType: MessagePayloadType.FILE,
         metadata: {
           isLocal: true,
@@ -1151,24 +1205,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
         } as any;
 
         try {
-          if (visitorExtra?.platform_type && visitorExtra.platform_type !== PlatformType.WEBSITE) {
-            try {
-              await chatMessagesApiService.staffSendPlatformMessage({
-                channel_id: channelId,
-                channel_type: channelType,
-                payload,
-                client_msg_no: nowId,
-              });
-            } catch (err) {
-              const errMsg = err instanceof Error ? err.message : t('chat.input.errors.platformFailed', '平台消息发送失败，请稍后重试');
-              updateMessageByClientMsgNo(nowId, { metadata: { platform_send_error: true, error_text: errMsg } });
-              showApiError(showToast, err);
-              return;
-            }
-          }
-          if (!isConnected) throw new Error(t('chat.input.errors.websocketNotConnected.file', 'WebSocket 未连接，无法发送文件消息'));
-          await sendWsMessage(channelId, channelType, payload, nowId);
-          updateMessageByClientMsgNo(nowId, { metadata: { ws_sent: true, ws_send_error: false } });
+          const sent = await sendCustomerMessage({
+            staffId: user?.id || '', channelId, channelType, clientMsgNo: nowId, payload,
+            platformType: visitorExtra?.platform_type, isConnected, sendWsMessage,
+            updateMessage: updateMessageByClientMsgNo,
+          });
+          if (!sent) return;
         } catch (err) {
           const errMsg = getErrorMessage(err, t, 'chat.input.errors.websocketFailed', 'WebSocket 发送失败，请检查网络连接');
           updateMessageByClientMsgNo(nowId, { metadata: { ws_send_error: true, error_text: errMsg } });
@@ -1183,22 +1225,45 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
     // Clear previews after triggering sends
     setSelectedFiles([]);
-  }, [selectedFiles, channelId, channelType, user?.id, addMessage, updateConversationLastMessage, moveConversationToTop, updateMessageByClientMsgNo, isConnected, sendWsMessage, showToast, showError, visitorExtra?.platform_type]);
+  }, [selectedFiles, channelId, channelType, user?.id, addMessage, updateConversationLastMessage, moveConversationToTop, updateMessageByClientMsgNo, isConnected, sendWsMessage, showToast, showError, visitorExtra?.platform_type, t]);
 
   // Send rich text message with file attachment (text + file)
-  const sendRichTextWithFile = useCallback(async (): Promise<void> => {
+  const submitRichPayload = useCallback(async (
+    signature: string, clientMsgNo: string, payload: StaffDeliveryPayload,
+    training?: AssistTrainingIntent,
+  ): Promise<boolean> => {
+    if (!channelId || typeof channelType !== 'number') return false;
+    pendingRichSendRef.current = { signature, clientMsgNo, payload, training };
+    const sent = await sendCustomerMessage({
+      staffId: user?.id || '', channelId, channelType, clientMsgNo, payload,
+      training,
+      platformType: visitorExtra?.platform_type, isConnected, sendWsMessage,
+      updateMessage: updateMessageByClientMsgNo,
+    });
+    if (sent) pendingRichSendRef.current = null;
+    return sent;
+  }, [channelId, channelType, user?.id, visitorExtra?.platform_type, isConnected, sendWsMessage, updateMessageByClientMsgNo]);
+
+  const sendRichTextWithFile = useCallback(async (training?: AssistTrainingIntent): Promise<boolean> => {
     const textContent = message.trim();
     const fileItem = selectedFiles[0];
-    if (!fileItem || !textContent) return;
+    if (!fileItem || !textContent) return false;
 
     if (!channelId || typeof channelType !== 'number') {
       showError(
         t('chat.input.errors.noConversationTitle', '请选择对话'),
         t('chat.input.errors.noConversationDesc.message', '请选择对话后再发送消息')
       );
-      return;
+      return false;
     }
 
+    const signature = JSON.stringify([channelId, textContent, fileItem.id]);
+    const cached = pendingRichSendRef.current;
+    if (cached?.signature === signature) {
+      const sent = await submitRichPayload(signature, cached.clientMsgNo, cached.payload, cached.training);
+      if (sent) setSelectedFiles(current => current.filter(item => item.id !== fileItem.id));
+      return sent;
+    }
     const nowId = `local-rich-file-${Date.now()}`;
     const f = fileItem.file;
 
@@ -1211,8 +1276,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
       clientMsgNo: nowId,
       messageSeq: 0,
       fromUid: user?.id ? `${user.id}-staff` : 'staff',
-      channelId: channelId,
-      channelType: channelType,
+      channelId,
+      channelType,
       payloadType: MessagePayloadType.RICH_TEXT,
       metadata: {
         isLocal: true,
@@ -1262,52 +1327,43 @@ const MessageInput: React.FC<MessageInputProps> = ({
       } as any;
 
       try {
-        if (visitorExtra?.platform_type && visitorExtra.platform_type !== PlatformType.WEBSITE) {
-          try {
-            await chatMessagesApiService.staffSendPlatformMessage({
-              channel_id: channelId,
-              channel_type: channelType,
-              payload,
-              client_msg_no: nowId,
-            });
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : t('chat.input.errors.platformFailed', '平台消息发送失败，请稍后重试');
-            updateMessageByClientMsgNo(nowId, { metadata: { platform_send_error: true, error_text: errMsg } });
-            showApiError(showToast, err);
-            return;
-          }
-        }
-        if (!isConnected) throw new Error(t('chat.input.errors.websocketNotConnected.message', 'WebSocket 未连接，无法发送消息'));
-        console.log("Sending rich text with file message via WebSocket", payload);
-        await sendWsMessage(channelId, channelType, payload, nowId);
-        updateMessageByClientMsgNo(nowId, { metadata: { ws_sent: true, ws_send_error: false } });
+        const sent = await submitRichPayload(signature, nowId, payload, training);
+        if (!sent) return false;
       } catch (err) {
         const errMsg = getErrorMessage(err, t, 'chat.input.errors.websocketFailed', 'WebSocket 发送失败，请检查网络连接');
         updateMessageByClientMsgNo(nowId, { metadata: { ws_send_error: true, error_text: errMsg } });
         showApiError(showToast, err);
+        return false;
       }
     } catch (err) {
       const errorMessage = getErrorMessage(err);
       updateMessageByClientMsgNo(nowId, { metadata: { upload_status: 'error', error_text: errorMessage } });
       showApiError(showToast, err);
-      return;
+      return false;
     }
 
-    setSelectedFiles([]);
-    setMessage('');
-  }, [selectedFiles, message, channelId, channelType, user?.id, addMessage, updateConversationLastMessage, moveConversationToTop, updateMessageByClientMsgNo, isConnected, sendWsMessage, showToast, showError, visitorExtra?.platform_type]);
+    setSelectedFiles(current => current.filter(item => item.id !== fileItem.id));
+    return true;
+  }, [selectedFiles, message, channelId, channelType, user?.id, addMessage, updateConversationLastMessage, moveConversationToTop, updateMessageByClientMsgNo, showToast, showError, submitRichPayload, t]);
 
-  const sendRichTextWithImages = useCallback(async (): Promise<void> => {
+  const sendRichTextWithImages = useCallback(async (training?: AssistTrainingIntent): Promise<boolean> => {
     const items = [...pastedItems];
-    if (!items.length) return;
+    if (!items.length) return false;
     if (!channelId || typeof channelType !== 'number') {
       showError(
         t('chat.input.errors.noConversationTitle', '请选择对话'),
         t('chat.input.errors.noConversationDesc.image', '请选择对话后再发送图片')
       );
-      return;
+      return false;
     }
 
+    const signature = JSON.stringify([channelId, message.trim(), items.map(item => item.previewUrl)]);
+    const cached = pendingRichSendRef.current;
+    if (cached?.signature === signature) {
+      const sent = await submitRichPayload(signature, cached.clientMsgNo, cached.payload, cached.training);
+      if (sent) setPastedItems(current => current.filter(item => !items.some(sentItem => sentItem.previewUrl === item.previewUrl)));
+      return sent;
+    }
     const nowId = `local-rich-${Date.now()}`;
     let imagesMeta = items.map(it => ({
       preview_url: it.previewUrl,
@@ -1327,8 +1383,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
       clientMsgNo: nowId,
       messageSeq: 0,
       fromUid: user?.id ? `${user.id}-staff` : 'staff',
-      channelId: channelId,
-      channelType: channelType,
+      channelId,
+      channelType,
       payloadType: MessagePayloadType.RICH_TEXT,
       metadata: {
         isLocal: true,
@@ -1368,7 +1424,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       await Promise.all(uploadPromises);
     } catch {
       // If any upload fails, don't send the rich text message
-      return;
+      return false;
     }
 
     const imagesPayload = items.map((it, i) => ({ url: finalUrls[i] as string, width: it.width, height: it.height }));
@@ -1380,37 +1436,22 @@ const MessageInput: React.FC<MessageInputProps> = ({
     } as any;
 
     try {
-      if (visitorExtra?.platform_type && visitorExtra.platform_type !== PlatformType.WEBSITE) {
-        try {
-          await chatMessagesApiService.staffSendPlatformMessage({
-            channel_id: channelId,
-            channel_type: channelType,
-            payload,
-            client_msg_no: nowId,
-          });
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : t('chat.input.errors.platformFailed', '平台消息发送失败，请稍后重试');
-          updateMessageByClientMsgNo(nowId, { metadata: { platform_send_error: true, error_text: errMsg } });
-          showApiError(showToast, err);
-          return;
-        }
-      }
-      if (!isConnected) throw new Error(t('chat.input.errors.websocketNotConnected.richText', 'WebSocket 未连接，无法发送图文消息'));
-      console.log("Sending rich text with images message via WebSocket", payload);
-      await sendWsMessage(channelId, channelType, payload, nowId);
-      updateMessageByClientMsgNo(nowId, { metadata: { ws_sent: true, ws_send_error: false } });
+      const sent = await submitRichPayload(signature, nowId, payload, training);
+      if (!sent) return false;
     } catch (err) {
       const errMsg = getErrorMessage(err, t, 'chat.input.errors.websocketFailed', 'WebSocket 发送失败，请检查网络连接');
       updateMessageByClientMsgNo(nowId, { metadata: { ws_send_error: true, error_text: errMsg } });
       showApiError(showToast, err);
+        return false;
     }
 
-    setPastedItems([]);
+    setPastedItems(current => current.filter(item => !items.some(sentItem => sentItem.previewUrl === item.previewUrl)));
     if (fileInputRef.current) fileInputRef.current.value = '';
-    setMessage('');
-  }, [pastedItems, channelId, channelType, user?.id, addMessage, updateConversationLastMessage, moveConversationToTop, updateMessageByClientMsgNo, isConnected, sendWsMessage, showToast, showError, message, visitorExtra?.platform_type]);
+    return true;
+  }, [pastedItems, channelId, channelType, user?.id, addMessage, updateConversationLastMessage, moveConversationToTop, updateMessageByClientMsgNo, showToast, showError, message, submitRichPayload, t]);
 
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
+    assistContextRef.current = { ...assistContextRef.current, text: e.target.value };
     setMessage(e.target.value);
   };
 
@@ -1593,13 +1634,13 @@ const MessageInput: React.FC<MessageInputProps> = ({
             {serviceMode !== 'manual' && (
               <>
                 <select
-                  value={selectedHumanizationSkill}
+                  value={conversationSkill}
                   onChange={(event) => void handleHumanizationSkillChange(event.target.value)}
                   disabled={!visitorId || isTogglingAI}
                   aria-label={t('chat.input.humanization.selectAria', '选择拟人技能')}
                   className="max-w-44 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 focus:border-violet-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
                 >
-                  <option value="">{t('chat.input.humanization.none', '选择拟人技能')}</option>
+                  <option value="">{t('employeeStyle.follow')}{!conversationSkill && selectedHumanizationSkill ? ` · ${humanizationSkills.find(skill => skill.name === selectedHumanizationSkill)?.display_name || selectedHumanizationSkill}` : ''}</option>
                   {humanizationSkills.map((skill) => (
                     <option key={skill.name} value={skill.name}>
                       {skill.display_name || skill.name}
@@ -1616,9 +1657,13 @@ const MessageInput: React.FC<MessageInputProps> = ({
                     aria-label={t('chat.input.humanization.toggleAria', '启用拟人技能')}
                     checked={isHumanizationEnabled}
                     onChange={(checked) => void handleHumanizationToggle(checked)}
-                    disabled={!visitorId || isTogglingAI || !selectedHumanizationSkill}
+                    disabled={!visitorId || isTogglingAI || !selectedHumanizationSkill || !styleReady}
                   />
                 </div>
+                <span className="text-xs text-gray-500" role={styleError ? 'alert' : undefined}>
+                  {styleError ? t('employeeStyle.loadError') : conversationSkill ? t('employeeStyle.override')
+                    : styleReady ? t('employeeStyle.following', { name: employeeStyle?.agent_name || t('employeeStyle.noDefault') }) : t('employeeStyle.loading')}
+                </span>
               </>
             )}
           </div>
@@ -1728,7 +1773,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             return (
               <div className={`grid ${gridColsClass} gap-2 w-fit`}>
                 {pastedItems.map((it, idx) => (
-                  <div key={idx} className={"relative rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 " + getGridItemClass(idx)}>
+                  <div key={idx} className={`relative rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 ${  getGridItemClass(idx)}`}>
                     <img src={it.previewUrl} alt={t('chat.input.preview.imageAlt', '预览图片{{index}}', { index: idx + 1 })} className="w-[100px] h-[100px] object-cover" />
                     {/* Progress overlay */}
                     {it.status && it.status !== 'idle' && it.status !== 'completed' && (

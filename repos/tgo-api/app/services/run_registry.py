@@ -1,309 +1,254 @@
-"""Registry for mapping client_msg_no to AI run metadata.
+"""Atomic, tenant-scoped reply ownership and the final publication fence."""
 
-This is used to support cancelling running AI supervisor runs by client_msg_no.
-- ai_processor records the mapping when the stream emits agent_execution_started (run_id available)
-- HTTP endpoint can request cancellation by client_msg_no; if run_id not known yet, we mark pending
-- When run_id arrives and pending is set, ai_processor will immediately invoke cancel
-
-If REDIS_URL is configured, uses Redis as shared storage (required for multi-process deployments).
-Otherwise falls back to in-memory storage (single-process only).
-"""
 from __future__ import annotations
 
 import asyncio
-import json
+import hashlib
+import math
 import time
-from dataclasses import dataclass, asdict
-from typing import Optional, Dict, Any, Tuple
+from collections.abc import Callable
+from typing import Literal
+
+from redis.asyncio import Redis
+from redis.exceptions import RedisError, WatchError
 
 from app.core.config import settings
-from app.core.logging import get_logger
+from app.schemas.ai_runs import ReplyFailure, ReplyRun
+from app.schemas.reply_phase import ReplyPhaseIdentity
 
-logger = get_logger("run_registry")
-
-DEFAULT_TTL_SECONDS = 15 * 60  # 15 minutes
-REDIS_KEY_PREFIX = "tgo:run_registry:"
-
-
-@dataclass
-class RunEntry:
-    client_msg_no: str
-    project_id: Optional[str]
-    api_key: Optional[str]
-    session_id: Optional[str]
-    run_id: Optional[str] = None
-    pending_cancel: bool = False
-    cancel_reason: Optional[str] = None
-    ts: float = 0.0  # last update timestamp
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RunEntry":
-        return cls(
-            client_msg_no=data.get("client_msg_no", ""),
-            project_id=data.get("project_id"),
-            api_key=data.get("api_key"),
-            session_id=data.get("session_id"),
-            run_id=data.get("run_id"),
-            pending_cancel=data.get("pending_cancel", False),
-            cancel_reason=data.get("cancel_reason"),
-            ts=data.get("ts", 0.0),
-        )
+TERMINAL = {"cancelled", "completed", "failed"}
+Mutation = Callable[[ReplyRun | None], ReplyRun | None]
 
 
-class InMemoryRunRegistry:
-    """In-memory registry (single-process only)."""
+class RegistryConflict(Exception):
+    """Another execution already owns this message."""
 
-    def __init__(self, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> None:
+
+class RegistryUnavailable(Exception):
+    """Control storage is unavailable; never assume permission to publish."""
+
+
+class RunRegistry:
+    async def get(self, project_id: str, client_msg_no: str) -> ReplyRun | None:
+        raise NotImplementedError
+
+    async def _mutate(
+        self, project_id: str, client_msg_no: str, change: Mutation
+    ) -> ReplyRun | None:
+        raise NotImplementedError
+
+    async def start(self, item: ReplyRun) -> ReplyRun:
+        def change(previous: ReplyRun | None) -> ReplyRun:
+            if previous is not None:
+                raise RegistryConflict("Reply already registered")
+            return item
+
+        result = await self._mutate(item.project_id, item.client_msg_no, change)
+        assert result is not None
+        return result
+
+    async def _owned(self, item: ReplyRun, change: Mutation) -> ReplyRun | None:
+        def guarded(previous: ReplyRun | None) -> ReplyRun | None:
+            if previous is None or previous.generation != item.generation:
+                return None
+            return change(previous)
+
+        return await self._mutate(item.project_id, item.client_msg_no, guarded)
+
+    async def heartbeat(self, item: ReplyRun) -> ReplyRun | None:
+        return await self._owned(item, lambda previous: previous)
+
+    async def start_phase(
+        self, item: ReplyRun, phase: ReplyPhaseIdentity
+    ) -> ReplyRun | None:
+        if (phase.project_id, phase.client_msg_no, phase.generation) != (
+            item.project_id,
+            item.client_msg_no,
+            item.generation,
+        ):
+            raise RegistryConflict("AI phase does not belong to this reply")
+
+        def change(previous: ReplyRun | None) -> ReplyRun | None:
+            if previous is None or previous.status != "active":
+                return previous
+            if previous.phase is not None and not previous.phase_ended:
+                if previous.phase == phase:
+                    return previous
+                raise RegistryConflict("Another AI phase is still running")
+            return previous.model_copy(update={"phase": phase, "phase_ended": False})
+
+        return await self._owned(item, change)
+
+    async def end_phase(self, phase: ReplyPhaseIdentity) -> ReplyRun | None:
+        def change(previous: ReplyRun | None) -> ReplyRun | None:
+            if (
+                previous is None
+                or previous.generation != phase.generation
+                or previous.phase != phase
+            ):
+                return None
+            result = previous.model_copy(update={"phase_ended": True})
+            if (
+                previous.status == "failed"
+                and previous.failure_reason == "upstream_stop_unconfirmed"
+            ):
+                result = result.model_copy(
+                    update={"status": "cancelled", "failure_reason": None}
+                )
+            return result
+
+        return await self._mutate(phase.project_id, phase.client_msg_no, change)
+
+    async def request_cancel(self, item: ReplyRun) -> ReplyRun | None:
+        def change(previous: ReplyRun | None) -> ReplyRun | None:
+            if previous is not None and previous.status == "active":
+                return previous.model_copy(update={"status": "cancel_requested"})
+            return previous
+
+        return await self._owned(item, change)
+
+    async def begin_publication(self, item: ReplyRun) -> ReplyRun | None:
+        def change(previous: ReplyRun | None) -> ReplyRun | None:
+            if previous is not None and previous.status == "active":
+                return previous.model_copy(update={"status": "publishing"})
+            return previous
+
+        return await self._owned(item, change)
+
+    async def finish(
+        self,
+        item: ReplyRun,
+        status: Literal["cancelled", "completed", "failed"],
+        failure_reason: ReplyFailure | None = None,
+    ) -> ReplyRun | None:
+        def change(previous: ReplyRun | None) -> ReplyRun | None:
+            if previous is None or previous.status in TERMINAL:
+                return previous
+            if status == "completed" and previous.status != "publishing":
+                return previous
+            if status == "cancelled" and previous.status != "cancel_requested":
+                return previous
+            if (
+                status == "failed"
+                and failure_reason == "upstream_stop_unconfirmed"
+                and previous.status == "cancel_requested"
+                and previous.phase is not None
+                and previous.phase_ended
+            ):
+                return previous.model_copy(
+                    update={"status": "cancelled", "failure_reason": None}
+                )
+            return previous.model_copy(
+                update={"status": status, "failure_reason": failure_reason}
+            )
+
+        return await self._owned(item, change)
+
+
+class InMemoryRunRegistry(RunRegistry):
+    """Single-process fallback; tests use their own independent instance."""
+
+    def __init__(self, ttl_seconds: float = 60) -> None:
         self._ttl = ttl_seconds
-        self._by_client: Dict[str, RunEntry] = {}
+        self._entries: dict[tuple[str, str], tuple[ReplyRun, float]] = {}
         self._lock = asyncio.Lock()
 
-    async def _prune_locked(self) -> None:
-        now = time.time()
-        expired = [k for k, v in self._by_client.items() if now - (v.ts or 0.0) > self._ttl]
-        for k in expired:
-            self._by_client.pop(k, None)
+    def _prune(self) -> None:
+        now = time.monotonic()
+        for key, (_, expiry) in list(self._entries.items()):
+            if expiry <= now:
+                self._entries.pop(key, None)
 
-    async def get(self, client_msg_no: str) -> Optional[RunEntry]:
+    async def get(self, project_id: str, client_msg_no: str) -> ReplyRun | None:
         async with self._lock:
-            await self._prune_locked()
-            return self._by_client.get(client_msg_no)
+            self._prune()
+            stored = self._entries.get((project_id, client_msg_no))
+            return stored[0] if stored else None
 
-    async def clear(self, client_msg_no: str) -> None:
+    async def _mutate(
+        self, project_id: str, client_msg_no: str, change: Mutation
+    ) -> ReplyRun | None:
         async with self._lock:
-            self._by_client.pop(client_msg_no, None)
-
-    async def mark_cancel_pending(
-        self,
-        client_msg_no: str,
-        *,
-        reason: Optional[str],
-        project_id: Optional[str],
-        api_key: Optional[str],
-    ) -> None:
-        async with self._lock:
-            await self._prune_locked()
-            entry = self._by_client.get(client_msg_no)
-            now = time.time()
-            if entry is None:
-                entry = RunEntry(
-                    client_msg_no=client_msg_no,
-                    project_id=project_id,
-                    api_key=api_key,
-                    session_id=None,
-                    run_id=None,
-                    pending_cancel=True,
-                    cancel_reason=reason,
-                    ts=now,
-                )
-                self._by_client[client_msg_no] = entry
-            else:
-                entry.pending_cancel = True
-                entry.cancel_reason = reason
-                if project_id:
-                    entry.project_id = entry.project_id or project_id
-                if api_key:
-                    entry.api_key = entry.api_key or api_key
-                entry.ts = now
-
-    async def set_mapping_and_check_pending(
-        self,
-        *,
-        client_msg_no: str,
-        run_id: str,
-        project_id: Optional[str],
-        api_key: Optional[str],
-        session_id: Optional[str],
-    ) -> Tuple[bool, Optional[str]]:
-        async with self._lock:
-            await self._prune_locked()
-            now = time.time()
-            entry = self._by_client.get(client_msg_no)
-            if entry is None:
-                entry = RunEntry(
-                    client_msg_no=client_msg_no,
-                    project_id=project_id,
-                    api_key=api_key,
-                    session_id=session_id,
-                    run_id=run_id,
-                    pending_cancel=False,
-                    cancel_reason=None,
-                    ts=now,
-                )
-                self._by_client[client_msg_no] = entry
-                return (False, None)
-
-            entry.run_id = run_id
-            entry.session_id = session_id or entry.session_id
-            entry.project_id = entry.project_id or project_id
-            entry.api_key = entry.api_key or api_key
-            entry.ts = now
-            if entry.pending_cancel:
-                reason = entry.cancel_reason
-                entry.pending_cancel = False
-                return (True, reason)
-            return (False, None)
+            self._prune()
+            key = (project_id, client_msg_no)
+            stored = self._entries.get(key)
+            result = change(stored[0] if stored else None)
+            if result is not None:
+                ttl = 900 if result.status in TERMINAL else self._ttl
+                self._entries[key] = (result, time.monotonic() + ttl)
+            return result
 
 
-class RedisRunRegistry:
-    """Redis-backed registry for multi-process deployments."""
+class RedisRunRegistry(RunRegistry):
+    """WATCH transactions serialize stop/publication across API workers."""
 
-    def __init__(self, redis_url: str, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> None:
-        self._ttl = ttl_seconds
-        self._redis_url = redis_url
-        self._redis: Any = None
-        self._lock = asyncio.Lock()
-
-    async def _get_redis(self) -> Any:
-        if self._redis is None:
-            try:
-                import redis.asyncio as aioredis
-                self._redis = aioredis.from_url(
-                    self._redis_url,
-                    encoding="utf-8",
-                    decode_responses=True,
-                )
-                logger.info("Redis connection established for run_registry")
-            except Exception as e:
-                logger.error(f"Failed to connect to Redis: {e}")
-                raise
-        return self._redis
-
-    def _key(self, client_msg_no: str) -> str:
-        return f"{REDIS_KEY_PREFIX}{client_msg_no}"
-
-    async def get(self, client_msg_no: str) -> Optional[RunEntry]:
-        try:
-            redis = await self._get_redis()
-            data = await redis.get(self._key(client_msg_no))
-            if data:
-                return RunEntry.from_dict(json.loads(data))
-            return None
-        except Exception as e:
-            logger.warning(f"Redis get failed: {e}")
-            return None
-
-    async def clear(self, client_msg_no: str) -> None:
-        try:
-            redis = await self._get_redis()
-            await redis.delete(self._key(client_msg_no))
-        except Exception as e:
-            logger.warning(f"Redis delete failed: {e}")
-
-    async def _save_entry(self, entry: RunEntry) -> None:
-        redis = await self._get_redis()
-        await redis.setex(
-            self._key(entry.client_msg_no),
-            self._ttl,
-            json.dumps(entry.to_dict()),
+    def __init__(self, redis_url: str, ttl_seconds: float = 60) -> None:
+        self._ttl = max(1, math.ceil(ttl_seconds))
+        self._redis = Redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
         )
 
-    async def mark_cancel_pending(
-        self,
-        client_msg_no: str,
-        *,
-        reason: Optional[str],
-        project_id: Optional[str],
-        api_key: Optional[str],
-    ) -> None:
+    @staticmethod
+    def _key(project_id: str, client_msg_no: str) -> str:
+        identity = (project_id + "\0" + client_msg_no).encode()
+        return "tgo:reply_runs:v2:" + hashlib.sha256(identity).hexdigest()
+
+    @staticmethod
+    def _decode(raw: object, project_id: str, client_msg_no: str) -> ReplyRun | None:
+        if raw is None:
+            return None
+        if not isinstance(raw, (str, bytes)):
+            raise RegistryUnavailable("Invalid reply registry payload")
         try:
-            async with self._lock:
-                entry = await self.get(client_msg_no)
-                now = time.time()
-                if entry is None:
-                    entry = RunEntry(
-                        client_msg_no=client_msg_no,
-                        project_id=project_id,
-                        api_key=api_key,
-                        session_id=None,
-                        run_id=None,
-                        pending_cancel=True,
-                        cancel_reason=reason,
-                        ts=now,
-                    )
-                else:
-                    entry.pending_cancel = True
-                    entry.cancel_reason = reason
-                    if project_id:
-                        entry.project_id = entry.project_id or project_id
-                    if api_key:
-                        entry.api_key = entry.api_key or api_key
-                    entry.ts = now
-                await self._save_entry(entry)
-                logger.debug(
-                    "Marked cancel pending in Redis",
-                    extra={"client_msg_no": client_msg_no, "reason": reason},
-                )
-        except Exception as e:
-            logger.error(f"Redis mark_cancel_pending failed: {e}")
-            raise
+            item = ReplyRun.model_validate_json(raw)
+        except ValueError as exc:
+            raise RegistryUnavailable("Invalid reply registry payload") from exc
+        if item.project_id != project_id or item.client_msg_no != client_msg_no:
+            raise RegistryUnavailable("Reply registry identity mismatch")
+        return item
 
-    async def set_mapping_and_check_pending(
-        self,
-        *,
-        client_msg_no: str,
-        run_id: str,
-        project_id: Optional[str],
-        api_key: Optional[str],
-        session_id: Optional[str],
-    ) -> Tuple[bool, Optional[str]]:
+    async def get(self, project_id: str, client_msg_no: str) -> ReplyRun | None:
         try:
-            async with self._lock:
-                entry = await self.get(client_msg_no)
-                now = time.time()
-                if entry is None:
-                    entry = RunEntry(
-                        client_msg_no=client_msg_no,
-                        project_id=project_id,
-                        api_key=api_key,
-                        session_id=session_id,
-                        run_id=run_id,
-                        pending_cancel=False,
-                        cancel_reason=None,
-                        ts=now,
-                    )
-                    await self._save_entry(entry)
-                    return (False, None)
+            raw = await self._redis.get(self._key(project_id, client_msg_no))
+            return self._decode(raw, project_id, client_msg_no)
+        except RedisError as exc:
+            raise RegistryUnavailable("Reply registry unavailable") from exc
 
-                entry.run_id = run_id
-                entry.session_id = session_id or entry.session_id
-                entry.project_id = entry.project_id or project_id
-                entry.api_key = entry.api_key or api_key
-                entry.ts = now
+    async def _mutate(
+        self, project_id: str, client_msg_no: str, change: Mutation
+    ) -> ReplyRun | None:
+        key = self._key(project_id, client_msg_no)
+        try:
+            for _ in range(10):
+                try:
+                    async with self._redis.pipeline(transaction=True) as pipe:
+                        await pipe.watch(key)
+                        previous = self._decode(
+                            await pipe.get(key), project_id, client_msg_no
+                        )
+                        result = change(previous)
+                        if result is None:
+                            return None
+                        ttl = 900 if result.status in TERMINAL else self._ttl
+                        pipe.multi()
+                        pipe.set(key, result.model_dump_json(), ex=ttl)
+                        await pipe.execute()
+                        return result
+                except WatchError:
+                    continue
+        except RedisError as exc:
+            raise RegistryUnavailable("Reply registry unavailable") from exc
+        raise RegistryUnavailable("Reply registry contention")
 
-                if entry.pending_cancel:
-                    reason = entry.cancel_reason
-                    entry.pending_cancel = False
-                    await self._save_entry(entry)
-                    logger.info(
-                        "Found pending cancel in Redis, will execute",
-                        extra={"client_msg_no": client_msg_no, "run_id": run_id},
-                    )
-                    return (True, reason)
-
-                await self._save_entry(entry)
-                return (False, None)
-        except Exception as e:
-            logger.error(f"Redis set_mapping_and_check_pending failed: {e}")
-            return (False, None)
+    async def close(self) -> None:
+        await self._redis.aclose()
 
 
-def _create_registry() -> InMemoryRunRegistry | RedisRunRegistry:
-    """Create the appropriate registry based on configuration."""
-    redis_url = settings.REDIS_URL
-    if redis_url:
-        logger.info("Using Redis-backed run_registry", extra={"redis_url": redis_url[:20] + "..."})
-        return RedisRunRegistry(redis_url)
-    else:
-        logger.warning(
-            "REDIS_URL not configured, using in-memory run_registry. "
-            "Cancel requests will NOT work across processes!"
-        )
-        return InMemoryRunRegistry()
-
-
-# Global instance - will use Redis if configured, otherwise in-memory
-run_registry = _create_registry()
+run_registry: RunRegistry = (
+    RedisRunRegistry(settings.REDIS_URL)
+    if settings.REDIS_URL
+    else InMemoryRunRegistry()
+)

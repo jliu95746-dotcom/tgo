@@ -25,7 +25,7 @@ Features:
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -39,6 +39,7 @@ from .document_processing_errors import (
     ProcessingStep,
     ProcessingStatus,
     _handle_processing_error,
+    safe_processing_failure,
     log_processing_step,
     log_processing_success
 )
@@ -95,14 +96,24 @@ async def _update_website_page_status(
 
             # Update WebsitePage status
             page_result = await db.execute(
-                select(WebsitePage).where(WebsitePage.id == page_uuid)
+                select(WebsitePage).where(
+                    WebsitePage.id == page_uuid,
+                    WebsitePage.file_id == file_uuid,
+                    WebsitePage.project_id == file_record.project_id,
+                    WebsitePage.collection_id == file_record.collection_id,
+                    WebsitePage.status == "processing",
+                ).with_for_update()
             )
             page = page_result.scalar_one_or_none()
 
-            if page:
+            if (
+                page and page.file_id == file_uuid
+                and page.project_id == file_record.project_id
+                and page.collection_id == file_record.collection_id
+                and page.status == "processing"
+            ):
                 page.status = status
-                if error_message:
-                    page.error_message = error_message
+                page.error_message = error_message
                 await db.commit()
                 logger.info(f"Updated WebsitePage {page_uuid} status to '{status}'")
 
@@ -166,12 +177,21 @@ async def process_file_async(
     file_id = str(file_uuid)
     
     try:
-        # Update status to processing
-        await _update_file_status(file_uuid, ProcessingStatus.PROCESSING)
         log_processing_step(file_id, ProcessingStep.LOADING_FILE, f"Starting document processing (QA Mode: {is_qa_mode})")
         
         # Load file information
         file_info = await _load_file_info(file_uuid, file_id)
+
+        from ..services import website_documents
+        is_website = (file_info.storage_metadata or {}).get("source") == "website_crawl"
+        if is_website:
+            if (
+                file_info.collection_id != collection_id
+                or not await website_documents.claim_website_file(file_info)
+            ):
+                return ProcessingResult("skipped", file_id, 0, 0, 0)
+        else:
+            await _update_file_status(file_uuid, ProcessingStatus.PROCESSING)
         
         # Load and extract document content
         documents = await _load_document_content(file_info, file_id)
@@ -189,7 +209,23 @@ async def process_file_async(
             if qa_chunks:
                 chunks.extend(qa_chunks)
         
-        # Store document chunks in database
+        if is_website:
+            await _update_file_status(
+                file_uuid, ProcessingStatus.GENERATING_EMBEDDINGS,
+            )
+            published = await website_documents.publish_website_documents(
+                file_info, cast(list[website_documents.WebsiteChunk], chunks),
+            )
+            return ProcessingResult(
+                status="completed" if published else "skipped", file_id=file_id,
+                document_count=len(chunks) if published else 0,
+                total_tokens=(
+                    sum(chunk["token_count"] for chunk in chunks) if published else 0
+                ),
+                processing_time=time.time() - start_time,
+            )
+
+        # Ordinary uploads retain their existing processing pipeline.
         await _store_document_chunks(chunks, file_id, file_info.project_id)
         
         # Update status to generating embeddings
@@ -222,14 +258,21 @@ async def process_file_async(
         )
 
     except Exception as e:
-        logger.error(f"Async processing failed: {e}")
+        safe_error = safe_processing_failure(e)
+        step = e.step if isinstance(e, DocumentProcessingError) else (
+            ProcessingStep.UPDATING_STATUS
+        )
+        await _handle_processing_error(
+            file_uuid, file_id, RuntimeError(safe_error), step,
+        )
+        await _update_website_page_status(file_uuid, "failed", safe_error)
         return ProcessingResult(
             status=ProcessingStatus.FAILED.value,
             file_id=file_id,
             document_count=0,
             total_tokens=0,
             processing_time=0,
-            error=str(e)
+            error=safe_error
         )
 
 
@@ -506,7 +549,7 @@ async def _update_file_status(file_uuid: UUID, status: ProcessingStatus) -> None
             await db.execute(
                 update(File)
                 .where(File.id == file_uuid)
-                .values(status=status.value)
+                .values(status=status.value, error_message=None)
             )
             await db.commit()
             
@@ -523,6 +566,7 @@ async def _update_file_completion(file_uuid: UUID, document_count: int, total_to
                 .where(File.id == file_uuid)
                 .values(
                     status=ProcessingStatus.COMPLETED.value,
+                    error_message=None,
                     document_count=document_count,
                     total_tokens=total_tokens
                 )

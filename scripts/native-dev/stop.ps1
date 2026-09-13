@@ -5,7 +5,7 @@ param(
 . (Join-Path $PSScriptRoot 'common.ps1')
 
 if (Test-Path -LiteralPath $script:StateFile) {
-    $state = Get-Content -Raw -LiteralPath $script:StateFile | ConvertFrom-Json
+    $state = @(Read-ProcessState)
     foreach ($entry in @($state)) {
         $process = Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
         if ($null -eq $process) {

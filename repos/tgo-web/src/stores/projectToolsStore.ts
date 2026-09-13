@@ -182,7 +182,7 @@ export const useProjectToolsStore = create<ProjectToolsState>()(
       },
 
       updateTool: async (id, updateData) => {
-        const { setError, setAiTools, aiTools } = get();
+        const { setError, setAiTools } = get();
 
         setError(null);
 
@@ -191,7 +191,7 @@ export const useProjectToolsStore = create<ProjectToolsState>()(
 
           // Update the tool in local state
           setAiTools(
-            aiTools.map(tool =>
+            get().aiTools.map(tool =>
               tool.id === id ? updatedTool : tool
             )
           );
@@ -206,7 +206,7 @@ export const useProjectToolsStore = create<ProjectToolsState>()(
       },
 
       deleteTool: async (id) => {
-        const { setDeleting, setError, setAiTools, aiTools } = get();
+        const { setDeleting, setError, setAiTools } = get();
 
         setDeleting(true);
         setError(null);
@@ -216,7 +216,7 @@ export const useProjectToolsStore = create<ProjectToolsState>()(
 
           // Update the tool in local state with deleted_at timestamp
           setAiTools(
-            aiTools.map(tool =>
+            get().aiTools.map(tool =>
               tool.id === id ? deletedTool : tool
             )
           );

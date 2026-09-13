@@ -726,15 +726,15 @@ export const useMessageStore = create<MessageState>()(
             client_msg_no: targetMsgNo,
             reason: 'User cancelled',
           });
-          console.log('🤖 Message Store: Stream message cancelled successfully', { clientMsgNo: targetMsgNo });
-
           // Clear streaming state
-          const nextActiveStreamingChannels = { ...state.activeStreamingChannels };
+          // Other conversations may have started streaming during the request.
+          const current = get();
+          const nextActiveStreamingChannels = { ...current.activeStreamingChannels };
           delete nextActiveStreamingChannels[targetMsgNo];
           
           const isGlobalStreaming = Object.keys(nextActiveStreamingChannels).length > 0;
           const nextStreamingClientMsgNo = isGlobalStreaming 
-            ? (nextActiveStreamingChannels[state.streamingClientMsgNo || ''] ? state.streamingClientMsgNo : Object.keys(nextActiveStreamingChannels)[0]) 
+            ? (nextActiveStreamingChannels[current.streamingClientMsgNo || ''] ? current.streamingClientMsgNo : Object.keys(nextActiveStreamingChannels)[0])
             : null;
           
           set(

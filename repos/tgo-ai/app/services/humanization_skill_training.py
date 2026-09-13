@@ -15,7 +15,6 @@ from typing import Dict, List
 
 from app.schemas.skill import HumanizationTrainingSampleRequest
 
-
 _TRAINING_LOCK = Lock()
 _EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 _CN_PHONE_RE = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
@@ -38,20 +37,22 @@ class HumanizationTrainingStore:
     def _pending_path(self, project_id: str, skill_name: str) -> Path:
         return self._pending_dir(project_id) / f"{skill_name}.jsonl"
 
-    def list_pending(self, project_id: str, skill_name: str) -> List[Dict[str, str]]:
+    def list_pending(self, project_id: str, skill_name: str) -> list[dict[str, object]]:
         path = self._pending_path(project_id, skill_name)
         if not path.exists():
             return []
-        samples: List[Dict[str, str]] = []
+        samples: list[dict[str, object]] = []
         try:
             for line in path.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
                     continue
                 value = json.loads(line)
                 if isinstance(value, dict):
-                    samples.append({str(k): str(v) for k, v in value.items()})
-        except (OSError, json.JSONDecodeError):
-            return []
+                    samples.append(value)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                "Training records could not be read; originals were preserved"
+            ) from exc
         return samples
 
     def pending_count(self, project_id: str, skill_name: str) -> int:
@@ -69,25 +70,59 @@ class HumanizationTrainingStore:
         path = self._pending_path(project_id, skill_name)
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
+            "delivery_id": sample.delivery_id or "",
             "customer_message": _redact_customer_data(sample.customer_message.strip()),
             "ai_draft": _redact_customer_data(sample.ai_draft.strip()),
             "final_reply": _redact_customer_data(sample.final_reply.strip()),
             "source_message_id": sample.source_message_id or "",
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "recent_messages": [
+                {"role": turn.role, "content": _redact_customer_data(turn.content)}
+                for turn in sample.recent_messages[-8:]
+            ],
         }
 
         with _TRAINING_LOCK:
             existing = self.list_pending(project_id, skill_name)
+            if sample.delivery_id:
+                duplicate = next(
+                    (
+                        item
+                        for item in existing
+                        if item.get("delivery_id") == sample.delivery_id
+                    ),
+                    None,
+                )
+                if duplicate is not None:
+                    if any(
+                        duplicate.get(key) != payload[key]
+                        for key in (
+                            "customer_message",
+                            "ai_draft",
+                            "final_reply",
+                            "source_message_id",
+                            "recent_messages",
+                        )
+                    ):
+                        raise ValueError(
+                            "A delivery correction cannot be changed after capture"
+                        )
+                    return len(existing)
             source_message_id = payload["source_message_id"]
-            if source_message_id and any(
-                item.get("source_message_id") == source_message_id for item in existing
+            if (
+                not sample.delivery_id
+                and source_message_id
+                and any(
+                    item.get("source_message_id") == source_message_id
+                    for item in existing
+                )
             ):
                 return len(existing)
             with path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
             return len(existing) + 1
 
-    def consume(self, project_id: str, skill_name: str) -> List[Dict[str, str]]:
+    def consume(self, project_id: str, skill_name: str) -> list[dict[str, object]]:
         path = self._pending_path(project_id, skill_name)
         with _TRAINING_LOCK:
             samples = self.list_pending(project_id, skill_name)
@@ -102,7 +137,7 @@ class HumanizationTrainingStore:
                 path.unlink()
 
     @staticmethod
-    def render_approved_examples(samples: List[Dict[str, str]]) -> str:
+    def render_approved_examples(samples: List[Dict[str, object]]) -> str:
         sections = ["# 已确认的人工修正样本", ""]
         for index, sample in enumerate(samples, start=1):
             sections.extend(

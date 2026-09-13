@@ -60,6 +60,29 @@ class _DummyAsyncClient:
 
 
 class EventClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rejected_staff_operations_are_not_reported_as_saved(self) -> None:
+        captured: dict[str, Any] = {}
+        with patch.object(settings, "api_internal_service_url", "http://internal.test"), patch.object(
+            httpx, "AsyncClient", lambda *args, **kwargs: _DummyAsyncClient(captured),
+        ):
+            client = EventClient(ToolContext(
+                agent_id="fixture-agent", session_id="fixture-session",
+                user_id="fixture-staff", project_id="fixture-project",
+            ))
+            for status_code in (400, 404, 503):
+                with self.subTest(status_code=status_code), patch.object(
+                    _DummyResponse, "status_code", status_code,
+                ):
+                    result = await client.post_event(
+                        "user_info.update", {"visitor": {"name": "fixture"}},
+                        error_messages={
+                            "not_configured": "not_configured", "api_error": "not_saved",
+                            "http_error": "http_error", "unexpected_error": "unexpected_error",
+                        },
+                    )
+                    self.assertFalse(result.success)
+                    self.assertEqual(result.message, "not_saved")
+
     async def test_post_event_uses_configured_internal_api_url(self) -> None:
         captured: dict[str, Any] = {}
         original_internal_url = settings.api_internal_service_url

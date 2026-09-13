@@ -55,10 +55,13 @@ function cancelStreaming(params) {
     },
     timeout: 10000
   }).then(function (res) {
-    if (!res.ok) {
-      console.warn('[Chat] Cancel streaming failed:', res.status)
-    }
-    return res
+    return res.json().then(function (data) {
+      if (!res.ok || !data || data.accepted !== true ||
+          data.status !== 'cancelled' || data.client_msg_no !== params.clientMsgNo) {
+        throw new Error('尚未确认停止，请稍后重试。')
+      }
+      return data
+    })
   })
 }
 

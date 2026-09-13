@@ -6,15 +6,23 @@ from typing import Dict, List, Literal, Optional
 from pydantic import Field
 
 from app.schemas.base import BaseSchema
+from app.schemas.humanization import ConversationTurn
 
 
 # ---------------------------------------------------------------------------
 # Response Schemas (parsed from file system)
 # ---------------------------------------------------------------------------
 
+class SkillEmployeeUsage(BaseSchema):
+    id: str
+    name: str
+    enabled: bool
+
+
 class SkillSummary(BaseSchema):
     """Lightweight summary for listing skills (parsed from SKILL.md frontmatter)."""
 
+    used_by: List[SkillEmployeeUsage] = Field(default_factory=list)
     name: str = Field(
         description="Skill identifier (= directory name)",
         examples=["code-review"],
@@ -159,17 +167,11 @@ class SkillCreateRequest(BaseSchema):
 
 
 class SkillImportRequest(BaseSchema):
-    """Schema for importing a skill from a GitHub directory URL."""
+    """Internal payload for a bounded local skill upload."""
 
-    github_url: str = Field(
-        ...,
-        description="GitHub directory URL (e.g. https://github.com/owner/repo/tree/main/skills/my-skill)",
-        examples=["https://github.com/anthropics/skills/tree/main/skills/code-review"],
-    )
-    github_token: Optional[str] = Field(
-        default=None,
-        description="Optional GitHub personal access token for private repos or higher rate limits",
-    )
+    filename: str = Field(..., min_length=1, max_length=255)
+    content_base64: str = Field(..., min_length=1, max_length=13981016)
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
 
 
 class SkillToggleRequest(BaseSchema):
@@ -190,6 +192,8 @@ class SkillToggleResponse(BaseSchema):
 
 class SkillUpdateRequest(BaseSchema):
     """Schema for updating an existing skill's SKILL.md content."""
+
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
 
     description: Optional[str] = Field(
         default=None,
@@ -249,10 +253,12 @@ class HumanizationSkillCreateRequest(BaseSchema):
 class HumanizationTrainingSampleRequest(BaseSchema):
     """A staff-approved correction captured from assist mode."""
 
+    delivery_id: Optional[str] = Field(default=None, max_length=100)
     customer_message: str = Field(..., min_length=1, max_length=10000)
     ai_draft: str = Field(..., min_length=1, max_length=10000)
     final_reply: str = Field(..., min_length=1, max_length=10000)
     source_message_id: Optional[str] = Field(default=None, max_length=255)
+    recent_messages: list[ConversationTurn] = Field(default_factory=list, max_length=12)
 
 
 class HumanizationTrainingStatus(BaseSchema):

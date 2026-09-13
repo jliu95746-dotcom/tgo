@@ -27,10 +27,9 @@ class ProviderExecutionError(RuntimeError):
     def __init__(
         self,
         public_message: str,
-        category: AnalysisErrorCategory = (
-            AnalysisErrorCategory.PROVIDER_FAILURE
-        ),
+        category: AnalysisErrorCategory = (AnalysisErrorCategory.PROVIDER_FAILURE),
         retryable: bool = True,
+        diagnostic_code: str = "provider_failure",
     ) -> None:
         if not public_message.strip():
             raise ValueError("public_message cannot be empty")
@@ -38,6 +37,7 @@ class ProviderExecutionError(RuntimeError):
         self.public_message = public_message
         self.category = category
         self.retryable = retryable
+        self.diagnostic_code = diagnostic_code
 
 
 class ASRProvider(Protocol):

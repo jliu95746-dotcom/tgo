@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import {
   X,
   Save,
@@ -53,7 +54,7 @@ const WorkflowEditorModal: React.FC<WorkflowEditorModalProps> = ({
       } else {
         createWorkflow().catch(error => {
           console.error('Failed to create workflow:', error);
-          showToast('error', t('workflow.messages.createFailed', '创建失败'), '');
+          showToast('error', i18n.t('workflow.messages.createFailed', '创建失败'), '');
         });
       }
     }
@@ -62,7 +63,7 @@ const WorkflowEditorModal: React.FC<WorkflowEditorModalProps> = ({
         resetEditor();
       }
     };
-  }, [isOpen, workflowId]);
+  }, [isOpen, workflowId, loadWorkflow, createWorkflow, resetEditor, showToast]);
 
   const handleClose = () => {
     if (isDirty) {
@@ -81,7 +82,7 @@ const WorkflowEditorModal: React.FC<WorkflowEditorModalProps> = ({
       await saveWorkflow();
       showToast('success', t('workflow.messages.saveSuccess', '保存成功'), '');
       onSave?.();
-    } catch (error) {
+    } catch {
       showToast('error', t('workflow.messages.saveFailed', '保存失败'), '');
     } finally {
       setIsSaving(false);

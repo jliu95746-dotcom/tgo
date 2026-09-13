@@ -51,7 +51,7 @@ export const setTestToken = (token: string = 'test-token-123456789') => {
         username: 'test@example.com',
         nickname: 'Test User'
       },
-      token: token,
+      token,
       isAuthenticated: true
     },
     version: 0

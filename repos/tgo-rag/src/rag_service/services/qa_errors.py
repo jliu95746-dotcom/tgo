@@ -2,6 +2,18 @@
 
 import re
 
+
+def safe_exception_chain(error: BaseException) -> str:
+    """Expose bounded exception types, never provider messages or credentials."""
+    names: list[str] = []
+    visited: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in visited and len(names) < 6:
+        visited.add(id(current))
+        names.append(type(current).__name__)
+        current = current.__cause__ or current.__context__
+    return ' > '.join(names)
+
 QA_QUEUE_FAILURE = "后台任务未能入队，请检查 RAG worker 和 Redis 后重试。"
 QA_UNKNOWN_FAILURE = "问答处理失败，请联系管理员检查 RAG worker 日志。"
 _CONFIG_FAILURE = "当前项目未配置可用的向量模型，请配置后重试。"

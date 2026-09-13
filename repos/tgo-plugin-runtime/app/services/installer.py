@@ -3,13 +3,16 @@
 import os
 import shutil
 import asyncio
-import subprocess
 import platform
+import sys
+from uuid import uuid4
 from typing import Optional, Tuple, Any
 from pathlib import Path
 
 from app.core.logging import get_logger
-from app.schemas.install import PluginInstallRequest, PluginSourceConfig, PluginBuildConfig
+from app.schemas.install import PluginInstallRequest, PluginBuildConfig
+from app.services.plugin_paths import plugin_directory, plugin_python, contained_path
+from app.services.plugin_packages import download_package, unpack_package
 
 logger = get_logger("services.installer")
 
@@ -20,7 +23,6 @@ class PluginInstaller:
     def __init__(self, base_path: str = "/var/lib/tgo/plugins"):
         self.base_path = Path(base_path)
         self.temp_path = self.base_path / "temp"
-        self._ensure_dirs()
 
     def _ensure_dirs(self):
         """Ensure necessary directories exist."""
@@ -42,12 +44,12 @@ class PluginInstaller:
                     progress_callback(stage, message)
 
         plugin_id = request.id
-        install_dir = self.base_path / plugin_id
+        install_dir = plugin_directory(self.base_path, plugin_id)
+        self._ensure_dirs()
         
-        # Clean up existing installation if it exists
+        # Never overwrite another installation through the install endpoint.
         if install_dir.exists():
-            await report("preparing", "Cleaning up existing installation...")
-            shutil.rmtree(install_dir)
+            return False, "Plugin already installed; use upgrade instead", None
         
         install_dir.mkdir(parents=True, exist_ok=True)
         
@@ -56,6 +58,8 @@ class PluginInstaller:
                 success, message = await self._install_from_github(plugin_id, install_dir, request.source.github, request.build, report)
             elif request.source.binary:
                 success, message = await self._install_from_binary(plugin_id, install_dir, request.source.binary, report)
+                if success and request.build:
+                    success, message = await self._build_plugin(plugin_id, install_dir, request.build, report)
             else:
                 return False, "No source configuration provided", None
             
@@ -74,7 +78,7 @@ class PluginInstaller:
                 shutil.rmtree(install_dir)
             return False, f"Unexpected error: {str(e)}", None
 
-    async def upgrade(self, request: PluginInstallRequest, progress_callback: Optional[Any] = None) -> Tuple[bool, str, Optional[str]]:
+    async def upgrade(self, request: PluginInstallRequest, progress_callback: Optional[Any] = None, preserve_backup: bool = False) -> Tuple[bool, str, Optional[str]]:
         """
         Upgrade a plugin. Basically an install with backup/rollback support.
         """
@@ -86,28 +90,30 @@ class PluginInstaller:
                     progress_callback(stage, message)
 
         plugin_id = request.id
-        install_dir = self.base_path / plugin_id
+        install_dir = plugin_directory(self.base_path, plugin_id)
         backup_dir = self.base_path / f"{plugin_id}_backup"
         
         # 1. Backup existing installation
         if install_dir.exists():
             await report("upgrading", "Backing up existing version...")
             if backup_dir.exists():
-                shutil.rmtree(backup_dir)
-            shutil.copytree(install_dir, backup_dir)
+                return False, "Existing upgrade backup requires recovery", None
+            # Both names resolve beneath the configured plugin root.
+            contained_path(self.base_path, backup_dir.name)
+            shutil.move(str(install_dir), str(backup_dir))
             
         try:
-            # 2. Run installation (this will remove existing install_dir)
+            # 2. Install at the final path while the old version stays in backup.
             success, message, path = await self.install(request, progress_callback=progress_callback)
             
             if success:
                 # 3. Cleanup backup on success
-                if backup_dir.exists():
+                if backup_dir.exists() and not preserve_backup:
                     shutil.rmtree(backup_dir)
                 return True, "Upgrade successful", path
             else:
                 # 4. Rollback on failure
-                await report("error", f"Upgrade failed: {message}. Rolling back...")
+                await report("rolling_back", f"Upgrade failed: {message}. Rolling back...")
                 if backup_dir.exists():
                     if install_dir.exists():
                         shutil.rmtree(install_dir)
@@ -133,7 +139,7 @@ class PluginInstaller:
     ) -> Tuple[bool, str]:
         """Clone and build from GitHub."""
         repo_url = f"https://github.com/{github_config.repo}.git"
-        temp_repo_path = self.temp_path / f"{plugin_id}_{os.getpid()}"
+        temp_repo_path = contained_path(self.temp_path, f"{plugin_id}_{uuid4().hex}")
         
         if temp_repo_path.exists():
             shutil.rmtree(temp_repo_path)
@@ -163,7 +169,7 @@ class PluginInstaller:
             # Move to target path
             source_path = temp_repo_path
             if github_config.path and github_config.path != "/":
-                source_path = temp_repo_path / github_config.path.lstrip("/")
+                source_path = contained_path(temp_repo_path, github_config.path.lstrip("/"))
             
             if not source_path.exists():
                 return False, f"Source path {github_config.path} not found in repo"
@@ -206,44 +212,15 @@ class PluginInstaller:
             
         url = url.replace("${os}", system).replace("${arch}", arch)
         
-        msg = f"Downloading binary from {url}"
+        msg = f"Downloading package for {plugin_id}"
         logger.info(msg)
         await report("downloading", msg)
         
-        temp_file = self.temp_path / f"{plugin_id}_bin"
+        temp_file = contained_path(self.temp_path, f"{plugin_id}_{uuid4().hex}_bin")
         try:
-            # Use curl to download
-            download_cmd = ["curl", "-L", "-o", str(temp_file), url]
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *download_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await process.communicate()
-            except FileNotFoundError:
-                return False, "System error: 'curl' command not found. Please ensure curl is installed."
-            
-            if process.returncode != 0:
-                return False, f"Download failed: {stderr.decode()}"
-            
+            await download_package(url, temp_file)
             await report("copying", "Extracting binary...")
-            
-            # Check if it's an archive (zip/tar.gz)
-            if url.endswith(".zip"):
-                unpack_cmd = ["unzip", "-o", str(temp_file), "-d", str(install_dir)]
-                process = await asyncio.create_subprocess_exec(*unpack_cmd)
-                await process.wait()
-            elif url.endswith(".tar.gz") or url.endswith(".tgz"):
-                unpack_cmd = ["tar", "-xzf", str(temp_file), "-C", str(install_dir)]
-                process = await asyncio.create_subprocess_exec(*unpack_cmd)
-                await process.wait()
-            else:
-                # Just a single binary
-                target_bin = install_dir / "plugin"
-                shutil.copy2(temp_file, target_bin)
-                target_bin.chmod(0o755)
-            
+            unpack_package(temp_file, install_dir, url)
             return True, "Binary installed successfully"
             
         finally:
@@ -289,18 +266,22 @@ class PluginInstaller:
             
             # Create venv
             venv_dir = install_dir / ".venv"
-            cmd_venv = ["python3", "-m", "venv", str(venv_dir)]
+            cmd_venv = [sys.executable, "-m", "venv", str(venv_dir)]
             try:
-                process = await asyncio.create_subprocess_exec(*cmd_venv)
-                await process.wait()
+                process = await asyncio.create_subprocess_exec(
+                    *cmd_venv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
             except FileNotFoundError:
-                return False, "System error: 'python3' not found or 'venv' module missing."
+                return False, "Python interpreter is unavailable"
+            if process.returncode != 0:
+                return False, f"Python venv creation failed: {stderr.decode(errors='replace')}"
+            venv_python = plugin_python(install_dir, require_venv=True)
             
             # Install requirements
             req_file = build_config.python.requirements
-            if (install_dir / req_file).exists():
-                pip_path = str(venv_dir / "bin" / "pip")
-                cmd_pip = [pip_path, "install", "-r", req_file]
+            if contained_path(install_dir, req_file).exists():
+                cmd_pip = [venv_python, "-m", "pip", "install", "-r", req_file]
                 try:
                     process = await asyncio.create_subprocess_exec(
                         *cmd_pip,
@@ -325,8 +306,8 @@ class PluginInstaller:
             logger.info(msg)
             await report("building", msg)
             
-            if (install_dir / build_config.nodejs.package).exists():
-                cmd = ["npm", "install"]
+            if contained_path(install_dir, build_config.nodejs.package).exists():
+                cmd = [shutil.which("npm.cmd" if os.name == "nt" else "npm") or "npm", "install"]
                 try:
                     process = await asyncio.create_subprocess_exec(
                         *cmd,
@@ -344,17 +325,31 @@ class PluginInstaller:
             return True, "Node.js setup successful"
             
         return False, f"Unsupported language: {lang}"
-            
-        return False, f"Unsupported language: {lang}"
 
     async def uninstall(self, plugin_id: str) -> bool:
         """Uninstall a plugin."""
-        install_dir = self.base_path / plugin_id
+        install_dir = plugin_directory(self.base_path, plugin_id)
         if install_dir.exists():
             shutil.rmtree(install_dir)
             logger.info(f"Uninstalled plugin {plugin_id}")
             return True
         return False
+
+    def complete_upgrade(self, plugin_id: str) -> None:
+        plugin_directory(self.base_path, plugin_id)
+        backup = contained_path(self.base_path, f"{plugin_id}_backup")
+        if backup.exists():
+            shutil.rmtree(backup)
+
+    def rollback_upgrade(self, plugin_id: str) -> bool:
+        target = plugin_directory(self.base_path, plugin_id)
+        backup = contained_path(self.base_path, f"{plugin_id}_backup")
+        if not backup.exists():
+            return False
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.move(str(backup), str(target))
+        return True
 
 
 # Global instance

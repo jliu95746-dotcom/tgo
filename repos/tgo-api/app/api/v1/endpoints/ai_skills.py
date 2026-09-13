@@ -1,8 +1,9 @@
 """AI Skills proxy endpoints (forwarded to tgo-ai service)."""
 
+import base64
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Response, UploadFile, status
 
 from app.core.logging import get_logger
 from app.core.security import get_authenticated_project
@@ -20,6 +21,10 @@ from app.schemas.skill import (
     SkillUpdateRequest,
 )
 from app.services.ai_client import ai_client
+from app.schemas.humanization import (
+    TrainingReview, TrainingPublishRequest, HumanizationTryRequest, HumanizationTryResponse,
+)
+from app.services.humanization_review_service import analyze_training, try_humanization
 
 logger = get_logger("endpoints.ai_skills")
 router = APIRouter()
@@ -103,13 +108,35 @@ async def add_humanization_training_sample(
 )
 async def apply_humanization_training(
     skill_name: str,
+    data: TrainingPublishRequest,
     auth_data: tuple[Any, str] = Depends(get_authenticated_project),
 ) -> HumanizationTrainingApplyResponse:
     project, _ = auth_data
     result = await ai_client.apply_humanization_training(
-        str(project.id), skill_name
+        str(project.id), skill_name, data.model_dump()
     )
     return HumanizationTrainingApplyResponse(**result)
+
+
+@router.get("/{skill_name}/training-review", response_model=TrainingReview)
+async def review_training(skill_name: str,
+                          auth_data: tuple[Any, str] = Depends(get_authenticated_project)) -> TrainingReview:
+    return await ai_client.review_humanization_training(str(auth_data[0].id), skill_name)
+
+
+@router.post("/{skill_name}/training-preview", response_model=TrainingReview)
+async def preview_training(skill_name: str,
+                           auth_data: tuple[Any, str] = Depends(get_authenticated_project)) -> TrainingReview:
+    return await analyze_training(str(auth_data[0].id), skill_name)
+
+
+@router.post("/{skill_name}/try-reply", response_model=HumanizationTryResponse)
+async def try_reply(skill_name: str, data: HumanizationTryRequest,
+                    auth_data: tuple[Any, str] = Depends(get_authenticated_project)) -> HumanizationTryResponse:
+    try:
+        return await try_humanization(str(auth_data[0].id), skill_name, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get(
@@ -188,7 +215,7 @@ async def toggle_skill(
 
 
 # ---------------------------------------------------------------------------
-# Skill import from GitHub
+# Local skill import
 # ---------------------------------------------------------------------------
 
 
@@ -196,20 +223,32 @@ async def toggle_skill(
     "/import",
     response_model=SkillDetail,
     status_code=status.HTTP_201_CREATED,
-    summary="Import a skill from GitHub",
-    description="Download a skill directory from a GitHub URL and create it as a project-private skill.",
+    summary="Import a local skill",
 )
 async def import_skill(
-    data: SkillImportRequest,
+    file: UploadFile = File(...),
+    display_name: str = Form(default="", max_length=100),
     auth_data: tuple[Any, str] = Depends(get_authenticated_project),
 ) -> SkillDetail:
     project, _ = auth_data
-    project_id = str(project.id)
-    result = await ai_client.import_skill(
-        project_id, data.model_dump(exclude_none=True)
+    try:
+        content = await file.read(10 * 1024 * 1024 + 1)
+    finally:
+        await file.close()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="上传文件不能超过 10 MB")
+    if not content:
+        raise HTTPException(status_code=422, detail="上传文件不能为空")
+    filename = file.filename or "SKILL.md"
+    if len(filename) > 255 or not (filename.lower() == "skill.md" or filename.lower().endswith(".zip")):
+        raise HTTPException(status_code=422, detail="请选择 SKILL.md 或 ZIP 技能包")
+    data = SkillImportRequest(
+        filename=filename,
+        content_base64=base64.b64encode(content).decode("ascii"),
+        display_name=display_name.strip() or None,
     )
+    result = await ai_client.import_skill(str(project.id), data.model_dump(exclude_none=True))
     return SkillDetail(**result)
-
 
 # ---------------------------------------------------------------------------
 # Skill sub-file endpoints

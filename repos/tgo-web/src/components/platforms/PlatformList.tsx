@@ -3,9 +3,10 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { CirclePlus, Inbox, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePlatformStore, platformSelectors } from '@/stores';
-import type { Platform } from '@/types';
-import { PlatformType } from '@/types';
+import { PlatformType, type Platform } from '@/types';
 import PlatformTypeSelector from './PlatformTypeSelector';
+import PlatformNameModal from './PlatformNameModal';
+import { platformDisplayStatus } from '@/utils/platformPresentation';
 import { useToast } from '@/hooks/useToast';
 import { showApiError, showSuccess } from '@/utils/toastHelpers';
 import { getPlatformColor, getPlatformIconComponent, getPlatformLabel, toPlatformType } from '@/utils/platformUtils';
@@ -24,8 +25,10 @@ const PlatformListItem: React.FC<PlatformListItemProps> = ({ platform }) => {
 
   const getStatusConfig = (status: string) => {
     switch (status) {
-      case 'connected':
-        return { color: 'bg-green-500', text: t('platforms.list.status.connected', '已连接'), textColor: 'text-gray-500' };
+      case 'enabled':
+        return { color: 'bg-blue-500', text: t('channelManagement.enabled'), textColor: 'text-gray-500' };
+      case 'disabled':
+        return { color: 'bg-gray-400', text: t('channelManagement.disabled'), textColor: 'text-gray-500' };
       case 'error':
         return { color: 'bg-red-500', text: t('platforms.list.status.error', '连接失败'), textColor: 'text-red-600' };
       case 'pending':
@@ -35,7 +38,7 @@ const PlatformListItem: React.FC<PlatformListItemProps> = ({ platform }) => {
     }
   };
 
-  const statusConfig = getStatusConfig(platform.status);
+  const statusConfig = getStatusConfig(platformDisplayStatus(platform));
   const isSupported = platform.is_supported !== false; // default to true if not specified
   const displayName = platform.display_name || platform.name;
 
@@ -123,6 +126,7 @@ const PlatformList: React.FC = () => {
   const { showToast } = useToast();
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [pendingType, setPendingType] = useState<{ type: string; name: string } | null>(null);
 
   const handleAddPlatform = (): void => {
     setShowTypeSelector(true);
@@ -141,14 +145,21 @@ const PlatformList: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty deps - initializeStore is a stable store function
 
-  const handleTypeSelect = useCallback(async ({ type, name }: { type: string; name: string }) => {
+  const handleTypeSelect = ({ type, name }: { type: string; name: string }) => {
+    setShowTypeSelector(false);
+    setPendingType({ type, name });
+  };
+
+  const handleCreate = async (name: string) => {
+    if (!pendingType) return;
     try {
-      const selectedType: PlatformType = type as PlatformType;
+      const selectedType: PlatformType = pendingType.type as PlatformType;
       const created = await createPlatform({
-        name: name || t('platforms.list.defaultName', '新平台'),
+        name,
         type: selectedType,
       });
       setShowTypeSelector(false); // close only on success
+      setPendingType(null);
       showSuccess(
         showToast,
         t('platforms.list.toast.createSuccessTitle', '创建成功'),
@@ -162,7 +173,7 @@ const PlatformList: React.FC = () => {
       // Keep modal open on failure; show error toast
       showApiError(showToast, e);
     }
-  }, [createPlatform, navigate, showToast, t]);
+  };
 
   return (
     <>
@@ -230,6 +241,9 @@ const PlatformList: React.FC = () => {
       onClose={() => setShowTypeSelector(false)}
       onSelect={handleTypeSelect}
     />
+    {pendingType && <PlatformNameModal typeName={pendingType.name}
+      existingNames={platforms.map(platform => platform.display_name || platform.name)}
+      onClose={() => setPendingType(null)} onCreate={handleCreate} />}
     </>
   );
 };

@@ -102,14 +102,14 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     setIsDragOver(false);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
 
     const files = Array.from(e.dataTransfer.files);
     handleFiles(files);
-  }, []);
+  };
 
   // Handle file selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -137,7 +137,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
       // Check file type
       const allowedTypes = ['.pdf', '.doc', '.docx', '.txt', '.xlsx', '.xls', '.ppt', '.pptx', '.md', '.markdown', '.html', '.htm'];
-      const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+      const fileExtension = `.${  file.name.split('.').pop()?.toLowerCase()}`;
       if (!allowedTypes.includes(fileExtension)) {
         alert(`${file.name}: ${t('knowledge.upload.unsupportedFormat')}`);
         return false;
@@ -180,7 +180,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))  } ${  sizes[i]}`;
   };
 
   if (!isVisible && (uploadProgress ? uploadProgress.size === 0 : true)) {

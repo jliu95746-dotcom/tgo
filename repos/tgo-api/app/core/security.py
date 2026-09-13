@@ -8,6 +8,7 @@ from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -91,11 +92,14 @@ def get_password_hash(password: str) -> str:
 
 
 def verify_token(token: str) -> Optional[Dict[str, Any]]:
-    """Verify JWT token and return payload."""
+    """Verify a staff access token, excluding plugin-only credentials."""
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
+        # Plugin debugging shares a signing key, not staff/API permissions.
+        if payload.get("type") == "plugin_dev":
+            return None
         return payload
     except JWTError as e:
         # Downgrade to debug to avoid noisy logs on unauthenticated endpoints
@@ -160,6 +164,13 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Sta
         Staff.username == username,
         Staff.deleted_at.is_(None)
     ).first()
+
+    # Public registration normalizes email usernames. Keep exact legacy logins first.
+    if not user and "@" in username:
+        user = db.query(Staff).filter(
+            func.lower(Staff.username) == username.strip().lower(),
+            Staff.deleted_at.is_(None),
+        ).first()
     
     if not user:
         return None

@@ -156,7 +156,7 @@ export const QADataView: React.FC<QADataViewProps> = ({ fileId, fileName, onClos
                                                 </span>
                                             </div>
                                             <h3 className={`text-sm font-semibold text-gray-900 dark:text-white ${!isExpanded ? 'truncate' : ''}`}>
-                                                {isQA ? question : content.slice(0, 100) + '...'}
+                                                {isQA ? question : `${content.slice(0, 100)  }...`}
                                             </h3>
                                         </div>
                                         <div className="flex-shrink-0 text-gray-400 group-hover:text-blue-500 transition-colors">

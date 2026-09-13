@@ -1,5 +1,5 @@
 import React from 'react';
-import type { AIPersonaTag } from '@/data/mockVisitor';
+import type { AIPersonaTag } from '@/types/visitor';
 import { useTranslation } from 'react-i18next';
 
 interface AIPersonaSectionProps {

@@ -64,6 +64,22 @@ class DeviceListResponse(BaseModel):
     total: int
 
 
+class ConnectedDeviceResponse(BaseModel):
+    device_id: UUID
+    project_id: UUID
+    name: str
+    version: str
+    capabilities: List[str]
+    tools_count: int
+    connected_at: datetime
+    last_seen: datetime
+
+
+class ConnectedDeviceListResponse(BaseModel):
+    devices: List[ConnectedDeviceResponse]
+    count: int
+
+
 class BindCodeResponse(BaseModel):
     """Response schema for bind code generation."""
 

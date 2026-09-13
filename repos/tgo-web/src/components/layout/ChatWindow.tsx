@@ -10,6 +10,12 @@ import { useAuthStore } from '@/stores/authStore';
 import { useChannelStore } from '@/stores/channelStore';
 import { MessagePayloadType, PlatformType, type ChannelVisitorExtra, type Chat, type Message } from '@/types';
 import { chatMessagesApiService } from '@/services/chatMessagesApi';
+import { sendCustomerMessage } from '@/services/customerMessageDelivery';
+import type { AssistTrainingIntent, StaffDeliveryRequest } from '@/types/staffDelivery';
+import { deliveryKey, useStaffDeliveryStore } from '@/stores/staffDeliveryStore';
+import { restoreDeliveryPayload } from '@/utils/staffDeliveryPayload';
+import { getAssistDraftSource } from '@/utils/assistDraftContext';
+import { getChannelKey } from '@/utils/channelUtils';
 import { useToast } from '@/hooks/useToast';
 import { showApiError } from '@/utils/toastHelpers';
 import { useTranslation } from 'react-i18next';
@@ -104,22 +110,6 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
     );
   }, [allRealtimeMessages, channelId, channelType, isWuKongIMChat]);
 
-  const latestVisitorMessage = React.useMemo(() => {
-    const visitorMessages = [
-      ...historicalMessages.map(convertWuKongIMToMessage),
-      ...realtimeMessages,
-    ].filter((message) => message.type === 'visitor');
-    return visitorMessages.reduce<Message | undefined>((latest, current) => {
-      if (!latest) return current;
-      const currentSeq = current.messageSeq ?? 0;
-      const latestSeq = latest.messageSeq ?? 0;
-      if (currentSeq !== latestSeq) return currentSeq > latestSeq ? current : latest;
-      const currentTime = Date.parse(current.timestamp) || 0;
-      const latestTime = Date.parse(latest.timestamp) || 0;
-      return currentTime >= latestTime ? current : latest;
-    }, undefined);
-  }, [convertWuKongIMToMessage, historicalMessages, realtimeMessages]);
-
   // Use WebSocket directly
   const { sendMessage: sendWsMessage, isConnected } = useWuKongIMWebSocket();
 
@@ -131,6 +121,48 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
   );
   const platformType = (channelInfo?.extra as ChannelVisitorExtra | undefined)?.platform_type;
   const { showToast } = useToast();
+  const pendingTextSend = React.useRef<StaffDeliveryRequest | null>(null);
+  const [restoredDeliveryChannel, setRestoredDeliveryChannel] = useState('');
+  const [deliveryRestoreError, setDeliveryRestoreError] = useState(false);
+  const [deliveryRestoreAttempt, setDeliveryRestoreAttempt] = useState(0);
+  const deliveryChannelKey = `${user?.id || ''}:${channelId || ''}`;
+  const needsDeliveryRestore = channelType === 251;
+  const deliveryReady = !needsDeliveryRestore || restoredDeliveryChannel === deliveryChannelKey;
+  const historyChannelKey = channelId && channelType ? getChannelKey(channelId, channelType) : '';
+  const hasLoadedHistory = useChatStore(state => Object.prototype.hasOwnProperty.call(state.historicalMessages, historyChannelKey));
+  const hasNewerHistory = useChatStore(state => Boolean(state.hasMoreNewerHistory[historyChannelKey]));
+  const latestVisitorMessage = React.useMemo(() => {
+    if (!deliveryReady || !hasLoadedHistory || isLoadingHistory || historyError || hasNewerHistory) return undefined;
+    return getAssistDraftSource([
+      ...historicalMessages.map(convertWuKongIMToMessage),
+      ...realtimeMessages,
+    ]);
+  }, [convertWuKongIMToMessage, deliveryReady, hasLoadedHistory, hasNewerHistory,
+    historicalMessages, historyError, isLoadingHistory, realtimeMessages]);
+
+  useEffect(() => {
+    if (!needsDeliveryRestore || !channelId || !user?.id) return;
+    let cancelled = false;
+    setDeliveryRestoreError(false);
+    void useStaffDeliveryStore.getState().restore(user.id, channelId).then(records => {
+      if (cancelled) return;
+      for (const record of records) {
+        const { request, created_at: timestamp } = record;
+        if (useChatStore.getState().messages.some(item => item.clientMsgNo === request.client_msg_no)) continue;
+        addMessage({
+          id: request.client_msg_no, clientMsgNo: request.client_msg_no,
+          type: 'staff', fromUid: `${user.id}-staff`,
+          channelId: request.channel_id, channelType: request.channel_type,
+          content: typeof request.payload.content === 'string' ? request.payload.content : '', timestamp,
+          payload: restoreDeliveryPayload(request.payload),
+          payloadType: Number(request.payload.type) as MessagePayloadType,
+          metadata: { isLocal: true, delivery_managed: true },
+        });
+      }
+      setRestoredDeliveryChannel(deliveryChannelKey);
+    }).catch(() => { if (!cancelled) setDeliveryRestoreError(true); });
+    return () => { cancelled = true; };
+  }, [channelId, user?.id, needsDeliveryRestore, deliveryChannelKey, deliveryRestoreAttempt, addMessage]);
 
 
 
@@ -144,7 +176,8 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
 
   // Enhanced message sending with platform-aware flow (REST first for non-website, then WebSocket)
   // For agent chats, use REST API instead of WebSocket
-  const handleSendMessage = useCallback(async (message: string): Promise<boolean> => {
+  const handleSendMessage = useCallback(async (message: string, training?: AssistTrainingIntent): Promise<boolean> => {
+    if (!deliveryReady) return false;
     if (!message.trim()) {
       console.warn('Cannot send empty message');
       return false;
@@ -152,8 +185,16 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
     setIsSending(true);
     try {
       if (isWuKongIMChat && channelId && channelType) {
-        const nowId = `local-${Date.now()}`;
-        const payload = {
+        const recovered = Object.entries(useStaffDeliveryStore.getState().entries).find(([key, entry]) =>
+          key === deliveryKey(user?.id || '', entry.request.client_msg_no)
+          && entry.request.channel_id === channelId && entry.request.payload.type === 1
+          && entry.request.payload.content === message.trim() && entry.receipt.delivery_status !== 'sent');
+        const currentIntent = pendingTextSend.current;
+        const retained = currentIntent?.channel_id === channelId && currentIntent.payload.content === message.trim()
+          ? currentIntent : recovered?.[1].request;
+        const sameIntent = retained?.channel_id === channelId && retained.payload.content === message.trim();
+        const nowId = sameIntent ? retained.client_msg_no : `local-${crypto.randomUUID()}`;
+        const payload = sameIntent ? retained.payload : {
           type: MessagePayloadType.TEXT,
           content: message.trim(),
           timestamp: Date.now(),
@@ -201,9 +242,24 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
           metadata: { isLocal: true },
         };
         // Immediate UI update for visitor chats
-        addMessage(localMessage);
+        if (!useChatStore.getState().messages.some(item => item.clientMsgNo === nowId)) addMessage(localMessage);
         updateConversationLastMessage(channelId, channelType, localMessage);
         moveConversationToTop(channelId, channelType);
+
+        if (channelType === 251) {
+          const deliveryTraining = sameIntent ? retained.training : training;
+          pendingTextSend.current = { channel_id: channelId, channel_type: 251, client_msg_no: nowId, payload, training: deliveryTraining };
+          const sent = await sendCustomerMessage({
+            staffId: user?.id || '', channelId, channelType, clientMsgNo: nowId, payload,
+            training: deliveryTraining,
+            platformType, isConnected, sendWsMessage, updateMessage: updateMessageByClientMsgNo,
+          });
+          if (sent) {
+            pendingTextSend.current = null;
+            onSendMessage?.(message);
+          }
+          return sent;
+        }
 
         // If non-website platform, send via REST first
         if (platformType && platformType !== PlatformType.WEBSITE) {
@@ -255,7 +311,7 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
     } finally {
       setIsSending(false);
     }
-  }, [isWuKongIMChat, channelId, channelType, isConnected, isAIChat, user, addMessage, updateConversationLastMessage, moveConversationToTop, platformType, onSendMessage, sendWsMessage, updateMessageByClientMsgNo, showToast, t]);
+  }, [deliveryReady, isWuKongIMChat, channelId, channelType, isConnected, isAIChat, user, addMessage, updateConversationLastMessage, moveConversationToTop, platformType, onSendMessage, sendWsMessage, updateMessageByClientMsgNo, showToast, t]);
 
   // Target message jump & highlight from SearchPanel
   const targetLoc = useChatStore(state => state.targetMessageLocation);
@@ -345,9 +401,18 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
       </div>
 
       {/* Message Input */}
+      {deliveryRestoreError && !deliveryReady && (
+        <div role="alert" className="px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
+          {t('chat.delivery.restoreFailed')}
+          <button type="button" className="ml-2 underline" onClick={() => setDeliveryRestoreAttempt(value => value + 1)}>
+            {t('chat.delivery.check')}
+          </button>
+        </div>
+      )}
       <MessageInput
+        key={historyChannelKey || activeChat.id}
         onSendMessage={handleSendMessage}
-        isSending={isSending}
+        isSending={isSending || !deliveryReady}
         onAcceptVisitor={onAcceptVisitor}
         latestVisitorMessage={latestVisitorMessage}
       />

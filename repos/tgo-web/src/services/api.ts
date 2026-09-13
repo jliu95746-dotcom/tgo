@@ -226,8 +226,8 @@ class APIClient {
   }
 
   // GET request
-  async get<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'GET' });
+  async get<T>(endpoint: string, options: { signal?: AbortSignal } = {}): Promise<T> {
+    return this.request<T>(endpoint, { method: 'GET', signal: options.signal });
   }
 
   // GET request with body (some APIs use this for complex queries)
@@ -503,6 +503,20 @@ export class APIError extends Error {
 export const apiClient = new APIClient(API_BASE_URL);
 
 // Authentication API methods
+export class RegistrationLoginError extends Error {
+  constructor() {
+    super('Account created, but automatic login did not complete');
+    this.name = 'RegistrationLoginError';
+  }
+}
+
+export interface PublicRegistrationRequest {
+  username: string;
+  password: string;
+  nickname?: string;
+  project_name?: string;
+}
+
 export const authAPI = {
   // Staff login
   async login(credentials: { username: string; password: string }): Promise<StaffLoginResponse> {
@@ -520,17 +534,9 @@ export const authAPI = {
     return response;
   },
 
-  // Staff registration
-  async register(userData: { username: string; password: string; nickname?: string }): Promise<StaffResponse> {
-    const registerData: StaffCreateRequest = {
-      username: userData.username,
-      password: userData.password,
-      nickname: userData.nickname || null,
-      role: 'user',
-      status: 'offline',
-    };
-
-    return apiClient.post<StaffResponse>('/v1/staff', registerData);
+  // Public registration always creates a new isolated project.
+  async register(userData: PublicRegistrationRequest): Promise<StaffResponse> {
+    return apiClient.post<StaffResponse>('/v1/staff/register', userData);
   },
 
   // Logout (clear token)

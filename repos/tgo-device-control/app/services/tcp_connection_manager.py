@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, List, Optional, Union
+from weakref import WeakValueDictionary
 
 from app.config import settings
 from app.core.logging import get_logger
@@ -32,7 +34,9 @@ class TcpDeviceConnection:
     last_seen: datetime = field(default_factory=datetime.utcnow)
     tools: List[Dict[str, Any]] = field(default_factory=list)
     project_id: Optional[str] = None  # Associated project ID
-    device_db_id: Optional[str] = None  # Database device ID (same as agent_id for new auth)
+    device_db_id: Optional[
+        str
+    ] = None  # Database device ID (same as agent_id for new auth)
     _request_id: int = 0
     _pending_requests: Dict[Union[int, str], asyncio.Future[Any]] = field(
         default_factory=dict
@@ -87,9 +91,7 @@ class TcpDeviceConnection:
             result = await asyncio.wait_for(future, timeout=timeout)
             return result
         except asyncio.TimeoutError:
-            logger.error(
-                f"TCP request timeout: agent={self.agent_id}, method={method}"
-            )
+            logger.error(f"TCP request timeout: agent={self.agent_id}, method={method}")
             return None
         except Exception as e:
             logger.error(
@@ -175,6 +177,7 @@ class TcpConnectionManager:
     """
 
     _instance: Optional["TcpConnectionManager"] = None
+    _initialized: bool = False
 
     def __new__(cls) -> "TcpConnectionManager":
         if cls._instance is None:
@@ -188,11 +191,16 @@ class TcpConnectionManager:
         self._initialized = True
         self._connections: Dict[str, TcpDeviceConnection] = {}
         self._lock = asyncio.Lock()
+        self._lifecycle_locks: WeakValueDictionary[
+            str, asyncio.Lock
+        ] = WeakValueDictionary()
         self._heartbeat_task: Optional[asyncio.Task[None]] = None
         logger.info("TcpConnectionManager initialized")
 
     async def initialize(self) -> None:
         """Initialize the connection manager and start heartbeat monitor."""
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            return
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         logger.info("TcpConnectionManager heartbeat monitor started")
 
@@ -209,6 +217,20 @@ class TcpConnectionManager:
             await self.unregister_connection(agent_id)
 
         logger.info("TcpConnectionManager shutdown complete")
+
+    @asynccontextmanager
+    async def lifecycle_lock(self, agent_id: str) -> AsyncIterator[None]:
+        """Serialize auth/status/delete for one device, not unrelated devices.
+
+        Callers keep a strong reference while waiting; unused locks disappear.
+        All access happens on the service's event loop.
+        """
+        lock = self._lifecycle_locks.get(agent_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._lifecycle_locks[agent_id] = lock
+        async with lock:
+            yield
 
     async def register_connection(
         self,
@@ -248,43 +270,50 @@ class TcpConnectionManager:
         )
 
         async with self._lock:
-            # Close existing connection if any
-            if agent_id in self._connections:
-                old_conn = self._connections[agent_id]
-                try:
-                    old_conn.writer.close()
-                    await old_conn.writer.wait_closed()
-                except Exception:
-                    pass
-
+            old_conn = self._connections.get(agent_id)
             self._connections[agent_id] = connection
+
+        if old_conn:
+            await self._close_connection(old_conn)
 
         logger.info(f"TCP device registered: {name} ({agent_id})")
         return connection
 
-    async def unregister_connection(self, agent_id: str) -> None:
+    async def unregister_connection(
+        self,
+        agent_id: str,
+        expected_connection: Optional[TcpDeviceConnection] = None,
+    ) -> bool:
         """Unregister and close a TCP connection.
 
         Args:
             agent_id: Agent identifier to unregister.
         """
         async with self._lock:
-            connection = self._connections.pop(agent_id, None)
+            connection = self._connections.get(agent_id)
+            if not connection or (
+                expected_connection is not None
+                and connection is not expected_connection
+            ):
+                return False
+            self._connections.pop(agent_id)
 
         if connection:
-            logger.info(
-                f"TCP device unregistered: {connection.name} ({agent_id})"
-            )
-            # Cancel pending requests
-            for future in connection._pending_requests.values():
-                if not future.done():
-                    future.cancel()
+            logger.info(f"TCP device unregistered: {connection.name} ({agent_id})")
+            await self._close_connection(connection)
+        return True
 
-            try:
-                connection.writer.close()
-                await connection.writer.wait_closed()
-            except Exception:
-                pass
+    @staticmethod
+    async def _close_connection(connection: TcpDeviceConnection) -> None:
+        # A disconnected device is a tool failure, not cancellation of its caller.
+        for future in connection._pending_requests.values():
+            if not future.done():
+                future.set_exception(ConnectionError("Device connection closed"))
+        try:
+            connection.writer.close()
+            await asyncio.wait_for(connection.writer.wait_closed(), timeout=5)
+        except Exception:
+            pass
 
     def get_connection(self, agent_id: str) -> Optional[TcpDeviceConnection]:
         """Get a TCP connection by agent ID.
@@ -313,14 +342,20 @@ class TcpConnectionManager:
         """
         return len(self._connections)
 
-    def update_heartbeat(self, agent_id: str) -> None:
+    def update_heartbeat(
+        self,
+        agent_id: str,
+        expected_connection: Optional[TcpDeviceConnection] = None,
+    ) -> None:
         """Update the last seen timestamp for a connection.
 
         Args:
             agent_id: Agent identifier.
         """
         connection = self._connections.get(agent_id)
-        if connection:
+        if connection and (
+            expected_connection is None or connection is expected_connection
+        ):
             connection.last_seen = datetime.utcnow()
 
     async def _heartbeat_loop(self) -> None:
@@ -331,7 +366,7 @@ class TcpConnectionManager:
 
                 now = datetime.utcnow()
                 timeout = settings.HEARTBEAT_TIMEOUT
-                disconnected: List[str] = []
+                disconnected: List[TcpDeviceConnection] = []
 
                 for agent_id, connection in list(self._connections.items()):
                     elapsed = (now - connection.last_seen).total_seconds()
@@ -340,7 +375,7 @@ class TcpConnectionManager:
                             f"TCP device heartbeat timeout: "
                             f"{connection.name} ({agent_id})"
                         )
-                        disconnected.append(agent_id)
+                        disconnected.append(connection)
                     else:
                         # Send ping
                         try:
@@ -348,14 +383,14 @@ class TcpConnectionManager:
                                 {"jsonrpc": "2.0", "method": "ping", "params": {}}
                             )
                         except Exception as e:
-                            logger.warning(
-                                f"Failed to ping TCP device {agent_id}: {e}"
-                            )
-                            disconnected.append(agent_id)
+                            logger.warning(f"Failed to ping TCP device {agent_id}: {e}")
+                            disconnected.append(connection)
 
                 # Disconnect timed out devices
-                for agent_id in disconnected:
-                    await self.unregister_connection(agent_id)
+                for connection in disconnected:
+                    await self.unregister_connection(
+                        connection.agent_id, expected_connection=connection
+                    )
 
             except asyncio.CancelledError:
                 break

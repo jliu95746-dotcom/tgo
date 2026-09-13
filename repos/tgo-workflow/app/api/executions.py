@@ -1,13 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, update
+from sqlalchemy import select, desc
 from sqlalchemy.orm import selectinload
-from app.database import get_db
+from app.database import get_db, AsyncSessionLocal
+from anyio import CancelScope
+from collections.abc import AsyncIterator
+from pydantic import JsonValue
 from app.models.execution import WorkflowExecution, NodeExecution
 import asyncio
 import traceback
 from app.schemas.execution import (
+    ExecutionStatus,
     WorkflowExecution as WorkflowExecutionSchema, 
     WorkflowExecuteRequest,
     WorkflowExecutionCancelResponse,
@@ -20,15 +24,19 @@ from app.schemas.execution import (
     WorkflowFinishedEvent,
     WorkflowFinishedData
 )
-from celery_app.celery import celery_app
-from datetime import datetime
+from datetime import datetime, timezone
 import time
-import json
-from celery_app.tasks import execute_workflow_task
+from app.services.workflow_dispatch import (
+    enqueue_workflow, revoke_queued_execution, WorkflowDispatchError,
+)
+from app.services.execution_lifecycle import (
+    ExecutionStopped, cancel_running_execution, finish_running_execution,
+    read_execution_status, require_running,
+)
 from app.engine.executor import WorkflowExecutor
 from app.services.workflow_service import WorkflowService
 from app.core.logging import logger
-from typing import List
+from typing import List, Literal
 import uuid
 
 router = APIRouter()
@@ -49,7 +57,7 @@ async def _create_execution_record(
         workflow_id=workflow_id,
         status=status,
         input=inputs,
-        started_at=datetime.utcnow()
+        started_at=datetime.now(timezone.utc)
     )
     db.add(db_execution)
     await db.commit()
@@ -70,6 +78,7 @@ async def _run_stream_execution(
     
     # 1. Emit workflow_started
     started_event = WorkflowStartedEvent(
+        event="workflow_started",
         workflow_run_id=execution_id,
         task_id=task_id,
         data=WorkflowStartedData(
@@ -82,13 +91,15 @@ async def _run_stream_execution(
     yield f"data: {started_event.model_dump_json()}\n\n"
 
     executor = WorkflowExecutor(workflow_definition, project_id=project_id)
-    queue = asyncio.Queue()
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
 
     # Re-defining callbacks to use the queue
     async def q_on_node_start(node_id, node_type, node_data, index):
+        await require_running(db, execution_id, project_id)
         nonlocal node_count
         node_count += 1
         event = NodeStartedEvent(
+            event="node_started",
             workflow_run_id=execution_id,
             task_id=task_id,
             data=NodeStartedData(
@@ -103,6 +114,7 @@ async def _run_stream_execution(
         await queue.put(f"data: {event.model_dump_json()}\n\n")
 
     async def q_on_node_complete(node_id, node_type, status, input, output, error, duration):
+        await require_running(db, execution_id, project_id)
         # Save to DB
         node_exec_id = str(uuid.uuid4())
         node_exec = NodeExecution(
@@ -116,12 +128,13 @@ async def _run_stream_execution(
             output=output,
             error=error,
             duration=duration,
-            started_at=datetime.utcnow()
+            started_at=datetime.now(timezone.utc)
         )
         db.add(node_exec)
         await db.commit()
 
         event = NodeFinishedEvent(
+            event="node_finished",
             workflow_run_id=execution_id,
             task_id=task_id,
             data=NodeFinishedData(
@@ -138,16 +151,20 @@ async def _run_stream_execution(
         )
         await queue.put(f"data: {event.model_dump_json()}\n\n")
 
-    status = "completed"
+    status: Literal["completed", "failed", "cancelled"] = "completed"
     error_msg = None
     final_output = None
 
+    executor_task: asyncio.Task[None] | None = None
     try:
         # Run executor in a separate task
         async def run_executor():
             nonlocal final_output, status, error_msg
             try:
                 final_output = await executor.run(inputs, on_node_start=q_on_node_start, on_node_complete=q_on_node_complete)
+            except ExecutionStopped:
+                status = "cancelled"
+                final_output = None
             except Exception as e:
                 status = "failed"
                 error_msg = str(e)
@@ -163,33 +180,53 @@ async def _run_stream_execution(
                 break
             yield item
 
+    except (asyncio.CancelledError, GeneratorExit):
+        # Starlette cancels the stream task on disconnect. Finish cleanup in a
+        # shield so the executor cannot outlive its database session.
+        with CancelScope(shield=True):
+            if executor_task is not None:
+                executor_task.cancel()
+                await asyncio.gather(executor_task, return_exceptions=True)
+            await db.rollback()
+            await cancel_running_execution(db, execution_id, project_id)
+        raise
     except Exception as e:
         status = "failed"
         error_msg = str(e)
+    finally:
+        with CancelScope(shield=True):
+            if executor_task is not None:
+                if not executor_task.done():
+                    executor_task.cancel()
+                await asyncio.gather(executor_task, return_exceptions=True)
 
     # Update WorkflowExecution in DB
     duration_ms = int((time.time() - start_time) * 1000)
-    await db.execute(
-        update(WorkflowExecution)
-        .where(WorkflowExecution.id == execution_id)
-        .values(
-            status=status,
-            output=final_output,
-            error=error_msg,
-            completed_at=datetime.utcnow(),
-            duration=duration_ms
+    if status != "cancelled":
+        changed = await finish_running_execution(
+            db, execution_id, project_id, status,
+            final_output, error_msg, duration_ms,
         )
-    )
-    await db.commit()
+        if not changed:
+            saved_status = await read_execution_status(
+                db, execution_id, project_id,
+            )
+            status = "cancelled" if saved_status == "cancelled" else "failed"
+            final_output = None
+    if status == "cancelled":
+        error_msg = None
 
     # Emit workflow_finished
     finished_event = WorkflowFinishedEvent(
+        event="workflow_finished",
         workflow_run_id=execution_id,
         task_id=task_id,
         data=WorkflowFinishedData(
             id=execution_id,
             workflow_id=workflow_id,
-            status="succeeded" if status == "completed" else "failed",
+            status="succeeded" if status == "completed" else (
+                "cancelled" if status == "cancelled" else "failed"
+            ),
             outputs=final_output if final_output is not None else {},
             error=error_msg,
             elapsed_time=duration_ms / 1000.0,
@@ -198,6 +235,33 @@ async def _run_stream_execution(
         )
     )
     yield f"data: {finished_event.model_dump_json()}\n\n"
+
+
+async def _stream_with_owned_session(
+    workflow_id: str, project_id: str, execution_id: str,
+    inputs: dict[str, JsonValue], workflow_definition: dict[str, JsonValue],
+    started_at: datetime,
+) -> AsyncIterator[str]:
+    # Response iteration may outlive the request dependency's DB session.
+    db = AsyncSessionLocal()
+    stream = _run_stream_execution(
+        workflow_id, project_id, execution_id, inputs, workflow_definition,
+        started_at, db,
+    )
+    exhausted = False
+    try:
+        async for frame in stream:
+            yield frame
+        exhausted = True
+    finally:
+        with CancelScope(shield=True):
+            try:
+                await stream.aclose()
+                await db.rollback()
+                if not exhausted:
+                    await cancel_running_execution(db, execution_id, project_id)
+            finally:
+                await db.close()
 
 async def _run_sync_execution(
     workflow_id: str,
@@ -210,9 +274,13 @@ async def _run_sync_execution(
 ):
     perf_start = time.time()
     executor = WorkflowExecutor(workflow_definition, project_id=project_id)
+
+    async def sync_on_node_start(node_id, node_type, node_data, index):
+        await require_running(db, execution_id, project_id)
     
     # 定义同步模式下的回调（保存到 DB）
     async def sync_on_node_complete(node_id, node_type, status, input, output, error, duration):
+        await require_running(db, execution_id, project_id)
         node_exec = NodeExecution(
             id=str(uuid.uuid4()),
             execution_id=execution_id,
@@ -224,7 +292,7 @@ async def _run_sync_execution(
             output=output,
             error=error,
             duration=duration,
-            started_at=datetime.utcnow()
+            started_at=datetime.now(timezone.utc)
         )
         db.add(node_exec)
         await db.commit()
@@ -233,36 +301,36 @@ async def _run_sync_execution(
     final_output = None
     error_msg = None
     try:
-        final_output = await executor.run(inputs, on_node_complete=sync_on_node_complete)
+        final_output = await executor.run(
+            inputs, on_node_start=sync_on_node_start,
+            on_node_complete=sync_on_node_complete,
+        )
+    except ExecutionStopped:
+        success = False
     except Exception as e:
         success = False
         error_msg = str(e)
         logger.error(f"Workflow sync execution error: {traceback.format_exc()}")
 
     perf_duration = time.time() - perf_start
-    end_time_dt = datetime.utcnow()
+    end_time_dt = datetime.now(timezone.utc)
     
     # 更新最终状态
-    await db.execute(
-        update(WorkflowExecution)
-        .where(WorkflowExecution.id == execution_id)
-        .values(
-            status="completed" if success else "failed",
-            output=final_output,
-            error=error_msg,
-            completed_at=end_time_dt,
-            duration=int(perf_duration * 1000)
-        )
+    changed = await finish_running_execution(
+        db, execution_id, project_id, "completed" if success else "failed",
+        final_output, error_msg, int(perf_duration * 1000),
     )
-    await db.commit()
+    if not changed:
+        success = False
+        final_output = None
 
     return {
         "success": success,
         "output": final_output if final_output is not None else {},
         "metadata": {
             "duration": round(perf_duration, 3),
-            "startTime": started_at.isoformat() + "Z",
-            "endTime": end_time_dt.isoformat() + "Z"
+            "startTime": started_at.isoformat(),
+            "endTime": end_time_dt.isoformat()
         }
     }
 
@@ -365,8 +433,9 @@ async def execute_workflow(
         # --- 1. 流式执行模式 (SSE) ---
         db_execution = await _create_execution_record(db, workflow_id, project_id, request.inputs, status="running")
         return StreamingResponse(
-            _run_stream_execution(
-                workflow_id, project_id, db_execution.id, request.inputs, workflow.definition, db_execution.started_at, db
+            _stream_with_owned_session(
+                workflow_id, project_id, db_execution.id, request.inputs,
+                workflow.definition, db_execution.started_at,
             ),
             media_type="text/event-stream",
             headers={
@@ -379,14 +448,17 @@ async def execute_workflow(
         # --- 2. 异步执行模式 (Celery) ---
         db_execution = await _create_execution_record(db, workflow_id, project_id, request.inputs, status="pending")
         
-        # Trigger Celery task
-        execute_workflow_task.delay(db_execution.id, workflow_id, request.inputs, project_id=project_id)
+        try:
+            await enqueue_workflow(db, db_execution, request.inputs)
+        except WorkflowDispatchError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from None
         
         # Re-query with eager loading to avoid lazy loading issues
         stmt = (
             select(WorkflowExecution)
             .options(selectinload(WorkflowExecution.node_executions))
             .where(WorkflowExecution.id == db_execution.id)
+            .execution_options(populate_existing=True)
         )
         result = await db.execute(stmt)
         return result.scalar_one()
@@ -444,6 +516,8 @@ async def cancel_execution(
     query = (
         select(WorkflowExecution)
         .where(WorkflowExecution.id == execution_id, WorkflowExecution.project_id == project_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     result = await db.execute(query)
     execution = result.scalar_one_or_none()
@@ -451,20 +525,31 @@ async def cancel_execution(
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
         
+    if execution.status == "cancelled":
+        completed_at = execution.completed_at
+        if completed_at is None:
+            completed_at = datetime.now(timezone.utc)
+            execution.completed_at = completed_at
+        await db.commit()
+        return WorkflowExecutionCancelResponse(
+            id=execution_id, status=ExecutionStatus.CANCELLED,
+            cancelled_at=completed_at,
+        )
+
     if execution.status not in ["pending", "running"]:
         raise HTTPException(status_code=400, detail=f"Cannot cancel execution in {execution.status} status")
         
     # Update status in DB
     execution.status = "cancelled"
-    completed_at = datetime.utcnow()
+    completed_at = datetime.now(timezone.utc)
     execution.completed_at = completed_at
     await db.commit()
     
-    # Terminate Celery task if it's running
-    celery_app.control.revoke(execution_id, terminate=True)
+    # Do not kill a worker process: it may already be handling another task.
+    await revoke_queued_execution(execution_id)
     
     return WorkflowExecutionCancelResponse(
         id=execution_id,
-        status="cancelled",
+        status=ExecutionStatus.CANCELLED,
         cancelled_at=completed_at
     )

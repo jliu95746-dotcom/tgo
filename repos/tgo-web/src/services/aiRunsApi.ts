@@ -1,4 +1,5 @@
 import { BaseApiService } from './base/BaseApiService';
+import i18n from '@/i18n';
 
 /**
  * Staff cancel request - for staff-facing cancel endpoint (JWT auth)
@@ -20,7 +21,15 @@ class AIRunsApiService extends BaseApiService {
    * @param request - Cancel request with client_msg_no
    */
   async cancelByClientNo(request: StaffCancelRequest): Promise<void> {
-    return this.post<void>(this.endpoints.cancel, request);
+    const response = await this.post<unknown>(this.endpoints.cancel, request);
+    if (
+      !response || typeof response !== 'object' ||
+      !('accepted' in response) || response.accepted !== true ||
+      !('status' in response) || response.status !== 'cancelled' ||
+      !('client_msg_no' in response) || response.client_msg_no !== request.client_msg_no
+    ) {
+      throw new Error(i18n.t('errors.replyStopUnconfirmed'));
+    }
   }
 }
 

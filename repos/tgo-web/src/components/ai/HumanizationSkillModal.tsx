@@ -9,7 +9,7 @@ interface HumanizationSkillModalProps {
   isOpen: boolean;
   onClose: () => void;
   skill?: SkillDetail | null;
-  onSaved: () => void;
+  onSaved: (saved: SkillDetail) => void;
 }
 
 const HumanizationSkillModal: React.FC<HumanizationSkillModalProps> = ({
@@ -46,14 +46,15 @@ const HumanizationSkillModal: React.FC<HumanizationSkillModalProps> = ({
     }
     setIsSaving(true);
     try {
+      let saved: SkillDetail;
       if (skill) {
-        await SkillsApiService.updateSkill(skill.name, {
+        saved = await SkillsApiService.updateSkill(skill.name, {
           description: description.trim(),
           instructions: instructions.trim() || undefined,
           metadata: { display_name: displayName.trim() },
         });
       } else {
-        await SkillsApiService.createHumanizationSkill({
+        saved = await SkillsApiService.createHumanizationSkill({
           name: internalName.trim() || undefined,
           display_name: displayName.trim(),
           description: description.trim(),
@@ -64,7 +65,7 @@ const HumanizationSkillModal: React.FC<HumanizationSkillModalProps> = ({
           ? t('skills.humanization.editSuccess', '拟人技能已保存')
           : t('skills.humanization.createSuccess', '拟人技能已创建'),
       );
-      onSaved();
+      onSaved(saved);
       onClose();
     } catch (error) {
       showError(

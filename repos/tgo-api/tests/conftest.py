@@ -66,6 +66,15 @@ class _UnsetDBSession:
         )
 
 
+@pytest.fixture(autouse=True)
+def isolated_reply_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test owns its control records and never reuses live Redis state."""
+    from app.services import ai_reply_control
+    from app.services.run_registry import InMemoryRunRegistry
+
+    monkeypatch.setattr(ai_reply_control, "run_registry", InMemoryRunRegistry())
+
+
 @dataclass
 class DBOverride:
     """Mutable holder for per-test DB session overrides."""

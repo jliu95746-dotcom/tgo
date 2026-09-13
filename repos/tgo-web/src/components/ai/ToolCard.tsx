@@ -56,7 +56,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onAction, onShowToast }) => {
       setCopiedEndpoint(true);
       onShowToast?.('success', t('common.copied', '已复制'), t('tools.endpointCopied', '端点地址已复制到剪贴板'));
       setTimeout(() => setCopiedEndpoint(false), 2000);
-    } catch (error) {
+    } catch {
       onShowToast?.('error', t('common.copyFailed', '复制失败'), t('tools.copyEndpointFailed', '无法复制端点地址'));
     }
   };
@@ -165,6 +165,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onAction, onShowToast }) => {
       </div>
 
       <div className="mt-5 flex items-center gap-2">
+        <button onClick={() => handleAction('test')} className="shrink-0 rounded-xl border border-blue-300 px-3 py-2 text-xs font-bold text-blue-600 dark:text-blue-300">{t('tools.probe.test')}</button>
         <button
           onClick={() => handleAction('edit')}
           className="flex-1 flex items-center justify-center gap-2 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-200 dark:shadow-none transition-all duration-200 active:scale-95"

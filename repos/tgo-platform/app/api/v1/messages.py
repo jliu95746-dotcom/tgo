@@ -1,10 +1,29 @@
 from __future__ import annotations
+
+import logging
+import uuid
+from typing import Optional
+
+import httpx
 from fastapi import APIRouter, Request, Depends
+from fastapi import status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.error_utils import error_response, get_request_id
+from app.api.slack_utils import slack_send_text, slack_send_file, slack_get_dm_channel
+from app.api.wecom_utils import wecom_get_access_token, wecom_kf_send_msg, wecom_upload_temp_media, resolve_visitor_platform_open_id, resolve_wecom_open_kfid
+from app.core.config import settings
 from app.db.base import get_db
+from app.db.models import Platform
 from app.domain.services.normalizer import normalizer
-from app.domain.services.dispatcher import process_message
+from app.domain.entities import NormalizedMessage
+from app.domain.services.dispatcher import process_message, select_adapter_for_target
+from app.domain.services.staff_reply_context import (
+    StaffReplyContextError,
+    build_staff_reply_message,
+)
 from app.api.schemas import ErrorResponse
 
 router = APIRouter()
@@ -21,42 +40,24 @@ async def ingest(req: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
 
 
-from typing import Optional
-import base64
-import hashlib
-import logging
-import httpx
-import uuid
-
-from fastapi import status
-from pydantic import BaseModel, Field
-from sqlalchemy import select
-
-from app.api.error_utils import error_response, get_request_id
-from app.db.models import Platform
-
-from app.api.wecom_utils import wecom_get_access_token, wecom_kf_send_msg, wecom_upload_temp_media, resolve_visitor_platform_open_id, resolve_wecom_open_kfid
-from app.api.slack_utils import slack_send_text, slack_send_file, slack_get_dm_channel
-from app.core.config import settings
-
-
 def _internalize_url(url: str) -> str:
-    """Map public/localhost download URLs to internal Docker service addresses."""
+    """Map local API media URLs to the configured native or Docker API origin."""
     if not url:
         return url
-    
-    # If URL is from localhost/api or localhost:8000, map it to internal settings.api_base
-    internal_base = settings.api_base_url.rstrip('/')
-    
-    import re
-    # Case 1: http://localhost:8000/v1/...
-    transformed = re.sub(r'^https?://(localhost|127\.0\.0\.1):8000', internal_base, url)
-    # Case 2: http://localhost/api/v1/... -> Strip /api and replace host
-    if "/api/v1/" in transformed and ("localhost" in transformed or "127.0.0.1" in transformed):
-        transformed = transformed.replace("/api/v1/", "/v1/")
-        transformed = re.sub(r'^https?://(localhost|127\.0\.0\.1)', internal_base, transformed)
-        
-    return transformed
+    from urllib.parse import urlsplit, urlunsplit
+
+    parsed = urlsplit(url)
+    relative = not parsed.scheme and not parsed.netloc and url.startswith("/")
+    local = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    if not relative and not (parsed.scheme in {"http", "https"} and local):
+        return url
+    path = parsed.path
+    if path.startswith("/api/v1/"):
+        path = path.removeprefix("/api")
+    elif not path.startswith("/v1/"):
+        return url
+    internal = urlsplit(settings.api_base_url)
+    return urlunsplit((internal.scheme, internal.netloc, path, parsed.query, ""))
 
 
 class SendMessageRequest(BaseModel):
@@ -70,7 +71,7 @@ class SendMessageRequest(BaseModel):
 
 @router.post(
     "/v1/messages/send",
-    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 async def send_message(req_body: SendMessageRequest, request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     """Send a message to a third-party platform (WeCom, Email, etc.).
@@ -90,6 +91,11 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
         return error_response(status.HTTP_404_NOT_FOUND, code="PLATFORM_NOT_FOUND", message="Platform not found", request_id=request_id)
 
     platform_type = (platform.type or "").lower()
+    if platform_type == "wechat_personal":
+        return error_response(
+            status.HTTP_410_GONE, code="PLATFORM_RETIRED",
+            message="该渠道已下线，无法发送消息", request_id=request_id,
+        )
     cfg = platform.config or {}
 
     # Extract visitor_id from channel_id
@@ -99,10 +105,35 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
     # Resolve helpers via shared utils (Redis + DB)
 
     # Validate payload
-    payload: dict = req_body.payload or {}
-    msg_type = int(payload.get("type", 1))
+    payload: dict[str, object] = req_body.payload or {}
+    try:
+        raw_type = payload.get("type", 1)
+        if isinstance(raw_type, bool) or not isinstance(raw_type, (str, int)):
+            raise ValueError("Invalid message type")
+        msg_type = int(raw_type)
+    except (ValueError, TypeError):
+        return error_response(status.HTTP_400_BAD_REQUEST, code="INVALID_PAYLOAD", message="消息类型无效。", request_id=request_id)
+    if msg_type == 1 and (not isinstance(payload.get("content"), str) or not payload["content"].strip()):
+        return error_response(status.HTTP_400_BAD_REQUEST, code="INVALID_PAYLOAD", message="消息内容不能为空。", request_id=request_id)
 
     try:
+        if platform_type in {"feishu_bot", "dingtalk_bot"}:
+            if msg_type != 1:
+                return error_response(
+                    status.HTTP_400_BAD_REQUEST,
+                    code="UNSUPPORTED_MESSAGE_TYPE",
+                    message="该渠道当前仅支持文字回复，附件尚未接通，消息未发送。",
+                    request_id=request_id,
+                )
+            recipient = await resolve_visitor_platform_open_id(visitor_id)
+            normalized_message = await build_staff_reply_message(
+                db, platform=platform, recipient=recipient,
+                text=str(payload["content"]), client_msg_no=client_msg_no,
+            )
+            adapter = await select_adapter_for_target(normalized_message, platform=platform)
+            await adapter.send_final({"text": normalized_message.content})
+            return {"ok": True, "client_msg_no": client_msg_no, "message": "Message sent successfully"}
+
         if platform_type == "custom":
             # Custom platform: forward message to third-party callback URL
             callback_url = (cfg.get("callback_url") or "").strip()
@@ -164,18 +195,49 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
             if not (corp_id and app_secret):
                 return error_response(status.HTTP_400_BAD_REQUEST, code="PLATFORM_CONFIG_INVALID", message="WeCom requires corp_id and app_secret", request_id=request_id)
 
-            access_token = await wecom_get_access_token(corp_id, app_secret)
-            # Resolve destination
-            external_userid = await resolve_visitor_platform_open_id(visitor_id)
-            open_kfid = await resolve_wecom_open_kfid(visitor_id, platform.id, db)
+            try:
+                external_userid = await resolve_visitor_platform_open_id(visitor_id)
+                open_kfid = await resolve_wecom_open_kfid(visitor_id, platform.id, db)
+            except RuntimeError as exc:
+                logging.warning(
+                    "[SEND] WeCom delivery context missing for visitor_id=%s: %s",
+                    visitor_id,
+                    exc,
+                )
+                return error_response(
+                    status.HTTP_409_CONFLICT,
+                    code="WECOM_DELIVERY_CONTEXT_MISSING",
+                    message="当前访客缺少企业微信客服会话信息，无法发送。请让客户从企业微信客服入口重新发起会话后再试。",
+                    request_id=request_id,
+                )
 
             if msg_type == 1:
-                # Text
                 content_text = str(payload.get("content") or "")
-                await wecom_kf_send_msg(access_token, open_kfid=open_kfid, external_userid=external_userid, msgtype="text", content={"content": content_text[:2048]})
+                normalized_message = NormalizedMessage(
+                    source="wecom",
+                    from_uid=external_userid,
+                    content=content_text,
+                    platform_api_key=req_body.platform_api_key,
+                    platform_type=platform_type,
+                    platform_id=str(platform.id),
+                    extra={
+                        "message_id": client_msg_no,
+                        "msg_type": msg_type,
+                        "source_type": "wecom_kf",
+                        "wecom": {
+                            "is_from_colleague": False,
+                            "source_type": "wecom_kf",
+                            "open_kfid": open_kfid,
+                            "external_userid": external_userid,
+                        },
+                    },
+                )
+                adapter = await select_adapter_for_target(normalized_message, platform=platform)
+                await adapter.send_final({"text": content_text})
                 logging.info("[SEND] client_msg_no=%s wecom text sent to %s", client_msg_no, external_userid)
                 return {"ok": True, "client_msg_no": client_msg_no, "message": "Message sent successfully"}
             elif msg_type == 2:
+                access_token = await wecom_get_access_token(corp_id, app_secret)
                 # Image
                 url = str(payload.get("url") or "")
                 if not url:
@@ -460,9 +522,15 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
 
         return error_response(status.HTTP_400_BAD_REQUEST, code="PLATFORM_TYPE_UNSUPPORTED", message=f"Unsupported platform type: {platform.type}", request_id=request_id)
 
+    except StaffReplyContextError as e:
+        return error_response(e.status_code, code=e.code, message=str(e), request_id=request_id)
     except httpx.HTTPStatusError as e:
-        logging.error("[SEND] HTTP error: %s", e)
-        return error_response(status.HTTP_502_BAD_GATEWAY, code="HTTP_ERROR", message=str(e), request_id=request_id)
+        # Provider URLs may contain bot tokens or signed session webhooks.
+        logging.error("[SEND] upstream HTTP %s platform_type=%s", e.response.status_code, platform_type)
+        return error_response(status.HTTP_502_BAD_GATEWAY, code="HTTP_ERROR", message=f"渠道接口返回 HTTP {e.response.status_code}，请检查渠道配置和会话有效期。", request_id=request_id)
+    except httpx.RequestError as e:
+        logging.error("[SEND] upstream request failed: %s platform_type=%s", type(e).__name__, platform_type)
+        return error_response(status.HTTP_502_BAD_GATEWAY, code="PLATFORM_CONNECTION_FAILED", message="暂时无法连接渠道接口，请稍后重试。", request_id=request_id)
     except Exception as e:
         logging.error("[SEND] error: %s", e)
         return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="SEND_FAILED", message=str(e), request_id=request_id)

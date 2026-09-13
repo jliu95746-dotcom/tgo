@@ -9,6 +9,14 @@ import type { Visitor, ChannelAIInsights, VisitorAISettings } from '@/types';
 
 export type VisitorServiceMode = 'auto' | 'assist' | 'manual';
 
+export interface EmployeeStyle {
+  skill_name: string | null;
+  enabled: boolean;
+  source: 'employee' | 'conversation';
+  agent_id: string | null;
+  agent_name: string | null;
+}
+
 // API Request/Response Types based on OpenAPI specification
 
 // Tag response structure from API
@@ -262,6 +270,10 @@ class VisitorApiService extends BaseApiService {
   async disableAI(visitorId: string): Promise<VisitorResponse> {
     const endpoint = (this.endpoints.disableAI as (id: string) => string)(visitorId);
     return this.post<VisitorResponse>(endpoint, {});
+  }
+
+  async getHumanizationSettings(visitorId: string): Promise<EmployeeStyle> {
+    return this.get<EmployeeStyle>(`${this.endpoints.visitorById(visitorId)}/humanization-settings`);
   }
 
   async updateServiceMode(

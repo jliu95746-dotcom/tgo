@@ -1,42 +1,27 @@
-import React, { useMemo, useState, useContext, useEffect } from 'react';
+import React, { useMemo, useState, useContext, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FiCpu, FiLoader } from 'react-icons/fi';
-import { Sparkles, Settings, Zap } from 'lucide-react';
+import { FiCpu, FiLoader, FiPlus } from 'react-icons/fi';
 import Button from '@/components/ui/Button';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import Select from '@/components/ui/Select';
-import SectionCard from '@/components/ui/SectionCard';
 import { useProvidersStore, type ModelProviderConfig } from '@/stores/providersStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useAppSettingsStore } from '@/stores/appSettingsStore';
 import { ToastContext } from '@/components/ui/ToastContainer';
 import AIProvidersApiService, { type ModelType } from '@/services/aiProvidersApi';
 import ProjectConfigApiService from '@/services/projectConfigApi';
-import ModelStoreModal from '@/components/ai/ModelStoreModal';
-import { ToolToastProvider } from '@/components/ai/ToolToastProvider';
 import ProviderCard from './ProviderCard';
 import ProviderConfigModal from './ProviderConfigModal';
-import AddModelModal from './AddModelModal';
+import { connectionDraft } from '@/utils/providerSetup';
+import { changedModelUsage } from '@/utils/modelUsage';
+import MediaModelTestModal from './MediaModelTestModal';
+import type { MediaProbeTarget } from '@/types/mediaProbe';
 
 interface ModelOption {
   value: string;
   label: string;
 }
 
-interface DefaultModelField {
-  type: ModelType;
-  labelKey: string;
-  fallbackLabel: string;
-}
-
 const MODEL_TYPES: ModelType[] = ['chat', 'embedding', 'asr', 'ocr', 'vlm'];
-const DEFAULT_MODEL_FIELDS: DefaultModelField[] = [
-  { type: 'chat', labelKey: 'settings.models.defaults.llmLabel', fallbackLabel: '默认 LLM' },
-  { type: 'embedding', labelKey: 'settings.models.defaults.embeddingLabel', fallbackLabel: '默认嵌入模型' },
-  { type: 'asr', labelKey: 'settings.models.defaults.asrLabel', fallbackLabel: '默认语音识别模型' },
-  { type: 'ocr', labelKey: 'settings.models.defaults.ocrLabel', fallbackLabel: '默认 OCR 模型' },
-  { type: 'vlm', labelKey: 'settings.models.defaults.vlmLabel', fallbackLabel: '默认图片理解模型' },
-];
 
 const createModelState = <T,>(valueFactory: () => T): Record<ModelType, T> => ({
   chat: valueFactory(),
@@ -57,17 +42,17 @@ const getErrorMessage = (error: unknown): string | undefined =>
 const ModelProvidersSettings: React.FC = () => {
   const { t } = useTranslation();
   const toast = useContext(ToastContext);
-  const { providers, isLoading, loadProviders, removeProvider } = useProvidersStore();
+  const { providers, isLoading, loadProviders, removeModelFromProvider } = useProvidersStore();
   const projectId = useAuthStore(s => s.user?.project_id);
   const { setDefaultLlmModel, setDefaultEmbeddingModel } = useAppSettingsStore();
 
-  const [showModelStore, setShowModelStore] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
-  const [showAddModelModal, setShowAddModelModal] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ModelProviderConfig | null>(null);
-  const [addingModelToProvider, setAddingModelToProvider] = useState<ModelProviderConfig | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingModelId, setEditingModelId] = useState<string | undefined>();
+  const [deletingModel, setDeletingModel] = useState<{ providerId: string; modelId: string } | null>(null);
+  const [isDeletingModel, setIsDeletingModel] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [mediaTarget, setMediaTarget] = useState<MediaProbeTarget | null>(null);
 
   // Global default models UI state
   const [modelOptions, setModelOptions] = useState<Record<ModelType, ModelOption[]>>(
@@ -80,27 +65,54 @@ const ModelProvidersSettings: React.FC = () => {
     () => createModelState(() => false)
   );
   const [isSavingDefaults, setIsSavingDefaults] = useState(false);
+  const [configReady, setConfigReady] = useState(false);
+  const [defaultsSynced, setDefaultsSynced] = useState(false);
+  const [pendingUsage, setPendingUsage] = useState<{ type: ModelType; value: string } | null>(null);
 
-  // Track initialization to avoid infinite loops
-  const isInitialized = React.useRef(false);
+  const isInitialized = React.useRef<string | null>(null);
+  const activeProjectId = React.useRef(projectId);
+  const fetchingModelTypes = React.useRef(new Set<string>());
 
-  const ensureFetchModelOptions = async (modelType: ModelType) => {
-    if (modelLoading[modelType]) return;
+  useEffect(() => {
+    activeProjectId.current = projectId;
+    isInitialized.current = null;
+    setConfigReady(false);
+    setDefaultsSynced(false);
+    setShowConfigModal(false);
+    setEditingProvider(null);
+    setEditingModelId(undefined);
+    setMediaTarget(null);
+    setDeletingModel(null);
+    setModelOptions(createModelState(() => []));
+    setModelSelections(createModelState(() => ''));
+    setPendingUsage(null);
+    setModelLoading(createModelState(() => false));
+  }, [projectId]);
+
+  const ensureFetchModelOptions = useCallback(async (modelType: ModelType) => {
+    if (!projectId) return;
+    const requestKey = `${projectId}:${modelType}`;
+    if (fetchingModelTypes.current.has(requestKey)) return;
+    fetchingModelTypes.current.add(requestKey);
     setModelLoading(current => ({ ...current, [modelType]: true }));
     try {
       const svc = new AIProvidersApiService();
       const res = await svc.listProjectModels({ model_type: modelType, is_active: true });
+      if (activeProjectId.current !== projectId) return;
       const options = (res.data || []).map(model => ({
         value: `${model.provider_id}:${model.model_id}`,
         label: `${model.model_name} · ${model.provider_name}`,
       }));
       setModelOptions(current => ({ ...current, [modelType]: options }));
     } catch (error: unknown) {
-      toast?.showToast('error', t('common.loadFailed', '加载失败'), getErrorMessage(error));
+      if (activeProjectId.current === projectId) {
+        toast?.showToast('error', t('common.loadFailed', '加载失败'), getErrorMessage(error));
+      }
     } finally {
-      setModelLoading(current => ({ ...current, [modelType]: false }));
+      fetchingModelTypes.current.delete(requestKey);
+      if (activeProjectId.current === projectId) setModelLoading(current => ({ ...current, [modelType]: false }));
     }
-  };
+  }, [projectId, toast, t]);
 
   useEffect(() => {
     loadProviders().catch(() => {});
@@ -108,15 +120,17 @@ const ModelProvidersSettings: React.FC = () => {
 
   // Load project-level AI defaults
   useEffect(() => {
-    if (!projectId || isInitialized.current) return;
-    
+    if (!projectId || isInitialized.current === projectId) return;
+    let cancelled = false;
     const fetchConfig = async () => {
       try {
         // Fetch options first so they are available when config is set
         await Promise.all(MODEL_TYPES.map(ensureFetchModelOptions));
+        if (cancelled) return;
 
         const svc = new ProjectConfigApiService();
         const conf = await svc.getAIConfig(projectId);
+        if (cancelled) return;
         const selections: Record<ModelType, string> = {
           chat: selectedModelValue(conf.default_chat_provider_id, conf.default_chat_model),
           embedding: selectedModelValue(conf.default_embedding_provider_id, conf.default_embedding_model),
@@ -126,73 +140,98 @@ const ModelProvidersSettings: React.FC = () => {
         };
 
         setModelSelections(selections);
+        setDefaultsSynced(conf.sync_status === 'synced');
+
+        setConfigReady(true);
         setDefaultLlmModel(selections.chat || null);
         setDefaultEmbeddingModel(selections.embedding || null);
-        isInitialized.current = true;
+        isInitialized.current = projectId;
       } catch (error: unknown) {
-        toast?.showToast('error', t('common.loadFailed'), getErrorMessage(error));
+        if (!cancelled) toast?.showToast('error', t('common.loadFailed'), getErrorMessage(error));
       }
     };
 
     fetchConfig();
-  }, [projectId, setDefaultLlmModel, setDefaultEmbeddingModel, toast, t]); // Kept dependencies but added Ref guard
+    return () => { cancelled = true; };
+  }, [projectId, setDefaultLlmModel, setDefaultEmbeddingModel, toast, t, ensureFetchModelOptions]);
 
-  const onSaveDefaults = async () => {
-    if (!projectId) return;
+  const applyUsage = async (selections: Record<ModelType, string>) => {
+    if (!projectId || !configReady) throw new Error(t('modelSetup.defaultsNotReady'));
+    const targetProject = projectId;
+    const conf = await new ProjectConfigApiService().upsertAIConfig(projectId, changedModelUsage(modelSelections, selections));
+    if (activeProjectId.current !== targetProject) return;
+    setModelSelections(selections);
+    setDefaultsSynced(conf.sync_status === 'synced');
+    if (conf.sync_status !== 'synced') throw new Error(t('modelSetup.syncPending'));
+    setDefaultLlmModel(selections.chat || null);
+    setDefaultEmbeddingModel(selections.embedding || null);
+  };
+
+  const confirmUsage = async () => {
+    if (!pendingUsage || isSavingDefaults) return;
     setIsSavingDefaults(true);
     try {
-      const parse = (v: string) => {
-      const i = v.indexOf(':');
-        if (i <= 0) return { providerId: null, model: null };
-        return { providerId: v.slice(0, i), model: v.slice(i + 1) };
-      };
-      const chat = parse(modelSelections.chat);
-      const embedding = parse(modelSelections.embedding);
-      const asr = parse(modelSelections.asr);
-      const ocr = parse(modelSelections.ocr);
-      const vlm = parse(modelSelections.vlm);
-      const svc = new ProjectConfigApiService();
-      await svc.upsertAIConfig(projectId, {
-        default_chat_provider_id: chat.providerId,
-        default_chat_model: chat.model,
-        default_embedding_provider_id: embedding.providerId,
-        default_embedding_model: embedding.model,
-        default_asr_provider_id: asr.providerId,
-        default_asr_model: asr.model,
-        default_ocr_provider_id: ocr.providerId,
-        default_ocr_model: ocr.model,
-        default_vlm_provider_id: vlm.providerId,
-        default_vlm_model: vlm.model,
-      });
+      await applyUsage({ ...modelSelections, [pendingUsage.type]: pendingUsage.value });
+      setPendingUsage(null);
+      toast?.showToast('success', t('settings.models.toast.saved'));
+    } catch (error: unknown) {
+      toast?.showToast('error', t('common.saveFailed'), getErrorMessage(error));
+    } finally { setIsSavingDefaults(false); }
+  };
+
+  const retrySync = async () => {
+    if (!projectId || isSavingDefaults) return;
+    const targetProject = projectId;
+    setIsSavingDefaults(true);
+    try {
+      const conf = await new ProjectConfigApiService().syncAIConfig(targetProject);
+      if (activeProjectId.current !== targetProject) return;
+      setDefaultsSynced(conf.sync_status === 'synced');
+      if (conf.sync_status !== 'synced') throw new Error(t('modelSetup.syncPending'));
       setDefaultLlmModel(modelSelections.chat || null);
       setDefaultEmbeddingModel(modelSelections.embedding || null);
       toast?.showToast('success', t('settings.models.toast.saved'));
     } catch (error: unknown) {
-      toast?.showToast('error', t('common.saveFailed'), getErrorMessage(error));
-    } finally {
-      setIsSavingDefaults(false);
-    }
+      if (activeProjectId.current === targetProject) toast?.showToast('error', t('common.saveFailed'), getErrorMessage(error));
+    } finally { setIsSavingDefaults(false); }
   };
 
-  const handleDelete = async (id: string) => {
-    setDeletingId(null);
+  const usageLabel = (type: ModelType, value: string) =>
+    modelOptions[type].find(option => option.value === value)?.label ||
+    (value ? value.slice(value.indexOf(':') + 1) : t('modelSetup.notConfigured'));
+  const pendingMessage = pendingUsage ? t('modelSetup.switchMessage', {
+    usage: t(`modelSetup.uses.${pendingUsage.type}`),
+    from: usageLabel(pendingUsage.type, modelSelections[pendingUsage.type]),
+    to: usageLabel(pendingUsage.type, pendingUsage.value),
+  }) + (pendingUsage.type === 'embedding' && modelSelections.embedding ? ` ${  t('modelSetup.embeddingWarning')}` : '') : '';
+
+  const handleDelete = async () => {
+    if (!deletingModel || isDeletingModel) return;
+    const target = deletingModel;
+    setIsDeletingModel(true);
     try {
-      await removeProvider(id);
-      toast?.showToast('success', t('settings.providers.toast.deleted'));
+      await removeModelFromProvider(target.providerId, target.modelId);
+      setDeletingModel(null);
+      MODEL_TYPES.forEach(type => void ensureFetchModelOptions(type));
+      toast?.showToast('success', t('modelSetup.modelDeleted'));
     } catch (error: unknown) {
       toast?.showToast('error', t('common.deleteFailed'), getErrorMessage(error));
-    }
+    } finally { setIsDeletingModel(false); }
   };
 
-  const handleTest = async (p: ModelProviderConfig) => {
-    setTestingId(p.id);
+  const handleTest = async (p: ModelProviderConfig, modelId: string, modelType: ModelType) => {
+    if (modelType === 'asr' || modelType === 'ocr' || modelType === 'vlm') {
+      setMediaTarget({ providerId: p.id, providerName: p.name, modelId, capability: modelType });
+      return;
+    }
+    setTestingId(`${p.id  }:${  modelId}`);
     try {
       const svc = new AIProvidersApiService();
-      const res = await svc.testProvider(p.id);
-      if (res.ok ?? res.success ?? true) {
-        toast?.showToast('success', t('settings.providers.test.ok'));
+      const res = await svc.probeModel({ ...connectionDraft(p), model_id: modelId, model_type: modelType });
+      if (res.success === true) {
+        toast?.showToast('success', t('modelSetup.testSuccess'), res.message);
       } else {
-        toast?.showToast('error', t('settings.providers.test.failed'));
+        toast?.showToast('error', t('modelSetup.testFailed'), res.message);
       }
     } catch (error: unknown) {
       toast?.showToast('error', t('settings.providers.test.failed'), getErrorMessage(error));
@@ -206,191 +245,42 @@ const ModelProvidersSettings: React.FC = () => {
     [providers]
   );
 
-  const renderDefaultModelField = (field: DefaultModelField) => (
-    <div key={field.type} className="space-y-2">
-      <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest px-1">
-        {t(field.labelKey, field.fallbackLabel)}
-      </label>
-      <Select
-        value={modelSelections[field.type]}
-        onChange={value => setModelSelections(current => ({
-          ...current,
-          [field.type]: value,
-        }))}
-        onOpen={() => ensureFetchModelOptions(field.type)}
-        isLoading={modelLoading[field.type]}
-        options={[
-          { value: '', label: t('settings.models.defaults.none', '未设置') },
-          ...modelOptions[field.type],
-        ]}
-        className="w-full"
-      />
+  const refreshOptions = () => { MODEL_TYPES.forEach(type => void ensureFetchModelOptions(type)); };
+  return (
+    <div className="p-5 lg:p-8 space-y-7 max-w-6xl mx-auto">
+      <header className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="min-w-0"><h2 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{t('modelSetup.title')}</h2>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{t('modelSetup.subtitle')}</p></div>
+        <Button onClick={() => { setEditingProvider(null); setEditingModelId(undefined); setShowConfigModal(true); }} className="shrink-0 whitespace-nowrap rounded-lg">
+          <FiPlus className="mr-2" />{t('modelSetup.add')}
+        </Button>
+      </header>
+      <section className="space-y-4">
+        {configReady && !defaultsSynced && Object.values(modelSelections).some(Boolean) && <div role="status" className="rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-200 flex items-center gap-4 justify-between">
+          <span>{t('modelSetup.syncPending')}</span><Button disabled={isSavingDefaults} onClick={retrySync}>{t('modelSetup.retrySync')}</Button>
+        </div>}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div><h3 className="font-semibold text-gray-900 dark:text-gray-100">{t('modelSetup.services')}</h3><p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{t('modelSetup.inlineUsageHint')}</p></div>
+
+        </div>
+        {isLoading && <div className="flex gap-2 text-gray-500"><FiLoader className="animate-spin" />{t('common.loading')}</div>}
+        {!isLoading && !sortedProviders.length && <div className="border border-dashed dark:border-gray-700 rounded-xl p-8 text-center text-gray-500"><FiCpu className="mx-auto mb-3 w-6 h-6" />{t('modelSetup.empty')}</div>}
+        {sortedProviders.map(provider => <ProviderCard key={provider.id} provider={provider}
+          onEdit={(item, modelId) => { setEditingProvider(item); setEditingModelId(modelId); setShowConfigModal(true); }}
+          onDelete={(providerId, modelId) => setDeletingModel({ providerId, modelId })} onTest={handleTest} testingId={testingId}
+          selections={modelSelections} defaultsSynced={defaultsSynced}
+          usageOptions={modelOptions} usageDisabled={!configReady || isSavingDefaults || Object.values(modelLoading).some(Boolean)}
+          onUsageChange={(type, value) => setPendingUsage({ type, value })} />)}
+      </section>
+      {mediaTarget && <MediaModelTestModal key={`${projectId}:${mediaTarget.providerId}:${mediaTarget.modelId}`} target={mediaTarget} onClose={() => setMediaTarget(null)} />}
+      <ProviderConfigModal isOpen={showConfigModal} editingProvider={editingProvider} editingModelId={editingModelId} onSaved={refreshOptions}
+        onClose={() => { setShowConfigModal(false); setEditingProvider(null); }} />
+      <ConfirmDialog isOpen={!!deletingModel} title={t('modelSetup.deleteModelTitle')} message={t('modelSetup.deleteModelHint', { model: deletingModel?.modelId || '' })}
+        isLoading={isDeletingModel} confirmText={t('common.delete')} confirmVariant="danger" onConfirm={handleDelete} onCancel={() => !isDeletingModel && setDeletingModel(null)} />
+      <ConfirmDialog isOpen={!!pendingUsage} title={t('modelSetup.switchTitle')} message={pendingMessage}
+        confirmText={t('modelSetup.switchConfirm')} isLoading={isSavingDefaults}
+        onConfirm={confirmUsage} onCancel={() => !isSavingDefaults && setPendingUsage(null)} />
     </div>
-  );
-
-    return (
-    <ToolToastProvider>
-      <div className="p-10 space-y-12 max-w-[1600px] mx-auto">
-        {/* Header Section */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-xl shadow-blue-200 dark:shadow-none">
-                <FiCpu className="w-6 h-6" />
-              </div>
-              <h2 className="text-3xl font-black text-gray-900 dark:text-gray-100 tracking-tight">
-                {t('settings.providers.title', '模型提供商')}
-              </h2>
-            </div>
-            <p className="text-lg text-gray-500 dark:text-gray-400 font-medium max-w-2xl leading-relaxed">
-              {t('settings.providers.subtitle', '集中管理各大 AI 提供商的访问配置：密钥、安全代理、模型清单与默认模型。')}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {isLoading && <FiLoader className="animate-spin text-blue-600" />}
-            <Button 
-              variant="secondary" 
-              size="lg" 
-              onClick={() => { setEditingProvider(null); setShowConfigModal(true); }}
-              className="rounded-2xl font-black px-8 py-4 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 hover:border-blue-500 transition-all active:scale-95"
-            >
-              <Settings className="mr-2 w-5 h-5" />
-              {t('settings.providers.addCustom', '自定义配置')}
-            </Button>
-            <Button 
-              variant="primary" 
-              size="lg" 
-              onClick={() => setShowModelStore(true)}
-              className="rounded-2xl font-black px-8 py-4 shadow-xl shadow-blue-200 dark:shadow-none transition-all active:scale-95"
-            >
-              <Sparkles className="mr-2 w-5 h-5" />
-              {t('settings.providers.fromStore', '从商店获取模型')}
-          </Button>
-        </div>
-      </div>
-
-      {/* Global Default Models Card */}
-        <SectionCard className="border-blue-100 dark:border-blue-900/30 bg-gradient-to-br from-blue-50/50 to-transparent dark:from-blue-900/5">
-          <div className="flex flex-col md:flex-row gap-8 items-start md:items-end">
-            <div className="flex-1 space-y-6 w-full">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600">
-                  <Zap className="w-4 h-4" />
-        </div>
-          <div>
-                  <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider">
-                    {t('settings.models.defaults.title', '默认模型配置')}
-                  </h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 font-bold">
-                    {t('settings.models.defaults.description', '选择全局默认模型，Agent 可单独覆盖')}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {DEFAULT_MODEL_FIELDS.slice(0, 2).map(renderDefaultModelField)}
-              </div>
-
-              <div className="pt-6 border-t border-blue-100 dark:border-blue-900/30 space-y-4">
-                <div>
-                  <h4 className="text-sm font-black text-gray-900 dark:text-gray-100">
-                    {t('settings.models.defaults.multimodalTitle', '多模态理解')}
-                  </h4>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-1">
-                    {t('settings.models.defaults.multimodalDescription', '为语音识别、图片文字提取和图片理解选择全局默认模型。')}
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {DEFAULT_MODEL_FIELDS.slice(2).map(renderDefaultModelField)}
-                </div>
-              </div>
-            </div>
-            <div className="w-full md:w-auto">
-              <Button 
-                variant="primary" 
-                size="md" 
-                onClick={onSaveDefaults} 
-                disabled={isSavingDefaults}
-                className="w-full md:w-auto rounded-xl font-black px-8 shadow-lg shadow-blue-200 dark:shadow-none"
-              >
-                {isSavingDefaults ? <FiLoader className="animate-spin mr-2" /> : null}
-                {t('common.save', '保存')}
-              </Button>
-            </div>
-        </div>
-        </SectionCard>
-
-        {/* Providers Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-8">
-          {sortedProviders.length === 0 && !isLoading && (
-            <div className="col-span-full py-20 bg-gray-50 dark:bg-gray-900/50 rounded-[3rem] border-4 border-dashed border-gray-100 dark:border-gray-800 flex flex-col items-center justify-center text-center space-y-6">
-              <div className="w-24 h-24 rounded-[2rem] bg-white dark:bg-gray-800 flex items-center justify-center text-gray-200 dark:text-gray-700 shadow-sm">
-                <FiCpu className="w-12 h-12" />
-              </div>
-              <div className="space-y-2">
-                <h3 className="text-xl font-black text-gray-900 dark:text-gray-100">
-                  {t('settings.providers.emptyTitle', '开启您的 AI 之旅')}
-                </h3>
-                <p className="text-gray-500 dark:text-gray-400 font-medium">
-                  {t('settings.providers.empty', '尚未配置任何模型提供商，点击右上角"从商店获取"或"自定义配置"开始。')}
-                </p>
-            </div>
-              <Button 
-                variant="primary" 
-                size="lg" 
-                onClick={() => setShowModelStore(true)}
-                className="rounded-2xl font-black px-10 py-4 shadow-xl shadow-blue-200 dark:shadow-none"
-              >
-                {t('settings.providers.fromStore', '从商店获取模型')}
-              </Button>
-          </div>
-        )}
-
-        {sortedProviders.map((p) => (
-            <ProviderCard
-              key={p.id}
-              provider={p}
-              onEdit={(prov) => { setEditingProvider(prov); setShowConfigModal(true); }}
-              onDelete={(id) => setDeletingId(id)}
-              onAddModel={(prov) => { setAddingModelToProvider(prov); setShowAddModelModal(true); }}
-              onTest={handleTest}
-              isTesting={testingId === p.id}
-            />
-        ))}
-      </div>
-
-        {/* Modals */}
-        <ProviderConfigModal
-          isOpen={showConfigModal}
-          onClose={() => { setShowConfigModal(false); setEditingProvider(null); }}
-          editingProvider={editingProvider}
-        />
-
-        <AddModelModal
-          isOpen={showAddModelModal}
-          onClose={() => { setShowAddModelModal(false); setAddingModelToProvider(null); }}
-          provider={addingModelToProvider}
-        />
-
-      <ConfirmDialog
-          isOpen={!!deletingId}
-        title={t('settings.providers.confirmDeleteTitle', '删除提供商')}
-        message={t('settings.providers.confirmDeleteMsg', '确定要删除该提供商配置吗？此操作不可撤销。')}
-        confirmText={t('common.delete', '删除')!}
-        cancelText={t('common.cancel', '取消')!}
-        confirmVariant="danger"
-          onConfirm={() => deletingId && handleDelete(deletingId)}
-          onCancel={() => setDeletingId(null)}
-        />
-
-        <ModelStoreModal 
-          isOpen={showModelStore} 
-          onClose={() => setShowModelStore(false)} 
-      />
-    </div>
-    </ToolToastProvider>
   );
 };
-
 export default ModelProvidersSettings;

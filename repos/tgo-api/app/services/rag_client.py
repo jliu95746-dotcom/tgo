@@ -15,6 +15,24 @@ logger = get_logger("rag_client")
 
 class RAGServiceClient:
     """Client for communicating with the external RAG service."""
+
+    async def knowledge_version_request(self, method: str, path: str, project_id: str,
+                                        payload: dict[str, object] | None = None) -> dict[str, object]:
+        response = await self._make_request(method, '/v1/knowledge-versions' + path,
+                                            params={'project_id': project_id}, json_data=payload)
+        return await self._handle_response(response)
+
+    async def upload_knowledge_replacement(self, project_id: str, reference: str,
+                                           actor: str, file: UploadFile) -> dict[str, object]:
+        content = await file.read(100 * 1024 * 1024 + 1)
+        if len(content) > 100 * 1024 * 1024:
+            raise HTTPException(413, '文件超过 100MB 限制。')
+        response = await self._make_request(
+            'POST', f'/v1/knowledge-versions/file/{reference}/upload',
+            params={'project_id': project_id}, data={'actor': actor},
+            files={'file': (file.filename, content, file.content_type)},
+        )
+        return await self._handle_response(response)
     
     def __init__(self):
         self.base_url = settings.RAG_SERVICE_URL.rstrip("/")
@@ -271,6 +289,16 @@ class RAGServiceClient:
             f"/v1/knowledge-governance/files/{file_id}",
             params={"project_id": project_id},
             json_data=data,
+        )
+        return await self._handle_response(response)
+
+    async def save_qa_knowledge_governance(
+        self, *, project_id: str, qa_pair_id: str, data: dict[str, object],
+    ) -> object:
+        """Create or update tenant-scoped QA governance metadata."""
+        response = await self._make_request(
+            "PUT", f"/v1/knowledge-governance/qa-pairs/{qa_pair_id}",
+            params={"project_id": project_id}, json_data=data,
         )
         return await self._handle_response(response)
 

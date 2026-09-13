@@ -30,6 +30,25 @@ class CrawlConfig(BaseSchema):
     controlling how the website crawler behaves.
     """
 
+    # Keep canonical options optional: omitted values must not mask legacy
+    # settings on existing collections. The worker resolves legacy fallbacks.
+    render_js: Optional[bool] = Field(
+        None, description="Render JavaScript before extracting page content"
+    )
+    wait_time: Optional[float] = Field(
+        None, ge=0, le=30,
+        description="Additional wait after a JavaScript page loads, in seconds"
+    )
+    delay_seconds: Optional[float] = Field(
+        None, ge=0, le=60, description="Delay before requesting a page, in seconds"
+    )
+    timeout_seconds: Optional[int] = Field(
+        None, ge=5, le=300, description="Page load timeout in seconds"
+    )
+    follow_external_links: Optional[bool] = Field(
+        None, description="Allow discovery of pages on other websites"
+    )
+
     start_url: Optional[str] = Field(
         None,
         description="Starting URL for crawling (required for website collections)",
@@ -445,6 +464,10 @@ class SearchResponse(BaseSchema):
 # File Schemas  
 class FileResponse(BaseSchema):
     """Schema for file API responses."""
+
+    error_message: Optional[str] = Field(
+        None, description="Safe failure reason when file processing failed"
+    )
     
     id: str = Field(..., description="File unique identifier")
     collection_id: Optional[str] = Field(
@@ -589,8 +612,14 @@ class CrawlOptionsSchema(BaseSchema):
     render_js: Optional[bool] = Field(
         None, description="Whether to render JavaScript (uses headless browser)"
     )
-    wait_time: Optional[int] = Field(
-        None, description="Wait time in seconds after page load"
+    wait_time: Optional[float] = Field(
+        None, ge=0, le=30, description="Wait time in seconds after page load"
+    )
+    delay_seconds: Optional[float] = Field(
+        None, ge=0, le=60, description="Delay before each request in seconds"
+    )
+    timeout_seconds: Optional[int] = Field(
+        None, ge=5, le=300, description="Request timeout in seconds"
     )
     follow_external_links: Optional[bool] = Field(
         None, description="Whether to follow external links"
@@ -834,6 +863,7 @@ class QAPairResponse(BaseSchema):
     qa_metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
     source_type: str = Field(..., description="Source type: manual, import, ai_generated")
     status: str = Field(..., description="Processing status")
+    error_message: Optional[str] = Field(None, description="Processing failure reason")
     priority: int = Field(..., description="Priority")
     document_id: Optional[UUID] = Field(None, description="Associated document ID")
     created_at: datetime = Field(..., description="Creation timestamp")

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChatStore } from '@/stores';
 import type { WuKongIMMessage, Message } from '@/types';
 import { getChannelKey } from '@/utils/channelUtils';
@@ -70,16 +70,30 @@ export const useHistoricalMessages = ({
   // Use unified conversion from WuKongIMUtils (stable reference)
   const convertWuKongIMToMessage = WuKongIMUtils.convertToMessage;
 
-  // Load historical messages when chat changes - simplified to prevent infinite loops
+  const initialHistoryRequestKey = useRef<string | null>(null);
+
+  // Load once per selected channel; empty results and failures require explicit retry.
   useEffect(() => {
-    if (channelId && channelType && historicalMessages.length === 0 && !isLoadingHistory) {
-      loadHistoricalMessagesAction(channelId, channelType);
+    if (!channelId || channelType == null) {
+      initialHistoryRequestKey.current = null;
+      return;
     }
-  }, [channelId]); // Only depend on channelId
+    const key = getChannelKey(channelId, channelType);
+    if (initialHistoryRequestKey.current === key) return;
+    if (historicalMessages.length > 0) {
+      initialHistoryRequestKey.current = key;
+      return;
+    }
+    if (isLoadingHistory) return;
+    initialHistoryRequestKey.current = key;
+    loadHistoricalMessagesAction(channelId, channelType).catch(error => {
+      console.error('Failed to load initial history:', error);
+    });
+  }, [channelId, channelType, historicalMessages.length, isLoadingHistory, loadHistoricalMessagesAction]);
 
   // Memoized load more function
   const loadMoreHistory = useCallback(async (): Promise<void> => {
-    if (!channelId || !channelType || isLoadingHistory || isLoadingMore || !hasMoreHistory) {
+    if (!channelId || channelType == null || isLoadingHistory || isLoadingMore || !hasMoreHistory) {
       return;
     }
 
@@ -95,7 +109,7 @@ export const useHistoricalMessages = ({
 
   // Memoized retry function
   const retryLoadHistory = useCallback(() => {
-    if (channelId && channelType) {
+    if (channelId && channelType != null) {
       setHistoryError(null);
       loadHistoricalMessagesAction(channelId, channelType);
     }

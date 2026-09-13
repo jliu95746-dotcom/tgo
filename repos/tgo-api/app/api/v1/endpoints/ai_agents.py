@@ -172,6 +172,9 @@ async def create_agent(
             raise HTTPException(status_code=404, detail="AIProvider not found for current project")
         payload["llm_provider_id"] = str(ai_provider_id)
 
+    if payload.get("model") == "__system_default__":
+        payload["llm_provider_id"] = None
+
     result = await ai_client.create_agent(
         project_id=str(project.id),
         agent_data=payload,
@@ -288,6 +291,9 @@ async def update_agent(
         if not provider:
             raise HTTPException(status_code=404, detail="AIProvider not found for current project")
         payload["llm_provider_id"] = str(ai_provider_id)
+
+    if payload.get("model") == "__system_default__":
+        payload["llm_provider_id"] = None
 
     result = await ai_client.update_agent(
         project_id=str(project.id),

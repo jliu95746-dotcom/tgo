@@ -20,13 +20,12 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import get_logger
 from app.models import (
-    Visitor,
-    VisitorServiceStatus,
     VisitorWaitingQueue,
     WaitingStatus,
     AssignmentSource,
 )
 from app.services.transfer_service import transfer_to_staff
+from app.services.queue_timeout_service import process_queue_timeouts
 
 logger = get_logger("tasks.process_waiting_queue")
 
@@ -147,7 +146,6 @@ async def _process_fallback_batch() -> None:
                             if not fresh_entry:
                                 continue
                                 
-                            fresh_entry.record_attempt()
                             processed += 1
                             
                             result = await transfer_to_staff(
@@ -161,10 +159,10 @@ async def _process_fallback_batch() -> None:
                                 skip_queue_status_check=True,
                                 auto_commit=False,
                                 add_to_queue_if_no_staff=False,  # Already in queue
+                                expected_queue_entry_id=fresh_entry.id,
                             )
                             
                             if result.success and result.assigned_staff_id:
-                                fresh_entry.assign_to_staff(result.assigned_staff_id)
                                 entry_db.commit()
                                 assigned += 1
                                 logger.info(
@@ -241,72 +239,15 @@ async def _fallback_loop() -> None:
 # =============================================================================
 
 async def _cleanup_expired_entries() -> None:
-    """
-    Clean up expired queue entries.
-    
-    Finds entries where expired_at < now and:
-    - Marks them as EXPIRED
-    - Resets visitor service status to CLOSED
-    - Optionally sends notification to visitor
-    """
+    """Run committed queue transitions and recover pending timeout notices."""
     db = SessionLocal()
     try:
-        expired_entries = (
-            db.query(VisitorWaitingQueue)
-            .filter(
-                VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
-                VisitorWaitingQueue.expired_at.isnot(None),
-                VisitorWaitingQueue.expired_at < func.now(),
-            )
-            .limit(100)  # Process in batches
-            .all()
-        )
-
-        if not expired_entries:
-            logger.debug("Cleanup: no expired entries found")
-            return
-
-        logger.info(
-            f"Cleanup: processing {len(expired_entries)} expired entries",
-            extra={"count": len(expired_entries)},
-        )
-
-        for entry in expired_entries:
-            try:
-                entry.expire()
-                
-                # Reset visitor service status
-                visitor = db.query(Visitor).filter(
-                    Visitor.id == entry.visitor_id
-                ).first()
-                
-                if visitor and visitor.service_status == VisitorServiceStatus.QUEUED.value:
-                    visitor.service_status = VisitorServiceStatus.CLOSED.value
-                    visitor.updated_at = datetime.utcnow()
-                
-                db.commit()
-                
-                logger.info(
-                    f"Cleanup: expired entry {entry.id}",
-                    extra={
-                        "entry_id": str(entry.id),
-                        "visitor_id": str(entry.visitor_id),
-                        "wait_seconds": entry.wait_duration_seconds,
-                    }
-                )
-                
-                # TODO: Send notification to visitor about queue timeout
-                # await notify_visitor_queue_expired(entry.visitor_id)
-                
-            except Exception as e:
-                logger.error(f"Cleanup: error expiring entry {entry.id}: {e}")
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-
-    except Exception as e:
-        logger.exception(f"Cleanup: exception: {e}")
+        count = await process_queue_timeouts(db)
+        if count:
+            logger.info("Expired waiting queue entries", extra={"count": count})
+    except Exception as exc:
+        db.rollback()
+        logger.warning("Queue cleanup failed", extra={"error_type": type(exc).__name__})
     finally:
         db.close()
 

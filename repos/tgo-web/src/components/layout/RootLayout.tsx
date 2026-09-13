@@ -26,13 +26,11 @@ const RootLayout: React.FC = () => {
   useEffect(() => {
     const handlePluginToast = (e: any) => {
       const { message, type } = e.detail;
-      // Use the stable showToast from the context, but since we are in RootLayout
-      // we can call it directly. showToast from useToast might be unstable.
       showToast(type || 'success', 'Plugin', message);
     };
     window.addEventListener('tgo:show_toast', handlePluginToast);
     return () => window.removeEventListener('tgo:show_toast', handlePluginToast);
-  }, []); // Remove showToast dependency if it's unstable
+  }, [showToast]);
 
   useEffect(() => {
     const checkStatus = async () => {

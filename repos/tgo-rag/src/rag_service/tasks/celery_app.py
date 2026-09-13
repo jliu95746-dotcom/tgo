@@ -24,6 +24,7 @@ celery_app = Celery(
         "src.rag_service.tasks.maintenance",
         "src.rag_service.tasks.website_crawling",
         "src.rag_service.tasks.qa_processing",
+        "src.rag_service.tasks.knowledge_versions",
     ]
 )
 

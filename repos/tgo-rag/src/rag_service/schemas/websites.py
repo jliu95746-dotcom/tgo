@@ -47,6 +47,13 @@ class CrawlOptionsSchema(BaseModel):
         default=None,
         description="Custom HTTP headers",
     )
+    wait_time: float = Field(
+        default=0, ge=0, le=30,
+        description="Wait after page load before extracting dynamic content",
+    )
+    follow_external_links: bool = Field(
+        default=False, description="Whether to follow links to other origins",
+    )
 
 
 # ============================================================================

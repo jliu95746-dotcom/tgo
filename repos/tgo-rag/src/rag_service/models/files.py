@@ -88,6 +88,12 @@ class File(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
         doc="Number of document chunks generated from this file",
     )
 
+    error_message: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Safe processing failure reason, retained across worker sessions",
+    )
+
     total_tokens: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

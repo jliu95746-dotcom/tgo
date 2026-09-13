@@ -97,6 +97,7 @@ export interface CollectionResponse {
 }
 
 export interface FileResponse {
+  error_message?: string | null;
   id: string;
   collection_id?: string | null;
   original_filename: string;
@@ -141,6 +142,9 @@ export interface FileUploadRequest {
 export interface CrawlOptionsRequest {
   render_js?: boolean;
   wait_time?: number;
+  delay_seconds?: number;
+  timeout_seconds?: number;
+  headers?: Record<string, string>;
   follow_external_links?: boolean;
   respect_robots_txt?: boolean;
   user_agent?: string;
@@ -194,7 +198,7 @@ export interface AddPageResponse {
   success: boolean;
   page_id?: string | null;
   message: string;
-  status: 'added' | 'exists' | 'crawling';
+  status: 'added' | 'exists' | 'crawling' | 'limit_reached';
 }
 
 // Crawl Deeper Types
@@ -253,6 +257,7 @@ export interface QAPairResponse {
   qa_metadata?: Record<string, any> | null;
   source_type: 'manual' | 'import' | 'ai_generated';
   status: 'pending' | 'processing' | 'processed' | 'failed';
+  error_message?: string | null;
   priority: number;
   document_id?: string | null;
   created_at: string;

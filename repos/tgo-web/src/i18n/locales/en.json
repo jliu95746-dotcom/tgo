@@ -1,5 +1,161 @@
 {
+  "mediaProbe": {
+    "title": "模型样本测试",
+    "hint": "仅测试当前模型，不修改用途，不发送给客户。已有密钥会自动使用，无需重复填写。",
+    "audio": "选择测试语音",
+    "image": "选择测试图片",
+    "audioFormats": "支持 WAV、MP3、M4A、FLAC、OGG、WebM，文件不超过 5 MB；建议使用 5～15 秒清晰语音，具体格式支持以模型为准。",
+    "imageFormats": "支持 PNG、JPG、WebP，文件不超过 5 MB。",
+    "consent": "我确认将此样本发送给「{{provider}}」进行一次可能计费的模型测试。请勿使用含客户隐私的文件。",
+    "run": "开始测试",
+    "size": "请选择不超过 5 MB 的非空文件。",
+    "type": "文件格式不支持或与当前模型类型不匹配。",
+    "failed": "测试请求失败，请检查服务状态后重试。"
+  },
+  "modelSetup": {
+    "moreFor": "{{model}} 的更多操作",
+    "addModels": "添加模型",
+    "editModelConfig": "编辑模型配置",
+    "vendorSection": "模型厂商",
+    "vendorModelHint": "厂商提供接口和密钥，模型负责具体处理。例如：通义千问是厂商，qwen3.5-plus 是模型。",
+    "connectionSettings": "连接设置",
+    "sharedConnection": "同一厂商连接下的模型共用这些信息，修改接口或密钥会影响这些模型。",
+    "modelsBelongTo": "以下模型通过「{{vendor}}」的接口调用，可获取列表或手动添加。",
+    "currentEditingModel": "当前模型：{{model}}",
+    "deleteModelTitle": "删除模型",
+    "deleteModelHint": "删除「{{model}}」？仅移除这款模型，厂商连接、密钥和其他模型会保留。正在用于业务或被 AI 员工使用的模型不能删除，请先更换相关配置。",
+    "modelDeleted": "模型已删除",
+    "usageFor": "{{model}} 的模型用途",
+    "selectUsage": "选择用途",
+    "incompatibleUsage": "{{usage}}（类型不匹配）",
+    "allPurposes": "系统模型用途",
+    "allPurposesHint": "这里显示当前设置。请在下方「已接入服务」的模型用途下拉菜单中选择。",
+    "noMatchingModel": "本服务暂无对应模型",
+    "currentUsage": "当前设置：{{model}}",
+    "addMatchingModel": "请先在上方添加或选择支持「{{usage}}」的模型。",
+    "disabledServiceUsage": "此服务已停用，不能选择用途；原有设置保持不变。",
+    "modelTypeHint": "模型类型用于说明接口能力；系统用途请在保存后从服务列表的下拉菜单设置。",
+    "modelTypeFor": "{{model}} 的模型类型",
+    "pendingSyncShort": "待同步，尚未生效",
+    "processing": "处理中…",
+    "pendingDefault": "待同步 · {{usage}}",
+    "syncPending": "默认用途已保存，但尚未同步到 AI 服务，暂未生效。请重试同步。",
+    "retrySync": "重试同步",
+    "systemDefault": "系统默认 · {{usage}}",
+    "manageService": "管理服务",
+    "more": "更多",
+    "defaultsNotReady": "用途配置尚未加载完成，请稍后重试",
+    "notConfigured": "未设置",
+    "switchTitle": "更换用途模型",
+    "switchMessage": "{{usage}}将从「{{from}}」切换到「{{to}}」。AI员工的单独配置不受影响。",
+    "switchConfirm": "确认切换",
+    "optionalDefaults": "系统默认用途（可选）",
+    "optionalDefaultsHint": "可在这里一起指定用途。不选择则保留现有默认设置。",
+    "keepUsage": "不更改此用途",
+    "plannedUsage": "完成配置后：{{from}} → {{to}}",
+    "invalidAddress": "请填写完整的 HTTP 或 HTTPS 接口地址，不要包含密钥或查询参数",
+    "acknowledgeEmbedding": "请先确认更换知识库检索模型的影响",
+    "partialSave": "服务已保存，但系统默认用途未更新：{{error}}。可以重试，不会重复创建服务。",
+    "stepConnection": "第 1 步 / 共 2 步 · 连接服务",
+    "stepModels": "第 2 步 / 共 2 步 · 选择模型",
+    "serviceLabel": "厂商名称",
+    "fetchIsNotTest": "下一步只获取模型列表，不代表模型已通过调用测试。",
+    "manualContinue": "无法获取列表？继续手动添加",
+    "back": "上一步",
+    "nextManage": "下一步：管理模型",
+    "nextFetch": "下一步：获取模型",
+    "retryUsage": "重试设置用途",
+    "finish": "完成配置",
+    "agentFollow": "跟随系统默认",
+    "agentFollowHint": "跟随系统默认：每次回复使用系统当前的客服模型。选择具体模型则单独配置。",
+    "title": "模型配置",
+    "subtitle": "接入模型服务，为客服和知识库选择合适的模型。",
+    "add": "添加模型服务",
+    "edit": "编辑配置",
+    "manage": "管理模型",
+    "services": "已接入服务",
+    "usage": "模型用途",
+    "inlineUsageHint": "在下拉菜单中选择模型用途；编辑和删除在每行的「更多」里。",
+    "unsavedUsage": "用途已修改，尚未保存",
+    "chooseUsage": "{{model}} · {{usage}}",
+    "setUsage": "设为{{usage}}",
+    "selectedUsage": "{{usage}} · 已选",
+    "usageUnavailable": "暂无可选用途",
+    "usageHint": "AI员工默认使用这里的模型，也可单独设置。",
+    "saveUsage": "保存用途",
+    "optional": "图片和语音 · 选配",
+    "selectService": "1 选择服务",
+    "connection": "2 连接信息",
+    "selectModels": "具体模型",
+    "name": "连接名称",
+    "address": "接口地址",
+    "addressHint": "官方接口地址已自动填写，可按需修改。自定义服务请填写供应方提供的地址。",
+    "key": "API 密钥",
+    "keepKey": "已配置，留空保留原密钥",
+    "enterKey": "粘贴 API 密钥",
+    "revealKey": "显示或隐藏密钥",
+    "preserve": "现有配置已载入。密钥留空会保留原值，保存只更新修改过的字段。",
+    "required": "请填写连接名称、接口地址和 API 密钥",
+    "chooseOne": "请至少选择或手动添加一个模型",
+    "saved": "配置已保存",
+    "save": "保存配置",
+    "saving": "保存中…",
+    "fetchModels": "获取模型",
+    "noModels": "接口没有返回模型列表，可以手动添加模型。",
+    "modelEmpty": "点击获取模型，或手动添加模型。",
+    "testHint": "测试会发起一次少量计费的真实调用。图片和语音模型请先保存，再从已接入服务的「测试调用」上传样本。",
+    "test": "测试调用",
+    "testing": "测试中…",
+    "testSuccess": "调用成功",
+    "testFailed": "调用失败",
+    "manual": "手动添加模型",
+    "modelId": "模型 ID",
+    "modelType": "模型类型",
+    "operation": "操作",
+    "deleteTitle": "删除模型服务",
+    "deleteHint": "删除后不能继续通过此服务调用模型。正在被系统用途或AI员工使用的配置将禁止删除。",
+    "empty": "还没有接入模型服务，点击右上角添加。",
+    "embeddingTitle": "更换知识库检索模型",
+    "embeddingWarning": "更换检索模型可能导致已有知识库无法匹配，通常需要重新处理原文生成索引。本次保存不会自动重建知识库，请确认已安排重新处理；否则请取消。",
+    "confirmChange": "确认更换",
+    "uses": {
+      "chat": "客服回复",
+      "embedding": "知识库检索",
+      "asr": "语音识别",
+      "ocr": "图片文字提取",
+      "vlm": "图片理解"
+    },
+    "types": {
+      "chat": "客服对话",
+      "embedding": "知识库检索",
+      "asr": "语音识别",
+      "ocr": "图片文字提取",
+      "vlm": "图片理解"
+    }
+  },
+  "channelManagement": {
+    "nameTitle": "Name this channel",
+    "nameLabel": "Channel name",
+    "nameRequired": "Enter a channel name",
+    "nameHint": "Use a brand or purpose to distinguish multiple channels of the same type.",
+    "namePlaceholder": "For example: Brand website support",
+    "duplicateName": "This name already exists. Choose another name.",
+    "create": "Create channel",
+    "creating": "Creating…",
+    "enabled": "Enabled",
+    "disabled": "Disabled"
+  },
+  "agentToolDetails": {
+    "title": "Tool details",
+    "parameters": "Input parameters",
+    "required": "Required",
+    "unspecifiedType": "Type unspecified",
+    "noDescription": "This tool has no description available.",
+    "noParameters": "This tool has no input parameter documentation available."
+  },
   "common": {
+    "replyStoppedTitle": "Reply stopped",
+    "replyStoppedMessage": "No further content from this reply will be sent. Content already sent is retained.",
     "save": "Save",
     "cancel": "Cancel",
     "confirm": "Confirm",
@@ -117,10 +273,13 @@
     },
     "plugins": {
       "title": "Plugins",
-      "subtitle": "View and manage plugins connected to TGO",
+      "subtitle": "View and manage plugins connected to 域见",
+      "loadErrorTitle": "Could not load plugins",
+      "loadErrorHint": "Check that the plugin service is running. This does not mean no plugins are installed.",
+      "loadErrorFallback": "Could not load the plugin list. Please try again.",
       "empty": {
         "title": "No plugins connected",
-        "description": "Plugins can connect to TGO API via Unix Socket or TCP."
+        "description": "Plugins can connect to 域见 API via Unix Socket or TCP."
       },
       "viewDocs": "View Plugin Developer Guide",
       "status": {
@@ -136,13 +295,15 @@
       "author": "Author",
       "connectedAt": "Connected At",
       "debug": {
-        "title": "Debug Hint",
-        "description": "In development mode, you can connect local plugins via port 8005 (TCP) or /var/run/tgo/tgo.sock (Unix Socket).",
+        "title": "Developer Note",
+        "description": "Custom plugins can connect to local port 8005 for debugging. No configuration is needed for normal use.",
         "badge": "Debug",
         "autoManaged": "Debug Mode - Auto Managed"
       },
       "token": {
         "generate": "Debug Token",
+        "adminOnly": "Only project administrators can generate debug tokens",
+        "lifetimeHint": "For plugin debugging in the current project only; valid for 24 hours",
         "error": "Failed to generate token",
         "modal": {
           "title": "Project Debug Token",
@@ -415,11 +576,24 @@
     },
     "notifications": {
       "title": "Notifications",
+      "queue": {
+        "title": "A visitor entered the waiting queue",
+        "body": "Open Unassigned on the chat page to review and accept visitors."
+      },
+      "notice": {
+        "title": "Desktop notification notice",
+        "default": "Desktop notifications are not enabled. You may miss customer messages when viewing another page.",
+        "denied": "Desktop notifications are blocked for this site. Waiting visitors remain available on the chat page; enable notifications in the browser's site permissions.",
+        "unsupported": "This browser does not support desktop notifications. Waiting visitors remain available on the chat page.",
+        "settings": "Notification settings",
+        "dismiss": "Dismiss for now"
+      },
       "notSupported": "Your browser does not support desktop notifications",
       "permission": {
         "title": "Notification Permission",
         "granted": "Authorized",
         "denied": "Denied",
+        "unsupported": "Desktop notifications unsupported",
         "default": "Not Set",
         "grantedDesc": "You can receive desktop notifications",
         "deniedDesc": "Please allow notification permission in browser settings",
@@ -431,6 +605,9 @@
         "title": "Notification Settings",
         "desktop": {
           "title": "Desktop Notifications",
+          "awaitingPermission": "Desktop notifications are not active. Your preference is saved and will resume when browser permission is granted.",
+          "enabled": "Desktop notifications are enabled. System notification and Do Not Disturb settings may still prevent display.",
+          "disabled": "Desktop notifications are off.",
           "description": "Show notifications in system notification center when new messages arrive"
         },
         "sound": {
@@ -456,7 +633,10 @@
       "test": {
         "title": "Test Notification",
         "description": "Send a test notification to verify the feature is working correctly",
-        "button": "Send Test"
+        "button": "Send Test",
+        "body": "This is a notification test message.",
+        "sent": "The test notification was submitted to the browser. If it is not visible, check browser permissions and system Do Not Disturb settings.",
+        "failed": "The test notification could not be sent. Check browser notification permissions and try again."
       },
       "tip": "Tip: Notification feature requires browser permission. If you denied the permission request, you need to manually allow notifications for this site in your browser settings."
     },
@@ -712,6 +892,8 @@
       "refreshSuccessDesc": "Agent list has been updated",
       "refreshFailed": "Refresh Failed",
       "refreshFailedDesc": "Unable to refresh agent list, please try again later",
+      "refreshConfigurationFailed": "Model configuration check incomplete",
+      "refreshConfigurationFailedDesc": "The agent list was updated, but model configuration could not be confirmed. Please refresh to retry.",
       "retryFailed": "Retry Failed",
       "retryFailedDesc": "Unable to load agent list, please try again later",
       "createSuccess": "Create Successful",
@@ -767,6 +949,16 @@
       "editTooltip": "Edit Agent",
       "deleteTooltip": "Delete Agent",
       "llmLabel": "LLM",
+      "readinessNotice": "Only model configuration is checked here. Tools, knowledge and actual replies still require a test run.",
+      "activationNotice": "Disabled employees reject new requests and retain configuration and history. Pause an existing reply in chat.",
+      "readiness": {
+        "checking": "Checking configuration",
+        "check_failed": "Configuration check failed; refresh to retry",
+        "missing_model": "Model not configured",
+        "unavailable_model": "Model or provider is missing or disabled",
+        "provider_unassigned": "Confirm the model provider",
+        "configured": "Model configured; test run required"
+      },
       "status": {
         "active": "Active",
         "inactive": "Inactive",
@@ -1025,6 +1217,9 @@
       "password": "Password",
       "rememberMe": "Remember me",
       "forgotPassword": "Forgot password?",
+      "recoveryContact": "Contact the deployment administrator to verify your identity and recover your account. Email self-service recovery is not available.",
+      "recoveryNativeInstruction": "Hybrid deployment administrators: open PowerShell in the project root on the host, run this command, and confirm the account and its project.",
+      "recoverySafety": "Host administrator access is required. The new password is not displayed. Do not send passwords in customer-service chats.",
       "loginButton": "Sign In",
       "loggingIn": "Signing in...",
       "noAccount": "Don't have an account?",
@@ -1034,6 +1229,14 @@
       "passwordPlaceholder": "Enter your password"
     },
     "register": {
+      "workspaceName": "Project name",
+      "workspaceRequired": "Enter a project name",
+      "projectHint": "Registration creates an independent project. Models, knowledge and customer data are isolated. Configure AI in your new project to enable it.",
+      "newProjectLink": "Register and create an independent project",
+      "passwordTooLong": "Use a password of no more than 72 UTF-8 bytes",
+      "createdLoginRequired": "Your account and project were created, but automatic login did not complete. Sign in below; do not register again.",
+      "rateLimited": "Too many registration attempts. Try again in 10 minutes.",
+      "disabled": "Public registration is disabled. Contact the system administrator.",
       "title": "Create new account",
       "email": "Email address",
       "password": "Set password",
@@ -1202,6 +1405,10 @@
     },
     "debug": {
       "title": "Online Debug",
+      "cancelled": "Cancelled",
+      "incomplete": "Execution incomplete",
+      "streamInterrupted": "The debug connection was interrupted. Refresh to check the execution result.",
+      "cancelFailed": "Cancellation could not be confirmed. Refresh and try again.",
       "input_variables": "Input Variables",
       "execution_status": "Execution Status",
       "final_output": "Final Output",
@@ -1608,6 +1815,7 @@
       "importData": "Paste Data",
       "importButton": "Start Import",
       "importSuccess": "Successfully imported {{count}} QA pairs",
+      "importSummary": "Saved {{created}}, skipped {{skipped}} duplicates, {{failed}} processing or queue failures. Saved pairs still require background processing.",
       "importFailed": "Import failed",
       "importJsonPlaceholder": "Paste JSON array data...",
       "importCsvPlaceholder": "Paste CSV data...",
@@ -1617,6 +1825,9 @@
       "allCategories": "All Categories",
       "allStatuses": "All Statuses",
       "pagination": "Page {{current}} / {{total}}",
+      "failureReason": "Processing failure",
+      "failureUnknown": "No failure details returned. Check the task service.",
+      "retryHint": "After resolving the cause, edit and save to retry. No answer change is required.",
       "stats": {
         "total": "Total QA Pairs",
         "pending": "Pending",
@@ -1691,7 +1902,7 @@
     "tabs": {
       "documents": "Documents",
       "searchTest": "Search Test",
-      "governance": "Governance Review"
+      "governance": "Knowledge Base Review"
     },
     "detail": {
       "title": "Knowledge Base Details",
@@ -1733,10 +1944,12 @@
       "fileServiceNotInitialized": "File service not initialized"
     },
     "governance": {
-      "title": "Knowledge Governance and Review",
+      "sourceReviewHint": "Configure scope, enable automatic replies, and submit for administrator review. Changed answers and recrawled pages require a new review.",
+      "title": "Knowledge Base Review",
       "description": "Only approved, currently effective knowledge explicitly allowed for automatic replies can be used in customer-service answers.",
       "refresh": "Refresh",
       "safeBackfill": "Safely Backfill Legacy Files",
+      "safeBackfillHint": "Create review drafts for previously uploaded documents that have no review record. Original content and existing review records stay unchanged. Automatic replies are disabled by default. Complete the settings, enable automatic replies, and obtain approval before the knowledge can be used during its validity period.",
       "ungoverned": "Ungoverned",
       "ungovernedTitle": "These documents do not have governance metadata yet",
       "configure": "Configure",
@@ -1846,10 +2059,11 @@
     }
   },
   "footer": {
-    "copyright": "© 2025 Tgo CS. All rights reserved."
+    "copyright": "域见 · Customer Service Platform"
   },
   "brand": {
-    "name": "Tgo CS"
+    "name": "域见",
+    "description": "Customer Service Platform"
   },
   "comingSoon": {
     "title": "Coming soon",
@@ -2092,6 +2306,7 @@
     }
   },
   "errors": {
+    "replyStopUnconfirmed": "The stop has not been confirmed. Please try again.",
     "incompleteVisitorInfo": "Visitor information is incomplete",
     "missingVisitorId": "Missing visitor_id"
   },
@@ -2171,6 +2386,21 @@
     }
   },
   "chat": {
+    "delivery": {
+      "trainingQueuedTitle": "Reply sent",
+      "trainingQueued": "Correction queued. It will only take effect after a manual skill update.",
+      "trainingPending": "Reply sent; recording the staff correction",
+      "trainingSaved": "Correction recorded; awaiting a manual skill update",
+      "trainingUnavailable": "Reply sent, but the target skill is unavailable; correction not saved to the skill",
+      "viewSkills": "View skills",
+      "restoreFailed": "Previous delivery status is unavailable. Check again before sending to avoid duplicates.",
+      "historyPending": "Channel accepted; chat history is syncing. Do not resend.",
+      "unknown": "Delivery unconfirmed. Check whether the customer received it before resending.",
+      "processing": "Message processing. Check status; do not resend.",
+      "failed": "The channel did not accept this message.",
+      "retry": "Retry send",
+      "check": "Check status"
+    },
     "title": "Chat Management",
     "openChat": "Open Chat",
     "sync": {
@@ -2572,6 +2802,26 @@
     }
   },
   "tools": {
+    "probe": {
+      "savedHint": "Connect a business tool, save it, then test it before assigning it to an AI employee.",
+      "test": "Test tool",
+      "warning": "This calls the saved service and may modify data, send messages or incur charges. Use safe test data.",
+      "parameters": "View parameter definitions",
+      "input": "Test input (JSON object)",
+      "confirm": "I understand the impact and authorize this call",
+      "invalidJson": "Enter a valid JSON object.",
+      "run": "Run test",
+      "running": "Calling…",
+      "success": "Call succeeded",
+      "failure": "Call failed",
+      "failed": "Request failed. Check the service and authorization.",
+      "connect": "Connect and read tools",
+      "connecting": "Connecting…",
+      "connected": "Connected. Select a tool to add.",
+      "empty": "Connected, but no tools were provided.",
+      "choose": "Select a service tool",
+      "discoveryHint": "Enter the service address and authorization, then read and select a tool. This does not execute business operations."
+    },
     "title": "Tools",
     "subtitle": "Configure and extend the capabilities of AI agents",
     "copyEndpoint": "Copy Endpoint",
@@ -2641,7 +2891,7 @@
         "initLoginFailed": "Failed to initiate login process",
         "missingVerifier": "Missing local verification key, please try again",
         "invalidCode": "Invalid or expired authorization code",
-        "usageNotice": "Once enabled, it will be available on the TGO platform, with real-time billing based on actual Token consumption.",
+        "usageNotice": "Once enabled, it will be available on the 域见 platform, with real-time billing based on actual Token consumption.",
         "noResults": "No matching models found",
         "noResultsDesc": "Try searching for other keywords or switch categories",
         "allModels": "All Models",
@@ -3031,7 +3281,7 @@
         "successDesc": "Example file has been downloaded, open it in a browser to see the result",
         "demoTitle": "Widget Demo",
         "welcomeTitle": "Welcome!",
-        "welcomeDesc": "Your TGO chat widget is now integrated! Click the chat button in the bottom-right corner to start a conversation.",
+        "welcomeDesc": "Your 域见 chat widget is now integrated! Click the chat button in the bottom-right corner to start a conversation.",
         "integrationCode": "Integration Code",
         "securityWarning": "Security Notice: This file contains your API key. Do not share it publicly or commit it to public repositories."
       },
@@ -3739,7 +3989,7 @@
       "integration": {
         "title": "API Integration Information",
         "guide": "Integration Guide",
-        "chatApi": "Chat API (Send Messages to TGO)",
+        "chatApi": "Chat API (Send Messages to 域见)",
         "endpoint": "API Endpoint",
         "authentication": "Authentication",
         "authDesc": "Add the platform API key in the request header:",
@@ -3750,7 +4000,7 @@
         "visitorRegisterDesc": "If you need to pass detailed user information (name, avatar, etc.), you can first call the visitor registration API:",
         "simpleExample": "Simple Example",
         "responseHandling": "Response Handling",
-        "responseHandlingDesc": "After calling the chat API, TGO system will return the AI assistant's reply. The third-party platform needs to send the returned reply content to the corresponding third-party user. The response format is compatible with OpenAI ChatGPT API, supporting both streaming and non-streaming responses.",
+        "responseHandlingDesc": "After calling the chat API, 域见 system will return the AI assistant's reply. The third-party platform needs to send the returned reply content to the corresponding third-party user. The response format is compatible with OpenAI ChatGPT API, supporting both streaming and non-streaming responses.",
         "callbackApi": "Callback API (Receive Customer Service Replies)",
         "callbackConfig": "Configure Callback URL",
         "callbackConfigDesc": "Configure your callback URL in the 'Callback URL' field on the left. When customer service replies to a message, the system will send a POST request to that address.",
@@ -3790,7 +4040,7 @@
   },
   "setup": {
     "title": "System Setup Wizard",
-    "subtitle": "Welcome to Tgo CS, let's configure your system",
+    "subtitle": "Welcome to 域见, let's configure your system",
     "steps": {
       "admin": "Admin Account",
       "staff": "Human Agents",
@@ -3935,7 +4185,7 @@
     "dismiss": "Close",
     "dismissButton": "Don't Show Again",
     "welcome": {
-      "title": "Welcome to TGO",
+      "title": "Welcome to 域见",
       "subtitle": "Complete the following steps to start your AI customer service journey",
       "progress": "Progress",
       "estimatedTime": "~2 min",
@@ -3982,8 +4232,54 @@
     }
   },
   "deviceControl": {
+    "sessions": {
+      "title": "Execution history",
+      "subtitle": "View AI device tasks and recorded steps",
+      "detailTitle": "Device task details",
+      "device": "Device",
+      "allDevices": "All devices",
+      "empty": "No device executions yet. Tasks from device-bound AI agents will appear here.",
+      "unknownAgent": "Agent not recorded",
+      "actionCount": "{{count}} actions",
+      "actions": "Actions",
+      "failedActions": "Failed or interrupted",
+      "screenshots": "Images returned",
+      "executionId": "Execution ID",
+      "started": "Started",
+      "ended": "Ended",
+      "steps": "Steps (newest first)",
+      "noSteps": "No step records available. Historical tasks may only have summary counts.",
+      "back": "Back to tasks",
+      "autoRefresh": "Auto-refreshing; paused on history pages",
+      "historyPaused": "Viewing history; automatic refresh is paused",
+      "retryPaused": "Connection error; automatic refresh is paused. Please retry.",
+      "recordEnded": "Record expired",
+      "finishedRefresh": "Task ended; refresh manually if needed",
+      "stale": "These are previously retrieved records, not the latest execution state.",
+      "loadFailed": "Execution history could not load or timed out. Check the service connection and retry.",
+      "detailFailed": "Task details could not load or are no longer accessible. Return to the list or retry.",
+      "privacy": "Only tool names, times and statuses are recorded here, not arguments, image contents or model reasoning.",
+      "interruptedHint": "The final result is unknown. Already dispatched actions may still take effect; check the device first.",
+      "pagination": "Execution history pagination",
+      "previous": "Previous",
+      "next": "Next",
+      "page": "Page {{page}} · {{total}} records",
+      "status": {
+        "running": "Running",
+        "completed": "Completed",
+        "failed": "Failed",
+        "cancelled": "Stopped",
+        "interrupted": "Interrupted / unknown"
+      }
+    },
     "title": "Device Control",
     "subtitle": "Manage remote devices controlled by AI agents",
+    "loadErrorTitle": "Could not load devices",
+    "loadErrorHint": "Check that the device control service is running. This does not mean no devices are connected.",
+    "loadErrorFallback": "Could not load the device list. Please try again.",
+    "loadTimeout": "Loading devices timed out. Please try again.",
+    "staleDevices": "Previously loaded devices are shown below. Their connection status may have changed.",
+    "selectionMissing": "The previously selected device is no longer in the list. Please select another device.",
     "addDevice": "Add Device",
     "search": {
       "placeholder": "Search devices..."
@@ -3994,6 +4290,7 @@
     },
     "stats": {
       "total": "Total Devices",
+      "unavailable": "Device count unavailable",
       "online": "Online",
       "offline": "Offline"
     },
@@ -4186,6 +4483,50 @@
         "urlRequired": "Please enter a GitHub directory URL",
         "urlFormat": "Please enter a valid GitHub URL, supports directory or file links, e.g.: https://github.com/owner/repo/tree/branch/path"
       }
+    },
+    "training": {
+      "kind": {
+        "expression": "表达调整",
+        "facts": "业务事实修改",
+        "mixed": "表达与事实都修改",
+        "review": "待核对"
+      },
+      "tabs": {
+        "pending": "待更新",
+        "published": "已发布",
+        "try": "效果试答"
+      },
+      "busy": {
+        "load": "正在加载训练内容…",
+        "analyze": "正在分析人工修正…",
+        "publish": "正在更新技能…",
+        "try": "正在试答…"
+      },
+      "include": "纳入本次更新",
+      "customer": "客户：",
+      "original": "AI 原稿",
+      "final": "人工发送",
+      "rulesEdit": "提炼规则（每行一条，可修改）",
+      "title": "训练与试答",
+      "hint": "预览和试答不会生效，点击“更新技能”后才用于客服回复。",
+      "stats": "已发布 v{{version}} · {{published}} 条案例 · {{pending}} 条待处理",
+      "analyze": "分析修改并提炼规则",
+      "factHint": "Fact edits are not style training. Reviewed, unselected records are archived; unreviewed records remain pending.",
+      "empty": "暂无待更新修正。在辅助模式修改回复并发送后，会出现在这里。",
+      "publishedRules": "已发布表达规则",
+      "noPublished": "还没有发布训练案例，目前使用基础表达规则。",
+      "tryHint": "使用同一份业务事实比较发布前后表达，不会向客户发送消息。",
+      "question": "客户问题",
+      "facts": "本轮业务事实（请保留不确定性和限制条件）",
+      "history": "客户已提供的条件（可选）",
+      "tryOne": "试答当前问题",
+      "tryGroup": "试答 5 个典型问题",
+      "currentReply": "当前已发布版本",
+      "matched": "参考 {{count}} 条相关案例",
+      "candidateReply": "待更新预览",
+      "selected": "本次纳入 {{count}} 条表达修正",
+      "publish": "更新技能",
+      "open": "训练与试答 · 待更新 {{count}} 条"
     }
   }
 }

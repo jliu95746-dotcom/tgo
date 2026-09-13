@@ -296,7 +296,10 @@ class InstalledPluginListResponse(BaseModel):
 class DevTokenRequest(BaseModel):
     """Request to generate a dev token."""
     project_id: UUID = Field(..., description="Project ID to associate with the plugin")
-    expires_hours: int = Field(24, description="Token expiration in hours")
+    expires_hours: int = Field(
+        24, ge=1, le=24, strict=True,
+        description="Token expiration in whole hours (1-24)",
+    )
 
 
 class DevTokenResponse(BaseModel):

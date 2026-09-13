@@ -16,6 +16,7 @@ export class KnowledgeGovernanceApiService extends BaseApiService {
   protected readonly endpoints = {
     LIST: BASE_ENDPOINT,
     FILE: (fileId: string) => `${BASE_ENDPOINT}/files/${fileId}`,
+    QA: (pairId: string) => `${BASE_ENDPOINT}/qa-pairs/${pairId}`,
     SUBMIT: (recordId: string) => `${BASE_ENDPOINT}/${recordId}/submit`,
     REVIEW: (recordId: string) => `${BASE_ENDPOINT}/${recordId}/review`,
     BACKFILL: `${BASE_ENDPOINT}/backfill`,
@@ -28,9 +29,24 @@ export class KnowledgeGovernanceApiService extends BaseApiService {
     const service = new KnowledgeGovernanceApiService();
     const query = new URLSearchParams({ collection_id: collectionId, limit: '100' });
     if (reviewStatus) query.set('review_status', reviewStatus);
-    return service.get<KnowledgeGovernanceListResponse>(
-      `${service.endpoints.LIST}?${query.toString()}`,
-    );
+    const records: KnowledgeGovernanceRecord[] = [];
+    let response: KnowledgeGovernanceListResponse;
+    do {
+      query.set('offset', String(records.length));
+      response = await service.get<KnowledgeGovernanceListResponse>(
+        `${service.endpoints.LIST}?${query.toString()}`,
+      );
+      records.push(...response.data);
+    } while (response.pagination.has_next && response.data.length > 0);
+    return { ...response, data: records };
+  }
+
+  static async saveQADraft(
+    pairId: string,
+    request: KnowledgeGovernanceDraftRequest,
+  ): Promise<KnowledgeGovernanceRecord> {
+    const service = new KnowledgeGovernanceApiService();
+    return service.put<KnowledgeGovernanceRecord>(service.endpoints.QA(pairId), request);
   }
 
   static async saveDraft(

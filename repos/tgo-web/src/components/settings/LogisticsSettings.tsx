@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -10,6 +10,9 @@ import {
   Truck,
 } from 'lucide-react';
 import Toggle from '@/components/ui/Toggle';
+import { useTranslation } from 'react-i18next';
+import LogisticsProviderModal from '@/components/ai/LogisticsProviderModal';
+import { getLogisticsProviderTool, isLogisticsProviderTool } from '@/services/logisticsProviderService';
 import { logisticsApi } from '@/services/logisticsApi';
 import ProjectToolsApi from '@/services/projectToolsApi';
 import type { AiToolResponse } from '@/types';
@@ -47,10 +50,13 @@ const toEditableSettings = (
 });
 
 const LogisticsSettings: React.FC = () => {
+  const { t } = useTranslation();
+  const [providerTool, setProviderTool] = useState<AiToolResponse | null | undefined>(undefined);
   const [settings, setSettings] =
     useState<LogisticsSettingsUpdate>(fallbackSettings);
   const [tools, setTools] = useState<AiToolResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testTrackingNo, setTestTrackingNo] = useState('');
@@ -67,6 +73,7 @@ const LogisticsSettings: React.FC = () => {
       .then(([loadedSettings, loadedTools]) => {
         setSettings(toEditableSettings(loadedSettings));
         setTools(loadedTools);
+        setSettingsLoaded(true);
       })
       .catch((error: unknown) => {
         setNotice({
@@ -78,19 +85,18 @@ const LogisticsSettings: React.FC = () => {
       .finally(() => setLoading(false));
   }, []);
 
-  const sortedTools = useMemo(
-    () =>
-      [...tools].sort((left, right) => {
-        const leftText =
-          `${left.title_zh || left.title || ''} ${left.name}`.toLowerCase();
-        const rightText =
-          `${right.title_zh || right.title || ''} ${right.name}`.toLowerCase();
-        const isLogistics = (value: string) =>
-          /快递|物流|express|shipment|tracking/.test(value);
-        return Number(isLogistics(rightText)) - Number(isLogistics(leftText));
-      }),
-    [tools],
-  );
+  const configureProvider = async () => {
+    try {
+      const latest = await getLogisticsProviderTool();
+      setProviderTool(latest);
+      if (latest) {
+        setTools(current => [...current.filter(tool => tool.id !== latest.id), latest]);
+        setSettings(current => ({ ...current, query_tool_id: latest.id }));
+      }
+    } catch {
+      setNotice({ type: 'error', message: t('logisticsProvider.loadFailed') });
+    }
+  };
 
   const update = <Key extends keyof LogisticsSettingsUpdate>(
     key: Key,
@@ -98,11 +104,13 @@ const LogisticsSettings: React.FC = () => {
   ) => setSettings((current) => ({ ...current, [key]: value }));
 
   const handleSave = async () => {
+    if (!settingsLoaded || saving || testing) return;
     setSaving(true);
     setNotice(null);
     try {
+      const latest = await logisticsApi.getSettings();
       const saved: LogisticsSettingsType =
-        await logisticsApi.updateSettings(settings);
+        await logisticsApi.updateSettings({ ...settings, query_tool_id: latest.query_tool_id });
       setSettings(toEditableSettings(saved));
       setNotice({ type: 'success', message: '物流档案设置已保存' });
     } catch (error) {
@@ -116,6 +124,12 @@ const LogisticsSettings: React.FC = () => {
   };
 
   const handleTest = async () => {
+    if (!settings.query_tool_id) return;
+    const selectedTool = tools.find(tool => tool.id === settings.query_tool_id);
+    if (selectedTool && isLogisticsProviderTool(selectedTool) && !selectedTool.config?.logistics_provider) {
+      await configureProvider();
+      return;
+    }
     if (!testTrackingNo.trim()) {
       setNotice({ type: 'error', message: '请输入用于测试的真实物流单号' });
       return;
@@ -123,7 +137,7 @@ const LogisticsSettings: React.FC = () => {
     setTesting(true);
     setNotice(null);
     try {
-      const result = await logisticsApi.testTool(testTrackingNo.trim());
+      const result = await logisticsApi.testTool(testTrackingNo.trim(), settings.query_tool_id);
       setNotice({
         type: 'success',
         message: result.preview
@@ -154,8 +168,7 @@ const LogisticsSettings: React.FC = () => {
     | 'auto_capture_visitor_messages'
     | 'auto_capture_staff_messages'
     | 'auto_query_on_mention'
-    | 'verify_before_binding'
-    | 'stop_after_delivered';
+    | 'verify_before_binding';
   const switches: Array<{
     key: BooleanSettingKey;
     title: string;
@@ -186,11 +199,6 @@ const LogisticsSettings: React.FC = () => {
       title: '顾客单号先验证再确认',
       description: '顾客提供的单号保留待核验状态，降低串单风险。',
     },
-    {
-      key: 'stop_after_delivered',
-      title: '签收后停止自动跟踪',
-      description: '已签收物流不再重复刷新，减少查询次数。',
-    },
   ];
 
   return (
@@ -212,7 +220,7 @@ const LogisticsSettings: React.FC = () => {
         <button
           type="button"
           onClick={handleSave}
-          disabled={saving}
+          disabled={!settingsLoaded || saving || testing}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-sm font-medium text-white"
         >
           {saving ? (
@@ -253,25 +261,15 @@ const LogisticsSettings: React.FC = () => {
             <span className="text-sm text-gray-700 dark:text-gray-300">
               快递查询工具
             </span>
-            <select
-              value={settings.query_tool_id || ''}
-              onChange={(event) =>
-                update('query_tool_id', event.target.value || null)
-              }
-              className="w-full h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100"
-            >
-              <option value="">未选择</option>
-              {sortedTools.map((tool) => (
-                <option key={tool.id} value={tool.id}>
-                  {tool.title_zh || tool.title || tool.name}
-                </option>
-              ))}
-            </select>
+            <div className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100">
+              {tools.find(tool => tool.id === settings.query_tool_id)?.config?.logistics_provider?.provider_name || t('logisticsProvider.notConfigured')}
+            </div>
             <span className="block text-xs text-gray-500">
-              选择现有“快递查询服务”，档案功能不会重复创建第二个查询工具。
+              {t('logisticsProvider.selectHint')}
             </span>
           </label>
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-4">
+            <button type="button" disabled={saving || testing} onClick={configureProvider} className="mb-3 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50">{t('logisticsProvider.configure')}</button>
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
               按需实时查询
             </p>
@@ -290,7 +288,7 @@ const LogisticsSettings: React.FC = () => {
           <button
             type="button"
             onClick={handleTest}
-            disabled={testing || !settings.query_tool_id}
+            disabled={testing || saving || !settingsLoaded || !settings.query_tool_id}
             className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg border border-blue-200 dark:border-blue-800 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50"
           >
             {testing ? (
@@ -302,6 +300,14 @@ const LogisticsSettings: React.FC = () => {
           </button>
         </div>
       </section>
+
+      {providerTool !== undefined && <LogisticsProviderModal tool={providerTool} onClose={() => setProviderTool(undefined)} onSaved={(saved, linked) => {
+        setTools(current => [...current.filter(tool => tool.id !== saved.id), saved]);
+        if (settings.query_tool_id !== saved.id) {
+          update('query_tool_id', saved.id);
+          setNotice({ type: linked ? 'success' : 'error', message: t(linked ? 'logisticsProvider.saved' : 'logisticsProvider.linkFailed') });
+        }
+      }} />}
 
       <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-5">

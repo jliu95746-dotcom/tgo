@@ -14,10 +14,10 @@ Key Components:
 - System health monitoring
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any
 
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from .celery_app import celery_app
@@ -264,22 +264,26 @@ async def _health_check_async() -> Dict[str, Any]:
             result.scalar()
             
             # Get basic statistics
-            files_count = await db.execute(select(File).count())
+            files_count = await db.execute(
+                select(func.count()).select_from(File)
+            )
             total_files = files_count.scalar()
             
-            docs_count = await db.execute(select(FileDocument).count())
+            docs_count = await db.execute(
+                select(func.count()).select_from(FileDocument)
+            )
             total_documents = docs_count.scalar()
             
             # Check for stuck tasks
-            stuck_threshold = datetime.now() - timedelta(hours=2)
-            stuck_query = select(File).where(
+            stuck_threshold = datetime.now(timezone.utc) - timedelta(hours=2)
+            stuck_query = select(func.count()).select_from(File).where(
                 and_(
                     File.status == ProcessingStatus.PROCESSING.value,
                     File.updated_at < stuck_threshold
                 )
             )
             stuck_result = await db.execute(stuck_query)
-            stuck_tasks = len(stuck_result.scalars().all())
+            stuck_tasks = stuck_result.scalar()
             
             return {
                 "status": "healthy",

@@ -11,6 +11,7 @@
 import type { Message, Chat } from '@/types';
 import { MESSAGE_SENDER_TYPE } from '@/constants';
 import { useAuthStore } from '@/stores/authStore';
+import i18n from '@/i18n';
 
 /**
  * 通知偏好设置接口
@@ -51,6 +52,7 @@ class NotificationService {
   private audio: HTMLAudioElement | null = null;
   private audioContext: AudioContext | null = null;
   private lastNotificationTime = 0;
+  private lastQueueNotice: { account: string; time: number } | null = null;
   private readonly DEBOUNCE_MS = 1000; // 防抖时间：1秒内只发送一次通知
   private readonly NOTIFICATION_DURATION = 5000; // 通知显示时间：5秒
 
@@ -89,7 +91,9 @@ class NotificationService {
     
     if (!this.audioContext) {
       try {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const AudioContextClass = window.AudioContext || (
+          window as Window & { webkitAudioContext?: typeof AudioContext }
+        ).webkitAudioContext;
         if (AudioContextClass) {
           this.audioContext = new AudioContextClass();
         }
@@ -180,7 +184,7 @@ class NotificationService {
       return permission as NotificationPermission;
     } catch (error) {
       console.error('🔔 NotificationService: Failed to request permission:', error);
-      return 'denied';
+      return this.getPermission();
     }
   }
 
@@ -206,7 +210,7 @@ class NotificationService {
    */
   private isOwnMessage(message: Message): boolean {
     // staff 类型的消息是自己发送的
-    const currentUid = useAuthStore.getState().user?.id + "-staff";
+    const currentUid = `${useAuthStore.getState().user?.id}-staff`;
     return message.fromUid === currentUid;
   }
 
@@ -332,7 +336,7 @@ class NotificationService {
       
       const notification = new Notification(senderName, {
         body: content,
-        icon: message.fromInfo?.avatar || '/logo.svg',
+        icon: message.fromInfo?.avatar || '/yujian-logo.svg',
         tag: `msg-${message.channelId}`, // 相同 tag 的通知会合并
         requireInteraction: false, // 自动关闭
         silent: true, // 我们自己控制声音
@@ -370,7 +374,7 @@ class NotificationService {
         await this.audio.play();
         console.log('🔔 NotificationService: Sound played (audio file)');
         return;
-      } catch (error) {
+      } catch {
         // 音频文件播放失败，使用 Web Audio API
         console.log('🔔 NotificationService: Audio file playback failed, using Web Audio API');
       }
@@ -404,21 +408,75 @@ class NotificationService {
     }
   }
 
+  /** Queue events contain aggregate counts only, never a visitor identity. */
+  checkAndNotifyQueue(
+    raw: unknown,
+    preferences: NotificationPreferences,
+    onClick: () => void,
+    onInApp: (title: string, body: string) => void,
+  ): void {
+    const { user, isAuthenticated } = useAuthStore.getState();
+    if (!isAuthenticated || !user?.id || !user.project_id || !raw || typeof raw !== 'object') return;
+    const event = raw as Record<string, unknown>;
+    if (event.reason !== undefined && event.reason !== 'entered') return;
+    if (event.project_id !== user.project_id
+      || typeof event.waiting_count !== 'number'
+      || !Number.isSafeInteger(event.waiting_count) || event.waiting_count <= 0) return;
+    if (!preferences.notifyOnNewVisitor
+      || (!preferences.notificationEnabled && !preferences.notificationSound)
+      || (!this.isPageVisible() && !preferences.notifyOnBackground)) return;
+
+    const account = `${user.project_id}:${user.id}`;
+    const now = Date.now();
+    if (this.lastQueueNotice?.account === account
+      && now - this.lastQueueNotice.time < this.DEBOUNCE_MS) return;
+    this.lastQueueNotice = { account, time: now };
+
+    // The producer may emit before its DB transaction commits. Do not present
+    // the event's aggregate as a freshly verified queue count.
+    const title = i18n.t('settings.notifications.queue.title');
+    const body = i18n.t('settings.notifications.queue.body');
+    let desktopSent = false;
+    if (preferences.notificationEnabled && this.isSupported() && this.getPermission() === 'granted') {
+      try {
+        const notification = new Notification(title, {
+          body, icon: '/yujian-logo.svg', tag: `queue-${user.project_id}`, silent: true,
+        });
+        notification.onclick = () => {
+          const current = useAuthStore.getState();
+          if (current.isAuthenticated && current.user?.id === user.id
+            && current.user.project_id === user.project_id) {
+            window.focus();
+            onClick();
+          }
+          notification.close();
+        };
+        setTimeout(() => notification.close(), this.NOTIFICATION_DURATION);
+        desktopSent = true;
+      } catch (error) {
+        console.warn('Queue desktop notification unavailable:', error);
+      }
+    }
+    if (!desktopSent) onInApp(title, body);
+    if (preferences.notificationSound) void this.playNotificationSound();
+  }
+
   /**
    * 发送测试通知
    */
-  sendTestNotification(): void {
+  sendTestNotification(soundEnabled = true): boolean {
     if (!this.isSupported() || this.getPermission() !== 'granted') {
       console.warn('🔔 NotificationService: Cannot send test notification - permission not granted');
-      return;
+      return false;
     }
 
     try {
-      const notification = new Notification('测试通知', {
-        body: '这是一条测试通知，用于验证通知功能是否正常工作。',
-        icon: '/logo.svg',
+      const notification = new Notification(i18n.t('settings.notifications.test.title'), {
+        body: i18n.t('settings.notifications.test.body'),
+        icon: '/yujian-logo.svg',
         tag: 'test-notification',
         requireInteraction: false,
+        silent: true,
       });
 
       setTimeout(() => {
@@ -426,11 +484,11 @@ class NotificationService {
       }, this.NOTIFICATION_DURATION);
 
       // 播放声音
-      this.playNotificationSound();
-
-      console.log('🔔 NotificationService: Test notification sent');
+      if (soundEnabled) void this.playNotificationSound();
+      return true;
     } catch (error) {
       console.error('🔔 NotificationService: Failed to send test notification:', error);
+      return false;
     }
   }
 
@@ -440,7 +498,7 @@ class NotificationService {
   private truncateContent(content: string, maxLength: number): string {
     if (!content) return '';
     if (content.length <= maxLength) return content;
-    return content.substring(0, maxLength) + '...';
+    return `${content.substring(0, maxLength)}...`;
   }
 
   /**
@@ -449,7 +507,7 @@ class NotificationService {
   updatePageTitle(unreadCount: number, originalTitle?: string): void {
     if (typeof document === 'undefined') return;
     
-    const baseTitle = originalTitle || 'TGO 客服';
+    const baseTitle = originalTitle || '域见客服';
     
     if (unreadCount > 0) {
       document.title = `(${unreadCount}) ${baseTitle}`;

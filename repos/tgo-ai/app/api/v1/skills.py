@@ -2,9 +2,15 @@
 
 from typing import List
 
-from fastapi import APIRouter, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_db
+from app.services.agent_humanization import humanization_usage
 
 from app.config import settings
+from app.schemas.humanization import (
+    HumanizationContext, HumanizationMatchRequest, TrainingReview, TrainingPublishRequest,
+)
 from app.core.logging import get_logger
 from app.schemas.skill import (
     HumanizationSkillCreateRequest,
@@ -19,12 +25,7 @@ from app.schemas.skill import (
     SkillToggleResponse,
     SkillUpdateRequest,
 )
-from app.services.github_skill_downloader import (
-    GitHubDownloadError,
-    GitHubSkillDownloader,
-    GitHubURLParseError,
-    SkillValidationError,
-)
+from app.services.local_skill_import import import_local_skill
 from app.services.skill_file_service import (
     SkillConflictError,
     SkillFileService,
@@ -61,9 +62,14 @@ def _get_project_id(x_project_id: str = Header(..., description="Project ID")) -
 )
 async def list_skills(
     x_project_id: str = Header(..., alias="X-Project-Id"),
+    db: AsyncSession = Depends(get_db),
 ) -> List[SkillSummary]:
     service = _get_skill_service()
-    return await service.list_skills(x_project_id)
+    skills = await service.list_skills(x_project_id)
+    usage = await humanization_usage(db, x_project_id)
+    for skill in skills:
+        skill.used_by = usage.get(skill.name, [])
+    return skills
 
 
 @router.post(
@@ -142,12 +148,13 @@ async def add_humanization_training_sample(
 )
 async def apply_humanization_training(
     skill_name: str,
+    data: TrainingPublishRequest,
     x_project_id: str = Header(..., alias="X-Project-Id"),
 ) -> HumanizationTrainingApplyResponse:
     service = _get_skill_service()
     try:
-        return await service.apply_humanization_training(
-            x_project_id, skill_name
+        return await service.publish_humanization_training(
+            x_project_id, skill_name, data
         )
     except SkillNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -157,6 +164,29 @@ async def apply_humanization_training(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         )
+
+
+@router.get("/{skill_name}/training-review", response_model=TrainingReview)
+async def review_training(skill_name: str, x_project_id: str = Header(..., alias="X-Project-Id")) -> TrainingReview:
+    try:
+        return await _get_skill_service().review_humanization_training(x_project_id, skill_name)
+    except SkillNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/{skill_name}/match-context", response_model=HumanizationContext)
+async def match_context(skill_name: str, data: HumanizationMatchRequest,
+                        x_project_id: str = Header(..., alias="X-Project-Id")) -> HumanizationContext:
+    try:
+        return await _get_skill_service().match_humanization_context(
+            x_project_id, skill_name, data.customer_message, data.candidate,
+            data.factual_draft, data.recent_messages)
+    except SkillNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get(
@@ -213,8 +243,11 @@ async def update_skill(
 async def delete_skill(
     skill_name: str,
     x_project_id: str = Header(..., alias="X-Project-Id"),
+    db: AsyncSession = Depends(get_db),
 ) -> Response:
     service = _get_skill_service()
+    if (await humanization_usage(db, x_project_id)).get(skill_name):
+        raise HTTPException(409, "这个拟人技能仍绑定着AI员工，请先在员工设置中解除绑定，再删除")
     try:
         await service.delete_skill(x_project_id, skill_name)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -257,7 +290,7 @@ async def toggle_skill(
 
 
 # ---------------------------------------------------------------------------
-# Skill import from GitHub
+# Local skill import
 # ---------------------------------------------------------------------------
 
 
@@ -265,69 +298,18 @@ async def toggle_skill(
     "/import",
     response_model=SkillDetail,
     status_code=status.HTTP_201_CREATED,
-    summary="Import a skill from GitHub",
-    description="Download a skill directory from a GitHub URL and create it as a project-private skill.",
+    summary="Import a local skill",
 )
-async def import_skill_from_github(
+async def import_skill(
     data: SkillImportRequest,
     x_project_id: str = Header(..., alias="X-Project-Id"),
 ) -> SkillDetail:
-    service = _get_skill_service()
-    downloader = GitHubSkillDownloader()
-
-    # Use provided token or fall back to server-configured default
-    token = data.github_token or settings.github_token
-
     try:
-        import shutil
-        from pathlib import Path as _Path
-
-        # Parse URL to extract owner/repo/ref/path and derive skill name
-        _owner, _repo, _ref, path = GitHubSkillDownloader.parse_github_url(data.github_url)
-        url_skill_name = path.rstrip("/").split("/")[-1]
-
-        project_dir = _Path(settings.skills_base_dir) / x_project_id
-
-        # Download to a temporary staging directory (not the final location)
-        staging_dir = project_dir / f".importing-{url_skill_name}"
-        if staging_dir.exists():
-            shutil.rmtree(staging_dir)
-
-        skill_name = await downloader.download_skill(
-            github_url=data.github_url,
-            target_dir=staging_dir,
-            github_token=token,
-        )
-
-        # Check for conflicts with the validated name
-        final_dir = project_dir / skill_name
-        if final_dir.exists():
-            shutil.rmtree(staging_dir, ignore_errors=True)
-            raise SkillConflictError(f"Skill '{skill_name}' already exists")
-
-        # Move staging -> final
-        staging_dir.rename(final_dir)
-
-        # Return the full detail
-        return service._parse_skill_detail(final_dir)
-
-    except GitHubURLParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        )
-    except GitHubDownloadError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
-        )
-    except SkillValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        )
+        return await import_local_skill(_get_skill_service(), x_project_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except SkillConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        )
-
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 # ---------------------------------------------------------------------------
 # Skill sub-file endpoints

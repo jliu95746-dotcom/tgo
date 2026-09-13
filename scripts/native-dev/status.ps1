@@ -1,14 +1,14 @@
 . (Join-Path $PSScriptRoot 'common.ps1')
+. (Join-Path $PSScriptRoot 'background-services.ps1')
 
 Import-DotEnv -Path $script:EnvFile
 $webPort = [int](Get-EnvValue -Name 'TGO_WEB_PORT' -DefaultValue '5173')
 
 Write-Host 'Native processes:'
 if (Test-Path -LiteralPath $script:StateFile) {
-    $state = Get-Content -Raw -LiteralPath $script:StateFile | ConvertFrom-Json
+    $state = @(Read-ProcessState)
     foreach ($entry in @($state)) {
-        $process = Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
-        $status = if ($null -eq $process) { 'stopped' } else { 'running' }
+        $status = if (Test-NativeProcessIdentity -Entry $entry) { 'running' } else { 'stopped or stale' }
         Write-Host ("  {0,-18} PID={1,-7} {2}" -f $entry.name, $entry.pid, $status)
     }
 } else {
@@ -25,6 +25,7 @@ foreach ($endpoint in @(
     @{ Name = 'tgo-rag'; Url = 'http://127.0.0.1:18082/health' },
     @{ Name = 'tgo-platform'; Url = 'http://127.0.0.1:8003/health' },
     @{ Name = 'tgo-workflow'; Url = 'http://127.0.0.1:8004/health' },
+    @{ Name = 'tgo-plugin-runtime'; Url = 'http://127.0.0.1:8090/health' },
     @{ Name = 'tgo-device-control'; Url = 'http://127.0.0.1:8085/health' },
     @{ Name = 'tgo-widget-js'; Url = 'http://127.0.0.1:5174/' }
 )) {

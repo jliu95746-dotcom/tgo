@@ -48,9 +48,14 @@ export const transformCollectionToKnowledgeBaseItem = (collection: CollectionRes
       include_patterns: collection.crawl_config.include_patterns,
       exclude_patterns: collection.crawl_config.exclude_patterns,
       options: {
-        render_js: collection.crawl_config.js_rendering,
+        render_js: collection.crawl_config.render_js ?? collection.crawl_config.js_rendering,
         respect_robots_txt: collection.crawl_config.respect_robots_txt,
-        wait_time: collection.crawl_config.delay_between_requests,
+        wait_time: collection.crawl_config.wait_time,
+        delay_seconds: collection.crawl_config.delay_seconds ?? collection.crawl_config.delay_between_requests,
+        timeout_seconds: collection.crawl_config.timeout_seconds ?? collection.crawl_config.timeout,
+        follow_external_links: collection.crawl_config.follow_external_links,
+        user_agent: collection.crawl_config.user_agent,
+        headers: collection.crawl_config.headers,
       },
     };
   }
@@ -115,6 +120,7 @@ export const transformFileToKnowledgeFile = (file: FileResponse): KnowledgeFile 
     uploadDate,
     status: transformFileStatus(file.status),
     statusType: transformFileStatusType(file.status),
+    error_message: file.error_message,
     knowledgeBaseId: file.collection_id || '',
     url: undefined, // Would need to be constructed from file ID
     // API-specific fields
@@ -141,13 +147,13 @@ const extractCategoryFromTags = (tags?: string[] | null): string => {
 
   // Look for common category indicators
   const categoryMap: Record<string, string> = {
-    'product': 'product',
-    'documentation': 'product',
-    'manual': 'product',
-    'support': 'support',
-    'faq': 'support',
-    'help': 'support',
-    'guide': 'support',
+    product: 'product',
+    documentation: 'product',
+    manual: 'product',
+    support: 'support',
+    faq: 'support',
+    help: 'support',
+    guide: 'support',
   };
 
   for (const tag of tags) {
@@ -191,7 +197,7 @@ export const formatFileSize = (bytes: number): string => {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))  } ${  sizes[i]}`;
 };
 
 /**
@@ -208,15 +214,15 @@ const extractFileType = (contentType: string, filename: string): string => {
   // Fallback to file extension
   const extension = filename.split('.').pop()?.toLowerCase();
   const typeMap: Record<string, string> = {
-    'pdf': 'pdf',
-    'doc': 'doc',
-    'docx': 'doc',
-    'txt': 'txt',
-    'md': 'txt',
-    'xls': 'xlsx',
-    'xlsx': 'xlsx',
-    'ppt': 'ppt',
-    'pptx': 'ppt',
+    pdf: 'pdf',
+    doc: 'doc',
+    docx: 'doc',
+    txt: 'txt',
+    md: 'txt',
+    xls: 'xlsx',
+    xlsx: 'xlsx',
+    ppt: 'ppt',
+    pptx: 'ppt',
   };
 
   return typeMap[extension || ''] || 'file';
@@ -341,18 +347,23 @@ export const transformKnowledgeBaseItemToCreateRequest = (item: Partial<Knowledg
       max_depth: item.crawlConfig.max_depth,
       include_patterns: item.crawlConfig.include_patterns,
       exclude_patterns: item.crawlConfig.exclude_patterns,
-      js_rendering: item.crawlConfig.options?.render_js,
+      render_js: item.crawlConfig.options?.render_js,
       respect_robots_txt: item.crawlConfig.options?.respect_robots_txt,
-      delay_between_requests: item.crawlConfig.options?.wait_time,
+      wait_time: item.crawlConfig.options?.wait_time,
+      delay_seconds: item.crawlConfig.options?.delay_seconds,
+      timeout_seconds: item.crawlConfig.options?.timeout_seconds,
+      follow_external_links: item.crawlConfig.options?.follow_external_links,
+      user_agent: item.crawlConfig.options?.user_agent,
+      headers: item.crawlConfig.options?.headers,
     };
   }
 
   return {
     display_name: item.title || 'Untitled Collection',
     description: item.content || undefined,
-    tags: tags,
+    tags,
     collection_type: item.type || 'file',
-    crawl_config: crawl_config,
+    crawl_config,
     collection_metadata: {
       category: item.category,
       icon: item.icon,

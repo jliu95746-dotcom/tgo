@@ -40,6 +40,7 @@ from app.schemas.wukongim import (
 from app.schemas.visitor import VisitorResponse, resolve_visitor_display_name, set_visitor_display_nickname
 from app.api.v1.endpoints.channels import _build_enriched_visitor_payload
 from app.services.wukongim_client import wukongim_client
+from app.services.reply_history import reconcile_reply_history
 from app.utils.encoding import build_visitor_channel_id, parse_visitor_channel_id
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 
@@ -957,7 +958,10 @@ async def sync_channel_messages(
         message_count = len(result.messages)
         logger.info(f"Successfully synced {message_count} channel messages for staff {current_user.username}")
 
-        return result
+        return await reconcile_reply_history(
+            result, project_id=str(current_user.project_id),
+            channel_id=request.channel_id, channel_type=request.channel_type,
+        )
 
     except Exception as e:
         logger.error(f"Failed to sync channel messages for staff {current_user.username}: {e}")

@@ -88,7 +88,7 @@ function Set-ProcessEnv {
 function Set-NativeEnvironment {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('api', 'ai', 'rag', 'platform', 'workflow', 'device', 'web', 'widget')]
+        [ValidateSet('api', 'ai', 'rag', 'platform', 'workflow', 'plugin', 'device', 'web', 'widget')]
         [string]$Service
     )
 
@@ -136,6 +136,7 @@ function Set-NativeEnvironment {
         Set-ProcessEnv -Name 'PLUGIN_RUNTIME_URL' -Value 'http://127.0.0.1:8090'
         Set-ProcessEnv -Name 'MCP_SERVICE_URL' -Value 'http://127.0.0.1:8090'
         Set-ProcessEnv -Name 'DEVICE_CONTROL_MCP_ENDPOINT' -Value 'http://127.0.0.1:8085/mcp/{device_id}'
+        Set-ProcessEnv -Name 'DEVICE_CONTROL_SERVICE_URL' -Value 'http://127.0.0.1:8085'
         Set-ProcessEnv -Name 'SKILLS_BASE_DIR' -Value (Join-Path $script:RepoRoot 'data\skills')
     }
 
@@ -157,12 +158,25 @@ function Set-NativeEnvironment {
         Set-ProcessEnv -Name 'PORT' -Value '18082'
         Set-ProcessEnv -Name 'RELOAD' -Value 'false'
         Set-ProcessEnv -Name 'UPLOAD_DIR' -Value $ragUploadDirectory
+        Set-ProcessEnv -Name 'CRAWL4_AI_BASE_DIRECTORY' -Value (Get-EnvValue -Name 'CRAWL4_AI_BASE_DIRECTORY' -DefaultValue (Join-Path $script:RuntimeDir 'crawler-cache'))
     }
 
     if ($Service -eq 'workflow') {
         Set-ProcessEnv -Name 'REDIS_URL' -Value "redis://127.0.0.1:${redisPort}/3"
+        Set-ProcessEnv -Name 'CELERY_BROKER_URL' -Value "redis://127.0.0.1:${redisPort}/3"
+        Set-ProcessEnv -Name 'CELERY_RESULT_BACKEND' -Value "redis://127.0.0.1:${redisPort}/3"
         Set-ProcessEnv -Name 'AI_SERVICE_URL' -Value 'http://127.0.0.1:8081'
         Set-ProcessEnv -Name 'ALLOWED_ORIGINS' -Value '["*"]'
+    }
+
+    if ($Service -eq 'plugin') {
+        Set-ProcessEnv -Name 'HOST' -Value '127.0.0.1'
+        Set-ProcessEnv -Name 'PORT' -Value '8090'
+        Set-ProcessEnv -Name 'AI_SERVICE_URL' -Value 'http://127.0.0.1:8081'
+        Set-ProcessEnv -Name 'PLUGIN_SOCKET_ENABLED' -Value 'false'
+        Set-ProcessEnv -Name 'PLUGIN_TCP_HOST' -Value '127.0.0.1'
+        Set-ProcessEnv -Name 'PLUGIN_TCP_PORT' -Value (Get-EnvValue -Name 'PLUGIN_TCP_PORT' -DefaultValue '8005')
+        Set-ProcessEnv -Name 'PLUGIN_BASE_PATH' -Value (Join-Path $script:RepoRoot 'data\plugins')
     }
 
     if ($Service -eq 'device') {
@@ -181,6 +195,7 @@ function Set-NativeEnvironment {
         Set-ProcessEnv -Name 'VITE_API_BASE_URL' -Value '/api'
         Set-ProcessEnv -Name 'VITE_API_PROXY_TARGET' -Value 'http://127.0.0.1:18000'
         Set-ProcessEnv -Name 'CHOKIDAR_USEPOLLING' -Value 'false'
+        Set-ProcessEnv -Name 'TGO_DEV_TYPECHECK' -Value (Get-EnvValue -Name 'TGO_DEV_TYPECHECK' -DefaultValue '0')
     }
 
     if ($Service -eq 'widget') {
@@ -339,12 +354,47 @@ function Start-NativeProcess {
     }
 }
 
+function Expand-NativeProcessState {
+    param([AllowNull()][object]$Value)
+
+    if ($null -eq $Value) { return }
+    if ($Value -is [System.Array]) {
+        foreach ($item in $Value) { Expand-NativeProcessState -Value $item }
+        return
+    }
+    $properties = @($Value.PSObject.Properties.Name)
+    if ($properties -contains 'value' -and $properties -contains 'Count' -and $properties -notcontains 'name') {
+        Expand-NativeProcessState -Value $Value.value
+        return
+    }
+    foreach ($required in @('name', 'pid', 'executable', 'workingDirectory', 'startedAt')) {
+        if ($properties -notcontains $required) {
+            throw "Invalid native process state: missing $required. No processes were changed."
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$Value.name) -or [long]$Value.pid -le 0) {
+        throw 'Invalid native process identity. No processes were changed.'
+    }
+    # Emit a fresh object, not PowerShell's JSON-adapted array metadata.
+    [pscustomobject]@{
+        name = $Value.name; pid = $Value.pid; executable = $Value.executable
+        workingDirectory = $Value.workingDirectory; startedAt = $Value.startedAt
+    }
+}
+
+function Read-ProcessState {
+    if (-not (Test-Path -LiteralPath $script:StateFile)) { return }
+    $parsedState = Get-Content -Raw -Encoding UTF8 -LiteralPath $script:StateFile | ConvertFrom-Json
+    Expand-NativeProcessState -Value $parsedState
+}
+
 function Save-ProcessState {
     param(
         [Parameter(Mandatory = $true)]
-        [object[]]$Processes
+        [AllowEmptyCollection()][object[]]$Processes
     )
 
     Ensure-RuntimeDirectory
-    $Processes | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:StateFile -Encoding UTF8
+    $normalized = @(Expand-NativeProcessState -Value $Processes)
+    ConvertTo-Json -InputObject $normalized -Depth 4 | Set-Content -LiteralPath $script:StateFile -Encoding UTF8
 }

@@ -15,13 +15,12 @@ import {
   WifiOff,
   AlertCircle,
   Activity,
-  X,
 } from 'lucide-react';
 import DeviceCard from './DeviceCard';
 import BindCodeModal from './BindCodeModal';
 import EditDeviceModal from './EditDeviceModal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import { ComputerUseSessionMonitor } from '../remote-agent';
+import DeviceSessionBrowser from './DeviceSessionBrowser';
 import { useDeviceControlStore } from '@/stores/deviceControlStore';
 import type { Device, DeviceStatus } from '@/types/deviceControl';
 
@@ -42,11 +41,12 @@ const DeviceManagement: React.FC = () => {
   
   // Session monitor state
   const [showSessionMonitor, setShowSessionMonitor] = useState(false);
-  const [monitoringSessionId, setMonitoringSessionId] = useState<string | null>(null);
 
   const {
     devices,
     isLoading,
+    hasLoadedDevices,
+    loadError,
     error,
     loadDevices,
     deleteDevice,
@@ -84,6 +84,7 @@ const DeviceManagement: React.FC = () => {
   // Stats
   const onlineCount = devices.filter((d) => d.status === 'online').length;
   const offlineCount = devices.filter((d) => d.status === 'offline').length;
+  const statsUnavailable = !hasLoadedDevices || isLoading || Boolean(loadError);
 
   // Handlers
   const handleEdit = (device: Device) => {
@@ -177,11 +178,11 @@ const DeviceManagement: React.FC = () => {
           <button
             onClick={() => setShowSessionMonitor(true)}
             className="flex items-center gap-2 px-3 py-2 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition-colors group"
-            title={t('deviceControl.sessionMonitor.title', '会话监控')}
+            title={t('deviceControl.sessions.title')}
           >
             <Activity className="w-5 h-5 text-purple-500 group-hover:text-purple-600" />
             <span className="hidden lg:inline text-sm font-medium text-gray-600 dark:text-gray-300 group-hover:text-purple-600 dark:group-hover:text-purple-400">
-              {t('deviceControl.sessionMonitor.title', '会话监控')}
+              {t('deviceControl.sessions.title')}
             </span>
           </button>
 
@@ -229,7 +230,7 @@ const DeviceManagement: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                    {devices.length}
+                    {statsUnavailable ? '—' : devices.length}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     {t('deviceControl.stats.total', '总设备')}
@@ -244,7 +245,7 @@ const DeviceManagement: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                    {onlineCount}
+                    {statsUnavailable ? '—' : onlineCount}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     {t('deviceControl.stats.online', '在线')}
@@ -259,7 +260,7 @@ const DeviceManagement: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                    {offlineCount}
+                    {statsUnavailable ? '—' : offlineCount}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     {t('deviceControl.stats.offline', '离线')}
@@ -304,12 +305,23 @@ const DeviceManagement: React.FC = () => {
           </div>
 
           {/* Error State */}
-          {error && (
-            <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl">
+          {(loadError || error) && (
+            <div role="alert" className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl">
               <AlertCircle className="w-5 h-5 text-red-500" />
-              <p className="text-red-600 dark:text-red-400">{error}</p>
+              <div className="min-w-0 text-red-600 dark:text-red-400">
+                {loadError && (
+                  <>
+                    <p className="font-semibold">{t('deviceControl.loadErrorTitle')}</p>
+                    <p className="text-sm">{t('deviceControl.loadErrorHint')}</p>
+                    {devices.length > 0 && <p className="text-sm">{t('deviceControl.staleDevices')}</p>}
+                  </>
+                )}
+                <p className="text-sm break-words">{loadError || error}</p>
+                {loadError && error && error !== loadError && <p className="text-sm break-words">{error}</p>}
+              </div>
               <button
                 onClick={handleRefresh}
+                disabled={isLoading}
                 className="ml-auto px-3 py-1 bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium transition-colors"
               >
                 {t('common.retry', '重试')}
@@ -318,7 +330,7 @@ const DeviceManagement: React.FC = () => {
           )}
 
           {/* Device List */}
-          {isLoading ? (
+          {isLoading || (!hasLoadedDevices && !loadError) ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {[...Array(4)].map((_, i) => (
                 <div
@@ -339,7 +351,7 @@ const DeviceManagement: React.FC = () => {
                 </div>
               ))}
             </div>
-          ) : filteredDevices.length === 0 ? (
+          ) : filteredDevices.length === 0 && loadError ? null : filteredDevices.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-2xl mb-4">
                 <MonitorSmartphone className="w-12 h-12 text-gray-400" />
@@ -434,70 +446,8 @@ const DeviceManagement: React.FC = () => {
         isLoading={isDisconnecting}
       />
 
-      {/* Session Monitor Modal */}
       {showSessionMonitor && (
-        <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center p-4 sm:p-6">
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-gray-900/60 dark:bg-black/80 backdrop-blur-sm transition-opacity animate-in fade-in duration-300"
-            onClick={() => setShowSessionMonitor(false)}
-          />
-
-          {/* Modal */}
-          <div className="relative bg-white dark:bg-gray-900 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-r from-purple-600 to-indigo-600">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-white/10 backdrop-blur-md rounded-xl">
-                  <Activity className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-white">
-                    {t('deviceControl.sessionMonitor.modalTitle', 'Computer Use 会话监控')}
-                  </h2>
-                  <p className="text-purple-100 text-xs opacity-80">
-                    {t('deviceControl.sessionMonitor.modalSubtitle', '实时查看 AI 控制设备的执行状态')}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowSessionMonitor(false)}
-                className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6">
-              {monitoringSessionId ? (
-                <ComputerUseSessionMonitor
-                  sessionId={monitoringSessionId}
-                  onClose={() => setMonitoringSessionId(null)}
-                  autoRefresh={true}
-                  refreshInterval={2000}
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-2xl mb-4">
-                    <Activity className="w-12 h-12 text-purple-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                    {t('deviceControl.sessionMonitor.noSession', '暂无活动会话')}
-                  </h3>
-                  <p className="text-gray-500 dark:text-gray-400 max-w-md mb-6">
-                    {t('deviceControl.sessionMonitor.noSessionDesc', '当 AI 员工开始控制设备执行任务时，您可以在此处实时监控执行进度和操作步骤。')}
-                  </p>
-                  <div className="flex flex-col gap-2 text-sm text-gray-500 dark:text-gray-400">
-                    <p>💡 {t('deviceControl.sessionMonitor.tip1', '确保设备处于在线状态')}</p>
-                    <p>🤖 {t('deviceControl.sessionMonitor.tip2', '在团队配置中添加远程代理')}</p>
-                    <p>💬 {t('deviceControl.sessionMonitor.tip3', '通过对话让 AI 员工执行设备操作任务')}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <DeviceSessionBrowser devices={devices} onClose={() => setShowSessionMonitor(false)} />
       )}
     </main>
   );

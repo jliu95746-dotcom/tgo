@@ -32,8 +32,8 @@ class PlatformCallbackService:
         contact_id: str,
         contact_name: str,
         message_content: str,
+        app_type: str,
         message_type: str = "text",
-        app_type: str = "wechat",
     ) -> bool:
         """Notify tgo-platform about a new incoming message.
 
@@ -46,16 +46,19 @@ class PlatformCallbackService:
             contact_name: Contact display name
             message_content: Message content
             message_type: Type of message (text, image, etc.)
-            app_type: Application type (wechat, douyin, etc.)
+            app_type: Explicit application type for this integration.
 
         Returns:
             True if callback was successful
         """
+        if app_type == "wechat":
+            raise ValueError("This application integration has been retired")
+
         # Build normalized message payload
         # This matches the expected format in tgo-platform
         payload = {
             "platform_id": platform_id,
-            "platform_type": f"{app_type}_personal",  # e.g., "wechat_personal"
+            "platform_type": f"{app_type}_personal",
             "from_uid": contact_id,
             "content": message_content,
             "msg_type": 1 if message_type == "text" else 2,  # 1=text, 2=other

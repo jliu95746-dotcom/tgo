@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Globe, Plus, Trash2, Terminal, Settings, ListTree, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from './ToolToastProvider';
@@ -47,6 +47,7 @@ const EditHTTPToolModal: React.FC<EditHTTPToolModalProps> = ({ isOpen, onClose, 
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     if (tool && tool.transport_type === 'http_webhook') {
@@ -142,11 +143,13 @@ const EditHTTPToolModal: React.FC<EditHTTPToolModalProps> = ({ isOpen, onClose, 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
     if (!validateForm() || !tool) {
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -162,6 +165,7 @@ const EditHTTPToolModal: React.FC<EditHTTPToolModalProps> = ({ isOpen, onClose, 
         description: formData.description.trim(),
         endpoint: formData.endpoint.trim(),
         config: {
+          ...tool.config,
           method: formData.method,
           headers: headersMap,
           parameters: formData.parameters.filter(p => p.name.trim()),
@@ -186,6 +190,7 @@ const EditHTTPToolModal: React.FC<EditHTTPToolModalProps> = ({ isOpen, onClose, 
         error instanceof Error ? error.message : t('tools.editHttpToolModal.error.message', '更新 HTTP 工具失败')
       );
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };

@@ -273,12 +273,20 @@ export interface WorkflowSummary {
 /**
  * Workflow execution record
  */
+export type WorkflowJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | WorkflowJsonValue[]
+  | { [key: string]: WorkflowJsonValue };
+
 export interface WorkflowExecution {
   id: string;
   workflow_id: string;
   status: WorkflowExecutionStatus;
   input?: Record<string, any> | null;
-  output?: Record<string, any> | null;
+  output?: WorkflowJsonValue;
   error?: string | null;
   started_at: string;
   completed_at?: string | null;
@@ -292,8 +300,8 @@ export interface WorkflowExecution {
 export type WorkflowStreamEvent = 
   | { event: 'workflow_started'; workflow_run_id: string; data: { id: string; workflow_id: string; inputs: any; created_at: number } }
   | { event: 'node_started'; workflow_run_id: string; data: { id: string; node_id: string; node_type: string; title: string; index: number } }
-  | { event: 'node_finished'; workflow_run_id: string; data: { id: string; node_id: string; node_type: string; status: 'succeeded' | 'failed'; inputs: any; outputs: any; error?: string; elapsed_time: number } }
-  | { event: 'workflow_finished'; workflow_run_id: string; data: { status: 'succeeded' | 'failed'; outputs: any; error?: string; total_steps: number; elapsed_time: number } };
+  | { event: 'node_finished'; workflow_run_id: string; data: { id: string; node_id: string; node_type: string; status: 'succeeded' | 'failed'; inputs: any; outputs: WorkflowJsonValue; error?: string; elapsed_time: number } }
+  | { event: 'workflow_finished'; workflow_run_id: string; data: { status: 'succeeded' | 'failed' | 'cancelled'; outputs: WorkflowJsonValue; error?: string; total_steps: number; elapsed_time: number } };
 
 /**
  * Individual node execution record
@@ -305,7 +313,7 @@ export interface NodeExecution {
   node_type: string;
   status: WorkflowExecutionStatus;
   input?: Record<string, any> | null;
-  output?: Record<string, any> | null;
+  output?: WorkflowJsonValue;
   error?: string | null;
   started_at: string;
   completed_at?: string | null;

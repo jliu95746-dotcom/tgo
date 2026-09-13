@@ -64,7 +64,7 @@ class NodeFinishedEvent(SSEEventBase):
 class WorkflowFinishedData(BaseModel):
     id: str = Field(..., description="Workflow execution record ID")
     workflow_id: str = Field(..., description="Workflow ID")
-    status: str = Field(..., description="Overall execution status (succeeded | failed)")
+    status: str = Field(..., description="Overall execution status (succeeded | failed | cancelled)")
     outputs: Optional[JsonValue] = Field(None, description="Final workflow output result")
     error: Optional[str] = Field(None, description="Execution error message")
     elapsed_time: float = Field(..., description="Overall execution duration in seconds")

@@ -78,6 +78,36 @@ async def test_builder_passes_single_agent_overrides_to_agent_builder(
 
 
 @pytest.mark.asyncio
+async def test_expression_builder_disables_memory_tools_and_stored_instruction(
+    monkeypatch,
+) -> None:
+    """The final expression pass is isolated from agent capabilities."""
+    captured: dict[str, object] = {}
+
+    async def fake_build_agent(self, request, internal_agent=None):
+        captured["request"] = request
+        return SimpleNamespace(id="expression", name="expression")
+
+    monkeypatch.setattr(AgentBuilder, "build_agent", fake_build_agent)
+    context = _build_context().model_copy(update={
+        "response_purpose": "expression",
+        "system_message": "只输出客户可直接看到的一句话",
+    })
+
+    await AgnoAgentBuilder(ToolsRuntimeSettings()).build_agent(context)
+
+    request = captured["request"]
+    assert request.config.expression_only is True
+    assert request.disable_tools is True
+    assert request.config.enable_memory is False
+    assert request.config.system_prompt == context.system_message
+    assert request.config.expected_output is None
+    assert request.config.markdown is False
+    assert request.session_id is None
+    assert request.user_id is None
+
+
+@pytest.mark.asyncio
 async def test_runner_returns_single_agent_response_shape() -> None:
     context = _build_context()
     built_agent = SimpleNamespace(
@@ -157,6 +187,7 @@ async def test_stream_uses_content_chunks_when_completed_event_is_empty() -> Non
     )
 
     assert result.content == "链路测试成功"
+    assert agent.arun.call_args.kwargs["run_id"] == "execution-1"
     assert workflow_events.emit_agent_content_chunk.call_count == 2
     workflow_events.emit_agent_response_complete.assert_called_once_with(
         agent_id=str(context.agent.id),

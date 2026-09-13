@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from pydantic import ConfigDict, Field, computed_field, model_validator
+from pydantic import ConfigDict, Field, computed_field, model_validator, field_validator
 
 from app.models.platform import PlatformType, PlatformAIMode
 from app.schemas.base import BaseSchema, PaginatedResponse, SoftDeleteMixin, TimestampMixin
@@ -82,7 +82,12 @@ class PlatformAISettings(BaseSchema):
 
 class PlatformCreate(PlatformBase):
     """Schema for creating a platform."""
-    pass
+    name: str = Field(..., min_length=1, max_length=100)
+
+    @field_validator('name', mode='before')
+    @classmethod
+    def trim_channel_name(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class PlatformUpdate(BaseSchema):
@@ -145,6 +150,8 @@ class PlatformInDB(PlatformBase, TimestampMixin, SoftDeleteMixin):
 class PlatformListItemResponse(BaseSchema, TimestampMixin, SoftDeleteMixin):
     """Schema for platform list item response (without sensitive fields)."""
 
+    is_configured: bool = Field(False, description="Required configuration present; not a connection verification")
+
     id: UUID = Field(..., description="Platform ID")
     project_id: UUID = Field(..., description="Associated project ID")
     name: Optional[str] = Field(None, description="Platform name (may be null)")
@@ -189,6 +196,7 @@ class PlatformListItemResponse(BaseSchema, TimestampMixin, SoftDeleteMixin):
 
 class PlatformResponse(PlatformInDB):
     """Schema for platform detail response (with all fields including sensitive data)."""
+    is_configured: bool = Field(False, description="Required configuration present; not a connection verification")
     icon: Optional[str] = Field(None, description="SVG icon markup for the platform type")
     is_supported: Optional[bool] = Field(None, description="Whether this platform type is currently supported")
     name_en: Optional[str] = Field(None, description="English name of the platform type")

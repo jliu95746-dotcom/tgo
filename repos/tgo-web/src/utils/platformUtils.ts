@@ -41,7 +41,6 @@ export function toPlatformType(input: string | null | undefined): PlatformType {
     case PlatformType.WECOM_BOT: return PlatformType.WECOM_BOT;
     case PlatformType.FEISHU_BOT: return PlatformType.FEISHU_BOT;
     case PlatformType.DINGTALK_BOT: return PlatformType.DINGTALK_BOT;
-    case PlatformType.WECHAT_PERSONAL: return PlatformType.WECHAT_PERSONAL;
     default: return PlatformType.WEBSITE;
   }
 }
@@ -73,7 +72,6 @@ export function getPlatformIconComponent(platformType: PlatformType): IconCompon
     case PlatformType.WEBCHAT: return TbMessageCircle;
     case PlatformType.SMS: return MdSms;
     case PlatformType.PHONE: return FaPhone;
-    case PlatformType.WECHAT_PERSONAL: return IoLogoWechat;
     default: return TbWorld;
   }
 }
@@ -106,7 +104,6 @@ export function getPlatformIcon(platformType: PlatformType): string {
     case PlatformType.WECOM_BOT: return 'Bot';
     case PlatformType.FEISHU_BOT: return 'Bot';
     case PlatformType.DINGTALK_BOT: return 'Bot';
-    case PlatformType.WECHAT_PERSONAL: return 'MessageSquare';
     default: return 'Globe';
   }
 }
@@ -138,7 +135,6 @@ export function getPlatformColor(platformType: PlatformType): string {
     case PlatformType.WECOM_BOT: return 'text-cyan-600';
     case PlatformType.FEISHU_BOT: return 'text-blue-600';
     case PlatformType.DINGTALK_BOT: return 'text-blue-500';
-    case PlatformType.WECHAT_PERSONAL: return 'text-green-600';
     case PlatformType.WEBSITE:
     default:
       return 'text-blue-500';
@@ -169,11 +165,10 @@ export function getPlatformLabel(platformType: PlatformType): string {
     case PlatformType.DOUYIN: return i18n.t('platforms.douyin.label', '抖音');
     case PlatformType.TIKTOK: return i18n.t('platforms.tiktok.label', 'TikTok');
     case PlatformType.CUSTOM: return i18n.t('platforms.custom.label', '自定义平台');
-    case PlatformType.WECOM: return i18n.t('platforms.wecom.label', '企业微信');
+    case PlatformType.WECOM: return i18n.t('platforms.wecom.label', '企微客服');
     case PlatformType.WECOM_BOT: return i18n.t('platforms.wecomBot.label', '企业微信机器人');
     case PlatformType.FEISHU_BOT: return i18n.t('platforms.feishuBot.label', '飞书机器人');
     case PlatformType.DINGTALK_BOT: return i18n.t('platforms.dingtalkBot.label', '钉钉机器人');
-    case PlatformType.WECHAT_PERSONAL: return i18n.t('platforms.wechatPersonal.label', '个人微信');
     default: return i18n.t('platforms.unknown.label', '未知平台');
   }
 }

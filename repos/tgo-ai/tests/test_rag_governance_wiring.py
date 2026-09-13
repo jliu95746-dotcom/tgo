@@ -219,7 +219,12 @@ async def test_rag_tool_allows_only_one_remote_search_per_run(
                     "results": [
                         {
                             "document_id": "doc-1",
-                            "content": "定价：1299 元。" * 500,
+                            "content_preview": "这只是界面预览，不包含商品参数。",
+                            "content": (
+                                "商品介绍。" * 60
+                                + "云朵法棍包：牛皮，莓果红。"
+                                + "定价：1299 元。" * 500
+                            ),
                         }
                     ]
                 }
@@ -238,5 +243,7 @@ async def test_rag_tool_allows_only_one_remote_search_per_run(
 
     assert post_count == 1
     assert "定价：1299 元" in first
+    assert "云朵法棍包：牛皮，莓果红" in first
+    assert "这只是界面预览" not in first
     assert len(first) < 4000
     assert "search_limit_reached" in second

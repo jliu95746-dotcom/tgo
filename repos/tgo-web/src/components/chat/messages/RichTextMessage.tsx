@@ -1,6 +1,5 @@
 import React from 'react';
-import type { Message } from '@/types';
-import { MessagePayloadType } from '@/types';
+import { MessagePayloadType, type Message } from '@/types';
 import MarkdownContent from '../MarkdownContent';
 import { uploadChatImageWithProgress } from '@/services/chatUploadApi';
 import { toAbsoluteApiUrl } from '@/utils/url';
@@ -63,7 +62,7 @@ const RichTextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, on
       file: img?.file as File | undefined,
       preview_url: typeof img?.preview_url === 'string' ? img.preview_url : undefined,
     }));
-  }, [typedPayload, message.metadata?.images]);
+  }, [typedPayload, message.metadata]);
 
   const richSlides = React.useMemo(() => richImages.filter(im => im.url).map(im => ({ src: im.url })), [richImages]);
   const [previewOpen, setPreviewOpen] = React.useState(false);
@@ -178,7 +177,7 @@ const RichTextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, on
     } finally {
       // No auto-send here; sending is coordinated by MessageInput to avoid duplicates
     }
-  }, [message.metadata?.images, message.clientMsgNo, message.id, message.channelId, message.channelType, updateMessageByClientMsgNo, showToast]);
+  }, [message.metadata, message.clientMsgNo, message.id, message.channelId, message.channelType, updateMessageByClientMsgNo, showToast]);
 
   // Rich file rendering (optional)
   const renderRichFile = () => {
@@ -237,7 +236,7 @@ const RichTextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, on
     </div>
   );
 
-  const gridBoxClass = isStaff ? 'grid ' + gridColsClass + ' gap-2 w-fit self-end' : 'mt-2 grid ' + gridColsClass + ' gap-2 w-fit';
+  const gridBoxClass = isStaff ? `grid ${  gridColsClass  } gap-2 w-fit self-end` : `mt-2 grid ${  gridColsClass  } gap-2 w-fit`;
 
   return (
     <>
@@ -249,7 +248,7 @@ const RichTextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, on
               <div
                 key={idx}
                 className={
-                  (isStaff
+                  `${(isStaff
                     ? 'relative rounded-md overflow-hidden border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800 '
                     : 'relative rounded-md overflow-hidden border border-gray-100 dark:border-gray-600 bg-white dark:bg-gray-800 '
                   ) +
@@ -257,8 +256,8 @@ const RichTextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, on
                     ? 'cursor-pointer hover:opacity-95'
                     : im.url && im.upload_status !== 'uploading'
                     ? 'cursor-zoom-in hover:opacity-95'
-                    : 'cursor-default') +
-                  ' ' + getGridItemClass(idx)
+                    : 'cursor-default')
+                  } ${  getGridItemClass(idx)}`
                 }
                 role="button"
                 aria-disabled={im.upload_status === 'uploading'}

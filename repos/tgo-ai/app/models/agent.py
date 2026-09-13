@@ -66,6 +66,11 @@ class Agent(BaseModel):
         comment="Whether this is the default agent for the project",
     )
 
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=sa.true(),
+        comment="Whether the agent accepts new runs",
+    )
+
     config: Mapped[Optional[dict]] = mapped_column(
         JSON,
         nullable=True,
@@ -110,6 +115,11 @@ class Agent(BaseModel):
         default=True,
         server_default=sa.text("true"),
         comment="Whether to enable skill discovery for this agent",
+    )
+
+    humanization_skill_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    humanization_skill_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa.false(),
     )
 
     # Relationships

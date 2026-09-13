@@ -12,9 +12,35 @@ import type {
   DeviceListResponse,
   BindCodeResponse,
   DeviceUpdateRequest,
+  DeviceSessionListResponse,
+  DeviceSessionDetail,
+  DeviceSessionListParams,
+  DeviceSessionDetailParams,
 } from '@/types/deviceControl';
 
 const DEVICE_CONTROL_BASE_URL = '/v1/device-control';
+
+export function listDeviceSessions(
+  params: DeviceSessionListParams = {},
+  options: { signal?: AbortSignal } = {},
+): Promise<DeviceSessionListResponse> {
+  const query = new URLSearchParams();
+  if (params.device_id) query.set('device_id', params.device_id);
+  query.set('skip', String(params.skip ?? 0));
+  query.set('limit', String(params.limit ?? 20));
+  return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/sessions?${query}`, options);
+}
+
+export function getDeviceSession(
+  sessionId: string,
+  params: DeviceSessionDetailParams = {},
+  options: { signal?: AbortSignal } = {},
+): Promise<DeviceSessionDetail> {
+  const query = new URLSearchParams({
+    step_skip: String(params.step_skip ?? 0), step_limit: String(params.step_limit ?? 100),
+  });
+  return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/sessions/${encodeURIComponent(sessionId)}?${query}`, options);
+}
 
 export interface ListDevicesParams {
   device_type?: string;
@@ -26,7 +52,10 @@ export interface ListDevicesParams {
 /**
  * List all devices for the current project
  */
-export async function listDevices(params?: ListDevicesParams): Promise<DeviceListResponse> {
+export async function listDevices(
+  params?: ListDevicesParams,
+  options: { signal?: AbortSignal } = {},
+): Promise<DeviceListResponse> {
   const queryParams = new URLSearchParams();
   if (params?.device_type) queryParams.append('device_type', params.device_type);
   if (params?.status) queryParams.append('status', params.status);
@@ -38,7 +67,7 @@ export async function listDevices(params?: ListDevicesParams): Promise<DeviceLis
     ? `${DEVICE_CONTROL_BASE_URL}/devices?${query}`
     : `${DEVICE_CONTROL_BASE_URL}/devices`;
 
-  return apiClient.get<DeviceListResponse>(url);
+  return apiClient.get<DeviceListResponse>(url, options);
 }
 
 /**
@@ -83,6 +112,8 @@ export async function disconnectDevice(deviceId: string): Promise<void> {
 }
 
 export default {
+  listDeviceSessions,
+  getDeviceSession,
   listDevices,
   getDevice,
   generateBindCode,

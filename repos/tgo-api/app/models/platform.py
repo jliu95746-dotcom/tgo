@@ -21,7 +21,6 @@ class PlatformType(str, Enum):
 
     WEBSITE = "website"
     WECHAT = "wechat"
-    WECHAT_PERSONAL = "wechat_personal" # 个人微信
     WHATSAPP = "whatsapp"
     TELEGRAM = "telegram"
     EMAIL = "email"
@@ -41,7 +40,6 @@ class PlatformType(str, Enum):
     WECOM_BOT = "wecom_bot"  # 企业微信机器人
     FEISHU_BOT = "feishu_bot"  # 飞书机器人
     DINGTALK_BOT = "dingtalk_bot"  # 钉钉机器人
-    # Vision Agent 支持的平台类型 (通过 UI 自动化)
 
 
 class PlatformTypeDefinition(Base):

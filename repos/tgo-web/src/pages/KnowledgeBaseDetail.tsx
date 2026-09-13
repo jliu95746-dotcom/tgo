@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { SearchTest } from '@/components/knowledge/SearchTest';
 import { QADataView } from '@/components/knowledge/QADataView';
 import { KnowledgeGovernancePanel } from '@/components/knowledge/KnowledgeGovernancePanel';
+import { KnowledgeVersionsPanel } from '@/components/knowledge/KnowledgeVersionsPanel';
 import { TestTube, FileText, ShieldCheck } from 'lucide-react';
 
 /**
@@ -328,7 +329,7 @@ const KnowledgeBaseDetail: React.FC = () => {
     const dates = documents.map(doc => new Date(doc.uploadDate));
     const latest = new Date(Math.max(...dates.map(d => d.getTime())));
     return latest.toLocaleDateString(i18n.language || undefined);
-  }, [documents]);
+  }, [documents, i18n.language]);
 
   // Show loading state
   if (isLoading) {
@@ -506,6 +507,7 @@ const KnowledgeBaseDetail: React.FC = () => {
             )}
 
             {/* Search Test View */}
+            {activeTab === 'documents' && !qaFile && <div className="px-6 pb-6"><KnowledgeVersionsPanel collectionId={id!} kind="file" /></div>}
             {activeTab === 'search' && !qaFile && (
               <SearchTest collectionId={id!} />
             )}

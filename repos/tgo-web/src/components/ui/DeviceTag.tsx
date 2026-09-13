@@ -48,7 +48,7 @@ const DeviceTag: React.FC<DeviceTagProps> = ({
         sizeClasses[size],
         className,
       ].join(' ')}
-      title={`${device.device_name} (${device.os}${device.os_version ? ' ' + device.os_version : ''}) - ${isOnline ? 'Online' : 'Offline'}`}
+      title={`${device.device_name} (${device.os}${device.os_version ? ` ${  device.os_version}` : ''}) - ${isOnline ? 'Online' : 'Offline'}`}
     >
       {showIcon && (
         <DeviceIcon

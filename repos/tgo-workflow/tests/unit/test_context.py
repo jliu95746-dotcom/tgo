@@ -35,3 +35,10 @@ def test_resolve_variables_recursive():
     assert resolved["b"] == ["List 123", "Plain"]
     assert resolved["c"]["nested"] == "123"
 
+def test_expression_context_groups_node_outputs_without_changing_flat_variables():
+    context = ExecutionContext({"input.val": 10, "input.text": "hello", "limit": 5})
+    names = context.get_expression_context()
+    assert names["input"] == {"val": 10, "text": "hello"}
+    assert names["limit"] == 5
+    assert context.get_variable("input.val") == 10
+    assert "input" not in context.data

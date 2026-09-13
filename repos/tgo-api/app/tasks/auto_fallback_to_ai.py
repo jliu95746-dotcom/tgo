@@ -13,6 +13,7 @@ from app.core.database import SessionLocal
 from app.models import Platform, Visitor, VisitorServiceStatus, VisitorSession, SessionStatus
 from app.services.chat_service import handle_ai_response_non_stream
 from app.services.knowledge_channel import resolve_platform_knowledge_channel
+from app.services.employee_style import resolve_employee_style
 from app.services.wukongim_client import wukongim_client
 from app.utils.encoding import build_visitor_channel_id, get_session_id
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
@@ -155,8 +156,18 @@ async def check_and_fallback_to_ai():
                     }
                     if platform.agent_id is not None:
                         agent_runtime_kwargs["agent_id"] = str(platform.agent_id)
+                    if visitor.humanization_skill_enabled and visitor.humanization_skill_name:
+                        agent_runtime_kwargs["humanization_skill_name"] = visitor.humanization_skill_name
                     
                     try:
+                        style = await resolve_employee_style(
+                            str(platform.project_id), agent_runtime_kwargs.get("agent_id"),
+                            visitor.humanization_skill_name, visitor.humanization_skill_enabled,
+                        )
+                        if style.agent_id:
+                            agent_runtime_kwargs["agent_id"] = style.agent_id
+                        if style.enabled and style.skill_name:
+                            agent_runtime_kwargs["humanization_skill_name"] = style.skill_name
                         # Call AI and wait for completion (not background task)
                         ai_result = await handle_ai_response_non_stream(
                             project_id=str(platform.project_id),
@@ -171,7 +182,7 @@ async def check_and_fallback_to_ai():
                         )
                         
                         # 6) AI succeeded, update visitor state to prevent duplicate triggers
-                        if ai_result:
+                        if ai_result and ai_result.get("success") is True:
                             visitor.is_last_message_from_ai = True
                             visitor.is_last_message_from_visitor = False
                             visitor.last_client_msg_no = response_client_msg_no

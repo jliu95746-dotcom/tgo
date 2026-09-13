@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bell, Volume2, Eye, MessageSquare, Users, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { useNotification } from '@/hooks/useNotification';
@@ -25,6 +25,17 @@ const NotificationSettings: React.FC = () => {
     updatePreferences,
     sendTestNotification,
   } = useNotification();
+  const [testResult, setTestResult] = useState<boolean | null>(null);
+  const canSendDesktop = isSupported && permission === 'granted';
+  // 保留用户偏好；浏览器权限只决定当前是否生效，不反写偏好。
+  const desktopEnabled = canSendDesktop && preferences.notificationEnabled;
+  const desktopStatus = !isSupported
+    ? t('settings.notifications.notSupported')
+    : !canSendDesktop && preferences.notificationEnabled
+      ? t('settings.notifications.toggles.desktop.awaitingPermission')
+      : desktopEnabled
+        ? t('settings.notifications.toggles.desktop.enabled')
+        : t('settings.notifications.toggles.desktop.disabled');
 
   // 权限状态对应的图标和颜色
   const permissionConfig = {
@@ -49,9 +60,16 @@ const NotificationSettings: React.FC = () => {
       borderColor: 'border-yellow-200 dark:border-yellow-800',
       label: t('settings.notifications.permission.default', '未设置'),
     },
+    unsupported: {
+      icon: AlertCircle,
+      color: 'text-yellow-500',
+      bgColor: 'bg-yellow-50 dark:bg-yellow-900/30',
+      borderColor: 'border-yellow-200 dark:border-yellow-800',
+      label: t('settings.notifications.permission.unsupported'),
+    },
   };
 
-  const currentPermission = permissionConfig[permission] || permissionConfig.default;
+  const currentPermission = isSupported ? permissionConfig[permission] : permissionConfig.unsupported;
   const PermissionIcon = currentPermission.icon;
 
   // 处理请求权限
@@ -121,7 +139,9 @@ const NotificationSettings: React.FC = () => {
                     {currentPermission.label}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    {permission === 'granted'
+                    {!isSupported
+                      ? t('settings.notifications.notSupported')
+                      : permission === 'granted'
                       ? t('settings.notifications.permission.grantedDesc', '可以接收桌面通知')
                       : permission === 'denied'
                       ? t('settings.notifications.permission.deniedDesc', '请在浏览器设置中允许通知权限')
@@ -169,12 +189,15 @@ const NotificationSettings: React.FC = () => {
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {t('settings.notifications.toggles.desktop.description', '收到新消息时在系统通知中心显示通知')}
                   </p>
+                  <p role="status" className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {desktopStatus}
+                  </p>
                 </div>
               </div>
               <Toggle
-                checked={preferences.notificationEnabled}
+                checked={desktopEnabled}
                 onChange={(checked) => updatePreferences({ notificationEnabled: checked })}
-                disabled={permission !== 'granted'}
+                disabled={!canSendDesktop}
                 aria-label={t('settings.notifications.toggles.desktop.title', '桌面通知')}
               />
             </div>
@@ -250,11 +273,11 @@ const NotificationSettings: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={sendTestNotification}
-              disabled={permission !== 'granted'}
+              onClick={() => setTestResult(sendTestNotification())}
+              disabled={!canSendDesktop}
               className={`
                 px-4 py-2 text-sm font-medium rounded-lg transition-colors
-                ${permission !== 'granted'
+                ${!canSendDesktop
                   ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                   : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300'
                 }
@@ -263,6 +286,11 @@ const NotificationSettings: React.FC = () => {
               {t('settings.notifications.test.button', '发送测试')}
             </button>
           </div>
+          {canSendDesktop && testResult !== null && (
+            <p role="status" className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+              {t(testResult ? 'settings.notifications.test.sent' : 'settings.notifications.test.failed')}
+            </p>
+          )}
         </div>
       </div>
 

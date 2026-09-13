@@ -13,7 +13,6 @@ import DouyinPlatformConfig from '@/components/platforms/DouyinPlatformConfig';
 import CustomPlatformConfig from '@/components/platforms/CustomPlatformConfig';
 import TelegramPlatformConfig from '@/components/platforms/TelegramPlatformConfig';
 import SlackPlatformConfig from '@/components/platforms/SlackPlatformConfig';
-import WeChatPersonalPlatformConfig from '@/components/platforms/WeChatPersonalPlatformConfig';
 
 /**
  * Platform Configuration page component
@@ -138,11 +137,6 @@ const PlatformConfigPage: React.FC = () => {
   if ((platform.type as any) === 'slack') {
     return <SlackPlatformConfig platform={platform} />;
   }
-  // 个人微信（WeChat Personal）- Vision Agent
-  if ((platform.type as any) === 'wechat_personal') {
-    return <WeChatPersonalPlatformConfig platform={platform} />;
-  }
-
   // Fallback to generic/placeholder config for other types
   return <PlatformConfig platform={platform} />;
 };

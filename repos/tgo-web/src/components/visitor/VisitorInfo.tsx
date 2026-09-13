@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ExtendedVisitor } from '@/data/mockVisitor';
+import type { ExtendedVisitor } from '@/types/visitor';
 import { useTranslation } from 'react-i18next';
 
 interface VisitorInfoProps {

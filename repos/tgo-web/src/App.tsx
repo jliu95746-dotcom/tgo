@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router-dom';
 import { router } from './router';
 import ToastContainer, { ToastContext } from './components/ui/ToastContainer';
 import { WebSocketManager } from './components/WebSocketManager';
+import { QueueNotificationManager } from './components/QueueNotificationManager';
 import { useStoreInitialization } from './hooks/useStoreInitialization';
 import { setUnauthorizedHandler } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -79,6 +80,7 @@ const App: React.FC = () => {
     <ToastContainer>
       {/* Centralized WebSocket connection management */}
       <WebSocketManager />
+      <QueueNotificationManager />
       <RouterProvider router={router} />
     </ToastContainer>
   );

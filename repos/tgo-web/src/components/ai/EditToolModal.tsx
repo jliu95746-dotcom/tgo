@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Edit, AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from './ToolToastProvider';
 import { useProjectToolsStore } from '@/stores/projectToolsStore';
 import type { AiToolResponse, AiToolUpdateRequest } from '@/types';
+import MCPHeadersField from './MCPHeadersField';
+import { readMcpHeaders, serializeMcpHeaders, type MCPHeaderInput } from '@/utils/mcpHeaders';
 
 interface EditToolModalProps {
   isOpen: boolean;
@@ -12,6 +14,7 @@ interface EditToolModalProps {
 }
 
 interface FormData {
+  headers: MCPHeaderInput[];
   name: string;
   description: string;
   transport_type: string;
@@ -19,6 +22,7 @@ interface FormData {
 }
 
 interface FormErrors {
+  headers?: string;
   name?: string;
   description?: string;
   transport_type?: string;
@@ -31,6 +35,7 @@ const EditToolModal: React.FC<EditToolModalProps> = ({ isOpen, onClose, tool }) 
   const { updateTool, loadTools } = useProjectToolsStore();
 
   const [formData, setFormData] = useState<FormData>({
+    headers: [],
     name: '',
     description: '',
     transport_type: 'http',
@@ -39,11 +44,13 @@ const EditToolModal: React.FC<EditToolModalProps> = ({ isOpen, onClose, tool }) 
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   // Populate form when tool changes
   useEffect(() => {
     if (tool) {
       setFormData({
+        headers: readMcpHeaders(tool.config?.headers),
         name: tool.name || '',
         description: tool.description || '',
         transport_type: tool.transport_type || 'http',
@@ -53,7 +60,7 @@ const EditToolModal: React.FC<EditToolModalProps> = ({ isOpen, onClose, tool }) 
     }
   }, [tool]);
 
-  const handleInputChange = (field: keyof FormData, value: string) => {
+  const handleInputChange = (field: Exclude<keyof FormData, 'headers'>, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     // Clear error when user starts typing
     if (errors[field]) {
@@ -63,6 +70,9 @@ const EditToolModal: React.FC<EditToolModalProps> = ({ isOpen, onClose, tool }) 
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
+    try { serializeMcpHeaders(formData.headers); } catch {
+      newErrors.headers = t('tools.mcpHeaders.invalid', '请求头名称不能重复或包含特殊空白，内容不能换行；请检查后重试。');
+    }
 
     if (!formData.name.trim()) {
       newErrors.name = t('tools.editToolModal.errors.nameRequired', '请输入工具名称');
@@ -80,11 +90,13 @@ const EditToolModal: React.FC<EditToolModalProps> = ({ isOpen, onClose, tool }) 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
     if (!validateForm() || !tool) {
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -93,6 +105,7 @@ const EditToolModal: React.FC<EditToolModalProps> = ({ isOpen, onClose, tool }) 
         description: formData.description.trim() || null,
         transport_type: formData.transport_type.trim() || null,
         endpoint: formData.endpoint.trim() || null,
+        config: { ...tool.config, headers: serializeMcpHeaders(formData.headers) },
       };
 
       await updateTool(tool.id, updateData);
@@ -115,6 +128,7 @@ const EditToolModal: React.FC<EditToolModalProps> = ({ isOpen, onClose, tool }) 
         error instanceof Error ? error.message : t('tools.editToolModal.error.message', '更新工具失败，请稍后重试')
       );
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -251,6 +265,8 @@ const EditToolModal: React.FC<EditToolModalProps> = ({ isOpen, onClose, tool }) 
               {t('tools.editToolModal.hints.toolTypeReadonly', '工具类型不可修改')}
             </p>
           </div>
+          <MCPHeadersField value={formData.headers} disabled={isSubmitting} error={errors.headers}
+            onChange={headers => { setFormData(prev => ({ ...prev, headers })); setErrors(prev => ({ ...prev, headers: undefined })); }} />
         </form>
 
         {/* Footer */}

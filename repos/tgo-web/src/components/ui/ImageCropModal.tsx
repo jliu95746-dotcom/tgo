@@ -89,7 +89,7 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({
       workingRef.current = true;
       const { dataUrl } = await cropImageToBlob(imageSrc, cropped, mimeType);
       setPreviewDataUrl(dataUrl);
-    } catch (err) {
+    } catch {
       // Silent preview failure; final confirm will show proper errors if any
     } finally {
       workingRef.current = false;

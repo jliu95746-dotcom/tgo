@@ -359,7 +359,7 @@ class WorkflowSyncResponseMetadata(BaseSchema):
 
 class WorkflowSyncResponse(BaseSchema):
     success: bool
-    output: dict[str, JsonValue]
+    output: JsonValue
     metadata: WorkflowSyncResponseMetadata
 
 
@@ -368,7 +368,7 @@ class NodeExecution(BaseSchema):
     node_type: str = Field(..., description="Node type")
     status: ExecutionStatus = Field(..., description="Execution status")
     input: Optional[dict[str, JsonValue]] = Field(None, description="Input data for the node")
-    output: Optional[dict[str, JsonValue]] = Field(None, description="Output results for the node")
+    output: JsonValue = Field(None, description="Output results for the node")
     error: Optional[str] = Field(None, description="Execution error message")
     started_at: datetime = Field(..., description="Node execution start time")
     completed_at: Optional[datetime] = Field(None, description="Node execution completion time")
@@ -381,7 +381,7 @@ class WorkflowExecution(BaseSchema):
     workflow_id: str = Field(..., description="Workflow ID")
     status: ExecutionStatus = Field(..., description="Overall execution status")
     input: Optional[dict[str, JsonValue]] = Field(None, description="Workflow startup input data")
-    output: Optional[dict[str, JsonValue]] = Field(None, description="Final workflow output result")
+    output: JsonValue = Field(None, description="Final workflow output result")
     error: Optional[str] = Field(None, description="Execution error message")
     started_at: datetime = Field(..., description="Workflow execution start time")
     completed_at: Optional[datetime] = Field(None, description="Workflow execution completion time")

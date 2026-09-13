@@ -6,6 +6,7 @@ from app.api.v1 import (
     agents,
     chat,
     intent_analysis,
+    media_analysis,
     llm_models,
     llm_providers,
     project_ai_configs,
@@ -24,6 +25,7 @@ api_router.include_router(
     prefix="/analysis",
     tags=["Analysis"],
 )
+api_router.include_router(media_analysis.router, prefix="/analysis", tags=["Analysis"])
 
 api_router.include_router(llm_providers.router, prefix="/llm-providers", tags=["LLM Providers"])
 api_router.include_router(llm_models.router, prefix="/llm-models", tags=["LLM Models"])

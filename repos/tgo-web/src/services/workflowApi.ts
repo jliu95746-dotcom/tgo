@@ -5,6 +5,7 @@
  */
 
 import apiClient from './api';
+import i18n from '@/i18n';
 import type { 
   Workflow, 
   WorkflowListResponse,
@@ -12,6 +13,7 @@ import type {
   WorkflowUpdateRequest,
   WorkflowExecution,
   WorkflowQueryParams,
+  WorkflowJsonValue,
   WorkflowStreamEvent
 } from '@/types/workflow';
 
@@ -119,11 +121,12 @@ export class WorkflowApiService {
    */
   static async executeWorkflowStream(
     id: string, 
-    input: Record<string, any>, 
+    input: Record<string, WorkflowJsonValue>,
     onEvent: (event: WorkflowStreamEvent) => void,
     signal?: AbortSignal
   ): Promise<void> {
-    return apiClient.stream(
+    let receivedTerminal = false;
+    await apiClient.stream(
       `${this.BASE_PATH}/${id}/execute`,
       { 
         inputs: input, 
@@ -131,11 +134,16 @@ export class WorkflowApiService {
       },
       {
         onMessage: (event, data) => {
-          onEvent({ event: event as any, ...data });
+          const workflowEvent = { event, ...data } as WorkflowStreamEvent;
+          if (workflowEvent.event === 'workflow_finished') receivedTerminal = true;
+          onEvent(workflowEvent);
         },
         signal
       }
     );
+    if (!receivedTerminal && !signal?.aborted) {
+      throw new Error(i18n.t('workflow.debug.streamInterrupted', '调试连接已中断，请刷新查看执行结果。'));
+    }
   }
 
   /**

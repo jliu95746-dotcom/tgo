@@ -11,6 +11,8 @@ import { getPlatformIconComponent, getPlatformLabel, toPlatformType, getPlatform
 import AIInfoCard from './AIInfoCard';
 import ReplySuggestions from './ReplySuggestions';
 import MessageAnalysisInsights from './MessageAnalysisInsights';
+import StaffDeliveryStatus from './StaffDeliveryStatus';
+import { deliveryKey, useStaffDeliveryStore } from '@/stores/staffDeliveryStore';
 import { ChatAvatar } from './ChatAvatar';
 
 import TextMessage from './messages/TextMessage';
@@ -60,6 +62,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
   const { t } = useTranslation();
   const user = useAuthStore(state => state.user);
   const currentUid = React.useMemo(() => (user?.id ? `${user.id}-staff` : null), [user?.id]);
+  const delivery = useStaffDeliveryStore(state =>
+    state.entries[deliveryKey(user?.id || '', message.clientMsgNo || message.id)]?.receipt);
 
   const meta: any = message.metadata || {};
   const typedPayload = message.payload as any | undefined;
@@ -123,7 +127,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
   };
 
   const [errorOpen, setErrorOpen] = React.useState(false);
-  const isSending = Boolean(meta.isLocal) && !hasError && meta.ws_sent !== true;
+  const isSending = !delivery && Boolean(meta.isLocal) && !hasError && meta.ws_sent !== true;
 
   // Message type detection
   const isRichText = typedPayload?.type === MessagePayloadType.RICH_TEXT || message.payloadType === MessagePayloadType.RICH_TEXT || Array.isArray(meta.images);
@@ -272,6 +276,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
           </div>
         )}
       </div>
+      {user?.id && <StaffDeliveryStatus staffId={user.id} clientMsgNo={message.clientMsgNo || message.id} />}
     </div>
   );
 };

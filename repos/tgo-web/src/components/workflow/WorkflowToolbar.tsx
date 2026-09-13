@@ -49,7 +49,7 @@ const WorkflowToolbar: React.FC = () => {
     try {
       await saveWorkflow();
       showToast('success', t('workflow.messages.saveSuccess', '保存成功'), t('workflow.messages.saveSuccessDesc', '工作流已保存'));
-    } catch (error) {
+    } catch {
       showToast('error', t('workflow.messages.saveFailed', '保存失败'), t('workflow.messages.saveFailedDesc', '保存工作流时发生错误'));
     } finally {
       setIsSaving(false);

@@ -7,8 +7,15 @@ These endpoints are designed for inter-service communication within the internal
 from fastapi import APIRouter
 
 from app.api.internal.endpoints import ai_events, ai_providers, users, store
+from app.api.internal.endpoints import reply_phases
 
 internal_router = APIRouter()
+
+internal_router.include_router(
+    reply_phases.router,
+    prefix="/ai/reply-phases",
+    tags=["Internal Reply Control"],
+)
 
 # Include internal endpoints (no authentication required)
 internal_router.include_router(

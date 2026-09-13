@@ -24,7 +24,6 @@ from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
 from app.models.device import DeviceStatus
 from app.schemas.tcp_rpc import JsonRpcErrorCode
-from app.services.bind_code_service import bind_code_service
 from app.services.device_service import DeviceService
 from app.services.tcp_connection_manager import tcp_connection_manager
 
@@ -57,7 +56,7 @@ class TcpRpcServer:
         """
         self.host = host
         self.port = port
-        self.server: Optional[asyncio.AbstractServer] = None
+        self.server: Optional[asyncio.Server] = None
         self._serving_task: Optional[asyncio.Task[None]] = None
 
     async def start(self) -> None:
@@ -65,7 +64,7 @@ class TcpRpcServer:
         logger.info(f"[DEBUG] Starting TCP RPC Server on {self.host}:{self.port}...")
         try:
             self.server = await asyncio.start_server(
-                self._handle_connection, self.host, self.port
+                self._handle_connection, self.host, self.port, limit=16 * 1024 * 1024
             )
             addr = self.server.sockets[0].getsockname()
             logger.info(f"TCP RPC Server listening on {addr[0]}:{addr[1]}")
@@ -77,6 +76,7 @@ class TcpRpcServer:
             logger.info("[DEBUG] TCP Server serve_forever task started")
         except Exception as e:
             logger.error(f"[DEBUG] Failed to start TCP RPC Server: {e}", exc_info=True)
+            raise
 
     async def stop(self) -> None:
         """Stop the TCP server."""
@@ -107,21 +107,31 @@ class TcpRpcServer:
         socket_info = writer.get_extra_info("socket")
         logger.info(f"[DEBUG] New TCP connection from {addr}")
         logger.info(f"[DEBUG] Socket info: {socket_info}")
-        logger.info(f"[DEBUG] Connection extra info - sockname: {writer.get_extra_info('sockname')}")
+        logger.info(
+            f"[DEBUG] Connection extra info - sockname: {writer.get_extra_info('sockname')}"
+        )
 
         device_id: Optional[str] = None
+        connection: Optional[TcpDeviceConnection] = None
+        reader_task: Optional[asyncio.Task[None]] = None
+        discovery_task: Optional[asyncio.Task[Any]] = None
 
         try:
             # 1. Wait for auth request
             logger.info(f"[DEBUG] Waiting for auth message from {addr}...")
-            message = await self._read_message(reader)
-            logger.info(f"[DEBUG] Received message from {addr}: {message}")
+            message = await asyncio.wait_for(
+                self._read_message(reader), timeout=settings.TCP_RPC_TIMEOUT
+            )
             if message is None:
-                logger.warning(f"[DEBUG] No message received from {addr}, connection may have closed")
+                logger.warning(
+                    f"[DEBUG] No message received from {addr}, connection may have closed"
+                )
                 return
 
             if message.get("method") != "auth":
-                logger.warning(f"[DEBUG] First message from {addr} must be 'auth', got: {message.get('method')}")
+                logger.warning(
+                    f"[DEBUG] First message from {addr} must be 'auth', got: {message.get('method')}"
+                )
                 await self._send_error(
                     writer,
                     message.get("id"),
@@ -132,7 +142,6 @@ class TcpRpcServer:
 
             # 2. Handle authentication (bind code or device token)
             params = message.get("params", {})
-            logger.info(f"[DEBUG] Auth params from {addr}: bindCode={params.get('bindCode')}, hasDeviceToken={bool(params.get('deviceToken'))}")
             auth_result = await self._authenticate(params, addr)
 
             if auth_result is None:
@@ -146,20 +155,39 @@ class TcpRpcServer:
                 )
                 return
 
-            device_id, device_token, project_id, device_name, device_version, is_new_registration = auth_result
-            logger.info(f"[DEBUG] Auth successful: device_id={device_id}, project_id={project_id}, is_new={is_new_registration}")
+            (
+                device_id,
+                device_token,
+                project_id,
+                device_name,
+                device_version,
+                is_new_registration,
+            ) = auth_result
+            logger.info(
+                "Device authenticated: device_id=%s, project_id=%s, is_new=%s",
+                device_id,
+                project_id,
+                is_new_registration,
+            )
 
             # Register connection
-            connection = await tcp_connection_manager.register_connection(
-                agent_id=device_id,
-                name=device_name,
-                version=device_version,
-                capabilities=["tools/call", "tools/list", "ping"],  # Default capabilities
-                reader=reader,
-                writer=writer,
-                project_id=project_id,
-                device_db_id=device_id,
+            connection = await self._activate_connection(
+                device_id,
+                device_token,
+                project_id,
+                device_name,
+                device_version,
+                reader,
+                writer,
             )
+            if connection is None:
+                await self._send_error(
+                    writer,
+                    message.get("id"),
+                    JsonRpcErrorCode.AUTH_FAILED,
+                    "Authentication failed: device no longer available",
+                )
+                return
 
             # Build auth success response
             response_data: Dict[str, Any] = {
@@ -188,13 +216,15 @@ class TcpRpcServer:
                 self._message_reader_loop(reader, writer, connection, device_id)
             )
 
-            # 4. Fetch tools list (now the reader task can handle the response)
-            try:
-                tools = await connection.list_tools(timeout=30)
+            # Stop discovery immediately if the reader closes during startup.
+            discovery_task = asyncio.create_task(connection.list_tools(timeout=30))
+            await asyncio.wait(
+                {reader_task, discovery_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if discovery_task.done():
+                tools = discovery_task.result()
                 if tools:
                     logger.info(f"Device {device_id} supports {len(tools)} tools")
-            except Exception as e:
-                logger.warning(f"Failed to fetch tools list for device {device_id}: {e}")
 
             # 5. Wait for the reader task to complete (connection closed)
             await reader_task
@@ -204,19 +234,73 @@ class TcpRpcServer:
         except json.JSONDecodeError as e:
             logger.warning(f"[DEBUG] Invalid JSON from {addr}: {e}")
         except Exception as e:
-            logger.error(f"[DEBUG] Error handling TCP connection from {addr}: {e}", exc_info=True)
+            logger.error("TCP connection failed from %s: %s", addr, type(e).__name__)
         finally:
             logger.info(f"[DEBUG] Connection cleanup for {addr}, device_id={device_id}")
-            if device_id:
-                # Update device status to offline in database
-                await self._update_device_offline(device_id)
-                await tcp_connection_manager.unregister_connection(device_id)
-            else:
+            tasks = [task for task in (reader_task, discovery_task) if task]
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            if device_id and connection:
+                async with tcp_connection_manager.lifecycle_lock(device_id):
+                    current = tcp_connection_manager.get_connection(device_id)
+                    if current is connection or current is None:
+                        await tcp_connection_manager.unregister_connection(
+                            device_id, expected_connection=connection
+                        )
+                        await self._update_device_offline(device_id)
+            try:
+                writer.close()
+                await asyncio.wait_for(writer.wait_closed(), timeout=5)
+            except Exception:
+                pass
+
+    async def _activate_connection(
+        self,
+        device_id: str,
+        device_token: Optional[str],
+        project_id: str,
+        name: str,
+        version: str,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> Optional[TcpDeviceConnection]:
+        """Revalidate under the same lock as deletion and old-reader cleanup."""
+        if not device_token:
+            return None
+        async with tcp_connection_manager.lifecycle_lock(device_id):
+            async with AsyncSessionLocal() as db:
+                service = DeviceService(db)
+                device = await service.get_device_by_token(device_token)
+                if (
+                    not device
+                    or str(device.id) != device_id
+                    or str(device.project_id) != project_id
+                ):
+                    return None
                 try:
-                    writer.close()
-                    await writer.wait_closed()
-                except Exception as close_error:
-                    logger.warning(f"[DEBUG] Error closing writer for {addr}: {close_error}")
+                    connection = await tcp_connection_manager.register_connection(
+                        agent_id=device_id,
+                        name=name,
+                        version=version,
+                        capabilities=["tools/call", "tools/list", "ping"],
+                        reader=reader,
+                        writer=writer,
+                        project_id=project_id,
+                        device_db_id=device_id,
+                    )
+                    await service.update_device_status(device.id, DeviceStatus.ONLINE)
+                except BaseException:
+                    # Cancellation may occur after registration installed the new
+                    # connection but before the old transport finished closing.
+                    current = tcp_connection_manager.get_connection(device_id)
+                    if current and current.writer is writer:
+                        await tcp_connection_manager.unregister_connection(
+                            device_id, expected_connection=current
+                        )
+                    raise
+                return connection
 
     async def _message_reader_loop(
         self,
@@ -244,7 +328,9 @@ class TcpRpcServer:
 
                 # Update heartbeat on ANY message received from device
                 # This is more robust than only updating on specific heartbeat messages
-                tcp_connection_manager.update_heartbeat(device_id)
+                tcp_connection_manager.update_heartbeat(
+                    device_id, expected_connection=connection
+                )
 
                 # Handle response messages (from our requests to the device)
                 if "result" in msg or "error" in msg:
@@ -261,7 +347,10 @@ class TcpRpcServer:
                         await self._send_response(
                             writer,
                             msg_id,
-                            {"pong": True, "timestamp": int(asyncio.get_event_loop().time())},
+                            {
+                                "pong": True,
+                                "timestamp": int(asyncio.get_event_loop().time()),
+                            },
                         )
 
                 elif method == "pong":
@@ -296,19 +385,27 @@ class TcpRpcServer:
             Tuple of (device_id, device_token, project_id, device_name, device_version, is_new_registration)
             or None if authentication failed.
         """
+        if not isinstance(params, dict):
+            return None
         bind_code = params.get("bindCode")
         device_token = params.get("deviceToken")
         device_info = params.get("deviceInfo", {})
+        if not isinstance(device_info, dict):
+            return None
+        if (bind_code is not None and not isinstance(bind_code, str)) or (
+            device_token is not None and not isinstance(device_token, str)
+        ):
+            return None
 
         device_name = device_info.get("name", "Unknown Device")
         device_version = device_info.get("version", "unknown")
 
         logger.info(f"[DEBUG] _authenticate called from {addr}")
-        logger.info(f"[DEBUG] bind_code={bind_code}, has_device_token={bool(device_token)}")
-        logger.info(f"[DEBUG] device_info={device_info}")
 
         if not bind_code and not device_token:
-            logger.warning(f"[DEBUG] Auth from {addr}: neither bindCode nor deviceToken provided")
+            logger.warning(
+                f"[DEBUG] Auth from {addr}: neither bindCode nor deviceToken provided"
+            )
             return None
 
         try:
@@ -318,13 +415,16 @@ class TcpRpcServer:
 
                 if bind_code:
                     # First-time registration using bind code
-                    logger.info(f"[DEBUG] Processing bind_code registration from {addr}")
+                    logger.info(
+                        f"[DEBUG] Processing bind_code registration from {addr}"
+                    )
                     os_name = device_info.get("os")
                     if not os_name:
-                        logger.warning(f"[DEBUG] Auth from {addr}: OS is required for first-time registration")
+                        logger.warning(
+                            f"[DEBUG] Auth from {addr}: OS is required for first-time registration"
+                        )
                         return None
 
-                    logger.info(f"[DEBUG] Calling device_service.register_device with bind_code={bind_code}")
                     device = await device_service.register_device(
                         bind_code=bind_code,
                         device_name=device_name,
@@ -335,10 +435,14 @@ class TcpRpcServer:
                     )
 
                     if not device:
-                        logger.warning(f"[DEBUG] Auth from {addr}: invalid or expired bind code '{bind_code}'")
+                        logger.warning(
+                            "Invalid or expired device bind code from %s", addr
+                        )
                         return None
 
-                    logger.info(f"[DEBUG] Device registered: {device_name} ({device.id}) for project {device.project_id}")
+                    logger.info(
+                        f"[DEBUG] Device registered: {device_name} ({device.id}) for project {device.project_id}"
+                    )
                     return (
                         str(device.id),
                         device.device_token,
@@ -350,27 +454,32 @@ class TcpRpcServer:
 
                 elif device_token:
                     # Reconnection using device token
-                    logger.info(f"[DEBUG] Processing device_token reconnection from {addr}")
+                    logger.info(
+                        f"[DEBUG] Processing device_token reconnection from {addr}"
+                    )
                     device = await device_service.get_device_by_token(device_token)
 
                     if not device:
-                        logger.warning(f"[DEBUG] Auth from {addr}: invalid device token")
+                        logger.warning(
+                            f"[DEBUG] Auth from {addr}: invalid device token"
+                        )
                         return None
 
-                    # Update device status to online
-                    await device_service.update_device_status(device.id, DeviceStatus.ONLINE)
-
-                    logger.info(f"[DEBUG] Device reconnected: {device.device_name} ({device.id})")
+                    logger.info(
+                        f"[DEBUG] Device reconnected: {device.device_name} ({device.id})"
+                    )
                     return (
                         str(device.id),
-                        None,  # Don't return token on reconnection
+                        device_token,  # Internal revalidation, not in reconnect reply
                         str(device.project_id),
                         device.device_name,
                         device_version,
                         False,  # is_new_registration
                     )
         except Exception as e:
-            logger.error(f"[DEBUG] Exception in _authenticate from {addr}: {e}", exc_info=True)
+            logger.error(
+                "Device authentication failed from %s: %s", addr, type(e).__name__
+            )
             return None
 
         return None
@@ -383,6 +492,7 @@ class TcpRpcServer:
         """
         try:
             import uuid as uuid_module
+
             async with AsyncSessionLocal() as db:
                 device_service = DeviceService(db)
                 await device_service.update_device_status(
@@ -391,7 +501,9 @@ class TcpRpcServer:
                 )
                 logger.debug(f"Device {device_id} status updated to offline")
         except Exception as e:
-            logger.warning(f"Failed to update device {device_id} status to offline: {e}")
+            logger.warning(
+                f"Failed to update device {device_id} status to offline: {e}"
+            )
 
     async def _read_message(
         self, reader: asyncio.StreamReader
@@ -408,12 +520,14 @@ class TcpRpcServer:
             logger.debug("[DEBUG] _read_message: waiting for readline...")
             line = await reader.readline()
             if not line:
-                logger.debug("[DEBUG] _read_message: received empty line (connection closed)")
+                logger.debug(
+                    "[DEBUG] _read_message: received empty line (connection closed)"
+                )
                 return None
             decoded = line.decode("utf-8").strip()
-            logger.debug(f"[DEBUG] _read_message: received raw data ({len(line)} bytes): {decoded[:200]}...")
             result = json.loads(decoded)
-            logger.debug(f"[DEBUG] _read_message: parsed JSON successfully")
+            if not isinstance(result, dict):
+                raise ValueError("JSON-RPC message must be an object")
             return result
         except json.JSONDecodeError as e:
             logger.warning(f"[DEBUG] _read_message: JSON decode error: {e}")

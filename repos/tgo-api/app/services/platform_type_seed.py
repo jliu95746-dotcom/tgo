@@ -25,7 +25,7 @@ SEED_PLATFORM_TYPES: List[Dict[str, object]] = [
     },
     {
         "type": "wecom",
-        "name": "微信客服",
+        "name": "企微客服",
         "name_en": "WeCom",
         "is_supported": True,
     },
@@ -143,13 +143,6 @@ SEED_PLATFORM_TYPES: List[Dict[str, object]] = [
         "name": "TikTok",
         "name_en": "TikTok",
         "is_supported": False,
-    },
-    # Vision Agent 支持的平台类型 (通过 VLM + UI 自动化)
-    {
-        "type": "wechat_personal",
-        "name": "个人微信",
-        "name_en": "WeChat Personal",
-        "is_supported": True,
     },
 ]
 

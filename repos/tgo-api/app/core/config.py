@@ -368,6 +368,10 @@ class Settings(BaseSettings):
     )
 
     # Rate Limiting
+    PUBLIC_REGISTRATION_ENABLED: bool = Field(
+        default=True,
+        description="Allow public signup into a new isolated project",
+    )
     RATE_LIMIT_ENABLED: bool = Field(
         default=True,
         description="Enable rate limiting"
@@ -441,6 +445,8 @@ class Settings(BaseSettings):
         default="./uploads",
         description="Base directory for file uploads",
     )
+    MULTIMODAL_MAX_MEDIA_BYTES: int = Field(default=10 * 1024 * 1024, ge=1024, le=25 * 1024 * 1024)
+
     MAX_UPLOAD_SIZE_MB: int = Field(
         default=10,
         description="Maximum upload file size in MB",
@@ -567,17 +573,6 @@ class Settings(BaseSettings):
     DEVICE_CONTROL_AGENT_ID: str = Field(
         default="computer-use-agent",
         description="Agent ID for the Computer Use Agent",
-    )
-
-    # Vision Agent Service settings
-    VISION_AGENT_SERVICE_URL: str = Field(
-        default="http://localhost:8005",
-        description="URL of the Vision Agent service for UI automation (AgentBay)",
-    )
-    VISION_AGENT_SERVICE_TIMEOUT: int = Field(
-        default=60,
-        description="Timeout for Vision Agent service requests in seconds",
-        gt=0,
     )
 
     # Environment

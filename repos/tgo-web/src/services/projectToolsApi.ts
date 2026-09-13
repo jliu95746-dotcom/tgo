@@ -5,6 +5,7 @@
 
 import { apiClient, APIError } from './api';
 import type { AiToolResponse, AiToolCreateRequest, ToolType } from '@/types';
+import { redactMcpHeaderValues } from '@/utils/mcpHeaders';
 
 // Helper function to handle API errors consistently
 const handleApiError = (error: unknown): string => {
@@ -35,7 +36,7 @@ export const PROJECT_TOOLS_ENDPOINTS = {
 
 // Query parameters interface for AI tools list
 export interface AiToolsQueryParams {
-  tool_type?: ToolType | 'ALL'; // Filter by tool type: "Tool" | "FUNCTION" | "ALL"
+  tool_type?: ToolType | 'ALL'; // Filter by tool type: "MCP" | "FUNCTION" | "ALL"
   include_deleted?: boolean; // Include soft-deleted tools (default: false)
 }
 
@@ -125,8 +126,9 @@ export class ProjectToolsApiService {
         data
       );
     } catch (error) {
-      console.error('Failed to create AI tool:', error);
-      throw new Error(handleApiError(error));
+      const message = redactMcpHeaderValues(handleApiError(error), data.config?.headers);
+      console.error('Failed to create AI tool:', message);
+      throw new Error(message);
     }
   }
 
@@ -143,8 +145,9 @@ export class ProjectToolsApiService {
         data
       );
     } catch (error) {
-      console.error(`Failed to update AI tool ${toolId}:`, error);
-      throw new Error(handleApiError(error));
+      const message = redactMcpHeaderValues(handleApiError(error), data.config?.headers);
+      console.error(`Failed to update AI tool ${toolId}:`, message);
+      throw new Error(message);
     }
   }
 

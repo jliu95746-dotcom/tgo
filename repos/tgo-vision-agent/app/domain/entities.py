@@ -11,7 +11,6 @@ from uuid import UUID
 class AppType(str, Enum):
     """Supported application types."""
 
-    WECHAT = "wechat"
     DOUYIN = "douyin"
     XIAOHONGSHU = "xiaohongshu"
     WHATSAPP = "whatsapp"

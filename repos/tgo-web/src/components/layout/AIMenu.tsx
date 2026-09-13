@@ -12,11 +12,11 @@ interface AIMenuItemProps {
 
 // Icon mapping for AI menu items using react-icons
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  'Bot': LuBot,
-  'Wrench': LuWrench,
-  'Zap': LuZap,
-  'GitBranch': LuGitBranch,
-  'Monitor': LuMonitorSmartphone
+  Bot: LuBot,
+  Wrench: LuWrench,
+  Zap: LuZap,
+  GitBranch: LuGitBranch,
+  Monitor: LuMonitorSmartphone
 };
 
 /**

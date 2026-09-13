@@ -48,7 +48,7 @@ export default function Header({ title, onClose }: { title: string; onClose(): v
   return (
     <Bar>
       <Title>
-        <Logo src={cfg?.logo_url || '/logo.svg'} alt="TGO logo" width={20} height={20} />
+        <Logo src={cfg?.logo_url || '/yujian-logo.svg'} alt="域见" width={20} height={20} />
         {title}
       </Title>
       <ToggleTheme

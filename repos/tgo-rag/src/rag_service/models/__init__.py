@@ -8,6 +8,7 @@ from .documents import FileDocument
 from .embedding_config import EmbeddingConfig
 from .files import File
 from .knowledge_governance import KnowledgeGovernanceRecord
+from .knowledge_versions import KnowledgeVersion, KnowledgeVersionSource
 from .projects import Project
 from .qa import QAPair
 from .websites import WebsitePage
@@ -21,6 +22,8 @@ __all__ = [
     "File",
     "FileDocument",
     "KnowledgeGovernanceRecord",
+    "KnowledgeVersion",
+    "KnowledgeVersionSource",
     "Project",
     "QAPair",
     "WebsitePage",

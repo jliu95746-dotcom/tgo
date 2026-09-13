@@ -233,7 +233,7 @@ const WorkflowManagement: React.FC = () => {
   // Load workflows on mount
   useEffect(() => {
     loadWorkflows();
-  }, []);
+  }, [loadWorkflows]);
 
   const [isCreating, setIsCreating] = useState(false);
 

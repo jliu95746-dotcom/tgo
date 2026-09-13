@@ -41,6 +41,8 @@ from app.schemas.skill import (
     SkillUpdateRequest,
 )
 from app.services.humanization_skill_training import HumanizationTrainingStore
+from app.services.humanization_library import HumanizationLibrary, _RELEASE_LOCK
+from app.schemas.humanization import ConversationTurn, HumanizationContext, TrainingPublishRequest, TrainingReview
 
 import logging
 
@@ -248,16 +250,15 @@ class SkillFileService:
         project_dir = self._project_dir(project_id)
         if project_dir.exists():
             for child in sorted(project_dir.iterdir()):
-                if child.is_dir() and (child / "SKILL.md").exists():
+                if not child.name.startswith('.') and child.is_dir() and (child / "SKILL.md").exists():
                     summary = self._parse_skill_summary(child, is_official=False)
                     if summary is not None:
                         summary.enabled = child.name not in disabled
                         if summary.skill_type == "humanization":
-                            summary.pending_training_count = (
-                                self.training_store.pending_count(
-                                    project_id, child.name
-                                )
-                            )
+                            review = HumanizationLibrary(child).review(child.name,
+                                self.training_store.list_pending(project_id, child.name), summary.published_version)
+                            summary.pending_training_count = len(review.pending)
+                            summary.published_version = review.published_version
                         skills.append(summary)
 
         # 2. Official (global) skills
@@ -277,9 +278,10 @@ class SkillFileService:
         detail = self._parse_skill_detail(skill_dir)
         detail.enabled = skill_name not in self._load_disabled_skills(project_id)
         if detail.skill_type == "humanization":
-            detail.pending_training_count = self.training_store.pending_count(
-                project_id, skill_name
-            )
+            review = HumanizationLibrary(skill_dir).review(skill_name,
+                self.training_store.list_pending(project_id, skill_name), detail.published_version)
+            detail.pending_training_count = len(review.pending)
+            detail.published_version = review.published_version
         return detail
 
     async def create_skill(
@@ -357,13 +359,7 @@ class SkillFileService:
 
         # Merge update into existing frontmatter
         self._write_skill_md(skill_dir, data, merge=True)
-        detail = self._parse_skill_detail(skill_dir)
-        detail.enabled = skill_name not in self._load_disabled_skills(project_id)
-        if detail.skill_type == "humanization":
-            detail.pending_training_count = self.training_store.pending_count(
-                project_id, skill_name
-            )
-        return detail
+        return await self.get_skill(project_id, skill_name)
 
     async def add_humanization_training_sample(
         self,
@@ -374,75 +370,56 @@ class SkillFileService:
         detail = await self.get_skill(project_id, skill_name)
         if detail.skill_type != "humanization":
             raise ValueError(f"Skill '{skill_name}' is not a humanization skill")
-        pending_count = self.training_store.append(project_id, skill_name, data)
+        self.training_store.append(project_id, skill_name, data)
+        review = await self.review_humanization_training(project_id, skill_name)
+        pending_count = len(review.pending)
         return HumanizationTrainingStatus(
             name=skill_name,
             pending_training_count=pending_count,
-            published_version=detail.published_version,
+            published_version=review.published_version,
         )
 
-    async def apply_humanization_training(
-        self,
-        project_id: str,
-        skill_name: str,
-    ) -> HumanizationTrainingApplyResponse:
+    async def review_humanization_training(self, project_id: str, skill_name: str) -> TrainingReview:
         detail = await self.get_skill(project_id, skill_name)
         if detail.skill_type != "humanization":
-            raise ValueError(f"Skill '{skill_name}' is not a humanization skill")
+            raise ValueError("Not a humanization skill")
+        library = HumanizationLibrary(self._skill_dir(project_id, skill_name))
+        return library.review(skill_name, self.training_store.list_pending(project_id, skill_name),
+                              detail.published_version)
 
-        samples = self.training_store.list_pending(project_id, skill_name)
-        if not samples:
-            return HumanizationTrainingApplyResponse(
-                name=skill_name,
-                applied_count=0,
-                pending_training_count=0,
-                published_version=detail.published_version,
-            )
-
-        skill_dir = self._skill_dir(project_id, skill_name)
-        examples_path = skill_dir / "references" / "approved-examples.md"
-        examples_path.parent.mkdir(parents=True, exist_ok=True)
-        examples_existed = examples_path.exists()
-        previous_examples = (
-            examples_path.read_text(encoding="utf-8")
-            if examples_existed
-            else ""
-        )
-        existing = previous_examples.rstrip()
-        rendered = self.training_store.render_approved_examples(samples)
-        next_version = detail.published_version + 1
-        if existing:
-            batch = rendered.replace(
-                "# 已确认的人工修正样本",
-                f"## 训练批次 v{next_version}",
-                1,
-            )
-            content = f"{existing}\n\n{batch}"
-        else:
-            content = rendered
-        examples_path.write_text(content, encoding="utf-8")
-
-        try:
-            await self.update_skill(
-                project_id,
-                skill_name,
-                SkillUpdateRequest(
-                    metadata={"published_version": str(next_version)}
-                ),
-            )
-        except Exception:
-            if examples_existed:
-                examples_path.write_text(previous_examples, encoding="utf-8")
-            elif examples_path.exists():
-                examples_path.unlink()
-            raise
-        self.training_store.delete(project_id, skill_name)
+    async def publish_humanization_training(
+        self, project_id: str, skill_name: str, data: TrainingPublishRequest,
+    ) -> HumanizationTrainingApplyResponse:
+        # Snapshot check and release replacement are serialized in this service.
+        with _RELEASE_LOCK:
+            review = await self.review_humanization_training(project_id, skill_name)
+            library = HumanizationLibrary(self._skill_dir(project_id, skill_name))
+            release = library.publish(review, data)
+            remaining = library.review(skill_name, self.training_store.list_pending(project_id, skill_name))
         return HumanizationTrainingApplyResponse(
-            name=skill_name,
-            applied_count=len(samples),
-            pending_training_count=0,
-            published_version=next_version,
+            name=skill_name, published_version=release.version,
+            applied_count=sum(e.selected and e.change_kind == "expression" for e in data.samples),
+            pending_training_count=len(remaining.pending),
         )
+
+    async def apply_humanization_training(self, project_id: str, skill_name: str) -> HumanizationTrainingApplyResponse:
+        raise ValueError("请先预览训练内容，再手动更新技能")
+
+    async def match_humanization_context(
+        self, project_id: str, skill_name: str, customer_message: str,
+        candidate: TrainingPublishRequest | None = None,
+        factual_draft: str = "", recent_messages: list[ConversationTurn] | None = None,
+    ) -> HumanizationContext:
+        detail = await self.get_skill(project_id, skill_name)
+        if detail.skill_type != "humanization":
+            raise ValueError("Not a humanization skill")
+        library = HumanizationLibrary(self._skill_dir(project_id, skill_name))
+        release = library.read(detail.published_version)
+        if candidate is not None:
+            review = await self.review_humanization_training(project_id, skill_name)
+            release = library.candidate(review, candidate)
+        return library.context(skill_name, detail.instructions, release, customer_message,
+                               factual_draft, recent_messages)
 
     async def delete_skill(self, project_id: str, skill_name: str) -> None:
         """Delete a project-private skill directory entirely."""
@@ -669,6 +646,11 @@ class SkillFileService:
 
         # Update metadata sub-dict
         meta = fm.get("metadata") or {}
+        display_name = getattr(data, "display_name", None)
+        if display_name is not None:
+            if not display_name.strip():
+                raise ValueError("显示名称不能为空")
+            meta["display_name"] = display_name.strip()
         if hasattr(data, "author") and getattr(data, "author", None) is not None:
             meta["author"] = data.author
         if data.tags is not None:

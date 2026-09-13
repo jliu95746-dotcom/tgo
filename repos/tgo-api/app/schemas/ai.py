@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Literal, TYPE_CHECKING
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.base import BaseSchema, PaginationMetadata
 
@@ -228,7 +228,12 @@ class AgentToolResponse(BaseSchema):
 
 # Agent Schemas
 class AgentCreateRequest(BaseSchema):
+    humanization_skill_name: Optional[str] = Field(default=None, max_length=64)
+    humanization_skill_enabled: bool = False
+
     """Schema for creating a new agent."""
+
+    is_active: bool = Field(default=True, description="Whether the agent accepts new runs")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -319,9 +324,21 @@ class AgentCreateRequest(BaseSchema):
 
 
 class AgentUpdateRequest(BaseSchema):
+    humanization_skill_name: Optional[str] = Field(default=None, max_length=64)
+    humanization_skill_enabled: Optional[bool] = None
+
     """Schema for updating an existing agent."""
 
     model_config = ConfigDict(extra="forbid")
+
+    is_active: Optional[bool] = Field(None, description="Enable or disable new runs; existing runs are not cancelled")
+
+    @field_validator("is_active")
+    @classmethod
+    def activation_must_not_be_null(cls, value: Optional[bool]) -> bool:
+        if value is None:
+            raise ValueError("is_active must be true or false")
+        return value
 
     name: Optional[str] = Field(
         None,
@@ -401,7 +418,12 @@ class AgentUpdateRequest(BaseSchema):
 
 
 class AgentResponse(BaseSchema):
+    humanization_skill_name: Optional[str] = None
+    humanization_skill_enabled: bool = False
+
     """Schema for agent API responses."""
+
+    is_active: bool = Field(default=True, description="Whether the agent accepts new runs")
 
     id: UUID = Field(..., description="Unique identifier")
     name: str = Field(

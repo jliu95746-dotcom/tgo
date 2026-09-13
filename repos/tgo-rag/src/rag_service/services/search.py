@@ -15,7 +15,13 @@ from ..config import get_settings
 from ..database import get_db_session
 from ..logging_config import get_logger
 from ..models import FileDocument
-from ..schemas.search import SearchMetadata, SearchResult, SearchResponse
+from ..schemas.search import (
+    AutomaticAnswerSearchResponse,
+    AutomaticAnswerSearchResult,
+    SearchMetadata,
+    SearchResult,
+    SearchResponse,
+)
 from ..schemas.knowledge_governance import KnowledgeChannel
 from .knowledge_governance import KnowledgeGovernancePolicy
 from .vector_store import get_vector_store_service
@@ -28,7 +34,7 @@ logger = get_logger(__name__)
 class SearchService:
     """Service for performing hybrid search operations."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the search service."""
         self.settings = get_settings()
         self.vector_store_service = get_vector_store_service()
@@ -45,7 +51,7 @@ class SearchService:
         min_score: float = 0.0,
         filters: Optional[Dict[str, Any]] = None,
         search_mode: str = "hybrid",
-    ) -> SearchResponse:
+    ) -> AutomaticAnswerSearchResponse:
         """Search only knowledge admitted for automatic answers.
 
         Candidate retrieval deliberately oversamples before applying governance so
@@ -105,11 +111,24 @@ class SearchService:
             channel=channel,
             candidate_ids=candidate_ids,
         )
+        # Read bodies with the admission gates again so a review change between
+        # candidate search and this read cannot expose newly ineligible content.
+        contents = await self._eligible_document_contents(
+            project_id=project_id,
+            collection_id=collection_id,
+            channel=channel,
+            candidate_ids=tuple(
+                doc_id for doc_id in candidate_ids if doc_id in eligible_ids
+            ),
+        )
         eligible_results = [
-            result
+            AutomaticAnswerSearchResult(
+                **result.model_dump(), content=contents[result.document_id]
+            )
             for result in candidates.results
             if result.document_id in semantically_relevant_ids
             and result.document_id in eligible_ids
+            and contents.get(result.document_id, "").strip()
         ]
         paginated_results = eligible_results[offset:requested_window]
         applied_filters = dict(filters or {})
@@ -120,7 +139,7 @@ class SearchService:
             }
         )
 
-        return SearchResponse(
+        return AutomaticAnswerSearchResponse(
             results=paginated_results,
             search_metadata=SearchMetadata(
                 query=query,
@@ -152,6 +171,33 @@ class SearchService:
         async with get_db_session() as db:
             result = await db.execute(statement)
             return set(result.scalars().all())
+
+    async def _eligible_document_contents(
+        self,
+        *,
+        project_id: UUID,
+        collection_id: Optional[UUID],
+        channel: KnowledgeChannel,
+        candidate_ids: Tuple[UUID, ...],
+    ) -> Dict[UUID, str]:
+        """Fetch full chunks only inside the same tenant and governance gates."""
+        if not candidate_ids:
+            return {}
+        admitted_ids = KnowledgeGovernancePolicy.eligible_document_ids_statement(
+            project_id=project_id,
+            at=datetime.now(UTC),
+            channel=channel,
+            candidate_ids=candidate_ids,
+        )
+        statement = select(FileDocument.id, FileDocument.content).where(
+            FileDocument.project_id == project_id,
+            FileDocument.id.in_(admitted_ids),
+        )
+        if collection_id is not None:
+            statement = statement.where(FileDocument.collection_id == collection_id)
+        async with get_db_session() as db:
+            result = await db.execute(statement)
+            return {document_id: content for document_id, content in result.all()}
     
     async def semantic_search(
         self,

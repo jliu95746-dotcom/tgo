@@ -8,7 +8,7 @@ import time
 from builtins import ExceptionGroup
 from datetime import UTC, datetime
 from functools import wraps
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import UUID
 
 import aiohttp
@@ -20,6 +20,9 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.usage import CollectionUsageRecord, ToolUsageRecord
 from app.schemas.knowledge import KnowledgeChannel
+from app.services.mcp_result import mcp_result_text
+from app.services.http_tool_errors import http_tool_error
+from app.services.plugin_result import plugin_result_text
 
 logger = logging.getLogger(__name__)
 
@@ -450,6 +453,7 @@ def create_agno_mcp_tool(
     agent_id: str | None = None,
     session_id: str | None = None,
     user_id: str | None = None,
+    headers_factory: Callable[[], dict[str, str]] | None = None,
 ) -> Function:
     """为Agno生成基于MCP协议的工具包装."""
 
@@ -457,7 +461,7 @@ def create_agno_mcp_tool(
         started_at = time.perf_counter()
         try:
             async with streamablehttp_client(
-                mcp_server_url, headers=headers
+                mcp_server_url, headers=headers_factory() if headers_factory else headers
             ) as streams:
                 read_stream, write_stream, _ = streams
                 async with ClientSession(read_stream, write_stream) as session:
@@ -466,9 +470,7 @@ def create_agno_mcp_tool(
                         mcp_tool.name,
                         arguments=tool_args,
                     )
-                    first_content = result.content[0] if result.content else None
-                    text_content = getattr(first_content, "text", None)
-                    output = text_content if text_content else result
+            output = mcp_result_text(result)
             await _record_tool_usage(
                 project_id=project_id,
                 agent_id=agent_id,
@@ -514,29 +516,28 @@ def create_plugin_tool(
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
+    project_id: Optional[str] = None,
 ) -> Function:
     """根据插件信息生成插件工具包装."""
     from app.services.api_service import api_service_client
+    from app.schemas.plugin_execution import PluginExecutionContext
 
-    async def plugin_tool_entrypoint(**tool_args: Any) -> Any:
-        context = {
-            "user_id": user_id,
-            "session_id": session_id,
-            "agent_id": agent_id,
-        }
-        try:
-            result = await api_service_client.execute_plugin_tool(
-                plugin_id=plugin_id,
-                tool_name=tool_name,
-                arguments=tool_args,
-                context=context,
-            )
-            if result.get("success"):
-                return result.get("content", "工具执行成功")
-            else:
-                return f"<error>{result.get('error', '工具执行失败')}</error>"
-        except Exception as e:
-            return f"<error>插件工具执行失败: {str(e)}</error>"
+    async def plugin_tool_entrypoint(**tool_args: Any) -> str:
+        context = PluginExecutionContext(
+            visitor_id=PluginExecutionContext.visitor_from_user(user_id),
+            session_id=session_id,
+            agent_id=agent_id,
+        ).model_dump(mode="json")
+        result = await api_service_client.execute_plugin_tool(
+            plugin_id=plugin_id,
+            tool_name=tool_name,
+            arguments=tool_args,
+            context=context,
+            project_id=project_id,
+        )
+        # Let the agent framework mark failed executions as failures, rather
+        # than treating an error string as a successfully completed tool call.
+        return plugin_result_text(result)
 
     return Function(
         name=tool_name,
@@ -584,6 +585,7 @@ def create_http_tool(
     headers: Optional[Dict[str, str]] = None,
     parameters: Optional[List[Dict[str, Any]]] = None,
     timeout: float = 30.0,
+    logistics_provider: object = None,
 ) -> Function:
     """根据HTTP接口信息生成工具包装."""
 
@@ -591,6 +593,13 @@ def create_http_tool(
         import httpx
 
         try:
+            if logistics_provider:
+                from app.services.logistics_provider import execute_logistics_provider
+                try:
+                    result = await execute_logistics_provider(endpoint, logistics_provider, tool_args)
+                    return json.dumps(result, ensure_ascii=False)
+                except ValueError:
+                    return "<error>快递服务商查询失败：请检查单号、授权、额度和返回字段配置</error>"
             async with httpx.AsyncClient(timeout=timeout) as client:
                 upper_method = method.upper()
                 if upper_method == "GET":
@@ -621,10 +630,8 @@ def create_http_tool(
                     return json.dumps(response.json(), ensure_ascii=False)
                 except ValueError:
                     return response.text
-        except httpx.HTTPStatusError as e:
-            return f"<error>HTTP execution failed with status {e.response.status_code}: {e.response.text}</error>"
         except Exception as e:
-            return f"<error>HTTP execution failed: {str(e)}</error>"
+            return http_tool_error(e)
 
     # Convert simple parameters to JSON Schema
     properties = {}

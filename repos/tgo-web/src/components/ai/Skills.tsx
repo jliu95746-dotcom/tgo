@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Github, Sparkles } from 'lucide-react';
+import { Upload, Sparkles } from 'lucide-react';
 import { LuLoader, LuSearch, LuZap } from 'react-icons/lu';
 import { useTranslation } from 'react-i18next';
 
@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/useToast';
 import SkillsApiService, { type SkillDetail, type SkillSummary } from '@/services/skillsApi';
 
 import HumanizationSkillModal from './HumanizationSkillModal';
+import HumanizationTrainingModal from './HumanizationTrainingModal';
 import SkillCard, { type Skill } from './SkillCard';
 import SkillDetailModal from './SkillDetailModal';
 import SkillFormModal from './SkillFormModal';
@@ -18,10 +19,11 @@ const Skills: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [editingStandard, setEditingStandard] = useState<SkillDetail | null>(null);
   const [isHumanizationOpen, setIsHumanizationOpen] = useState(false);
   const [editingHumanization, setEditingHumanization] = useState<SkillDetail | null>(null);
   const [viewingSkillName, setViewingSkillName] = useState<string | null>(null);
-  const [applyingSkillName, setApplyingSkillName] = useState<string | null>(null);
+  const [trainingSkill, setTrainingSkill] = useState<Skill | null>(null);
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -86,6 +88,11 @@ const Skills: React.FC = () => {
   const handleEditHumanization = async (skill: Skill) => {
     try {
       const detail = await SkillsApiService.getSkill(skill.name);
+      if (skill.skill_type !== 'humanization') {
+        setEditingStandard(detail);
+        setIsImportOpen(true);
+        return;
+      }
       setEditingHumanization(detail);
       setIsHumanizationOpen(true);
     } catch (error) {
@@ -96,26 +103,7 @@ const Skills: React.FC = () => {
     }
   };
 
-  const handleApplyTraining = async (skill: Skill) => {
-    try {
-      setApplyingSkillName(skill.name);
-      const result = await SkillsApiService.applyHumanizationTraining(skill.name);
-      showSuccess(
-        t('skills.humanization.applySuccess', '已更新 {{count}} 条训练内容，v{{version}} 开始生效', {
-          count: result.applied_count,
-          version: result.published_version,
-        }),
-      );
-      await fetchSkills();
-    } catch (error) {
-      showError(
-        t('skills.humanization.applyFailed', '更新拟人技能失败'),
-        error instanceof Error ? error.message : String(error),
-      );
-    } finally {
-      setApplyingSkillName(null);
-    }
-  };
+  const handleApplyTraining = (skill: Skill) => setTrainingSkill(skill);
 
   const renderGrid = (items: Skill[]) => (
     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -125,11 +113,10 @@ const Skills: React.FC = () => {
           skill={skill}
           enabled={skill.enabled}
           onToggle={handleToggle}
-          onClick={(item) => setViewingSkillName(item.name)}
+          onClick={(item) => item.skill_type === 'humanization' ? setTrainingSkill(item) : setViewingSkillName(item.name)}
           onDelete={handleDelete}
           onEdit={handleEditHumanization}
           onApplyTraining={handleApplyTraining}
-          isApplying={applyingSkillName === skill.name}
         />
       ))}
     </div>
@@ -166,11 +153,11 @@ const Skills: React.FC = () => {
             {t('skills.humanization.createAction', '创建拟人技能')}
           </button>
           <button
-            onClick={() => setIsImportOpen(true)}
+            onClick={() => { setEditingStandard(null); setIsImportOpen(true); }}
             className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 dark:shadow-none"
           >
-            <Github className="h-4 w-4" />
-            {t('skills.import.submit', '导入技能')}
+            <Upload className="h-4 w-4" />
+            本地导入技能
           </button>
         </div>
       </header>
@@ -199,6 +186,7 @@ const Skills: React.FC = () => {
                   </h3>
                   <p className="mt-1 text-sm text-gray-500">
                     {t('skills.humanization.sectionDescription', '辅助模式收集人工修正，手动更新后才会用于 AI 回复。')}
+                    {' '}{t('employeeStyle.managementHint', '这里管理说话范本；到AI员工设置中绑定和开关。更新共用技能后，所有启用它的员工都会使用新版本。')}
                   </p>
                 </div>
                 {humanizationSkills.length > 0 ? renderGrid(humanizationSkills) : (
@@ -223,7 +211,7 @@ const Skills: React.FC = () => {
         </div>
       </div>
 
-      <SkillFormModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} skill={null} onSaved={fetchSkills} />
+      <SkillFormModal isOpen={isImportOpen} onClose={() => { setIsImportOpen(false); setEditingStandard(null); }} skill={editingStandard} onSaved={fetchSkills} />
       <HumanizationSkillModal
         isOpen={isHumanizationOpen}
         onClose={() => { setIsHumanizationOpen(false); setEditingHumanization(null); }}
@@ -231,6 +219,7 @@ const Skills: React.FC = () => {
         onSaved={fetchSkills}
       />
       <SkillDetailModal isOpen={Boolean(viewingSkillName)} onClose={() => setViewingSkillName(null)} skillName={viewingSkillName} />
+      {trainingSkill && <HumanizationTrainingModal skill={trainingSkill} onClose={() => setTrainingSkill(null)} onPublished={fetchSkills} />}
     </main>
   );
 };

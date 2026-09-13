@@ -221,7 +221,7 @@ export default function MessageList({ messages }: { messages: ChatMessage[] }){
               ) : payload.type === 100 ? (
                 /* AI Loading - show only when no streamData yet */
                 <Bubble self={false}>
-                  <AILoadingDots><span /><span /><span /></AILoadingDots>
+                  <AILoadingDots role="status" aria-label={t('messageInput.typing')}><span /><span /><span /></AILoadingDots>
                 </Bubble>
               ) : (
                 <Bubble self={m.role==='user'}>

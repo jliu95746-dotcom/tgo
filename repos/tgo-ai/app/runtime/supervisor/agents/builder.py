@@ -32,6 +32,12 @@ class AgnoAgentBuilder:
 
     async def build_agent(self, context: AgentExecutionContext) -> BuiltAgent:
         """Build the direct agent for one execution request."""
+        if context.response_purpose == "expression":
+            context = context.model_copy(update={
+                "disable_tools": True, "enable_memory": False,
+                "session_id": None, "user_id": None, "markdown": False,
+                "ui_mode": "text", "expected_output": None,
+            })
         request = AgentRunRequest(
             message=context.message,
             config=self._build_agent_config(context),
@@ -93,6 +99,16 @@ class AgnoAgentBuilder:
                 workflow_url=workflow_url,
                 workflows=[str(binding.workflow_id) for binding in context.agent.workflows if binding.enabled],
                 project_id=context.project_id,
+            )
+
+        if context.response_purpose == "expression":
+            return AgentConfig(
+                model_name=context.agent.model,
+                provider_credentials=context.agent.llm_provider_credentials,
+                system_prompt=context.system_message,
+                temperature=context.temperature if context.temperature is not None else 0.2,
+                enable_memory=False, markdown=False, ui_mode="text",
+                expression_only=True,
             )
 
         return AgentConfig(

@@ -1,11 +1,10 @@
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Chat, ChannelVisitorExtra } from '@/types';
+import { PlatformType, type Chat, type ChannelVisitorExtra } from '@/types';
 import { DEFAULT_CHANNEL_TYPE } from '@/constants';
 import { useChannelDisplay } from '@/hooks/useChannelDisplay';
 import { ChatAvatar } from './ChatAvatar';
 import { ChatPlatformIcon } from './ChatPlatformIcon';
-import { PlatformType } from '@/types';
 import { toPlatformType } from '@/utils/platformUtils';
 import { formatChatLastMessage } from '@/utils/messageFormatting';
 import { Clock } from 'lucide-react';
@@ -63,7 +62,7 @@ export const UnassignedChatListItem: React.FC<UnassignedChatListItemProps> = Rea
     let ms = Date.parse(normalized);
     if (!Number.isFinite(ms)) {
       // Fallback: drop fractional seconds entirely, still assume UTC
-      normalized = timestamp.replace(' ', 'T').split('.')[0] + 'Z';
+      normalized = `${timestamp.replace(' ', 'T').split('.')[0]  }Z`;
       ms = Date.parse(normalized);
     }
     if (!Number.isFinite(ms)) return undefined;

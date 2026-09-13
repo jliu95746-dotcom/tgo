@@ -45,7 +45,7 @@ interface AIState {
   createAgent: (agentData: CreateAgentFormData, availableTools?: ToolSummary[]) => Promise<void>;
   updateAgent: (agentId: string, updates: Partial<Agent>, availableTools?: import('@/types').ToolSummary[]) => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
-  toggleAgentStatus: (agentId: string) => void;
+  toggleAgentStatus: (agentId: string) => Promise<void>;
 
   // API Actions - AI员工
   loadAgents: (params?: AgentQueryParams) => Promise<void>;
@@ -120,6 +120,8 @@ export const useAIStore = create<AIState>()(
           markdown: true,
           add_datetime_to_context: true,
           skills_enabled: true,
+          humanization_skill_name: null,
+          humanization_skill_enabled: false,
           tool_call_limit: 10,
           num_history_runs: 5,
         },
@@ -211,11 +213,8 @@ export const useAIStore = create<AIState>()(
               throw new Error('Agent not found');
             }
 
-            // Merge updates with current agent data
-            const updatedAgent = { ...currentAgent, ...updates };
-
             // Transform to API request format
-            const updateRequest = AIAgentsTransformUtils.transformAgentToUpdateRequest(updatedAgent, availableTools);
+            const updateRequest = AIAgentsTransformUtils.transformAgentPatch(currentAgent, updates, availableTools);
 
             // Call the real API
             const apiResponse = await AIAgentsApiService.updateAgent(agentId, updateRequest);
@@ -279,17 +278,11 @@ export const useAIStore = create<AIState>()(
           }
         },
         
-        toggleAgentStatus: (agentId) => set(
-          (state) => ({
-            agents: state.agents.map(agent =>
-              agent.id === agentId
-                ? { ...agent, status: agent.status === 'active' ? 'inactive' : 'active' }
-                : agent
-            )
-          }),
-          false,
-          'toggleAgentStatus'
-        ),
+        toggleAgentStatus: async (agentId) => {
+          const agent = get().agents.find(item => item.id === agentId);
+          if (!agent) throw new Error('Agent not found');
+          await get().updateAgent(agentId, { status: agent.status === 'active' ? 'inactive' : 'active' });
+        },
 
         // AI员工创建相关Actions
         setShowCreateAgentModal: (show) => set({ showCreateAgentModal: show }, false, 'setShowCreateAgentModal'),
@@ -318,6 +311,8 @@ export const useAIStore = create<AIState>()(
             markdown: true,
             add_datetime_to_context: true,
             skills_enabled: true,
+            humanization_skill_name: null,
+            humanization_skill_enabled: false,
             tool_call_limit: 10,
             num_history_runs: 5,
           },
@@ -350,7 +345,7 @@ export const useAIStore = create<AIState>()(
         },
 
         // 工具Actions
-        setTools: (tools) => set({ tools: tools }, false, 'setTools'),
+        setTools: (tools) => set({ tools }, false, 'setTools'),
         setSelectedTool: (tool) => set({ selectedTool: tool }, false, 'setSelectedTool'),
         setToolSearchQuery: (query) => set({ 
           toolSearchQuery: query, 

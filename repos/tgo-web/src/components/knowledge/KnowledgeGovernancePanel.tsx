@@ -18,7 +18,7 @@ import { useAuthStore } from '@/stores/authStore';
 import type {
   KnowledgeChannel,
   KnowledgeDocumentType,
-  KnowledgeFile,
+  KnowledgeGovernanceSource,
   KnowledgeGovernanceDraftRequest,
   KnowledgeGovernanceRecord,
   KnowledgeReviewStatus,
@@ -28,7 +28,9 @@ import type {
 interface KnowledgeGovernancePanelProps {
   collectionId: string;
   collectionName: string;
-  documents: KnowledgeFile[];
+  documents: KnowledgeGovernanceSource[];
+  sourceType?: 'file' | 'qa' | 'website';
+  onRefresh?: () => Promise<void>;
 }
 
 interface GovernanceFormState {
@@ -66,6 +68,8 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
   collectionId,
   collectionName,
   documents,
+  sourceType = 'file',
+  onRefresh,
 }) => {
   const { t } = useTranslation();
   const currentUser = useAuthStore((state) => state.user);
@@ -95,7 +99,10 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
   }, [loadRecords]);
 
   const governedFileIds = useMemo(
-    () => new Set(records.flatMap((record) => (record.file_id ? [record.file_id] : []))),
+    () => new Set(records.flatMap((record) => {
+      const sourceId = record.file_id || record.qa_pair_id;
+      return sourceId ? [sourceId] : [];
+    })),
     [records],
   );
   const ungovernedDocuments = useMemo(
@@ -103,12 +110,12 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
     [documents, governedFileIds],
   );
 
-  const openNewDraft = (document: KnowledgeFile): void => {
+  const openNewDraft = (document: KnowledgeGovernanceSource): void => {
     setForm({
       fileId: document.id,
       recordId: null,
       sourceName: document.name,
-      documentType: 'product',
+      documentType: sourceType === 'qa' ? 'faq' : 'product',
       productLine: collectionName,
       channels: ['wecom_kf', 'web'],
       effectiveAt: toLocalInput(),
@@ -116,14 +123,15 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
       owner: currentUser?.nickname || currentUser?.username || '',
       documentVersion: 'v1.0',
       allowAutomaticReply: false,
-      sourceOrigin: 'internal',
+      sourceOrigin: sourceType === 'website' ? 'website' : 'internal',
     });
   };
 
   const openExistingDraft = (record: KnowledgeGovernanceRecord): void => {
-    if (!record.file_id) return;
+    const sourceId = record.file_id || record.qa_pair_id;
+    if (!sourceId) return;
     setForm({
-      fileId: record.file_id,
+      fileId: sourceId,
       recordId: record.id,
       sourceName: record.source_name,
       documentType: record.document_type,
@@ -161,7 +169,11 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
 
     setActiveAction(form.fileId);
     try {
-      await KnowledgeGovernanceApiService.saveDraft(form.fileId, request);
+      if (sourceType === 'qa') {
+        await KnowledgeGovernanceApiService.saveQADraft(form.fileId, request);
+      } else {
+        await KnowledgeGovernanceApiService.saveDraft(form.fileId, request);
+      }
       setForm(null);
       setMessage({ type: 'success', text: t('knowledge.governance.saved') });
       await loadRecords();
@@ -257,21 +269,28 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => void loadRecords()}
+            onClick={() => { void loadRecords(); void onRefresh?.(); }}
             className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <RefreshCw className="h-4 w-4" /> {t('knowledge.governance.refresh')}
           </button>
-          <button
+          {sourceType === 'file' && <button
             onClick={() => void safeBackfill()}
+            aria-describedby="knowledge-safe-backfill-hint"
             disabled={activeAction === 'backfill'}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {activeAction === 'backfill' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />}
             {t('knowledge.governance.safeBackfill')}
-          </button>
+          </button>}
         </div>
       </div>
+
+      {sourceType === 'file' && (
+        <p id="knowledge-safe-backfill-hint" className="text-sm leading-6 text-gray-500 dark:text-gray-400">
+          {t('knowledge.governance.safeBackfillHint')}
+        </p>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-4">
         {(['approved', 'pending_review', 'draft'] as KnowledgeReviewStatus[]).map((status) => (

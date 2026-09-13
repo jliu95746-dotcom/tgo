@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.core.security import generate_api_key, get_current_active_user
+from app.core.security import generate_api_key, get_current_active_user, require_admin
 from app.models import Project, Staff
 from app.schemas import (
     ProjectCreate,
@@ -29,22 +29,23 @@ router = APIRouter()
 @router.get(
     "",
     response_model=ProjectListResponse,
-    responses=LIST_RESPONSES
+    responses={code: response for code, response in LIST_RESPONSES.items()}
 )
 async def list_projects(
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(require_admin()),
 ) -> ProjectListResponse:
     """
     List projects.
 
-    Retrieve a list of projects. This endpoint is typically used by system administrators
-    to manage multiple tenant projects.
+    Return the current administrator's project, including its private API key.
+    A tenant administrator is not a system-wide administrator.
     """
     logger.info(f"User {current_user.username} listing projects")
 
     # Query projects (non-deleted)
     projects = db.query(Project).filter(
+        Project.id == current_user.project_id,
         Project.deleted_at.is_(None)
     ).all()
 
@@ -57,7 +58,7 @@ async def list_projects(
 async def create_project(
     project_data: ProjectCreate,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(require_admin()),
 ) -> ProjectResponse:
     """
     Create project.
@@ -89,13 +90,14 @@ async def create_project(
 async def get_project(
     project_id: UUID,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(require_admin()),
 ) -> ProjectResponse:
     """Get project details."""
     logger.info(f"User {current_user.username} getting project: {project_id}")
 
     project = db.query(Project).filter(
         Project.id == project_id,
+        Project.id == current_user.project_id,
         Project.deleted_at.is_(None)
     ).first()
 
@@ -113,7 +115,7 @@ async def update_project(
     project_id: UUID,
     project_data: ProjectUpdate,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(require_admin()),
 ) -> ProjectResponse:
     """
     Update project.
@@ -125,6 +127,7 @@ async def update_project(
 
     project = db.query(Project).filter(
         Project.id == project_id,
+        Project.id == current_user.project_id,
         Project.deleted_at.is_(None)
     ).first()
 
@@ -153,7 +156,7 @@ async def update_project(
 async def delete_project(
     project_id: UUID,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(require_admin()),
 ) -> None:
     """
     Delete project (soft delete).
@@ -165,6 +168,7 @@ async def delete_project(
 
     project = db.query(Project).filter(
         Project.id == project_id,
+        Project.id == current_user.project_id,
         Project.deleted_at.is_(None)
     ).first()
 
@@ -317,7 +321,7 @@ async def upsert_project_ai_config(
     project_id: UUID,
     payload: ProjectAIConfigUpdate,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(require_admin()),
 ) -> ProjectAIConfigResponse:
     """Upsert default AI model configuration for a project.
 
@@ -418,7 +422,7 @@ async def upsert_project_ai_config(
 async def sync_project_ai_config_now(
     project_id: UUID,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(require_admin()),
 ) -> ProjectAIConfigResponse:
     """Manually trigger sync of a project's AI config to AI service."""
     if current_user.project_id != project_id:

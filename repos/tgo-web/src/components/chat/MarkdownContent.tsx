@@ -253,7 +253,7 @@ const preprocessStreamingMarkdown = (markdown: string): string => {
     // Find the last code fence to determine which type to use for closing
     const lastFenceMatch = processed.match(/(`{3,}|~{3,})(?!.*(`{3,}|~{3,}))/s);
     const closingFence = lastFenceMatch ? lastFenceMatch[1].charAt(0).repeat(3) : '```';
-    processed = processed + '\n' + closingFence;
+    processed = `${processed  }\n${  closingFence}`;
   }
 
   // Handle unclosed inline code (backticks)
@@ -261,7 +261,7 @@ const preprocessStreamingMarkdown = (markdown: string): string => {
   const inlineCodePattern = /(?<!`)`(?!`)/g;
   const inlineMatches = processed.match(inlineCodePattern) || [];
   if (inlineMatches.length % 2 !== 0) {
-    processed = processed + '`';
+    processed = `${processed  }\``;
   }
 
   return processed;

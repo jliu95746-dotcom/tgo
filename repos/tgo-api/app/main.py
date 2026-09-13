@@ -183,6 +183,9 @@ def create_app(
 
         startup_log("🗄️  Connecting to database...")
 
+        from app.tasks.recover_staff_delivery_history import start_staff_history_recovery
+        start_staff_history_recovery()
+
         # Start background sync monitor
         try:
             from app.services.platform_sync import start_sync_monitor
@@ -263,6 +266,8 @@ def create_app(
     @application.on_event("shutdown")
     async def shutdown_event():
         """Application shutdown event: stop background tasks."""
+        from app.tasks.recover_staff_delivery_history import stop_staff_history_recovery
+        await stop_staff_history_recovery()
         # Stop periodic AIProvider sync task (best-effort)
         try:
             from app.tasks.sync_ai_providers import stop_ai_provider_sync_task

@@ -9,10 +9,33 @@ from fastapi import APIRouter, Depends, Query
 from app.core.security import get_authenticated_project
 from app.schemas.tools import ToolCreateRequest, ToolResponse, ToolType, ToolUpdateRequest
 from app.services.ai_client import ai_client
+from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse, ToolTestRequest, ToolTestResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.post("/discover", response_model=MCPDiscoverResponse)
+async def discover_tools(
+    request: MCPDiscoverRequest,
+    project_and_api_key=Depends(get_authenticated_project),
+) -> MCPDiscoverResponse:
+    project, _ = project_and_api_key
+    return await ai_client.discover_tools(str(project.id), request)
+
+
+@router.post("/{tool_id}/execute", response_model=ToolTestResponse)
+async def test_saved_tool(
+    tool_id: UUID,
+    request: ToolTestRequest,
+    project_and_api_key=Depends(get_authenticated_project),
+) -> ToolTestResponse:
+    project, _ = project_and_api_key
+    result = await ai_client.execute_tool(
+        project_id=str(project.id), tool_id=str(tool_id), input_data=request.input_data,
+    )
+    return ToolTestResponse.model_validate(result)
 
 
 @router.get("", response_model=List[ToolResponse])
@@ -100,12 +123,12 @@ async def update_tool(
         extra={
             "project_id": str(project.id),
             "tool_id": str(tool_id),
-            "update_fields": list(tool_data.model_dump(exclude_none=True).keys()),
+            "update_fields": list(tool_data.model_dump(exclude_unset=True).keys()),
         }
     )
 
-    # Convert to dict and exclude None values
-    tool_data_dict = tool_data.model_dump(exclude_none=True)
+    # Omitted fields stay unchanged; explicit null clears nullable metadata.
+    tool_data_dict = tool_data.model_dump(exclude_unset=True)
 
     result = await ai_client.update_tool(
         project_id=str(project.id),

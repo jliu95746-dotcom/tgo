@@ -10,6 +10,8 @@ import { syncVisitorMessages, type WuKongIMMessage } from '../services/messageHi
 import { fetchChannelInfo, type ChannelInfo } from '../services/channel'
 import type { StaffInfo } from '../services/channel'
 import { uploadChatFile, readImageDimensions } from '../services/upload'
+import { requestMediaReply } from '../services/mediaReply'
+import { requestReplyCancellation } from '../services/replyCancellation'
 import { collectVisitorSystemInfo } from '../utils/systemInfo'
 import { playNotificationSound, showBrowserNotification, requestNotificationPermission } from '../utils/notification'
 import usePlatformStore from './platformStore'
@@ -397,11 +399,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
         // Check if message already exists (de-duplicate)
         const currentState = get()
         if (currentState.messages.some(x => x.id === chat.id)) return
+        if (payload.type === 100 && chat.clientMsgNo) {
+          // A delayed start must not overwrite an already reconciled answer.
+          const completed = currentState.messages.some(x => x.clientMsgNo === chat.clientMsgNo
+            && x.payload.type === 1 && Boolean(x.payload.content?.trim()))
+          if (completed) return
+          if (currentState.streamingClientMsgNo !== chat.clientMsgNo) get().markStreamingStart(chat.clientMsgNo)
+        }
 
         // New message received: play sound and show notification
         playNotificationSound()
         const pConfig = usePlatformStore.getState().config
-        const title = pConfig.widget_title || 'Tgo'
+        const title = pConfig.widget_title || '域见'
         let content = ''
         if (chat.payload.type === 1) content = chat.payload.content
         else if (chat.payload.type === 2) content = '[图片]'
@@ -454,6 +463,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
           if (newEventType === 'stream.delta') {
             if (!clientMsgNo) return
+            // The line parser may buffer text before its first newline.
+            if (!get().isStreaming) get().markStreamingStart(clientMsgNo)
             const payload = eventData?.payload
             const delta = payload?.delta
             if (delta) {
@@ -496,7 +507,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const errorMessage = eventData?.payload?.end_reason > 0 ? '流异常结束' : undefined
             console.log('[Chat] Stream closed for message:', clientMsgNo, errorMessage ? `error: ${errorMessage}` : '')
             get().finalizeStreamMessage(clientMsgNo, errorMessage)
-            try { get().markStreamingEnd() } catch {}
+            try { get().markStreamingEnd(clientMsgNo) } catch {}
             return
           }
 
@@ -507,7 +518,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const errorMessage = eventData?.payload?.error || '未知错误'
             console.log('[Chat] Stream error for message:', clientMsgNo, errorMessage)
             get().finalizeStreamMessage(clientMsgNo, errorMessage)
-            try { get().markStreamingEnd() } catch {}
+            try { get().markStreamingEnd(clientMsgNo) } catch {}
             return
           }
 
@@ -517,7 +528,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (cancelParser) { cancelParser.flush(); activeParsers.delete(clientMsgNo) }
             console.log('[Chat] Stream cancelled for message:', clientMsgNo)
             get().finalizeStreamMessage(clientMsgNo)
-            try { get().markStreamingEnd() } catch {}
+            try { get().markStreamingEnd(clientMsgNo) } catch {}
             return
           }
 
@@ -537,7 +548,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             // Stream started: play sound
             playNotificationSound()
             const pConfig = usePlatformStore.getState().config
-            void showBrowserNotification(pConfig.widget_title || 'Tgo', {
+            void showBrowserNotification(pConfig.widget_title || '域见', {
               body: i18n.t('messageInput.typing'),
               icon: pConfig.logo_url || undefined,
             })
@@ -586,7 +597,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const errorMessage = customEvent?.data ? String(customEvent.data) : undefined
             console.log('[Chat] Stream ended for message:', id, errorMessage ? `error: ${errorMessage}` : '')
             get().finalizeStreamMessage(id, errorMessage)
-            try { get().markStreamingEnd() } catch {}
+            try { get().markStreamingEnd(id) } catch {}
             return
           }
         } catch (err) {
@@ -801,15 +812,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
               const w = Math.max(1, dims?.width ?? 1)
               const h = Math.max(1, dims?.height ?? 1)
               const fileUrl = res.file_url
-              const payload: MessagePayload = { type: 2, url: fileUrl, width: w, height: h }
+              const payload: MessagePayload = { type: 2, url: fileUrl, width: w, height: h, file_id: res.file_id }
               set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
               const result = await IMService.sendPayload(payload, { clientMsgNo })
+              void requestMediaReply({ apiBase: st.apiBase, apiKey: resolveApiKey() || '', fromUid: st.myUid || '',
+                channelId: st.channelId, channelType: st.channelType, sourceMessageId: clientMsgNo,
+                upload: res, deliveryConfirmed: result.reasonCode === ReasonCode.Success }).catch(() => {
+                set({ error: i18n.t('errors.mediaReplyFailed') })
+              })
               set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
             } else {
               const fileUrl = res.file_url
-              const payload: MessagePayload = { type: 3, content: file.name || '[文件]', url: fileUrl, name: res.file_name || file.name, size: res.file_size ?? file.size }
+              const payload: MessagePayload = { type: 3, content: file.name || '[文件]', url: fileUrl, name: res.file_name || file.name, size: res.file_size ?? file.size, file_id: res.file_id, mime_type: res.file_type }
               set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
               const result = await IMService.sendPayload(payload, { clientMsgNo })
+              void requestMediaReply({ apiBase: st.apiBase, apiKey: resolveApiKey() || '', fromUid: st.myUid || '',
+                channelId: st.channelId, channelType: st.channelType, sourceMessageId: clientMsgNo,
+                upload: res, deliveryConfirmed: result.reasonCode === ReasonCode.Success }).catch(() => {
+                set({ error: i18n.t('errors.mediaReplyFailed') })
+              })
               set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
             }
             // success: cleanup retained file/controller
@@ -858,15 +879,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const w = Math.max(1, dims?.width ?? 1)
         const h = Math.max(1, dims?.height ?? 1)
         const fileUrl = res.file_url
-        const payload: MessagePayload = { type: 2, url: fileUrl, width: w, height: h }
+        const payload: MessagePayload = { type: 2, url: fileUrl, width: w, height: h, file_id: res.file_id }
         set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
         const result = await IMService.sendPayload(payload, { clientMsgNo })
+        void requestMediaReply({ apiBase: st.apiBase, apiKey: resolveApiKey() || '', fromUid: st.myUid || '',
+          channelId: st.channelId, channelType: st.channelType, sourceMessageId: clientMsgNo,
+          upload: res, deliveryConfirmed: result.reasonCode === ReasonCode.Success }).catch(() => {
+          set({ error: i18n.t('errors.mediaReplyFailed') })
+        })
         set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
       } else {
         const fileUrl = res.file_url
-        const payload: MessagePayload = { type: 3, content: file.name || '[文件]', url: fileUrl, name: res.file_name || file.name, size: res.file_size ?? file.size }
+        const payload: MessagePayload = { type: 3, content: file.name || '[文件]', url: fileUrl, name: res.file_name || file.name, size: res.file_size ?? file.size, file_id: res.file_id, mime_type: res.file_type }
         set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
         const result = await IMService.sendPayload(payload, { clientMsgNo })
+        void requestMediaReply({ apiBase: st.apiBase, apiKey: resolveApiKey() || '', fromUid: st.myUid || '',
+          channelId: st.channelId, channelType: st.channelType, sourceMessageId: clientMsgNo,
+          upload: res, deliveryConfirmed: result.reasonCode === ReasonCode.Success }).catch(() => {
+          set({ error: i18n.t('errors.mediaReplyFailed') })
+        })
         set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
       }
       uploadControllers.delete(messageId)
@@ -1022,7 +1053,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // explicitly end streaming and clear state
-  markStreamingEnd: (_clientMsgNo?: string) => {
+  markStreamingEnd: (clientMsgNo?: string) => {
+    if (clientMsgNo && get().streamingClientMsgNo !== clientMsgNo) return
     if (streamTimer) { try { clearTimeout(streamTimer) } catch {} ; streamTimer = null }
     set({ isStreaming: false, streamCanceling: false, streamingClientMsgNo: undefined })
   },
@@ -1036,23 +1068,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const platformApiKey = resolveApiKey() || ''
     set({ streamCanceling: true })
     try {
-      if (!apiBase || !clientMsgNo || !platformApiKey) return
-      const url = `${apiBase.replace(/\/$/, '')}/v1/ai/runs/cancel-by-client`
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform_api_key: platformApiKey, client_msg_no: clientMsgNo, reason: reason || 'user_cancel' })
-      })
-      if (!res.ok) {
-        const text = await res.text().catch(()=>'')
-        console.warn('[Chat] Cancel streaming failed:', res.status, res.statusText, text)
+      if (!apiBase || !clientMsgNo || !platformApiKey) throw new Error('Missing reply identity')
+      await requestReplyCancellation({ apiBase, clientMsgNo, platformApiKey, reason })
+      if (get().streamingClientMsgNo === clientMsgNo && resolveApiKey() === platformApiKey) {
+        get().markStreamingEnd(clientMsgNo)
       }
     } catch (e) {
       console.warn('[Chat] Cancel streaming error:', e)
+      if (get().streamingClientMsgNo === clientMsgNo) {
+        set({ error: i18n.t('errors.replyStopUnconfirmed') })
+      }
     } finally {
-      // Regardless of API result, revert UI state to allow new messages
-      if (streamTimer) { try { clearTimeout(streamTimer) } catch {} ; streamTimer = null }
-      set({ isStreaming: false, streamingClientMsgNo: undefined, streamCanceling: false })
+      if (get().streamingClientMsgNo === clientMsgNo) set({ streamCanceling: false })
     }
   },
 

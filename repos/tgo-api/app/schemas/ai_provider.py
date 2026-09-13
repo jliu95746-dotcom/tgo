@@ -50,17 +50,6 @@ class AIProviderConfigBase(BaseSchema):
     )
 
 
-class AIProviderCreate(AIProviderConfigBase):
-    """Schema for creating an AI provider."""
-
-    api_key: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-        description="API key/credential used to call the provider",
-    )
-
-
 class AIModelInput(BaseSchema):
     """Model input with type information."""
     model_id: str = Field(..., min_length=1, max_length=100)
@@ -69,6 +58,12 @@ class AIModelInput(BaseSchema):
         None,
         description="Model capabilities, for example vision support",
     )
+
+
+class AIProviderCreate(AIProviderConfigBase):
+    """Model types are accepted atomically with connection settings."""
+    api_key: str = Field(..., min_length=1, max_length=255)
+    available_models: Optional[list[str | AIModelInput]] = Field(default_factory=list)
 
 
 class AIProviderModelInfo(BaseSchema):

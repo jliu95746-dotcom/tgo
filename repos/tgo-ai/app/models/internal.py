@@ -5,7 +5,7 @@ This module defines models used internally by the supervisor agent
 for representing data from external services and coordination state.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 from datetime import datetime
 
@@ -20,6 +20,9 @@ class AgentTool(BaseModel):
 
     tool_id: UUID = Field(..., description="Tool ID")
     tool_name: str = Field(..., description="Tool name")
+    tool_description: Optional[str] = Field(
+        default=None, description="Tool purpose shown to the model",
+    )
     tool_type: str = Field(..., description="Tool type (MCP or FUNCTION)")
     enabled: bool = Field(default=True, description="Whether tool is enabled for this agent")
     permissions: Optional[List[str]] = Field(default_factory=list, description="Tool permissions for this agent")
@@ -170,6 +173,7 @@ class AgentExecutionContext(BaseModel):
     """Direct runtime context for a single executing agent."""
 
     agent: Agent = Field(..., description="Resolved agent for this run")
+    response_purpose: Literal["standard", "expression"] = "standard"
     project_id: str = Field(..., description="Owning project ID")
     message: str = Field(..., description="User message")
     system_message: Optional[str] = Field(

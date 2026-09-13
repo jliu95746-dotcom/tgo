@@ -310,6 +310,9 @@ async def update_qa_pair(
         raise HTTPException(status_code=404, detail="QA pair not found")
 
     # Track if content actually changed
+    from ..services.knowledge_versions import find_source
+    if await find_source(db, project_id, 'qa', qa_pair_id):
+        raise HTTPException(409, '这份资料已启用版本管理，请使用“更新与历史版本”修改。')
     original_question = qa_pair.question
     original_answer = qa_pair.answer
 
@@ -338,6 +341,11 @@ async def update_qa_pair(
 
     # A failed queue/provider attempt can be retried by saving the same content.
     needs_processing = content_changed or qa_pair.status == "failed"
+    if content_changed:
+        from ..services.knowledge_governance import KnowledgeGovernanceService
+        await KnowledgeGovernanceService.invalidate_qa_review(
+            db, project_id=project_id, qa_pair_id=qa_pair_id,
+        )
     if needs_processing:
         qa_pair.status = "pending"
         qa_pair.error_message = None

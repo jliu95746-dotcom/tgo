@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypedDict
+
+from pydantic import JsonValue
 
 # settings import removed; no longer using default_team_model
 from app.core.logging import get_logger
@@ -37,8 +38,17 @@ from app.runtime.tools.models import (
     WorkflowConfig,
 )
 from app.services.agent_service import AgentService
+from app.services.system_default_model import resolve_system_default_model
 
 logger = get_logger(__name__)
+
+
+class ToolAssociationData(TypedDict, total=False):
+    """Persisted per-agent settings used when loading an active binding."""
+
+    enabled: bool
+    permissions: Optional[List[str]]
+    config: Optional[Dict[str, JsonValue]]
 
 
 def _safe_uuid(value: str) -> uuid.UUID:
@@ -51,7 +61,7 @@ def _safe_uuid(value: str) -> uuid.UUID:
 
 def _convert_agent(
     agent: DBAgent,
-    tool_associations_map: Optional[Dict[uuid.UUID, Dict[str, any]]] = None,
+    tool_associations_map: Optional[Dict[uuid.UUID, ToolAssociationData]] = None,
 ) -> InternalAgent:
     """Convert database agent to internal agent model.
 
@@ -67,6 +77,8 @@ def _convert_agent(
     """
     try:
         # Validate required fields
+        if getattr(agent, "is_active", True) is False:
+            raise DataMappingError("AI员工已停用，请先启用后再发起对话", agent_id=str(agent.id))
         if not agent.id:
             raise DataMappingError(
                 "Agent ID is required",
@@ -85,6 +97,17 @@ def _convert_agent(
         tools = []
         for tool in agent.tools:
             try:
+                # ORM relationships can still contain soft-deleted tools/bindings.
+                if (
+                    tool.deleted_at is not None
+                    or tool.project_id != agent.project_id
+                ):
+                    continue
+                if (
+                    tool_associations_map is not None
+                    and tool.id not in tool_associations_map
+                ):
+                    continue
                 # Get association data for this tool
                 assoc_data = (tool_associations_map or {}).get(tool.id, {})
                 enabled = assoc_data.get("enabled", True)
@@ -95,6 +118,7 @@ def _convert_agent(
                     InternalAgentTool(
                         tool_id=tool.id,
                         tool_name=tool.name,
+                        tool_description=tool.description,
                         tool_type=str(tool.tool_type.value)
                         if hasattr(tool.tool_type, "value")
                         else str(tool.tool_type),
@@ -327,7 +351,7 @@ class AIServiceClient:
             )
             result = await self._agent_service.db.execute(stmt)
             associations = result.scalars().all()
-            tool_associations_map: Dict[uuid.UUID, Dict[str, any]] = {
+            tool_associations_map: Dict[uuid.UUID, ToolAssociationData] = {
                 assoc.tool_id: {
                     "enabled": assoc.enabled,
                     "permissions": assoc.permissions,
@@ -335,7 +359,8 @@ class AIServiceClient:
                 }
                 for assoc in associations
             }
-            return _convert_agent(db_agent, tool_associations_map=tool_associations_map)
+            converted = _convert_agent(db_agent, tool_associations_map=tool_associations_map)
+            return await resolve_system_default_model(self._agent_service.db, converted)
         except DataMappingError:
             raise
         except Exception as exc:
@@ -609,6 +634,7 @@ class AgentServiceClient:
                             tool_call_id=event.tool_call_id,
                             tool_input=event.tool_input,
                             tool_output=event.tool_output,
+                            tool_call_error=bool(event.tool_call_error),
                         )
                 elif isinstance(event, ErrorStreamEvent):
                     success = False
@@ -624,10 +650,12 @@ class AgentServiceClient:
                 elif isinstance(event, CompleteStreamEvent):
                     final_response = event.final_response
                     if final_response:
-                        success = final_response.success
-                        error = final_response.error
+                        success = success and final_response.success
+                        error = error or final_response.error
                         if final_response.content:
-                            content_chunks.append(final_response.content)
+                            # A completion contains the full snapshot, not a
+                            # new delta to append to the streamed text.
+                            content_chunks = [str(final_response.content)]
 
             self.logger.debug(
                 "Agent streaming completed",

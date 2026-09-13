@@ -3,6 +3,7 @@ import { devtools, persist } from 'zustand/middleware';
 import type { Platform, PlatformConfig, PlatformType } from '@/types';
 import platformsApiService, { type PlatformResponse, type PlatformUpdateRequest } from '@/services/platformsApi';
 import { useOnboardingStore } from './onboardingStore';
+import i18n from '@/i18n';
 
 interface PlatformState {
   // 平台数据
@@ -42,7 +43,6 @@ interface PlatformState {
   enablePlatform: (platformId: string) => Promise<void>;
   disablePlatform: (platformId: string) => Promise<void>;
   togglePlatformStatus: (platformId: string) => Promise<void>;
-  testPlatformConnection: (platformId: string) => Promise<boolean>;
 
   // 配置操作
   updatePlatformConfig: (platformId: string, config: Partial<PlatformConfig>) => void;
@@ -104,7 +104,8 @@ export const usePlatformStore = create<PlatformState>()(
 
           try {
             // Prepare request body according to API schema
-            const name = platformData.name || '新平台';
+            const name = platformData.name?.trim();
+            if (!name) throw new Error(i18n.t('channelManagement.nameRequired'));
             const type = (platformData.type as PlatformType) || 'custom';
             const config = (platformData.config as Record<string, any>) || undefined;
 
@@ -125,6 +126,7 @@ export const usePlatformStore = create<PlatformState>()(
               statusText: '未配置',
               statusColor: 'bg-gray-400',
               type: apiResp.type as PlatformType,
+              is_configured: apiResp.is_configured,
               description: platformData.description || '',
               config: ({ ...(apiResp.config || {}), ...(apiResp.api_key ? { apiKey: apiResp.api_key } : {}) }) as PlatformConfig,
               callback_url: (apiResp as any).callback_url || '',
@@ -197,7 +199,7 @@ export const usePlatformStore = create<PlatformState>()(
                 // If server responded, prefer its values; otherwise apply local updates
                 const mapRespToUI = (p: PlatformResponse): Platform => {
                   const status = p.is_active ? 'connected' as const : 'disabled' as const;
-                  const statusText = p.is_active ? '已连接' : '已禁用';
+                  const statusText = p.is_active ? i18n.t('channelManagement.enabled') : '已禁用';
                   const statusColor = p.is_active ? 'bg-green-500' : 'bg-gray-400';
                   return {
                     id: p.id,
@@ -208,6 +210,7 @@ export const usePlatformStore = create<PlatformState>()(
                     statusText,
                     statusColor,
                     type: p.type,
+                    is_configured: p.is_configured,
                     description: state.platforms.find(pp => pp.id === p.id)?.description || '',
                     config: ({ ...(p.config || {}), ...(p.api_key ? { apiKey: p.api_key } : {}) }) as PlatformConfig,
                     callback_url: p.callback_url || '',
@@ -250,7 +253,7 @@ export const usePlatformStore = create<PlatformState>()(
             const p = await platformsApiService.getPlatformById(platformId);
             const state = get();
             const status = p.is_active ? 'connected' as const : 'disabled' as const;
-            const statusText = p.is_active ? '已连接' : '已禁用';
+            const statusText = p.is_active ? i18n.t('channelManagement.enabled') : '已禁用';
             const statusColor = p.is_active ? 'bg-green-500' : 'bg-gray-400';
             const mapped: Platform = {
               id: p.id,
@@ -262,6 +265,7 @@ export const usePlatformStore = create<PlatformState>()(
               statusText,
               statusColor,
               type: p.type,
+              is_configured: p.is_configured,
               is_supported: p.is_supported,
               description: state.platforms.find(pp => pp.id === p.id)?.description || '',
               config: ({ ...(p.config || {}), ...(p.api_key ? { apiKey: p.api_key } : {}) }) as PlatformConfig,
@@ -362,7 +366,7 @@ export const usePlatformStore = create<PlatformState>()(
               const map = (p: Platform): Platform => ({
                 ...p,
                 status: 'connected',
-                statusText: '已连接',
+                statusText: i18n.t('channelManagement.enabled'),
                 statusColor: 'bg-green-500',
               });
               return {
@@ -406,7 +410,7 @@ export const usePlatformStore = create<PlatformState>()(
 
             if (platform) {
               const newStatus = platform.status === 'connected' ? 'disabled' : 'connected';
-              const newStatusText = newStatus === 'connected' ? '已连接' : '已禁用';
+              const newStatusText = newStatus === 'connected' ? i18n.t('channelManagement.enabled') : '已禁用';
               const newStatusColor = newStatus === 'connected' ? 'bg-green-500' : 'bg-gray-400';
 
               await get().updatePlatform(platformId, {
@@ -420,38 +424,6 @@ export const usePlatformStore = create<PlatformState>()(
           } catch (error) {
             console.error('切换平台状态失败:', error);
             set({ isConnecting: false }, false, 'togglePlatformStatusError');
-          }
-        },
-
-        testPlatformConnection: async (platformId) => {
-          set({ isConnecting: true }, false, 'testPlatformConnection');
-
-          try {
-            // 模拟连接测试
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            const isSuccess = Math.random() > 0.3; // 70% 成功率
-
-            if (isSuccess) {
-              await get().updatePlatform(platformId, {
-                status: 'connected',
-                statusText: '已连接',
-                statusColor: 'bg-green-500'
-              });
-            } else {
-              await get().updatePlatform(platformId, {
-                status: 'error',
-                statusText: '连接失败',
-                statusColor: 'bg-red-500'
-              });
-            }
-
-            set({ isConnecting: false }, false, 'testPlatformConnectionComplete');
-            return isSuccess;
-          } catch (error) {
-            console.error('测试连接失败:', error);
-            set({ isConnecting: false }, false, 'testPlatformConnectionError');
-            return false;
           }
         },
 
@@ -584,7 +556,7 @@ export const usePlatformStore = create<PlatformState>()(
               // Map API responses directly; use API-provided icon (raw SVG) and type
               const mapped: Platform[] = items.map((p) => {
                 const status = p.is_active ? 'connected' as const : 'disabled' as const;
-                const statusText = p.is_active ? '已连接' : '已禁用';
+                const statusText = p.is_active ? i18n.t('channelManagement.enabled') : '已禁用';
                 const statusColor = p.is_active ? 'bg-green-500' : 'bg-gray-400';
 
                 return {
@@ -597,6 +569,7 @@ export const usePlatformStore = create<PlatformState>()(
                   statusText,
                   statusColor,
                   type: p.type,
+                  is_configured: p.is_configured,
                   is_supported: p.is_supported,
                   description: '',
                   config: ({ ...(p.config || {}), ...(p.api_key ? { apiKey: p.api_key } : {}) }) as PlatformConfig,

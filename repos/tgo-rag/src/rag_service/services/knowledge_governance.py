@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Select, exists, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.documents import FileDocument
@@ -144,50 +144,50 @@ class KnowledgeGovernanceService:
         limit: int,
         offset: int,
     ) -> KnowledgeGovernanceListResponse:
-        """List file governance records within one collection."""
-        filters = (
-            KnowledgeGovernanceRecord.project_id == project_id,
-            KnowledgeGovernanceRecord.deleted_at.is_(None),
-            KnowledgeGovernanceRecord.file_id == File.id,
-            File.project_id == project_id,
-            File.collection_id == collection_id,
-            File.deleted_at.is_(None),
-        )
-        statement = select(KnowledgeGovernanceRecord, File).where(*filters)
-        count_statement = (
-            select(func.count(KnowledgeGovernanceRecord.id))
-            .select_from(KnowledgeGovernanceRecord, File)
-            .where(*filters)
+        """List live file and QA governance records within one collection."""
+        statement = KnowledgeGovernanceService._source_statement(project_id).where(
+            or_(File.collection_id == collection_id, QAPair.collection_id == collection_id),
         )
         if review_status is not None:
-            status_filter = (
-                KnowledgeGovernanceRecord.review_status == review_status.value
+            statement = statement.where(
+                KnowledgeGovernanceRecord.review_status == review_status.value,
             )
-            statement = statement.where(status_filter)
-            count_statement = count_statement.where(status_filter)
-
-        total = int((await db.execute(count_statement)).scalar_one())
-        rows = (
-            await db.execute(
-                statement
-                .order_by(KnowledgeGovernanceRecord.updated_at.desc())
-                .offset(offset)
-                .limit(limit)
-            )
-        ).all()
-        data = tuple(
-            KnowledgeGovernanceService._record_response(record, file_record)
-            for record, file_record in rows
-        )
+        total = int((await db.execute(
+            select(func.count()).select_from(statement.subquery()),
+        )).scalar_one())
+        rows = (await db.execute(
+            statement.order_by(KnowledgeGovernanceRecord.updated_at.desc())
+            .offset(offset).limit(limit)
+        )).all()
         return KnowledgeGovernanceListResponse(
-            data=data,
-            pagination=PaginationMetadata(
-                total=total,
-                limit=limit,
-                offset=offset,
-                has_next=offset + limit < total,
-                has_prev=offset > 0,
+            data=tuple(
+                KnowledgeGovernanceService._record_response(record, file_record or pair)
+                for record, file_record, pair in rows
             ),
+            pagination=PaginationMetadata(
+                total=total, limit=limit, offset=offset,
+                has_next=offset + limit < total, has_prev=offset > 0,
+            ),
+        )
+
+    @staticmethod
+    def _source_statement(project_id: UUID) -> Select[tuple[KnowledgeGovernanceRecord, File, QAPair]]:
+        """Only join sources owned by the same project; deleted sources disappear."""
+        return select(KnowledgeGovernanceRecord, File, QAPair).outerjoin(
+            File, and_(
+                KnowledgeGovernanceRecord.file_id == File.id,
+                File.project_id == project_id, File.deleted_at.is_(None),
+                File.collection_id.is_not(None),
+            ),
+        ).outerjoin(
+            QAPair, and_(
+                KnowledgeGovernanceRecord.qa_pair_id == QAPair.id,
+                QAPair.project_id == project_id, QAPair.deleted_at.is_(None),
+            ),
+        ).where(
+            KnowledgeGovernanceRecord.project_id == project_id,
+            KnowledgeGovernanceRecord.deleted_at.is_(None),
+            or_(File.id.is_not(None), QAPair.id.is_not(None)),
         )
 
     @staticmethod
@@ -204,11 +204,35 @@ class KnowledgeGovernanceService:
             project_id=project_id,
             file_id=file_id,
         )
+        return await KnowledgeGovernanceService._upsert_source_draft(
+            db, project_id=project_id, source=file_record, data=data,
+        )
+
+    @staticmethod
+    async def upsert_qa_draft(
+        db: AsyncSession, *, project_id: UUID, qa_pair_id: UUID,
+        data: KnowledgeGovernanceDraftRequest,
+    ) -> KnowledgeGovernanceRecordResponse:
+        source = await KnowledgeGovernanceService._get_qa_pair(
+            db, project_id=project_id, qa_pair_id=qa_pair_id,
+        )
+        return await KnowledgeGovernanceService._upsert_source_draft(
+            db, project_id=project_id, source=source, data=data,
+        )
+
+    @staticmethod
+    async def _upsert_source_draft(
+        db: AsyncSession, *, project_id: UUID, source: File | QAPair,
+        data: KnowledgeGovernanceDraftRequest,
+    ) -> KnowledgeGovernanceRecordResponse:
+        is_qa = isinstance(source, QAPair)
+        source_column = (KnowledgeGovernanceRecord.qa_pair_id if is_qa
+                         else KnowledgeGovernanceRecord.file_id)
         record = (
             await db.execute(
                 select(KnowledgeGovernanceRecord).where(
                     KnowledgeGovernanceRecord.project_id == project_id,
-                    KnowledgeGovernanceRecord.file_id == file_id,
+                    source_column == source.id,
                     KnowledgeGovernanceRecord.deleted_at.is_(None),
                 )
             )
@@ -217,7 +241,8 @@ class KnowledgeGovernanceService:
             record = KnowledgeGovernanceService.new_record(
                 project_id,
                 KnowledgeGovernanceInput(
-                    file_id=file_id,
+                    file_id=None if is_qa else source.id,
+                    qa_pair_id=source.id if is_qa else None,
                     document_type=data.document_type,
                     product_line=data.product_line,
                     channels=data.channels,
@@ -235,7 +260,18 @@ class KnowledgeGovernanceService:
             KnowledgeGovernanceService.update_draft(record, data)
         await db.commit()
         await db.refresh(record)
-        return KnowledgeGovernanceService._record_response(record, file_record)
+        return KnowledgeGovernanceService._record_response(record, source)
+
+    @staticmethod
+    async def invalidate_qa_review(
+        db: AsyncSession, *, project_id: UUID, qa_pair_id: UUID,
+    ) -> None:
+        """Content edits require a new review, in the same source transaction."""
+        await db.execute(update(KnowledgeGovernanceRecord).where(
+            KnowledgeGovernanceRecord.project_id == project_id,
+            KnowledgeGovernanceRecord.qa_pair_id == qa_pair_id,
+            KnowledgeGovernanceRecord.deleted_at.is_(None),
+        ).values(review_status='draft', reviewed_by=None, reviewed_at=None))
 
     @staticmethod
     async def submit_record(
@@ -356,28 +392,41 @@ class KnowledgeGovernanceService:
         *,
         project_id: UUID,
         record_id: UUID,
-    ) -> tuple[KnowledgeGovernanceRecord, File]:
+    ) -> tuple[KnowledgeGovernanceRecord, File | QAPair]:
         row = (
             await db.execute(
-                select(KnowledgeGovernanceRecord, File).where(
+                KnowledgeGovernanceService._source_statement(project_id).where(
                     KnowledgeGovernanceRecord.id == record_id,
-                    KnowledgeGovernanceRecord.project_id == project_id,
-                    KnowledgeGovernanceRecord.deleted_at.is_(None),
-                    KnowledgeGovernanceRecord.file_id == File.id,
-                    File.project_id == project_id,
-                    File.deleted_at.is_(None),
-                    File.collection_id.is_not(None),
                 )
             )
         ).one_or_none()
         if row is None:
             raise KnowledgeGovernanceNotFoundError("governance record not found")
-        return row[0], row[1]
+        if row[2] is not None:
+            # Serialize review with QA content edits; refresh any identity-map copy
+            # after waiting for the source lock so old approvals cannot return.
+            await KnowledgeGovernanceService._get_qa_pair(
+                db, project_id=project_id, qa_pair_id=row[2].id,
+            )
+            await db.refresh(row[0])
+        return row[0], row[1] or row[2]
+
+    @staticmethod
+    async def _get_qa_pair(
+        db: AsyncSession, *, project_id: UUID, qa_pair_id: UUID,
+    ) -> QAPair:
+        pair = (await db.execute(select(QAPair).where(
+            QAPair.id == qa_pair_id, QAPair.project_id == project_id,
+            QAPair.deleted_at.is_(None),
+        ).with_for_update())).scalar_one_or_none()
+        if pair is None:
+            raise KnowledgeGovernanceNotFoundError('QA pair not found')
+        return pair
 
     @staticmethod
     def _record_response(
         record: KnowledgeGovernanceRecord,
-        file_record: File,
+        file_record: File | QAPair,
     ) -> KnowledgeGovernanceRecordResponse:
         source_origin = KnowledgeSourceOrigin(record.source_origin)
         return KnowledgeGovernanceRecordResponse(
@@ -386,7 +435,8 @@ class KnowledgeGovernanceService:
             file_id=record.file_id,
             qa_pair_id=record.qa_pair_id,
             collection_id=file_record.collection_id,
-            source_name=file_record.original_filename,
+            source_name=(file_record.question if isinstance(file_record, QAPair)
+                         else file_record.original_filename),
             document_type=KnowledgeDocumentType(record.document_type),
             product_line=record.product_line,
             channels=tuple(KnowledgeChannel(channel) for channel in record.channels),

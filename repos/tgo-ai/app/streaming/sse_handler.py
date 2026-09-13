@@ -66,11 +66,21 @@ class SSEHandler:
 
             # Send any buffered events first
             buffered_events = self.event_emitter.get_events()
-            for event in buffered_events:
+            # StreamingEventEmitter also enqueues these same objects. Skip
+            # their queued copies, without skipping events emitted meanwhile.
+            buffered_event_ids = {id(event) for event in buffered_events}
+            for buffered_event in buffered_events:
                 if await self._is_client_connected():
-                    yield self._format_sse_event("event", self._event_to_payload(event))
+                    yield self._format_sse_event(
+                        "event", self._event_to_payload(buffered_event)
+                    )
+                    if buffered_event.event_type in (
+                        EventType.WORKFLOW_COMPLETED,
+                        EventType.WORKFLOW_FAILED,
+                    ):
+                        return
                 else:
-                    break
+                    return
 
             # Stream new events
             heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -82,6 +92,9 @@ class SSEHandler:
                         event = await self.event_emitter.get_next_event(timeout=1.0)
 
                         if event:
+                            if id(event) in buffered_event_ids:
+                                buffered_event_ids.remove(id(event))
+                                continue
                             # Send the domain event
                             yield self._format_sse_event(
                                 "event", self._event_to_payload(event)
@@ -97,7 +110,7 @@ class SSEHandler:
                                 # Be resilient if enum import/types change
                                 pass
                         else:
-                            # If streaming has been disabled and no more events, end the stream
+                            # End after streaming is disabled and events drain.
                             if (
                                 hasattr(self.event_emitter, "is_streaming_enabled")
                                 and not self.event_emitter.is_streaming_enabled()

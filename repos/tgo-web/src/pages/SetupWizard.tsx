@@ -940,7 +940,7 @@ const SetupWizard: React.FC = () => {
         {/* Logo and Title */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <img src="/logo.svg" alt="Tgo CS Logo" className="w-12 h-12" />
+            <img src="/yujian-logo.svg" alt="域见" className="w-12 h-12" />
           </div>
           <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('setup.title')}</h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">{t('setup.subtitle')}</p>

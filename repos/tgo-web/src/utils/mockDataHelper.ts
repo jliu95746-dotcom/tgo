@@ -80,21 +80,6 @@ export const mockDataHelper = {
   },
 
   /**
-   * Get mock tool store items - only in development
-   */
-  async getToolStoreItems(): Promise<any[]> {
-    if (!IS_DEVELOPMENT) return [];
-    
-    try {
-      const { mockToolStoreItems } = await import('@/data/mockToolStore');
-      return mockToolStoreItems;
-    } catch {
-      console.warn('Failed to load mock tool store items');
-      return [];
-    }
-  },
-
-  /**
    * Check if we're in development mode
    */
   isDevelopment(): boolean {

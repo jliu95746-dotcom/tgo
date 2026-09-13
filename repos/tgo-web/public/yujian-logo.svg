@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="yujian" x1="16" y1="8" x2="112" y2="124" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/><stop offset="1" stop-color="#4338CA"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="32" fill="url(#yujian)"/>
+  <path d="M38 36H32V92H48M90 36H96V76L80 92" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M42 62C48 51 55 46 64 46C73 46 80 51 86 62C80 73 73 78 64 78C55 78 48 73 42 62Z" stroke="white" stroke-width="6" stroke-linejoin="round"/>
+  <circle cx="64" cy="62" r="8" fill="#67E8F9"/>
+</svg>

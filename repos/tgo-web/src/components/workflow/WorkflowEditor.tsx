@@ -72,7 +72,7 @@ const WorkflowEditorInner: React.FC<WorkflowEditorProps> = ({ readOnly = false }
   } = useWorkflowStore();
 
   const nodes = currentWorkflow?.definition?.nodes || [];
-  const rawEdges = currentWorkflow?.definition?.edges || [];
+  const rawEdges = useMemo(() => currentWorkflow?.definition?.edges || [], [currentWorkflow?.definition?.edges]);
 
   // Compute edges with execution highlighting
   const edges = useMemo(() => {

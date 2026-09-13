@@ -7,9 +7,17 @@ from uuid import UUID, uuid4
 
 import httpx
 from fastapi import HTTPException
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.schemas.reply_phase import ReplyPhaseIdentity
+from app.schemas.media_probe import MediaProbeResult
+from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse
+from app.schemas.humanization import (
+    ConversationTurn, HumanizationContext, HumanizationMatchRequest,
+    TrainingPublishRequest, TrainingReview,
+)
 
 logger = get_logger("ai_client")
 
@@ -66,6 +74,8 @@ class AIServiceClient:
         params: Optional[Dict[str, Any]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
         content: Optional[str] = None,
+        form_data: dict[str, str] | None = None,
+        files: dict[str, tuple[str, bytes, str]] | None = None,
     ) -> httpx.Response:
         """Make HTTP request to AI service."""
         url = f"{self.base_url}{endpoint}"
@@ -101,6 +111,12 @@ class AIServiceClient:
                     kwargs["json"] = self._to_jsonable(json_data)
                 if content is not None:
                     kwargs["content"] = content
+                if files is not None:
+                    if content is not None or json_data is not None:
+                        raise ValueError("Multipart and JSON content cannot be combined")
+                    headers.pop("Content-Type", None)
+                    kwargs["data"] = form_data
+                    kwargs["files"] = files
                 response = await client.request(**kwargs)
 
                 logger.info(
@@ -173,8 +189,11 @@ class AIServiceClient:
         system_message: Optional[str] = None,
         enable_memory: Optional[bool] = None,
         disable_tools: Optional[bool] = None,
+        response_purpose: str = "standard",
         markdown: Optional[bool] = None,
         temperature: Optional[float] = None,
+        cancel_on_disconnect: bool = False,
+        reply_phase: ReplyPhaseIdentity | None = None,
     ) -> Dict[str, Any]:
         """Run supervisor agent workflow and return response content."""
         payload: Dict[str, Any] = {
@@ -199,10 +218,19 @@ class AIServiceClient:
             payload["enable_memory"] = enable_memory
         if disable_tools is not None:
             payload["disable_tools"] = disable_tools
+        payload["response_purpose"] = response_purpose
+        if response_purpose == "expression":
+            payload["ui_mode"] = "text"
         if markdown is not None:
             payload["markdown"] = markdown
         if temperature is not None:
             payload["temperature"] = temperature
+        if cancel_on_disconnect:
+            payload["cancel_on_disconnect"] = True
+        if reply_phase is not None:
+            if not cancel_on_disconnect or reply_phase.project_id != project_id:
+                raise ValueError("Invalid AI reply phase ownership")
+            payload["reply_phase"] = reply_phase.model_dump(mode="json")
 
         response = await self._make_request(
             "POST",
@@ -231,6 +259,10 @@ class AIServiceClient:
         system_message: Optional[str] = None,
         expected_output: Optional[str] = None,
         excluded_tool_ids: Optional[List[str]] = None,
+        disable_tools: bool | None = None,
+        expected_device_id: str | None = None,
+        cancel_on_disconnect: bool = False,
+        reply_phase: ReplyPhaseIdentity | None = None,
     ) -> AsyncGenerator[Tuple[str, Any], None]:
         """Stream supervisor agent events as they arrive."""
         payload: Dict[str, Any] = {
@@ -238,6 +270,8 @@ class AIServiceClient:
             "stream": True,
             "ui_mode": "text",
         }
+        if disable_tools is not None:
+            payload["disable_tools"] = disable_tools
         if agent_id:
             payload["agent_id"] = agent_id
         if session_id:
@@ -258,6 +292,14 @@ class AIServiceClient:
             payload["expected_output"] = expected_output
         if excluded_tool_ids:
             payload["excluded_tool_ids"] = excluded_tool_ids
+        if expected_device_id is not None:
+            payload["expected_device_id"] = str(UUID(expected_device_id))
+        if cancel_on_disconnect:
+            payload["cancel_on_disconnect"] = True
+        if reply_phase is not None:
+            if not cancel_on_disconnect or reply_phase.project_id != project_id:
+                raise ValueError("Invalid AI reply phase ownership")
+            payload["reply_phase"] = reply_phase.model_dump(mode="json")
 
         url = f"{self.base_url}/api/v1/agents/run"
         request_id = str(uuid4())
@@ -632,6 +674,14 @@ class AIServiceClient:
             if tool["name"].startswith(prefix):
                 await self.delete_tool(project_id, tool["id"])
 
+    async def discover_tools(self, project_id: str, request: "MCPDiscoverRequest") -> "MCPDiscoverResponse":
+        from app.schemas.tool_probe import MCPDiscoverResponse
+        response = await self._make_request(
+            "POST", "/api/v1/tools/discover", json_data=request.model_dump(),
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY, "X-Project-Id": project_id},
+        )
+        return MCPDiscoverResponse.model_validate(await self._handle_response(response))
+
     async def execute_tool(
         self,
         *,
@@ -709,6 +759,44 @@ class AIServiceClient:
             params={"project_id": project_id},
         )
         return await self._handle_response(response)
+
+    async def probe_media_model(
+        self, *, project_id: str, provider_id: str, model_id: str,
+        capability: str, content: bytes, mime_type: str,
+    ) -> "MediaProbeResult":
+        response = await self._make_request(
+            "POST", "/api/v1/analysis/probe",
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY,
+                           "X-Project-Id": project_id},
+            form_data={"provider_id": provider_id, "model_id": model_id,
+                       "capability": capability},
+            files={"file": ("sample", content, mime_type)},
+        )
+        if response.status_code != 200 or len(response.content) > 512 * 1024:
+            raise HTTPException(502, "识别测试服务暂时不可用，请检查 AI 服务和配置同步状态。")
+        try:
+            return MediaProbeResult.model_validate_json(response.content)
+        except ValidationError as exc:
+            raise HTTPException(502, "测试服务返回了无效结果。") from exc
+
+    async def analyze_media(
+        self, *, project_id: str, metadata: dict[str, JsonValue],
+        content: bytes, mime_type: str,
+    ) -> dict[str, JsonValue]:
+        """Send verified stored bytes to this project's configured media models."""
+        response = await self._make_request(
+            "POST", "/api/v1/analysis/media",
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY,
+                           "X-Project-Id": project_id},
+            form_data={"metadata": json.dumps(metadata, ensure_ascii=False)},
+            files={"file": ("media", content, mime_type)},
+        )
+        if response.status_code != 200 or len(response.content) > 512 * 1024:
+            raise HTTPException(502, "图片或语音识别暂时不可用，请补充文字说明。")
+        try:
+            return TypeAdapter(dict[str, JsonValue]).validate_json(response.content)
+        except ValidationError as exc:
+            raise HTTPException(502, "识别服务没有返回有效结果。") from exc
 
     async def classify_intent(
         self,
@@ -821,12 +909,13 @@ class AIServiceClient:
         return result
 
     async def apply_humanization_training(
-        self, project_id: str, skill_name: str
+        self, project_id: str, skill_name: str, data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Publish all pending corrections for one humanization skill."""
         response = await self._make_request(
             "POST",
             f"/api/v1/skills/{skill_name}/apply-training",
+            json_data=data,
             extra_headers=self._skill_headers(project_id),
         )
         result = await self._handle_response(response)
@@ -836,6 +925,24 @@ class AIServiceClient:
                 detail="AI skill service returned an invalid response",
             )
         return result
+
+    async def review_humanization_training(self, project_id: str, skill_name: str) -> TrainingReview:
+        response = await self._make_request("GET", f"/api/v1/skills/{skill_name}/training-review",
+                                            extra_headers=self._skill_headers(project_id))
+        return TrainingReview.model_validate(await self._handle_response(response))
+
+    async def match_humanization_context(
+        self, project_id: str, skill_name: str, customer_message: str,
+        candidate: TrainingPublishRequest | None = None, factual_draft: str = "",
+        recent_messages: list[ConversationTurn] | None = None,
+    ) -> HumanizationContext:
+        payload = HumanizationMatchRequest(
+            customer_message=customer_message, factual_draft=factual_draft,
+            recent_messages=recent_messages or [], candidate=candidate,
+        ).model_dump()
+        response = await self._make_request("POST", f"/api/v1/skills/{skill_name}/match-context",
+                                            json_data=payload, extra_headers=self._skill_headers(project_id))
+        return HumanizationContext.model_validate(await self._handle_response(response))
 
     async def get_skill(self, project_id: str, skill_name: str) -> Dict[str, Any]:
         """Get skill details."""

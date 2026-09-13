@@ -439,11 +439,14 @@ export class WuKongIMUtils {
     const payloadTypeNum = WuKongIMUtils.extractMessageType(wkMessage.payload);
     const payloadType = payloadTypeNum as MessagePayloadType;
 
-    // Determine sender type based on from_uid and message context
+    // HTTP history uses from_uid; easyjssdk realtime messages use fromUid.
+    // Normalize before classifying, or a staff echo becomes a new visitor turn.
+    const fromUid = wkMessage.from_uid
+      || (wkMessage as WuKongIMMessage & { fromUid?: string }).fromUid;
     let senderType: 'visitor' | 'agent' | 'system' = 'visitor';
-    if (wkMessage.from_uid === 'system') {
+    if (fromUid === 'system') {
       senderType = 'system';
-    } else if (wkMessage.from_uid && wkMessage.from_uid.endsWith(STAFF_UID_SUFFIX)) {
+    } else if (fromUid?.endsWith(STAFF_UID_SUFFIX)) {
       senderType = 'agent';
     }
 
@@ -625,7 +628,7 @@ export class WuKongIMUtils {
       clientMsgNo: wkMessage.client_msg_no || (wkMessage as any).clientMsgNo,
       sourceMessageId,
       messageSeq: wkMessage.message_seq || (wkMessage as any).messageSeq,
-      fromUid: wkMessage.from_uid || (wkMessage as any).fromUid,
+      fromUid,
       channelId: wkMessage.channel_id || (wkMessage as any).channelId,
       channelType,
       payloadType,

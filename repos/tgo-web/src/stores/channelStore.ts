@@ -26,7 +26,6 @@ interface ChannelStoreState {
 
 const omitKey = <T extends Record<string, unknown>>(record: T, key: string): T => {
   if (!(key in record)) return record;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { [key]: _omit, ...rest } = record;
   return rest as T;
 };

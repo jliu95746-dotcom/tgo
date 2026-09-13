@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores';
-import { APIError } from '@/services/api';
+import { APIError, RegistrationLoginError } from '@/services/api';
 import type { RegisterFormData, AuthValidationErrors } from '@/types';
 
 /**
@@ -12,17 +12,22 @@ import type { RegisterFormData, AuthValidationErrors } from '@/types';
 const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { register, isLoading } = useAuthStore();
+  const { register, isLoading, isAuthenticated } = useAuthStore();
+  const [accountCreated, setAccountCreated] = useState(false);
   const [formData, setFormData] = useState<RegisterFormData>({
     email: '',
     password: '',
-    passwordConfirmation: ''
+    passwordConfirmation: '',
+    workspaceName: '',
   });
   const [errors, setErrors] = useState<AuthValidationErrors>({});
 
   // Form validation
   const validateForm = (): boolean => {
     const newErrors: AuthValidationErrors = {};
+    if (!formData.workspaceName.trim()) {
+      newErrors.workspaceName = t('auth.register.workspaceRequired');
+    }
 
     // Email validation
     if (!formData.email) {
@@ -36,6 +41,8 @@ const RegisterPage: React.FC = () => {
       newErrors.password = t('auth.validation.passwordRequired');
     } else if (formData.password.length < 8) {
       newErrors.password = t('auth.validation.passwordMinLength', { min: 8 });
+    } else if (new TextEncoder().encode(formData.password).length > 72) {
+      newErrors.password = t('auth.register.passwordTooLong');
     }
 
     // Password confirmation validation
@@ -52,6 +59,7 @@ const RegisterPage: React.FC = () => {
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (accountCreated || isLoading) return;
 
     if (!validateForm()) {
       return;
@@ -64,6 +72,11 @@ const RegisterPage: React.FC = () => {
       // On success, navigate to main app
       navigate('/');
     } catch (error) {
+      if (error instanceof RegistrationLoginError) {
+        setAccountCreated(true);
+        setErrors({ general: t('auth.register.createdLoginRequired') });
+        return;
+      }
       let errorMessage = t('auth.validation.registerFailed');
 
       if (error instanceof APIError) {
@@ -71,6 +84,12 @@ const RegisterPage: React.FC = () => {
         switch (error.status) {
           case 409:
             errorMessage = t('auth.validation.userExists');
+            break;
+          case 429:
+            errorMessage = t('auth.register.rateLimited');
+            break;
+          case 403:
+            errorMessage = t('auth.register.disabled');
             break;
           case 422:
             // Handle validation errors - check error code for specific types
@@ -114,18 +133,21 @@ const RegisterPage: React.FC = () => {
     }
   };
 
+  if (isAuthenticated) return <Navigate to="/chat" replace />;
+
   return (
     <div className="bg-gradient-to-br from-gray-50 to-green-50/50 dark:from-gray-900 dark:to-green-900/20 flex items-center justify-center min-h-screen font-sans antialiased">
       <div className="w-full max-w-md px-8 py-10 bg-white/80 dark:bg-gray-800/90 backdrop-blur-lg rounded-xl shadow-lg border border-gray-200/60 dark:border-gray-700/60">
         {/* Logo */}
         <div className="flex justify-center mb-8">
           <Link to="/" className="flex items-center space-x-2">
-            <img src="/logo.svg" alt="Tgo CS Logo" className="w-10 h-10" />
+            <img src="/yujian-logo.svg" alt="域见" className="w-10 h-10" />
             <span className="font-semibold text-2xl text-gray-800 dark:text-gray-200">{t('brand.name')}</span>
           </Link>
         </div>
 
         <h2 className="text-2xl font-semibold text-center text-gray-700 dark:text-gray-200 mb-6">{t('auth.register.title')}</h2>
+        <p className="mb-5 text-sm text-gray-600 dark:text-gray-300">{t('auth.register.projectHint')}</p>
 
         {/* General Error Message */}
         {errors.general && (
@@ -135,6 +157,16 @@ const RegisterPage: React.FC = () => {
         )}
 
         <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <label htmlFor="workspaceName" className="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-300">
+              {t('auth.register.workspaceName')}
+            </label>
+            <input id="workspaceName" name="workspaceName" required maxLength={255}
+              value={formData.workspaceName} onChange={handleInputChange} disabled={isLoading || accountCreated}
+              className="w-full rounded-md border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              aria-invalid={Boolean(errors.workspaceName)} />
+            {errors.workspaceName && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.workspaceName}</p>}
+          </div>
           {/* Email Field */}
           <div className="mb-4">
             <label htmlFor="email" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
@@ -144,6 +176,8 @@ const RegisterPage: React.FC = () => {
               type="email"
               id="email"
               name="email"
+              maxLength={50}
+              autoComplete="email"
               required
               value={formData.email}
               onChange={handleInputChange}
@@ -167,6 +201,7 @@ const RegisterPage: React.FC = () => {
               type="password"
               id="password"
               name="password"
+              autoComplete="new-password"
               required
               value={formData.password}
               onChange={handleInputChange}
@@ -190,6 +225,7 @@ const RegisterPage: React.FC = () => {
               type="password"
               id="passwordConfirmation"
               name="passwordConfirmation"
+              autoComplete="new-password"
               required
               value={formData.passwordConfirmation}
               onChange={handleInputChange}
@@ -208,7 +244,7 @@ const RegisterPage: React.FC = () => {
           <div>
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || accountCreated}
               className="w-full px-4 py-2.5 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition-colors duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? (

@@ -6,6 +6,8 @@ import { APIError } from '@/services/api';
 import type { LoginFormData, AuthValidationErrors } from '@/types';
 import { Copy, Check } from 'lucide-react';
 
+const passwordRecoveryCommand = 'powershell -NoProfile -File .\\scripts\\native-dev\\reset-password.ps1';
+
 /**
  * Login Page Component
  * Replicates the original login.html design with React and TypeScript
@@ -67,9 +69,8 @@ const LoginPage: React.FC = () => {
   const handleCopyCommand = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    const command = 'docker exec tgo-api resetadmin';
     try {
-      await navigator.clipboard.writeText(command);
+      await navigator.clipboard.writeText(passwordRecoveryCommand);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -164,7 +165,7 @@ const LoginPage: React.FC = () => {
         {/* Logo */}
         <div className="flex justify-center mb-8">
           <Link to="/" className="flex items-center space-x-2">
-            <img src="/logo.svg" alt="Tgo CS Logo" className="w-10 h-10" />
+            <img src="/yujian-logo.svg" alt="域见" className="w-10 h-10" />
             <span className="font-semibold text-2xl text-gray-800 dark:text-gray-200">{t('brand.name')}</span>
           </Link>
         </div>
@@ -243,6 +244,8 @@ const LoginPage: React.FC = () => {
               <div className="relative" ref={forgotPasswordRef}>
                 <button
                   type="button"
+                  aria-expanded={showForgotPassword}
+                  aria-controls="password-recovery-help"
                   onMouseEnter={() => setShowForgotPassword(true)}
                   onClick={() => setShowForgotPassword(!showForgotPassword)}
                   className="text-xs text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
@@ -251,17 +254,20 @@ const LoginPage: React.FC = () => {
                 </button>
                 {showForgotPassword && (
                   <div
+                    id="password-recovery-help"
                     ref={popupRef}
-                    className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50"
-                    style={{ minWidth: '320px' }}
+                    className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-3rem)] bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <p className="text-xs text-gray-700 dark:text-gray-300 mb-3">
-                      {t('auth.login.resetAdminInstruction', '执行以下命令可重置 admin 用户')}
+                      {t('auth.login.recoveryContact')}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      {t('auth.login.recoveryNativeInstruction')}
                     </p>
                     <div className="bg-gray-900 dark:bg-black rounded-md p-3 flex items-center gap-2 group">
-                      <code className="text-white text-xs font-mono flex-1 whitespace-nowrap min-w-0">
-                        docker exec tgo-api resetadmin
+                      <code className="text-white text-xs font-mono flex-1 whitespace-pre-wrap break-all min-w-0">
+                        {passwordRecoveryCommand}
                       </code>
                       <button
                         type="button"
@@ -276,6 +282,9 @@ const LoginPage: React.FC = () => {
                         )}
                       </button>
                     </div>
+                    <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                      {t('auth.login.recoverySafety')}
+                    </p>
                   </div>
                 )}
               </div>
@@ -300,6 +309,12 @@ const LoginPage: React.FC = () => {
             </button>
           </div>
         </form>
+
+        <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+          <Link to="/register" className="text-blue-600 hover:underline dark:text-blue-400">
+            {t('auth.register.newProjectLink')}
+          </Link>
+        </p>
 
 
         {/* Footer Copyright */}

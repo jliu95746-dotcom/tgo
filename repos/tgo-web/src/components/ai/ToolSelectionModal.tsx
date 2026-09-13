@@ -93,7 +93,9 @@ const ToolSelectionModal: React.FC<ToolSelectionModalProps> = ({
         if (selectedCategory === 'tool_server') {
           return tool.config?.transport_type === 'http' || tool.config?.transport_type === 'sse';
         } else if (selectedCategory === 'custom') {
-          return tool.config?.transport_type === undefined || tool.config?.transport_type === null;
+          return tool.config?.transport_type === 'http_webhook'
+            || tool.config?.transport_type === undefined
+            || tool.config?.transport_type === null;
         } else if (selectedCategory === 'plugin') {
           return tool.config?.transport_type === 'plugin';
         } else if (selectedCategory === 'device_control') {
@@ -293,6 +295,7 @@ const ToolSelectionModal: React.FC<ToolSelectionModalProps> = ({
                       <input
                         type="checkbox"
                         checked={isSelected}
+                        onClick={(event) => event.stopPropagation()}
                         onChange={() => handleToolClick(tool)}
                         className="rounded border-gray-300 dark:border-gray-600 text-blue-600 dark:text-blue-500 focus:ring-blue-500 dark:bg-gray-700"
                       />

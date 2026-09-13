@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     PORT: int = Field(default=8090)
 
     # Plugin Socket Configuration
+    PLUGIN_SOCKET_ENABLED: bool = Field(
+        default=True,
+        description="Enable Unix socket transport; disable for native Windows",
+    )
+    PLUGIN_TCP_HOST: str = Field(
+        default="0.0.0.0",
+        description="TCP bind address; use loopback for native development",
+    )
     PLUGIN_SOCKET_PATH: str = Field(
         default="/var/run/tgo/tgo.sock",
         description="Unix socket path for plugin communication",

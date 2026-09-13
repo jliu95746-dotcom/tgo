@@ -29,9 +29,10 @@ async def test_notify_new_message_uses_internal_inbound_contract():
             contact_name="测试客户",
             message_content="你好",
             message_type="text",
+            app_type="douyin",
         )
 
     assert success is True
     _, call_kwargs = client.post.call_args
-    assert call_kwargs["json"]["platform_type"] == "wechat_personal"
+    assert call_kwargs["json"]["platform_type"] == "douyin_personal"
     assert "X-Platform-API-Key" not in call_kwargs.get("headers", {})

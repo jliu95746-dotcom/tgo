@@ -226,7 +226,7 @@ const OnboardingWelcome: React.FC = () => {
             <Rocket className="w-8 h-8 text-white" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-            {t('onboarding.welcome.title', '欢迎使用 TGO')}
+            {t('onboarding.welcome.title', '欢迎使用 域见')}
           </h2>
           <p className="text-gray-600 dark:text-gray-400">
             {t('onboarding.welcome.subtitle', '完成以下步骤，开启智能客服之旅')}

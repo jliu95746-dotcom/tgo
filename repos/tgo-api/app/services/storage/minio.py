@@ -58,6 +58,23 @@ class MinIOBackend(StorageBackend):
             region_name=region_name,
         )
 
+    async def read(self, path: str, *, max_bytes: int) -> bytes:
+        def read_bounded() -> bytes:
+            if max_bytes <= 0 or path.startswith("/") or ".." in path.split("/"):
+                raise ValueError("Invalid storage read")
+            response = self.s3.get_object(Bucket=self.bucket_name, Key=path)
+            stream = response["Body"]
+            try:
+                if response.get("ContentLength", 0) > max_bytes:
+                    raise ValueError("Storage object exceeds read limit")
+                content = stream.read(max_bytes + 1)
+                if not isinstance(content, bytes) or len(content) > max_bytes:
+                    raise ValueError("Invalid storage object size")
+                return content
+            finally:
+                stream.close()
+        return await asyncio.to_thread(read_bounded)
+
     async def upload(self, file: BinaryIO, path: str, content_type: str) -> str:
         """Upload file to MinIO/S3."""
         loop = asyncio.get_event_loop()

@@ -113,3 +113,16 @@ class SearchResponse(BaseModel):
         ...,
         description="Search execution metadata"
     )
+
+
+class AutomaticAnswerSearchResult(SearchResult):
+    """Governed chunk body for generation, distinct from the UI preview."""
+
+    content: str = Field(..., min_length=1, description="Full admitted chunk content")
+
+
+class AutomaticAnswerSearchResponse(BaseModel):
+    """Automatic-answer results must retain their full admitted content."""
+
+    results: List[AutomaticAnswerSearchResult]
+    search_metadata: SearchMetadata

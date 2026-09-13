@@ -136,7 +136,7 @@ export const useStoreAuthStore = create<StoreAuthState>()(
               const user = await storeApi.getMe();
               set({ user, isAuthenticated: true, isVerifying: false });
               return true;
-            } catch (refreshError) {
+            } catch {
               logout();
               set({ isVerifying: false });
               return false;

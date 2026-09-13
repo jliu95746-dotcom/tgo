@@ -26,6 +26,7 @@ from app.api.v1.endpoints import (
     rag_websites,
     sessions,
     staff,
+    registration,
     tags,
     visitors,
     visitor_assignment_rules,
@@ -41,6 +42,7 @@ from app.api.v1.endpoints import (
     utils,
     message_analysis,
     knowledge_governance,
+    knowledge_versions,
     customer_logistics,
 )
 
@@ -65,6 +67,12 @@ api_router.include_router(
     onboarding.router,
     prefix="/onboarding",
     tags=["Onboarding"]
+)
+
+api_router.include_router(
+    registration.router,
+    prefix="/staff",
+    tags=["Staff"]
 )
 
 api_router.include_router(
@@ -139,6 +147,8 @@ api_router.include_router(
     prefix="/rag/knowledge-governance",
     tags=["Knowledge Governance"],
 )
+
+api_router.include_router(knowledge_versions.router, prefix="/rag/knowledge-versions", tags=["Knowledge Versions"])
 
 
 api_router.include_router(

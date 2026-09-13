@@ -17,7 +17,7 @@ logger = get_logger("services.socket_server")
 # Global state
 _unix_server: Optional[asyncio.AbstractServer] = None
 _tcp_server: Optional[asyncio.AbstractServer] = None
-_server_tasks: List[asyncio.Task] = []
+_server_tasks: list[asyncio.Task] = []
 
 
 async def _recv_message(reader: asyncio.StreamReader) -> Optional[dict]:
@@ -138,7 +138,7 @@ async def _handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWri
     finally:
         # Cleanup
         if plugin_id:
-            await plugin_manager.unregister(plugin_id)
+            await plugin_manager.unregister(plugin_id, expected_connection=plugin)
         
         if not writer.is_closing():
             writer.close()
@@ -161,7 +161,7 @@ async def start_socket_server():
         tcp_port = settings.PLUGIN_TCP_PORT
         
         # 1. Start UNIX Socket Server (Internal Plugins)
-        if socket_path:
+        if settings.PLUGIN_SOCKET_ENABLED and socket_path:
             # Ensure directory exists
             socket_dir = os.path.dirname(socket_path)
             if socket_dir and not os.path.exists(socket_dir):
@@ -197,10 +197,10 @@ async def start_socket_server():
         if tcp_port:
             _tcp_server = await asyncio.start_server(
                 _handle_client,
-                host="0.0.0.0",
+                host=settings.PLUGIN_TCP_HOST,
                 port=tcp_port,
             )
-            logger.info(f"Plugin socket server listening on TCP 0.0.0.0:{tcp_port}")
+            logger.info(f"Plugin socket server listening on TCP {settings.PLUGIN_TCP_HOST}:{tcp_port}")
 
             async def serve_tcp():
                 async with _tcp_server:
@@ -208,9 +208,13 @@ async def start_socket_server():
             
             _server_tasks.append(asyncio.create_task(serve_tcp()))
         
+        if not _server_tasks:
+            raise ValueError("At least one plugin transport must be enabled")
         logger.info(f"Plugin socket server tasks started ({len(_server_tasks)} servers)")
     except Exception as e:
         logger.exception(f"Failed to start plugin socket server: {e}")
+        await stop_socket_server()
+        raise
 
 
 async def stop_socket_server():
@@ -240,7 +244,7 @@ async def stop_socket_server():
     _server_tasks = []
     
     # Remove socket file
-    if os.path.exists(settings.PLUGIN_SOCKET_PATH):
+    if settings.PLUGIN_SOCKET_ENABLED and os.path.exists(settings.PLUGIN_SOCKET_PATH):
         try:
             os.unlink(settings.PLUGIN_SOCKET_PATH)
         except Exception:

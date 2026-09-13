@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import ConfigDict, Field
 
 from app.schemas.base import BaseSchema
+from app.schemas.humanization import ConversationTurn
 from app.utils.const import MessageType
 
 
@@ -35,6 +36,8 @@ class AssistDraftRequest(BaseSchema):
     customer_message: str = Field(..., min_length=1, max_length=10000)
     humanization_skill_name: Optional[str] = Field(default=None, max_length=64)
     source_message_id: Optional[str] = Field(default=None, max_length=255)
+    message_type: Literal[1, 2, 4] = 1
+    media_file_id: UUID | None = None
 
 
 class AssistDraftResponse(BaseSchema):
@@ -43,6 +46,8 @@ class AssistDraftResponse(BaseSchema):
     draft: str
     humanization_skill_name: Optional[str] = None
     source_message_id: Optional[str] = None
+    recent_messages: list[ConversationTurn] = Field(default_factory=list)
+    customer_message: str | None = None
 
 
 class ChatFileUploadResponse(BaseSchema):
@@ -100,6 +105,7 @@ class ChatCompletionRequest(BaseSchema):
         description="是否将用户消息同时转发一份到 WuKongIM（默认开启）",
         examples=[True],
     )
+    media_file_id: UUID | None = None
     source_message_id: Optional[str] = Field(
         None,
         max_length=255,

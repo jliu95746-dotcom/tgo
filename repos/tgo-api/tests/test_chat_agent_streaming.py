@@ -185,6 +185,7 @@ async def test_process_ai_stream_sends_thinking_anchor_before_ai_start(
             "event_type": "agent_response_complete",
             "data": {"final_content": "ok", "total_chunks": 0},
         }
+        yield "workflow_completed", {"event_type": "workflow_completed", "data": {}}
 
     monkeypatch.setattr(
         chat_service,
@@ -213,7 +214,8 @@ async def test_process_ai_stream_sends_thinking_anchor_before_ai_start(
     assert calls[0] == "agent_execution_started"
     assert calls[1] == "ai_client_started"
     assert calls.count("agent_execution_started") == 1
-    assert events[-1]["event_type"] == "agent_response_complete"
+    assert events[-2]["event_type"] == "agent_response_complete"
+    assert events[-1]["event_type"] == "workflow_completed"
 
 
 @pytest.mark.asyncio
@@ -255,6 +257,7 @@ async def test_non_stream_response_batches_provider_chunks_for_wukongim(
             "event_type": "agent_response_complete",
             "data": {},
         }
+        yield "workflow_completed", {"event_type": "workflow_completed", "data": {}}
 
     monkeypatch.setattr(
         chat_service,
@@ -330,6 +333,7 @@ async def test_non_stream_response_discards_draft_content_before_tool_call(
             "event_type": "agent_response_complete",
             "data": {"final_content": "我先帮您查询一下。快件正在运输中。"},
         }
+        yield "workflow_completed", {"event_type": "workflow_completed", "data": {}}
 
     monkeypatch.setattr(
         chat_service,

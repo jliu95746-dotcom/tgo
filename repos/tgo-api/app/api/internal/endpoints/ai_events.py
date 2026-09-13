@@ -691,6 +691,14 @@ async def ingest_ai_event_internal(
             detail=f"Project not found for user: {project_id}",
         )
 
+    # A 202 response is treated as success by the AI event client. Do not
+    # acknowledge visitor-only operations that cannot update a staff account.
+    if user_type != "visitor":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该操作仅支持访客，不支持员工账户",
+        )
+
     # Downstream handlers expect the canonical visitor/staff ID string without
     # the transport suffix (e.g. "-vtr"), but the schema field remains str.
     canonical_user_id = str(real_user_id)
@@ -710,34 +718,18 @@ async def ingest_ai_event_internal(
 
     # Reuse existing event handlers or use new ones
     if event_type == MANUAL_SERVICE_EVENT:
-        # Manual service is currently only for visitors
-        if user_type != "visitor":
-            return {"event_type": event_type, "result": {"message": "Manual service request only supported for visitors"}}
-        
         result = await _handle_manual_service_request(event, project, db)
         return {"event_type": event_type, "result": result}
 
     if event_type == USER_INFO_EVENT:
-        if user_type != "visitor":
-            # 客服信息更新逻辑留白
-            return {"event_type": event_type, "result": {"message": "Staff info update not implemented yet"}}
-            
         result = await _handle_visitor_info_update(event, project, db)
         return {"event_type": event_type, "result": result}
 
     if event_type in (VISITOR_SENTIMENT_EVENT, USER_SENTIMENT_EVENT):
-        if user_type != "visitor":
-            # 客服情感分析逻辑留白
-            return {"event_type": event_type, "result": {"message": "Staff sentiment update not implemented yet"}}
-            
         result = await _handle_visitor_sentiment_update(event, project, db)
         return {"event_type": event_type, "result": result}
 
     if event_type in (VISITOR_TAG_EVENT, USER_TAG_EVENT):
-        if user_type != "visitor":
-            # 客服标签逻辑留白
-            return {"event_type": event_type, "result": {"message": "Staff tag add not implemented yet"}}
-            
         result = _handle_visitor_tag(event, project, db)
         return {"event_type": event_type, "result": result}
 

@@ -41,6 +41,7 @@ from app.schemas.wukongim import (
 )
 from app.services.wukongim_client import wukongim_client
 from app.services.transfer_service import is_within_service_hours
+from app.services.project_registration import ensure_project_staff_channel
 from app.api.common_responses import AUTH_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES
 
 logger = get_logger("endpoints.staff")
@@ -111,6 +112,7 @@ async def login_staff(
             uid=staff_uid,
             token=access_token,  # Use the JWT token as WuKongIM token
         )
+        await ensure_project_staff_channel(db, user)
         logger.info(f"Successfully synchronized staff {user.username} (UID: {staff_uid}) with WuKongIM")
     except Exception as e:
         # Log the error but don't fail the login process

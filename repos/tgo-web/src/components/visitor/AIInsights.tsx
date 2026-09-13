@@ -1,6 +1,6 @@
 import React from 'react';
 import Icon from '../ui/Icon';
-import type { VisitorAIInsights } from '@/data/mockVisitor';
+import type { VisitorAIInsights } from '@/types/visitor';
 import { useTranslation } from 'react-i18next';
 
 interface AIInsightsProps {

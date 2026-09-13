@@ -1,5 +1,6 @@
 """Local file system storage backend."""
 
+import asyncio
 import os
 import shutil
 from pathlib import Path
@@ -24,9 +25,27 @@ class LocalStorageBackend(StorageBackend):
         self.api_base_url = api_base_url.rstrip("/")
         self._ensure_base_path()
 
-    def _ensure_base_path(self):
+    def _ensure_base_path(self) -> None:
         """Ensure base storage directory exists."""
         self.base_path.mkdir(parents=True, exist_ok=True)
+
+    async def read(self, path: str, *, max_bytes: int) -> bytes:
+        """Never allow an absolute path, traversal, or oversized stored object."""
+        def read_bounded() -> bytes:
+            if max_bytes <= 0 or Path(path).is_absolute():
+                raise ValueError("Invalid storage read")
+            root = self.base_path.resolve()
+            target = (root / path).resolve()
+            target.relative_to(root)
+            if not target.is_file() or target.stat().st_size > max_bytes:
+                raise ValueError("Invalid storage object size")
+            with target.open("rb") as stream:
+                content = stream.read(max_bytes + 1)
+            if len(content) > max_bytes:
+                raise ValueError("Storage object exceeds read limit")
+            return content
+
+        return await asyncio.to_thread(read_bounded)
 
     async def upload(self, file: BinaryIO, path: str, content_type: str) -> str:
         """Upload file to local storage."""
@@ -88,10 +107,12 @@ class LocalStorageBackend(StorageBackend):
         if url.startswith("http://") or url.startswith("https://"):
             # Full URL: Resolve ONLY if it points to localhost/127.0.0.1
             parsed = urlparse(url)
-            if "localhost" in parsed.netloc or "127.0.0.1" in parsed.netloc:
+            if parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
                 p = parsed.path
                 if p.startswith("/api/v1"):
                     p = p[4:]
+                if parsed.query:
+                    p += f"?{parsed.query}"
                 return self.get_public_url(p)
                 
         return url

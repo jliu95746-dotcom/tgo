@@ -12,6 +12,7 @@ export interface Platform {
   icon: string;
   iconColor: string;
   status: PlatformStatus;
+  is_configured?: boolean;
   statusText: string;
   statusColor: string;
   type: string; // Use API-returned type directly
@@ -74,8 +75,6 @@ export enum PlatformType {
   WECOM_BOT = "wecom_bot",
   FEISHU_BOT = "feishu_bot",
   DINGTALK_BOT = "dingtalk_bot",
-  // Vision Agent platforms (UI automation via VLM + AgentBay)
-  WECHAT_PERSONAL = "wechat_personal"
 }
 
 export interface PlatformConfig {
@@ -127,6 +126,8 @@ export interface PlatformTypeConfig {
 }
 
 export interface Agent {
+  humanization_skill_name?: string | null;
+  humanization_skill_enabled?: boolean;
   id: string;
   name: string;
   description: string;
@@ -159,6 +160,8 @@ export type AgentType = 'coordinator' | 'expert';
 
 // AI员工创建表单数据类型
 export interface CreateAgentFormData {
+  humanization_skill_name?: string | null;
+  humanization_skill_enabled?: boolean;
   name: string;
   profession: string; // 职业/角色字段
   description: string;
@@ -246,6 +249,9 @@ export type AgentToolUnion = AgentToolResponse | AgentToolDetailed;
 
 // Agent Response Type (basic agent info)
 export interface AgentResponse {
+  humanization_skill_name?: string | null;
+  humanization_skill_enabled?: boolean;
+  is_active?: boolean;
   id: string;
   name: string;
   instruction: string | null;
@@ -259,10 +265,14 @@ export interface AgentResponse {
 
 // Agent With Details Response Type (includes tools and collections)
 export interface AgentWithDetailsResponse {
+  humanization_skill_name?: string | null;
+  humanization_skill_enabled?: boolean;
+  is_active?: boolean;
   id: string;
   name: string;
   instruction?: string | null;
   model: string;
+  llm_provider_id?: string | null; // Canonical field returned by tgo-ai through the gateway
   ai_provider_id?: string | null;
   is_default: boolean;
   config?: Record<string, any> | null;
@@ -287,6 +297,9 @@ export interface AgentToolCreateRequest {
 
 // Agent Create Request Type (based on API spec)
 export interface AgentCreateRequest {
+  humanization_skill_name?: string | null;
+  humanization_skill_enabled?: boolean;
+  is_active?: boolean;
   name: string;
   instruction?: string | null;
   model: string; // pure model name (e.g., 'gpt-4o'), no provider prefix
@@ -302,6 +315,9 @@ export interface AgentCreateRequest {
 
 // Agent Update Request Type (based on API spec - all fields optional)
 export interface AgentUpdateRequest {
+  humanization_skill_name?: string | null;
+  humanization_skill_enabled?: boolean;
+  is_active?: boolean;
   name?: string | null;
   instruction?: string | null;
   model?: string | null; // pure model name (no provider prefix)
@@ -488,7 +504,7 @@ export type ToolStatus = 'ACTIVE' | 'INACTIVE' | 'DEPRECATED';
 export type ToolSourceType = 'MARKETPLACE' | 'CUSTOM' | 'Tool_SERVER' | 'PLUGIN';
 
 // Tool type enumeration for /v1/ai/tools API
-export type ToolType = 'Tool' | 'HTTP' | 'FUNCTION' | 'ALL';
+export type ToolType = 'MCP' | 'FUNCTION' | 'ALL';
 
 // Project Tools API Response types (based on updated OpenAPI spec)
 // @deprecated - Old API, will be removed after migration to /v1/ai/tools
@@ -541,7 +557,7 @@ export interface AiToolResponse {
   title_zh?: string | null;
   title_en?: string | null;
   description: string | null;
-  tool_type: ToolType; // "Tool" | "FUNCTION"
+  tool_type: ToolType; // "MCP" | "FUNCTION"
   transport_type: string | null;
   endpoint: string | null;
   config: Record<string, any> | null;
@@ -571,8 +587,9 @@ export interface HttpToolParameter {
 export interface AiToolCreateRequest {
   project_id: string; // uuid - required
   name: string; // required
+  title_zh?: string;
   description?: string | null;
-  tool_type: ToolType; // "Tool" | "FUNCTION" - required
+  tool_type: ToolType; // "MCP" | "FUNCTION" - required
   transport_type?: string | null;
   endpoint?: string | null;
   config?: Record<string, any> | null;
@@ -583,9 +600,9 @@ export interface AiToolCreateRequest {
  * All fields are optional (PATCH semantics)
  */
 export interface AiToolUpdateRequest {
-  name?: string | null;
+  name?: string;
   description?: string | null;
-  tool_type?: ToolType | null; // "Tool" | "FUNCTION"
+  tool_type?: ToolType; // "MCP" | "FUNCTION"
   transport_type?: string | null;
   endpoint?: string | null;
   config?: Record<string, any> | null;
@@ -624,95 +641,6 @@ export interface ToolStoreCredential {
   toolstore_email: string;
   created_at: string;
   updated_at: string;
-}
-
-export interface ToolStoreItem {
-  id: string;
-  name: string;
-  title?: string; // Legacy field (deprecated)
-  title_zh?: string | null;
-  title_en?: string | null;
-  description: string;
-  description_zh?: string | null;
-  description_en?: string | null;
-  author?: string;
-  authorHandle?: string;
-  category?: string; // Legacy field (deprecated)
-  categories: ToolStoreCategory[]; // New field for many-to-many relationship
-  tags: string[];
-  downloads?: number;
-  rating?: number;
-  ratingCount?: number;
-  version?: string;
-  lastUpdated?: string;
-  featured?: boolean;
-  verified?: boolean;
-  icon?: string;
-  screenshots?: string[];
-  longDescription?: string;
-  requirements?: string[];
-  changelog?: string;
-  config?: Record<string, any>;
-  methods?: ToolMethod[];
-  isInstalled?: boolean; // Whether the tool is already installed in the project
-  input_schema?: Record<string, any>; // Schema from API response
-  short_no?: string; // Short number/identifier from API response
-  price_per_call?: number; // Price per call from Store API
-}
-
-export interface ToolStoreCategory {
-  id: string;
-  slug: string; // Unique identifier for URL/filtering
-  name_zh: string;
-  name_en: string | null;
-  icon: string;
-  label?: string; // For backward compatibility with older UI code
-}
-
-// Agent Store Types
-export interface AgentStoreCategory {
-  id: string;
-  slug: string;
-  name_zh: string;
-  name_en: string | null;
-  icon: string;
-}
-
-export interface AgentStoreItem {
-  id: string;
-  name: string;
-  title_zh: string;
-  title_en: string | null;
-  description_zh: string | null;
-  description_en: string | null;
-  avatar_url: string | null;
-  instruction: string;
-  model_id?: string;
-  model?: ModelStoreItem;
-  instruction_zh?: string;
-  instruction_en?: string;
-  price_usd?: number;
-  price_cny?: number;
-  default_config: Record<string, any>;
-  recommended_tools: string[];
-  price: number;
-  status: string;
-  tags: string[];
-  is_installed?: boolean;
-  categories: AgentStoreCategory[];
-}
-
-export interface StoreToolSummary {
-  id: string;
-  name: string;
-  title_zh?: string;
-  price_per_call: number;
-}
-
-export interface AgentDependencyCheckResponse {
-  agent: AgentStoreItem;
-  missing_tools: StoreToolSummary[];
-  missing_model: ModelStoreItem | null;
 }
 
 // Tool Method Types
@@ -840,6 +768,7 @@ export enum MessagePayloadType {
   SYSTEM_SESSION_CLOSED = 1001,  // 会话关闭
   SESSION_TRANSFERRED = 1002,  // 会话转接
   MEMORY_CLEARED = 1003, // 清除记忆
+  QUEUE_TIMEOUT = 1005, // 排队超时
   SYSTEM_MAX = 2000,
 }
 
@@ -849,7 +778,9 @@ export enum MessagePayloadType {
  * 1001 - 会话关闭
  */
 export function isChannelRefreshSystemMessage(type: number): boolean {
-  return type === MessagePayloadType.SYSTEM_STAFF_ASSIGNED || type === MessagePayloadType.SYSTEM_SESSION_CLOSED;
+  return type === MessagePayloadType.SYSTEM_STAFF_ASSIGNED
+    || type === MessagePayloadType.SYSTEM_SESSION_CLOSED
+    || type === MessagePayloadType.QUEUE_TIMEOUT;
 }
 
 /**
@@ -886,6 +817,7 @@ export interface PayloadText {
 
 export interface PayloadImage {
   type: MessagePayloadType.IMAGE;
+  file_id?: string;
   content?: string;
   url: string;
   width?: number;
@@ -894,6 +826,8 @@ export interface PayloadImage {
 
 export interface PayloadFile {
   type: MessagePayloadType.FILE;
+  file_id?: string;
+  mime_type?: string;
   url: string;
   name: string;
   size?: number;
@@ -1142,6 +1076,9 @@ export type CrawlJobStatus = 'pending' | 'crawling' | 'processing' | 'completed'
 export interface CrawlOptions {
   render_js?: boolean;
   wait_time?: number;
+  delay_seconds?: number;
+  timeout_seconds?: number;
+  headers?: Record<string, string>;
   follow_external_links?: boolean;
   respect_robots_txt?: boolean;
   user_agent?: string;
@@ -1246,6 +1183,7 @@ export interface KnowledgeBase {
 
 // Knowledge Base File/Document (compatible with API FileResponse)
 export interface KnowledgeFile {
+  error_message?: string | null;
   id: string;
   name: string;
   size: string; // Formatted size like "2.5 MB"
@@ -1476,6 +1414,7 @@ export interface RegisterFormData {
   email: string;
   password: string;
   passwordConfirmation: string;
+  workspaceName: string;
 }
 
 export interface AuthValidationErrors {

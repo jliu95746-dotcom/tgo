@@ -1,8 +1,8 @@
-import type { ToolStoreCategory, ModelStoreCategory, AgentStoreCategory } from '@/types';
+import type { ModelStoreCategory } from '@/types';
 
-export type StoreType = 'tool' | 'model' | 'agent';
+export type StoreType = 'model';
 
-export type StoreCategory = ToolStoreCategory | ModelStoreCategory | AgentStoreCategory;
+export type StoreCategory = ModelStoreCategory;
 
 export interface StoreModalBaseProps {
   isOpen: boolean;

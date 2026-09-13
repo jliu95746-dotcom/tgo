@@ -4,17 +4,19 @@ import { useNavigate } from 'react-router-dom';
 import AgentCard from './AgentCard';
 import CreateAgentModal from './CreateAgentModal';
 import EditAgentModal from './EditAgentModal';
-import AgentStoreModal from './AgentStoreModal';
-import ToolToastProvider from './ToolToastProvider';
-// import AiToolDetailModal from '@/components/ui/AiToolDetailModal';
+import ToolDetailModal from '@/components/ui/ToolDetailModal';
+import { agentToolDetails } from '@/utils/agentToolDetails';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { AgentsGridSkeleton, AgentsErrorState, AgentsEmptyState } from '@/components/ui/AgentsSkeleton';
 import { useAIStore } from '@/stores';
 import { useToast } from '@/hooks/useToast';
-import { LuPlus, LuChevronLeft, LuChevronRight, LuSearch, LuRefreshCw, LuStore } from 'react-icons/lu';
+import { LuPlus, LuChevronLeft, LuChevronRight, LuSearch, LuRefreshCw } from 'react-icons/lu';
 import { Bot } from 'lucide-react';
 import type { Agent, AgentToolResponse, AgentWithDetailsResponse } from '@/types';
 import { AIAgentsApiService } from '@/services/aiAgentsApi';
+import { useAuthStore } from '@/stores/authStore';
+import { useAgentReadinessStore } from '@/stores/agentReadinessStore';
+import { isDefaultAgentEnabled } from '@/utils/agentReadiness';
 
 /**
  * Agent management page component
@@ -35,6 +37,11 @@ const selectLoadAgents = (state: any) => state.loadAgents;
 const AgentManagement: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const projectId = useAuthStore(state => state.user?.project_id);
+  const loadModelCheck = useAgentReadinessStore(state => state.load);
+  useEffect(() => {
+    if (projectId) void loadModelCheck(projectId, true);
+  }, [projectId, loadModelCheck]);
   const agents = useAIStore(selectAgents);
   const currentPage = useAIStore(selectCurrentPage);
   const pageSize = useAIStore(selectPageSize);
@@ -50,10 +57,8 @@ const AgentManagement: React.FC = () => {
   const { showSuccess, showError } = useToast();
 
   // 模态框状态
-  // const [selectedTool, setSelectedTool] = useState<AgentToolResponse | null>(null);
-  // const [showToolDetail, setShowToolDetail] = useState(false);
+  const [selectedTool, setSelectedTool] = useState<AgentToolResponse | null>(null);
   const [showEditAgent, setShowEditAgent] = useState(false);
-  const [showAgentStore, setShowAgentStore] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -63,6 +68,7 @@ const AgentManagement: React.FC = () => {
   // Default agent state
   const [defaultAgent, setDefaultAgent] = useState<AgentWithDetailsResponse | null>(null);
   const [isLoadingDefaultAgent, setIsLoadingDefaultAgent] = useState(false);
+  const defaultAgentEnabled = isDefaultAgentEnabled(defaultAgent, agents);
 
   // Track if agents have been loaded to prevent multiple API calls
   const hasLoadedAgents = useRef(false);
@@ -111,12 +117,27 @@ const AgentManagement: React.FC = () => {
   const handleRefresh = async (silent = false) => {
     setIsRefreshing(true);
     try {
-      await loadAgents();
+      await Promise.all([
+        loadAgents(),
+        projectId ? loadModelCheck(projectId, true) : Promise.resolve(),
+      ]);
+      if (useAuthStore.getState().user?.project_id !== projectId) return;
       if (!silent) {
-        showSuccess(t('agents.messages.refreshSuccess', '刷新成功'), t('agents.messages.refreshSuccessDesc', 'AI员工列表已更新'));
+        const refreshedAgents = useAIStore.getState();
+        const refreshedConfiguration = useAgentReadinessStore.getState();
+        // Store actions record failures without rejecting their promises.
+        // Resolve the notification from the completed state, not Promise.all.
+        if (refreshedAgents.agentsError || refreshedAgents.isLoadingAgents) {
+          showError(t('agents.messages.refreshFailed'), t('agents.messages.refreshFailedDesc'));
+        } else if (!projectId || refreshedConfiguration.projectId !== projectId
+          || refreshedConfiguration.status !== 'loaded') {
+          showError(t('agents.messages.refreshConfigurationFailed'), t('agents.messages.refreshConfigurationFailedDesc'));
+        } else {
+          showSuccess(t('agents.messages.refreshSuccess', '刷新成功'), t('agents.messages.refreshSuccessDesc', 'AI员工列表已更新'));
+        }
       }
     } catch {
-      if (!silent) {
+      if (!silent && useAuthStore.getState().user?.project_id === projectId) {
         showError(t('agents.messages.refreshFailed', '刷新失败'), t('agents.messages.refreshFailedDesc', '无法刷新AI员工列表'));
       }
     } finally {
@@ -142,7 +163,7 @@ const AgentManagement: React.FC = () => {
   };
 
   const handleChatWithDefaultAgent = (): void => {
-    if (!defaultAgent) {
+    if (!defaultAgent || !defaultAgentEnabled) {
       showError(
         t('agents.messages.noDefaultAgent', '默认AI员工未加载'),
         t('agents.messages.noDefaultAgentDesc', '请稍后重试')
@@ -262,10 +283,7 @@ const AgentManagement: React.FC = () => {
   };
 
   const handleToolClick = (tool: AgentToolResponse): void => {
-    // TODO: Create AgentToolDetailModal for AgentToolResponse objects
-    console.log('Tool clicked:', tool);
-    // setSelectedTool(tool);
-    // setShowToolDetail(true);
+    setSelectedTool(tool);
   };
 
 
@@ -277,18 +295,18 @@ const AgentManagement: React.FC = () => {
   return (
     <main className="flex-grow flex flex-col bg-[#f8fafc] dark:bg-gray-950 overflow-hidden">
       {/* Header */}
-      <header className="px-8 py-5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-30">
+      <header className="px-8 py-5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col xl:flex-row xl:items-center justify-between gap-4 sticky top-0 z-30">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2 whitespace-nowrap">
             <Bot className="w-7 h-7 text-blue-600" />
             {t('agents.title', 'AI员工管理')}
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {t('agents.subtitle', '管理和部署您的智能化数字员工')}
+            {t('agents.subtitle', '为不同品牌或产品，配置各自的专职客服')}
           </p>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="relative group hidden sm:block">
             <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
             <input 
@@ -302,7 +320,7 @@ const AgentManagement: React.FC = () => {
           
           <div className="h-8 w-px bg-gray-200 dark:border-gray-800 mx-1 hidden sm:block"></div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
             <button
               className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all"
               onClick={() => handleRefresh()}
@@ -310,13 +328,6 @@ const AgentManagement: React.FC = () => {
               title={t('common.refresh', '刷新')}
             >
               <LuRefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 text-sm font-bold rounded-xl transition-all active:scale-95 border border-indigo-100 dark:bg-indigo-900/20 dark:border-indigo-800/50 dark:text-indigo-400"
-              onClick={() => setShowAgentStore(true)}
-            >
-              <LuStore className="w-4 h-4" />
-              <span className="hidden sm:inline">{t('agents.actions.store', '招聘员工')}</span>
             </button>
             <button
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl shadow-lg shadow-blue-200 dark:shadow-none transition-all active:scale-95"
@@ -332,7 +343,6 @@ const AgentManagement: React.FC = () => {
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         <div className="max-w-[1600px] mx-auto p-8 space-y-8">
-          
           {/* Quick Actions / Default Agent */}
           <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-3xl p-6 text-white shadow-xl shadow-blue-200 dark:shadow-none flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
@@ -341,15 +351,16 @@ const AgentManagement: React.FC = () => {
                 <Bot className="w-6 h-6" />
                 {defaultAgent?.name || t('agents.defaultAgent.defaultName', '默认AI员工')}
               </h3>
-              <p className="text-blue-100 text-sm mt-1 opacity-90 max-w-xl">
+              <p className="text-blue-100 text-sm mt-1 opacity-90 max-w-xl line-clamp-3">
                 {defaultAgent?.instruction || t('agents.defaultAgent.description', '项目默认AI员工会在未显式指定目标时承接 AI 对话。')}
               </p>
             </div>
-            <div className="flex items-center gap-3 relative z-10">
+            <div className="flex shrink-0 items-center gap-3 relative z-10">
               <button
                 onClick={handleChatWithDefaultAgent}
-                disabled={!defaultAgent || isLoadingDefaultAgent}
-                className="px-5 py-2.5 bg-white text-blue-600 hover:bg-blue-50 text-sm font-bold rounded-xl transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!defaultAgentEnabled || isLoadingDefaultAgent}
+                title={t('agents.card.activationNotice')}
+                className="whitespace-nowrap px-5 py-2.5 bg-white text-blue-600 hover:bg-blue-50 text-sm font-bold rounded-xl transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t('agents.actions.defaultAgentChat', '与默认AI员工对话')}
               </button>
@@ -435,16 +446,14 @@ const AgentManagement: React.FC = () => {
       </div>
 
       {/* Modals */}
+      <ToolDetailModal
+        tool={selectedTool ? agentToolDetails(selectedTool) : null}
+        isOpen={selectedTool !== null}
+        onClose={() => setSelectedTool(null)}
+      />
       <CreateAgentModal />
       <EditAgentModal agentId={selectedAgent?.id || null} isOpen={showEditAgent} onClose={() => setShowEditAgent(false)} />
       
-      <ToolToastProvider>
-        <AgentStoreModal 
-          isOpen={showAgentStore} 
-          onClose={() => setShowAgentStore(false)}
-          onInstalled={() => handleRefresh(true)}
-        />
-      </ToolToastProvider>
 
       <ConfirmDialog
         isOpen={showDeleteConfirm}

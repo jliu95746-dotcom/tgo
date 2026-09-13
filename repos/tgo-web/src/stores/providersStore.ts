@@ -133,7 +133,10 @@ export const useProvidersStore = create<ProvidersState>()(
           name: data.name,
           api_key: data.apiKey,
           api_base_url: data.apiBaseUrl || null,
-          available_models: models.length ? models : [],
+          available_models: models.map(id => ({ model_id: id,
+            model_type: data.modelConfigs?.find(model => model.id === id)?.type || data.modelTypes?.[id] || 'chat',
+            capabilities: data.modelConfigs?.find(model => model.id === id)?.capabilities,
+          })),
           default_model: defaultModel || null,
           config: AIProvidersApiService.buildBackendConfig(data.kind, data.params) || null,
           is_active: !!data.enabled,
@@ -151,9 +154,6 @@ export const useProvidersStore = create<ProvidersState>()(
         const nextKind = patch.kind || current.kind;
         // normalize models/defaultModel
         const models = Array.isArray(patch.models) ? patch.models.filter(Boolean) : current.models || [];
-        let defaultModel = patch.defaultModel ?? current.defaultModel;
-        if (defaultModel && !models.includes(defaultModel)) models.push(defaultModel);
-        if (!defaultModel && models.length > 0) defaultModel = models[0];
 
         const payload: any = {} as any;
         if (patch.kind) payload.provider = AIProvidersApiService.kindToProviderKey(patch.kind);
@@ -174,7 +174,7 @@ export const useProvidersStore = create<ProvidersState>()(
                 capabilities: configsById.get(modelId)?.capabilities,
               }))
             : [];
-          payload.default_model = defaultModel || null;
+          if (patch.defaultModel !== undefined) payload.default_model = patch.defaultModel || null;
         }
         if (patch.apiKey && patch.apiKey.trim() !== '') payload.api_key = patch.apiKey.trim();
 
@@ -194,7 +194,7 @@ export const useProvidersStore = create<ProvidersState>()(
         const current = get().providers.find(p => p.id === providerId);
         if (!current) return;
 
-        const existingConfigs = current.modelConfigs || (current.models || []).map(id => ({
+        const existingConfigs: AIModelConfig[] = current.modelConfigs || (current.models || []).map(id => ({
           id,
           name: id,
           type: current.modelTypes?.[id] || 'chat',

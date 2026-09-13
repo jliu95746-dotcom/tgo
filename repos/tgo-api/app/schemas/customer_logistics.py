@@ -88,6 +88,9 @@ class ShipmentQueryResponse(LogisticsSchema):
 
 class LogisticsToolTestRequest(LogisticsSchema):
     tracking_no: str = Field(min_length=8, max_length=64)
+    query_tool_id: UUID | None = None
+    carrier_code: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9_-]{1,40}$")
+    phone: str | None = Field(default=None, pattern=r"^(?:[0-9]{4}|[0-9]{11})$")
 
 
 class LogisticsToolTestResponse(LogisticsSchema):

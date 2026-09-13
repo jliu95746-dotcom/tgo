@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { STORAGE_KEYS } from '@/constants';
 
-import { authAPI, APIError } from '@/services/api';
+import { authAPI, APIError, RegistrationLoginError } from '@/services/api';
 import { wukongimWebSocketService } from '@/services/wukongimWebSocket';
 import { useChatStore } from './chatStore';
 import type { LoginFormData, RegisterFormData } from '@/types';
@@ -114,17 +114,18 @@ export const useAuthStore = create<AuthState>()(
 
         try {
           // Call real API for registration
-          await authAPI.register({
+          const registeredAccount = await authAPI.register({
             username: userData.email, // Using email as username
             password: userData.password,
-            nickname: userData.email.split('@')[0] // Use email prefix as nickname
+            nickname: userData.email.split('@')[0],
+            project_name: userData.workspaceName.trim(),
           });
 
           // After successful registration, automatically log in
           const loginResponse = await authAPI.login({
-            username: userData.email,
+            username: registeredAccount.username,
             password: userData.password
-          });
+          }).catch(() => { throw new RegistrationLoginError(); });
 
           // Convert API response to User format
           const user: User = {

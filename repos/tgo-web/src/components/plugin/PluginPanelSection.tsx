@@ -8,7 +8,13 @@ import CollapsibleSection from '../ui/CollapsibleSection';
 
 interface PluginPanelSectionProps {
   visitorId: string;
-  context: any;
+  context: {
+    visitor_id: string;
+    channel_id?: string | null;
+    channel_type?: number | null;
+    platform_type?: string;
+    extension_type: string;
+  };
   className?: string;
   draggable?: boolean;
   expanded?: boolean;
@@ -37,17 +43,14 @@ const PluginPanelSection: React.FC<PluginPanelSectionProps> = ({
   const isLoading = usePluginStore((state) => state.isLoadingVisitorPanels);
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
 
-  // Memoize context to avoid unnecessary re-renders if the object hasn't changed its values
-  // We use stringify to ensure all relevant context properties are tracked
-  const contextKey = JSON.stringify({
-    v: context.visitor_id,
-    c: context.channel_id,
-    t: context.channel_type,
-    p: context.platform_type,
-    e: context.extension_type
-  });
-
-  const memoizedContext = useMemo(() => context, [contextKey]);
+  // Track field values so a newly rendered parent object does not refetch panels.
+  const memoizedContext = useMemo(() => ({
+    visitor_id: context.visitor_id,
+    channel_id: context.channel_id,
+    channel_type: context.channel_type,
+    platform_type: context.platform_type,
+    extension_type: context.extension_type,
+  }), [context.visitor_id, context.channel_id, context.channel_type, context.platform_type, context.extension_type]);
 
   useEffect(() => {
     if (visitorId) {

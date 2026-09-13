@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Plus, Trash2, Check, X, Edit3 } from 'lucide-react';
-import type { CustomAttribute } from '@/data/mockVisitor';
+import type { CustomAttribute } from '@/types/visitor';
 
 interface CustomAttributeManagerProps {
   attributes: CustomAttribute[];

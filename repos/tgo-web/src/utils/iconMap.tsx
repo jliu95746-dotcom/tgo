@@ -54,17 +54,17 @@ import {
 // 图标映射对象
 export const iconMap: Record<string, LucideIcon> = {
   // 基础操作
-  'plus': Plus,
-  'search': Search,
-  'settings': Settings,
+  plus: Plus,
+  search: Search,
+  settings: Settings,
   'refresh-cw': RefreshCw,
-  'eye': Eye,
+  eye: Eye,
   'eye-off': EyeOff,
-  'copy': Copy,
-  'pencil': Pencil,
+  copy: Copy,
+  pencil: Pencil,
   'trash-2': Trash2,
   'share-2': Share2,
-  'ellipsis': Ellipsis,
+  ellipsis: Ellipsis,
   
   // 导航
   'chevron-left': ChevronLeft,
@@ -72,32 +72,32 @@ export const iconMap: Record<string, LucideIcon> = {
   'arrow-down-up': ArrowUpDown,
   
   // 界面元素
-  'smile': Smile,
-  'scissors': Scissors,
-  'image': Image,
+  smile: Smile,
+  scissors: Scissors,
+  image: Image,
   'list-checks': ListChecks,
-  'folder': Folder,
+  folder: Folder,
   'folder-open': FolderOpen,
-  'clock': Clock,
-  'star': Star,
-  'meh': Meh,
+  clock: Clock,
+  star: Star,
+  meh: Meh,
   'mouse-pointer-click': MousePointerClick,
-  'ticket': Ticket,
+  ticket: Ticket,
   'circle-plus': CirclePlus,
-  'inbox': Inbox,
+  inbox: Inbox,
   
   // 通信和渠道
-  'bot': Bot,
-  'users': Users,
-  'globe': Globe,
-  'mail': Mail,
-  'phone': Phone,
-  'custom': Webhook,
-  'circle': Circle,
+  bot: Bot,
+  users: Users,
+  globe: Globe,
+  mail: Mail,
+  phone: Phone,
+  custom: Webhook,
+  circle: Circle,
 
   // 工具
-  'wrench': Wrench,
-  'activity': Activity
+  wrench: Wrench,
+  activity: Activity
 };
 
 // 获取图标组件的辅助函数

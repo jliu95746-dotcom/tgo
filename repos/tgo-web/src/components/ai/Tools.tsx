@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { LuPackage, LuSearch } from 'react-icons/lu';
 import { Globe } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -12,7 +12,9 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { useProjectToolsStore } from '@/stores/projectToolsStore';
 import { transformAiToolResponseList, searchProjectTools } from '@/utils/projectToolsTransform';
 import { AiToolsGridSkeleton, AiToolsErrorState, AiToolsEmptyState } from '@/components/ui/AiToolsSkeleton';
-import ToolStoreModal from './ToolStoreModal';
+import SavedToolTestModal from './SavedToolTestModal';
+import LogisticsProviderModal from './LogisticsProviderModal';
+import { getLogisticsProviderTool, isLogisticsProviderTool } from '@/services/logisticsProviderService';
 import type { AiTool, AiToolResponse } from '@/types';
 
 /**
@@ -25,11 +27,13 @@ const ToolsContent: React.FC = () => {
   const [showAddHTTPToolModal, setShowAddHTTPToolModal] = useState<boolean>(false);
   const [showEditToolModal, setShowEditToolModal] = useState<boolean>(false);
   const [showEditHTTPToolModal, setShowEditHTTPToolModal] = useState<boolean>(false);
-  const [showToolStoreModal, setShowToolStoreModal] = useState<boolean>(false);
+  const [testTool, setTestTool] = useState<AiToolResponse | null>(null);
+  const [providerTool, setProviderTool] = useState<AiToolResponse | null | undefined>(undefined);
   const [selectedToolForEdit, setSelectedToolForEdit] = useState<AiToolResponse | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
   const [toolToDelete, setToolToDelete] = useState<AiTool | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const deletingRef = useRef(false);
   const { showToast } = useToast();
   const { t } = useTranslation();
 
@@ -68,6 +72,14 @@ const ToolsContent: React.FC = () => {
   const handleToolAction = async (actionType: string, tool: AiTool): Promise<void> => {
     try {
       switch (actionType) {
+        case 'test':
+          const logisticsTool = aiTools.find(item => item.id === tool.id);
+          if (logisticsTool && isLogisticsProviderTool(logisticsTool)) {
+            setProviderTool(await getLogisticsProviderTool());
+            break;
+          }
+          setTestTool(aiTools.find(item => item.id === tool.id) ?? null);
+          break;
         case 'delete':
         case 'uninstall':
           setToolToDelete(tool);
@@ -77,6 +89,10 @@ const ToolsContent: React.FC = () => {
           // Find the original AiToolResponse for editing
           const aiTool = aiTools.find(t => t.id === tool.id);
           if (aiTool) {
+            if (isLogisticsProviderTool(aiTool)) {
+              setProviderTool(await getLogisticsProviderTool());
+              break;
+            }
             setSelectedToolForEdit(aiTool);
             if (aiTool.transport_type === 'http_webhook') {
               setShowEditHTTPToolModal(true);
@@ -110,7 +126,8 @@ const ToolsContent: React.FC = () => {
   };
 
   const handleDeleteToolConfirm = async () => {
-    if (!toolToDelete) return;
+    if (!toolToDelete || deletingRef.current) return;
+    deletingRef.current = true;
     setIsDeleting(true);
     try {
       await deleteTool(toolToDelete.id);
@@ -123,6 +140,7 @@ const ToolsContent: React.FC = () => {
       const errorMessage = error instanceof Error ? error.message : t('tools.tools.actionFailed.title', '操作失败');
       showToast('error', t('tools.tools.actionFailed.title', '操作失败'), errorMessage);
     } finally {
+      deletingRef.current = false;
       setIsDeleting(false);
     }
   };
@@ -130,18 +148,18 @@ const ToolsContent: React.FC = () => {
   return (
     <main className="flex-grow flex flex-col bg-[#f8fafc] dark:bg-gray-950 overflow-hidden">
       {/* Header */}
-      <header className="px-8 py-5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-30">
+      <header className="px-8 py-5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col xl:flex-row xl:items-center justify-between gap-4 sticky top-0 z-30">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <LuPackage className="w-7 h-7 text-blue-600" />
             {t('tools.title', '工具管理')}
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {t('tools.subtitle', '配置和扩展 AI 员工的能力集')}
+            {t('tools.probe.savedHint', '接入业务工具；保存后点击「测试工具」，确认可用再绑定给 AI 员工。')}
           </p>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Search Bar matching AgentManagement */}
           <div className="relative group hidden sm:block">
             <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
@@ -156,27 +174,28 @@ const ToolsContent: React.FC = () => {
 
           <div className="h-8 w-px bg-gray-200 dark:bg-gray-800 mx-1 hidden sm:block"></div>
 
-          <button
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-sm font-bold rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all active:scale-95 shadow-sm"
-            onClick={() => setShowToolStoreModal(true)}
-          >
-            <LuPackage className="w-4 h-4 text-blue-600" />
-            <span>{t('tools.toolStore', '工具商店')}</span>
-          </button>
+          <button className="rounded-xl border border-blue-300 px-4 py-2 text-sm font-bold text-blue-600 dark:text-blue-300" onClick={async () => {
+            try {
+              setProviderTool(await getLogisticsProviderTool());
+            } catch {
+              showToast('error', t('common.error'), t('logisticsProvider.loadFailed'));
+            }
+          }}>{t('logisticsProvider.add')}</button>
+
 
           <button
             className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-sm font-bold rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all active:scale-95 shadow-sm"
             onClick={() => setShowAddHTTPToolModal(true)}
           >
-            <Globe className="w-4 h-4" />
-            <span className="hidden lg:inline">{t('tools.addHttpTool', '添加 HTTP 工具')}</span>
+            <Globe className="w-4 h-4 shrink-0" />
+            <span className="whitespace-nowrap">{t('tools.addHttpTool', '添加 HTTP 工具')}</span>
           </button>
           <button
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl shadow-lg shadow-blue-200 dark:shadow-none transition-all active:scale-95"
             onClick={() => setShowAddToolModal(true)}
           >
-            <LuPackage className="w-4 h-4" />
-            <span className="hidden lg:inline">{t('tools.addMCPTool', '添加 MCP 工具')}</span>
+            <LuPackage className="w-4 h-4 shrink-0" />
+            <span className="whitespace-nowrap">{t('tools.addMCPTool', '添加 MCP 工具')}</span>
           </button>
         </div>
       </header>
@@ -261,11 +280,8 @@ const ToolsContent: React.FC = () => {
         tool={selectedToolForEdit}
       />
 
-      {/* Tool Store Modal */}
-      <ToolStoreModal
-        isOpen={showToolStoreModal}
-        onClose={() => setShowToolStoreModal(false)}
-      />
+      {testTool && <SavedToolTestModal tool={testTool} onClose={() => setTestTool(null)} />}
+      {providerTool !== undefined && <LogisticsProviderModal tool={providerTool} onClose={() => setProviderTool(undefined)} onSaved={() => { void loadTools(false); }} />}
 
       <ConfirmDialog
         isOpen={showDeleteConfirm}

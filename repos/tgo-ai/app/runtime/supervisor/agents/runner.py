@@ -47,7 +47,7 @@ class AgnoAgentRunner:
     async def run(
         self, built_agent: BuiltAgent, context: AgentExecutionContext
     ) -> SupervisorRunResponse:
-        """Run a single agent and translate the result into the public response schema."""
+        """Run one agent and translate its result into the public response schema."""
         start_time = time.time()
         output = await built_agent.agent.arun(
             context.message,
@@ -95,6 +95,7 @@ class AgnoAgentRunner:
         start_time = time.time()
         content_chunks: list[str] = []
         completed_content = ""
+        completed_seen = False
         success = True
         error: Optional[str] = None
         chunk_index = 0
@@ -104,6 +105,7 @@ class AgnoAgentRunner:
             context.message,
             stream=True,
             stream_events=True,
+            run_id=execution_id,
             session_id=context.session_id,
             user_id=context.user_id,
         ):
@@ -144,10 +146,12 @@ class AgnoAgentRunner:
                     tool_call_id=getattr(event.tool, "tool_call_id", None),
                     tool_input=getattr(event.tool, "tool_args", None),
                     tool_output=getattr(event.tool, "result", None),
+                    tool_call_error=bool(getattr(event.tool, "tool_call_error", False)),
                 )
                 continue
 
             if isinstance(event, RunCompletedEvent):
+                completed_seen = True
                 completed_content = self._ensure_text(getattr(event, "content", None))
                 continue
 
@@ -173,6 +177,10 @@ class AgnoAgentRunner:
                     timestamp=timestamp,
                     error=error,
                 )
+
+        if not completed_seen and success:
+            success = False
+            error = "Agent stream ended without a completion event"
 
         streamed_content = "".join(content_chunks)
         final_content = completed_content or streamed_content
@@ -207,7 +215,7 @@ class AgnoAgentRunner:
         if isinstance(messages, (list, tuple)):
             for message in reversed(messages):
                 role = getattr(message, "role", None)
-                if hasattr(role, "value"):
+                if role is not None and hasattr(role, "value"):
                     role = role.value
                 normalized_role = str(role or "").lower().rsplit(".", 1)[-1]
                 if normalized_role != "assistant":

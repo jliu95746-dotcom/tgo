@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Info, Server, Code, GitBranch, Clock, AlertCircle, Github, Globe, ExternalLink } from 'lucide-react';
+import { Info, Server, Code, GitBranch, Clock, AlertCircle } from 'lucide-react';
 import { systemApiService, type SystemInfoResponse } from '@/services/systemApi';
 
 const AboutSettings: React.FC = () => {
@@ -124,45 +124,19 @@ const AboutSettings: React.FC = () => {
             </div>
           </div>
 
-          {/* Links Card */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2">
-                <ExternalLink className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">{t('about.links', '相关链接')}</h3>
+          <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-6 dark:border-blue-900/50 dark:bg-blue-950/20">
+            <div className="flex items-center gap-4">
+              <img src="/yujian-logo.svg" alt={t('brand.name')} className="h-14 w-14" />
+              <div>
+                <h3 className="text-2xl font-semibold tracking-wide text-gray-900 dark:text-gray-100">{t('brand.name')}</h3>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{t('brand.description')}</p>
               </div>
-            </div>
-            <div className="p-4 space-y-3">
-              <a
-                href="https://github.com/tgoai/tgo"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group"
-              >
-                <span className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                  <Github className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                  {t('about.github', 'GitHub 开源地址')}
-                </span>
-                <ExternalLink className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
-              </a>
-              <a
-                href="https://tgo.ai"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group border-t border-gray-100 dark:border-gray-700"
-              >
-                <span className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                  <Globe className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                  {t('about.website', '官网地址')}
-                </span>
-                <ExternalLink className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
-              </a>
             </div>
           </div>
 
           {/* Copyright */}
           <div className="text-center text-xs text-gray-500 dark:text-gray-400 pt-2">
-            © {new Date().getFullYear()} TGO Web. {t('about.copyright', 'All rights reserved.')}
+            {t('brand.name')} · {t('brand.description')}
           </div>
         </div>
       )}

@@ -83,7 +83,9 @@ const AgentToolTag: React.FC<AgentToolTagProps> = ({
   };
 
   return (
-    <span
+    <button
+      type="button"
+      disabled={!onClick}
       className={`
         inline-flex items-center rounded-md border transition-colors duration-200
         ${sizeClasses[size]}
@@ -108,7 +110,7 @@ const AgentToolTag: React.FC<AgentToolTagProps> = ({
       {onClick && (
         <ExternalLink className={`${iconSizeClasses[size]} ml-1 opacity-60`} />
       )}
-    </span>
+    </button>
   );
 };
 

@@ -177,7 +177,7 @@ export const isToday = (timestamp: string | Date): boolean => {
     return date.getDate() === today.getDate() &&
            date.getMonth() === today.getMonth() &&
            date.getFullYear() === today.getFullYear();
-  } catch (error) {
+  } catch {
     return false;
   }
 };
@@ -196,7 +196,7 @@ export const isYesterday = (timestamp: string | Date): boolean => {
     return date.getDate() === yesterday.getDate() &&
            date.getMonth() === yesterday.getMonth() &&
            date.getFullYear() === yesterday.getFullYear();
-  } catch (error) {
+  } catch {
     return false;
   }
 };
@@ -319,7 +319,7 @@ export const formatWeChatConversationTime = (
 
     // Older than one week: localized month/day
     return date.toLocaleDateString(i18n.language, { month: 'numeric', day: 'numeric' });
-  } catch (error) {
+  } catch {
     // Graceful fallback
     return formatTimeOnly(new Date());
   }

@@ -7,6 +7,13 @@ import logging
 from typing import Any, Dict, Optional
 
 
+class TransportDetailFilter(logging.Filter):
+    """HTTP transport detail logs can contain signed URLs and auth headers."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno >= logging.WARNING
+
+
 class StructuredFormatter(logging.Formatter):
     """Custom formatter that displays structured logging fields."""
 
@@ -89,6 +96,12 @@ class BoundLogger:
 
 def setup_logging() -> None:
     """Ensure a basic logging configuration is present."""
+    # A filter remains effective even when a root/debug configuration is changed.
+    # Application-level tool diagnostics retain status and safe failure category.
+    for name in ("httpx", "httpcore.http11", "httpcore.http2", "httpcore.connection", "httpcore.proxy"):
+        transport_logger = logging.getLogger(name)
+        if not any(isinstance(item, TransportDetailFilter) for item in transport_logger.filters):
+            transport_logger.addFilter(TransportDetailFilter())
     if not logging.getLogger().handlers:
         # Create handler with structured formatter
         handler = logging.StreamHandler()

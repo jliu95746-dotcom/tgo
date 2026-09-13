@@ -246,6 +246,15 @@ ChatStore.prototype._bindIMEvents = function () {
       channelType: m.channelType
     }
 
+    if (payload.type === 100 && chat.clientMsgNo) {
+      var completed = self._state.messages.some(function (message) {
+        return message.clientMsgNo === chat.clientMsgNo && message.payload.type === 1 &&
+          Boolean(message.payload.content && String(message.payload.content).trim())
+      })
+      if (completed || self._state.messages.some(function (message) { return message.id === chat.id })) return
+      if (self._state.streamingClientMsgNo !== chat.clientMsgNo) self.markStreamingStart(chat.clientMsgNo)
+    }
+
     self._setState({
       messages: mergeHistoryMessages(self._state.messages, [chat])
     })
@@ -274,6 +283,7 @@ ChatStore.prototype._bindIMEvents = function () {
       // --- Stream API v2 ---
       if (newEventType === 'stream.delta') {
         if (!clientMsgNo) return
+        if (!self._state.isStreaming) self.markStreamingStart(clientMsgNo)
         var payload = eventData && eventData.payload
         var delta = payload && payload.delta
         if (delta) {
@@ -314,7 +324,7 @@ ChatStore.prototype._bindIMEvents = function () {
         }
         var errMsg = (eventData && eventData.payload && eventData.payload.end_reason > 0) ? '流异常结束' : undefined
         self.finalizeStreamMessage(clientMsgNo, errMsg)
-        self.markStreamingEnd()
+        self.markStreamingEnd(clientMsgNo)
         return
       }
 
@@ -324,7 +334,7 @@ ChatStore.prototype._bindIMEvents = function () {
         if (errParser) { errParser.flush(); delete activeParsers[clientMsgNo] }
         var errMessage = (eventData && eventData.payload && eventData.payload.error) || '未知错误'
         self.finalizeStreamMessage(clientMsgNo, errMessage)
-        self.markStreamingEnd()
+        self.markStreamingEnd(clientMsgNo)
         return
       }
 
@@ -333,7 +343,7 @@ ChatStore.prototype._bindIMEvents = function () {
         var cancelParser = activeParsers[clientMsgNo]
         if (cancelParser) { cancelParser.flush(); delete activeParsers[clientMsgNo] }
         self.finalizeStreamMessage(clientMsgNo)
-        self.markStreamingEnd()
+        self.markStreamingEnd(clientMsgNo)
         return
       }
 
@@ -361,7 +371,7 @@ ChatStore.prototype._bindIMEvents = function () {
         if (!endId) return
         var endError = customEvent.data ? String(customEvent.data) : undefined
         self.finalizeStreamMessage(endId, endError)
-        self.markStreamingEnd()
+        self.markStreamingEnd(endId)
         return
       }
     } catch (err) {
@@ -695,7 +705,8 @@ ChatStore.prototype.markStreamingStart = function (clientMsgNo) {
   }, STREAM_TIMEOUT_MS)
 }
 
-ChatStore.prototype.markStreamingEnd = function () {
+ChatStore.prototype.markStreamingEnd = function (clientMsgNo) {
+  if (clientMsgNo && this._state.streamingClientMsgNo !== clientMsgNo) return
   if (streamTimer) { try { clearTimeout(streamTimer) } catch (e) {} ; streamTimer = null }
   this._setState({ isStreaming: false, streamCanceling: false, streamingClientMsgNo: '' })
 }
@@ -708,7 +719,7 @@ ChatStore.prototype.cancelStreaming = function (reason) {
   this._setState({ streamCanceling: true })
 
   if (!st.apiBase || !st.streamingClientMsgNo || !st.platformApiKey) {
-    this.markStreamingEnd()
+    this._setState({ streamCanceling: false, error: '无法确定要停止的回复，请刷新后重试。' })
     return Promise.resolve()
   }
 
@@ -717,10 +728,14 @@ ChatStore.prototype.cancelStreaming = function (reason) {
     platformApiKey: st.platformApiKey,
     clientMsgNo: st.streamingClientMsgNo,
     reason: reason || 'user_cancel'
+  }).then(function () {
+    if (self._state.streamingClientMsgNo === st.streamingClientMsgNo &&
+        self._state.platformApiKey === st.platformApiKey) self.markStreamingEnd()
   }).catch(function (e) {
     console.warn('[Chat] Cancel streaming error:', e)
-  }).then(function () {
-    self.markStreamingEnd()
+    if (self._state.streamingClientMsgNo === st.streamingClientMsgNo) {
+      self._setState({ streamCanceling: false, error: '尚未确认停止，请稍后重试。' })
+    }
   })
 }
 

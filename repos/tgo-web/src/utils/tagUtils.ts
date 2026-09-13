@@ -36,7 +36,7 @@ export const normalizeTagHex = (color?: string | null): string => {
   if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(trimmed)) {
     if (trimmed.length === 4) {
       // #ABC -> #AABBCC
-      return '#' + trimmed[1] + trimmed[1] + trimmed[2] + trimmed[2] + trimmed[3] + trimmed[3];
+      return `#${  trimmed[1]  }${trimmed[1]  }${trimmed[2]  }${trimmed[2]  }${trimmed[3]  }${trimmed[3]}`;
     }
     return trimmed;
   }
@@ -49,9 +49,9 @@ export const normalizeTagHex = (color?: string | null): string => {
   // If it's a hex without #
   if (/^([0-9a-f]{3}|[0-9a-f]{6})$/i.test(trimmed)) {
     if (trimmed.length === 3) {
-      return '#' + trimmed[0] + trimmed[0] + trimmed[1] + trimmed[1] + trimmed[2] + trimmed[2];
+      return `#${  trimmed[0]  }${trimmed[0]  }${trimmed[1]  }${trimmed[1]  }${trimmed[2]  }${trimmed[2]}`;
     }
-    return '#' + trimmed;
+    return `#${  trimmed}`;
   }
   
   return TAG_COLOR_NAME_TO_HEX.blue;

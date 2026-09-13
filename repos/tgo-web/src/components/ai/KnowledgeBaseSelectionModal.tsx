@@ -63,7 +63,7 @@ const KnowledgeBaseSelectionModal: React.FC<KnowledgeBaseSelectionModalProps> = 
         showToast('error', t('common.loadFailed', '加载失败'), t('knowledge.selectModal.loadFailedDesc', '无法加载知识库列表，请稍后重试'));
       });
     }
-  }, [isOpen, knowledgeBases.length, fetchKnowledgeBases, showToast]);
+  }, [isOpen, knowledgeBases.length, fetchKnowledgeBases, showToast, t]);
 
   // Initialize temporary selection state when modal opens
   useEffect(() => {
@@ -89,7 +89,7 @@ const KnowledgeBaseSelectionModal: React.FC<KnowledgeBaseSelectionModalProps> = 
     }
 
     return filtered;
-  }, [knowledgeBases, debouncedSearch, selectedCategory]);
+  }, [knowledgeBases, debouncedSearch]);
 
   const handleKnowledgeBaseClick = (knowledgeBase: KnowledgeBaseItem) => {
     setTempSelectedKnowledgeBases(prev => {

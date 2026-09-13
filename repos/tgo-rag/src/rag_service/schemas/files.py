@@ -59,6 +59,9 @@ class FileResponse(BaseModel):
         description="Number of document chunks generated",
         examples=[25]
     )
+    error_message: Optional[str] = Field(
+        None, description="Safe failure reason when file processing failed"
+    )
     total_tokens: int = Field(
         ...,
         description="Total tokens across all document chunks",

@@ -77,7 +77,7 @@ export const validateMarkdownStyles = (): ValidationResult => {
           hasMarkdownStyles = true;
           break;
         }
-      } catch (e) {
+      } catch {
         // CORS 限制，跳过外部样式表
         continue;
       }
@@ -125,20 +125,20 @@ export const validateMarkdownElements = (): ValidationResult => {
     
     const foundElements: Record<string, number> = {};
     const elementSelectors = {
-      'h1': 'h1',
-      'h2': 'h2',
-      'h3': 'h3',
-      'p': 'p',
-      'code': 'code',
-      'pre': 'pre',
-      'a': 'a',
-      'ul': 'ul',
-      'ol': 'ol',
-      'li': 'li',
-      'blockquote': 'blockquote',
-      'table': 'table',
-      'strong': 'strong',
-      'em': 'em'
+      h1: 'h1',
+      h2: 'h2',
+      h3: 'h3',
+      p: 'p',
+      code: 'code',
+      pre: 'pre',
+      a: 'a',
+      ul: 'ul',
+      ol: 'ol',
+      li: 'li',
+      blockquote: 'blockquote',
+      table: 'table',
+      strong: 'strong',
+      em: 'em'
     };
     
     markdownContainers.forEach(container => {

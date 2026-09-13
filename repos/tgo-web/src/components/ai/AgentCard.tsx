@@ -9,6 +9,9 @@ import DeviceTag from '@/components/ui/DeviceTag';
 import { generateDefaultAvatar, hasValidAvatar } from '@/utils/avatarUtils';
 import { useAIStore } from '@/stores';
 import { useToast } from '@/hooks/useToast';
+import { useAuthStore } from '@/stores/authStore';
+import { useAgentReadinessStore } from '@/stores/agentReadinessStore';
+import { getAgentReadiness } from '@/utils/agentReadiness';
 import type { Agent, AgentToolResponse } from '@/types';
 
 interface AgentCardProps {
@@ -23,11 +26,21 @@ interface AgentCardProps {
 const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const projectId = useAuthStore(state => state.user?.project_id);
+  const modelCheck = useAgentReadinessStore();
+  const loadModelCheck = modelCheck.load;
+  useEffect(() => {
+    if (projectId) void loadModelCheck(projectId);
+  }, [projectId, loadModelCheck]);
+  const readiness = getAgentReadiness(agent.llmModel,
+    modelCheck.projectId === projectId ? modelCheck.models : [],
+    modelCheck.projectId === projectId ? modelCheck.status : 'idle');
   const [showAllCollections, setShowAllCollections] = useState(false);
   const [showAllTools, setShowAllTools] = useState(false);
   const [showAllWorkflows, setShowAllWorkflows] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const statusChangePending = useRef(false);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -54,6 +67,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
 
   // Navigate to chat with this agent
   const handleChatWithAgent = (): void => {
+    if (agent.status === 'inactive') return;
     const channelId = `${agent.id}-agent`;
     navigate(`/chat/1/${channelId}`, {
       state: {
@@ -71,13 +85,17 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
 
   const handleToggleStatus = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (statusChangePending.current) return;
+    statusChangePending.current = true;
     setShowMenu(false);
     try {
       const newStatus = agent.status === 'active' ? 'inactive' : 'active';
       await updateAgent(agent.id, { status: newStatus });
       showToast('success', t('agents.messages.statusUpdateSuccess', '刷新成功'), t('agents.messages.statusUpdateSuccessDesc', `AI员工 "${agent.name}" 状态已更新`, { name: agent.name }));
-    } catch (error) {
+    } catch {
       showToast('error', t('agents.messages.statusUpdateFailed', '刷新失败'), t('agents.messages.statusUpdateFailedDesc', '更新AI员工状态时发生错误'));
+    } finally {
+      statusChangePending.current = false;
     }
   };
 
@@ -125,7 +143,13 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
     }
   };
 
-  const status = getStatusIndicator(agent.status);
+  const status = agent.status === 'active' ? {
+    color: readiness === 'configured' ? 'bg-blue-500' : 'bg-amber-500',
+    textColor: 'text-gray-600 dark:text-gray-300',
+    bgColor: 'bg-gray-50 dark:bg-gray-700/30',
+    borderColor: 'border-gray-200 dark:border-gray-600',
+    title: readiness === 'following_system' ? t('modelSetup.agentFollow') : t(`agents.card.readiness.${readiness}`),
+  } : getStatusIndicator(agent.status);
 
   return (
     <div className="group relative bg-white dark:bg-gray-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border border-gray-100 dark:border-gray-700 overflow-hidden">
@@ -161,12 +185,12 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
             </div>
             <div>
               <h3 className="font-bold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200">{agent.name}</h3>
-              <div className="flex items-center mt-0.5">
+              <div className="flex flex-wrap items-center gap-y-1 mt-0.5">
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium border ${status.bgColor} ${status.textColor} ${status.borderColor}`}>
                   {status.title}
                 </span>
                 <span className="mx-1.5 text-gray-300 dark:text-gray-600">•</span>
-                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate max-w-[100px]">{agent.role || t('agents.card.defaultRole', 'AI员工')}</span>
+                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400 font-medium truncate max-w-[100px]">{agent.role || t('agents.card.defaultRole', 'AI员工')}</span>
               </div>
             </div>
           </div>
@@ -208,8 +232,11 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
           {/* Model info */}
           <div className="flex items-center text-[11px] text-gray-500 dark:text-gray-500 bg-gray-50 dark:bg-gray-800/50 px-2 py-1.5 rounded-lg border border-gray-100/50 dark:border-gray-700/50">
             <Bot className="w-3.5 h-3.5 mr-2 opacity-70" />
-            <span className="font-mono truncate">{agent.llmModel || 'gemini-1.5-pro'}</span>
+            <span className="font-mono truncate">{agent.llmModel === '__system_default__' ? t('modelSetup.agentFollow') : agent.llmModel || t('agents.card.readiness.missing_model')}</span>
           </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {t('agents.card.readinessNotice')}
+          </p>
 
           {/* 工具显示 */}
           <div className="min-h-[24px]">
@@ -278,7 +305,9 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
       <div className="mt-5 flex items-center gap-2">
         <button
           onClick={handleChatWithAgent}
-          className="flex-1 flex items-center justify-center gap-2 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-200 dark:shadow-none transition-all duration-200 active:scale-95"
+          disabled={agent.status === 'inactive'}
+          title={t('agents.card.activationNotice')}
+          className="flex-1 flex items-center justify-center gap-2 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-200 dark:shadow-none transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <MessageCircle className="w-3.5 h-3.5" />
           {t('agents.card.chatAction', '开始对话')}

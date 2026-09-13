@@ -1,10 +1,17 @@
-"""Device Control Service Client - HTTP client for tgo-device-control service."""
+"""HTTP client for the device-control service."""
 
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, Dict, Optional, TypeVar
+from uuid import UUID
 import httpx
+from pydantic import BaseModel, ValidationError
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.device_access import device_service_headers
+from app.core.exceptions import ExternalServiceError, NotFoundError
+from app.schemas.device_session import DeviceSessionDetail, DeviceSessionList
+
+SessionRead = TypeVar("SessionRead", bound=BaseModel)
 
 logger = get_logger("services.device_control_client")
 
@@ -20,30 +27,107 @@ class DeviceControlClient:
         self,
         method: str,
         path: str,
+        project_id: str,
         params: Optional[Dict[str, Any]] = None,
         json: Optional[Dict[str, Any]] = None,
+        timeout: float | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Make an HTTP request to the device control service."""
         url = f"{self.base_url}{path}"
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout if timeout is None else timeout,
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
             try:
                 response = await client.request(
                     method=method,
                     url=url,
                     params=params,
                     json=json,
+                    headers=device_service_headers(project_id),
                 )
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as e:
                 logger.error(
-                    f"Device control service error: {e.response.status_code} - {e.response.text}"
+                    f"Device control HTTP error: {e.response.status_code}"
                 )
                 raise
             except httpx.RequestError as e:
-                logger.error(f"Device control service connection error: {e}")
+                logger.error(
+                    f"Device control connection error: {type(e).__name__}"
+                )
                 raise
+
+    async def _read_session_metadata(
+        self,
+        path: str,
+        project_id: str,
+        params: dict[str, str | int],
+        schema: type[SessionRead],
+    ) -> SessionRead:
+        try:
+            result = await self._request(
+                "GET",
+                path,
+                project_id,
+                params=params,
+                timeout=10,
+            )
+            return schema.model_validate(result)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise NotFoundError("设备执行记录") from None
+            raise ExternalServiceError(
+                "device-control", "暂时无法读取设备执行记录，请稍后重试"
+            ) from None
+        except (httpx.RequestError, ValidationError, ValueError):
+            raise ExternalServiceError(
+                "device-control", "暂时无法读取设备执行记录，请稍后重试"
+            ) from None
+
+    async def list_sessions(
+        self,
+        project_id: str,
+        *,
+        device_id: UUID | None = None,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> DeviceSessionList:
+        params: dict[str, str | int] = {"skip": skip, "limit": limit}
+        if device_id is not None:
+            params["device_id"] = str(device_id)
+        result = await self._read_session_metadata(
+            "/v1/sessions",
+            project_id,
+            params,
+            DeviceSessionList,
+        )
+        if device_id is not None and any(
+            row.device_id != device_id for row in result.sessions
+        ):
+            raise ExternalServiceError("device-control", "设备执行记录不匹配")
+        return result
+
+    async def get_session(
+        self,
+        session_id: UUID,
+        project_id: str,
+        *,
+        step_skip: int = 0,
+        step_limit: int = 100,
+    ) -> DeviceSessionDetail:
+        result = await self._read_session_metadata(
+            f"/v1/sessions/{session_id}",
+            project_id,
+            {"step_skip": step_skip, "step_limit": step_limit},
+            DeviceSessionDetail,
+        )
+        if result.id != session_id:
+            raise ExternalServiceError("device-control", "设备执行记录不匹配")
+        return result
 
     # Device Management
 
@@ -66,7 +150,9 @@ class DeviceControlClient:
         if status:
             params["status"] = status
 
-        return await self._request("GET", "/v1/devices", params=params)
+        return await self._request(
+            "GET", "/v1/devices", project_id, params=params
+        )
 
     async def get_device(
         self,
@@ -75,12 +161,16 @@ class DeviceControlClient:
     ) -> Optional[Dict[str, Any]]:
         """Get a specific device."""
         params = {"project_id": project_id}
-        return await self._request("GET", f"/v1/devices/{device_id}", params=params)
+        return await self._request(
+            "GET", f"/v1/devices/{device_id}", project_id, params=params
+        )
 
     async def generate_bind_code(self, project_id: str) -> Dict[str, Any]:
         """Generate a bind code for device registration."""
         params = {"project_id": project_id}
-        return await self._request("POST", "/v1/devices/bind-code", params=params)
+        return await self._request(
+            "POST", "/v1/devices/bind-code", project_id, params=params
+        )
 
     async def update_device(
         self,
@@ -91,7 +181,11 @@ class DeviceControlClient:
         """Update a device."""
         params = {"project_id": project_id}
         return await self._request(
-            "PATCH", f"/v1/devices/{device_id}", params=params, json=data
+            "PATCH",
+            f"/v1/devices/{device_id}",
+            project_id,
+            params=params,
+            json=data,
         )
 
     async def delete_device(
@@ -101,7 +195,9 @@ class DeviceControlClient:
     ) -> bool:
         """Delete a device."""
         params = {"project_id": project_id}
-        await self._request("DELETE", f"/v1/devices/{device_id}", params=params)
+        await self._request(
+            "DELETE", f"/v1/devices/{device_id}", project_id, params=params
+        )
         return True
 
     async def disconnect_device(
@@ -112,90 +208,26 @@ class DeviceControlClient:
         """Force disconnect a device."""
         params = {"project_id": project_id}
         await self._request(
-            "POST", f"/v1/devices/{device_id}/disconnect", params=params
+            "POST",
+            f"/v1/devices/{device_id}/disconnect",
+            project_id,
+            params=params,
         )
         return True
-
-    # Agent Operations
-
-    async def run_agent_stream(
-        self,
-        device_id: str,
-        task: str,
-        provider_id: Optional[str] = None,
-        model: Optional[str] = None,
-        project_id: Optional[str] = None,
-        max_iterations: Optional[int] = None,
-        system_prompt: Optional[str] = None,
-    ) -> AsyncGenerator[str, None]:
-        """Run the MCP Agent on a device with streaming response.
-        
-        Args:
-            device_id: ID of the device to control.
-            task: Task description to execute.
-            provider_id: AI Provider ID for LLM calls via tgo-ai service.
-            model: LLM model to use.
-            project_id: Project ID for authorization.
-            max_iterations: Optional max iterations.
-            system_prompt: Optional custom system prompt.
-            
-        Yields:
-            SSE event strings from the agent execution.
-        """
-        url = f"{self.base_url}/v1/agent/run"
-        
-        payload: Dict[str, Any] = {
-            "device_id": device_id,
-            "task": task,
-            "stream": True,
-        }
-        if provider_id:
-            payload["provider_id"] = provider_id
-        if model:
-            payload["model"] = model
-        if project_id:
-            payload["project_id"] = project_id
-        if max_iterations:
-            payload["max_iterations"] = max_iterations
-        if system_prompt:
-            payload["system_prompt"] = system_prompt
-
-        # Use longer timeout for agent operations
-        timeout = httpx.Timeout(300.0, connect=10.0)
-        
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                async with client.stream(
-                    "POST",
-                    url,
-                    json=payload,
-                    headers={"Accept": "text/event-stream"},
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if line:
-                            yield line
-            except httpx.HTTPStatusError as e:
-                # Must read the response body before accessing .text in streaming mode
-                await e.response.aread()
-                logger.error(
-                    f"Device control agent error: {e.response.status_code} - {e.response.text}"
-                )
-                raise
-            except httpx.RequestError as e:
-                logger.error(f"Device control agent connection error: {e}")
-                raise
 
     async def get_device_tools(
         self,
         device_id: str,
+        project_id: str,
     ) -> Optional[Dict[str, Any]]:
         """Get available tools from a connected device."""
-        return await self._request("GET", f"/v1/agent/devices/{device_id}/tools")
+        return await self._request(
+            "GET", f"/v1/mcp/tools/{device_id}", project_id
+        )
 
-    async def list_connected_devices(self) -> Dict[str, Any]:
+    async def list_connected_devices(self, project_id: str) -> Dict[str, Any]:
         """List all connected devices available for agent control."""
-        return await self._request("GET", "/v1/agent/devices")
+        return await self._request("GET", "/v1/devices/connected", project_id)
 
 
 # Global singleton instance

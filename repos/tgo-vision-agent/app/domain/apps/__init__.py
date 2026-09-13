@@ -1,5 +1,1 @@
-"""Application-specific automator implementations."""
-# Import to register automators
-from app.domain.apps import wechat
-
-__all__ = ["wechat"]
+"""Application automators are registered by their supported integrations."""

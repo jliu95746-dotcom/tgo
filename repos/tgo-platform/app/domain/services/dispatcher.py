@@ -25,7 +25,7 @@ def _expected_output_for(ptype: str) -> str | None:
     if p == "email":
         return "markdown"
     # Vision Agent platforms (UI automation)
-    if p in ("wechat_personal", "douyin_personal", "xiaohongshu_personal"):
+    if p in ("douyin_personal", "xiaohongshu_personal"):
         return "text"  # Plain text for chat apps
     return None
 
@@ -48,7 +48,7 @@ def _default_system_message_for(ptype: str) -> str | None:
     if p == "telegram":
         return None
     # Vision Agent platforms - chat style responses
-    if p in ("wechat_personal", "douyin_personal", "xiaohongshu_personal"):
+    if p in ("douyin_personal", "xiaohongshu_personal"):
         return None  # Use default agent system message
     return None
 
@@ -62,6 +62,8 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
     Otherwise, default to SimpleStdoutAdapter.
     """
     ptype = (platform.type or "").lower()
+    if ptype == "wechat_personal":
+        raise ValueError("This channel has been retired")
     if ptype == "email":
         cfg = platform.config or {}
         smtp_host = cfg.get("smtp_host")
@@ -161,7 +163,7 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
             return SimpleStdoutAdapter()
         return SlackAdapter(bot_token=bot_token, channel=channel, thread_ts=thread_ts)
     # Vision Agent platforms (UI automation via VLM + AgentBay)
-    if ptype in ("wechat_personal", "douyin_personal", "xiaohongshu_personal"):
+    if ptype in ("douyin_personal", "xiaohongshu_personal"):
         cfg = platform.config or {}
         # Vision Agent service URL from platform config, settings, or default
         vision_agent_url = (
@@ -252,6 +254,8 @@ async def process_message(
         raise RuntimeError(f"Platform {msg.platform_id} not found")
 
     ptype = ((platform.type or msg.platform_type) or "").lower()
+    if ptype == "wechat_personal":
+        raise ValueError("This channel has been retired")
     expected_output = _expected_output_for(ptype)
     default_system_message = _default_system_message_for(ptype)
     system_message = (msg.extra or {}).get("system_message") or default_system_message

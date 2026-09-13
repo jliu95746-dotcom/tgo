@@ -46,6 +46,22 @@ class AliyunOSSBackend(StorageBackend):
         # or a custom domain like https://cdn.example.com
         self.bucket_url = (bucket_url or f"https://{bucket_name}.{endpoint}").rstrip("/")
 
+    async def read(self, path: str, *, max_bytes: int) -> bytes:
+        def read_bounded() -> bytes:
+            if max_bytes <= 0 or path.startswith("/") or ".." in path.split("/"):
+                raise ValueError("Invalid storage read")
+            stream = self.bucket.get_object(path)
+            try:
+                if stream.content_length is not None and stream.content_length > max_bytes:
+                    raise ValueError("Storage object exceeds read limit")
+                content = stream.read(max_bytes + 1)
+                if not isinstance(content, bytes) or len(content) > max_bytes:
+                    raise ValueError("Invalid storage object size")
+                return content
+            finally:
+                stream.close()
+        return await asyncio.to_thread(read_bounded)
+
     async def upload(self, file: BinaryIO, path: str, content_type: str) -> str:
         """Upload file to Aliyun OSS."""
         # Use run_in_executor to avoid blocking the event loop with synchronous oss2 SDK

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { X, Globe, Plus, Trash2, Terminal, Settings, ListTree, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from './ToolToastProvider';
@@ -49,6 +49,7 @@ const AddHTTPToolModal: React.FC<AddHTTPToolModalProps> = ({ isOpen, onClose }) 
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   const handleInputChange = (field: keyof FormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -122,6 +123,7 @@ const AddHTTPToolModal: React.FC<AddHTTPToolModalProps> = ({ isOpen, onClose }) 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
     if (!validateForm()) {
       return;
@@ -132,6 +134,7 @@ const AddHTTPToolModal: React.FC<AddHTTPToolModalProps> = ({ isOpen, onClose }) 
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -174,6 +177,7 @@ const AddHTTPToolModal: React.FC<AddHTTPToolModalProps> = ({ isOpen, onClose }) 
         error instanceof Error ? error.message : t('tools.addHttpToolModal.error.message', '添加 HTTP 工具失败')
       );
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };

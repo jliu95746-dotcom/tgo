@@ -5,10 +5,11 @@ from __future__ import annotations
 import uuid
 from typing import List, Literal, Optional
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from app.schemas.base import BaseSchema
 from app.schemas.knowledge import KnowledgeChannel
+from app.schemas.reply_phase import ReplyPhaseIdentity
 
 
 class SupervisorRunRequest(BaseSchema):
@@ -47,6 +48,15 @@ class SupervisorRunRequest(BaseSchema):
         default=False,
         description="Enable streaming response with real-time events",
     )
+    cancel_on_disconnect: bool = Field(
+        default=False,
+        description=(
+            "Make this HTTP request own its execution, including preparation; "
+            "stop and await task cleanup when the caller disconnects"
+        ),
+    )
+    reply_phase: ReplyPhaseIdentity | None = Field(default=None, repr=False)
+
     timeout: int = Field(
         default=30,
         ge=5,
@@ -72,10 +82,15 @@ class SupervisorRunRequest(BaseSchema):
             "agent setting is used."
         ),
     )
+    expected_device_id: uuid.UUID | None = Field(
+        default=None,
+        description="Require the resolved agent's device binding to match; never overrides the binding",
+    )
     disable_tools: bool = Field(
         default=False,
         description="Disable every RAG, workflow, MCP, and skill tool for this run",
     )
+    response_purpose: Literal["standard", "expression"] = "standard"
     markdown: Optional[bool] = Field(
         default=None,
         description="Optional per-run Markdown output override",
@@ -97,6 +112,12 @@ class SupervisorRunRequest(BaseSchema):
         default="json_render",
         description="Response UI protocol; customer chat uses text mode",
     )
+
+    @model_validator(mode="after")
+    def require_owned_reply_phase(self) -> "SupervisorRunRequest":
+        if self.reply_phase is not None and not self.cancel_on_disconnect:
+            raise ValueError("Reply phase requires cancel_on_disconnect")
+        return self
 
 
 class AgentExecutionResult(BaseSchema):

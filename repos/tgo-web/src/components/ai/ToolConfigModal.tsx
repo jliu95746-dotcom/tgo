@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, Settings, Save, RotateCcw, Info } from 'lucide-react';
 import type { AiTool } from '@/types';
@@ -28,7 +28,7 @@ const ToolConfigModal: React.FC<ToolConfigModalProps> = ({
 
   // Extract schema info safely
   const schema = tool?.input_schema as any | undefined;
-  const schemaProps: Record<string, any> = schema?.properties || {};
+  const schemaProps: Record<string, any> = useMemo(() => schema?.properties || {}, [schema]);
   const schemaRequired: string[] = Array.isArray(schema?.required) ? schema.required : [];
 
   // Initialize config based on input_schema + initialConfig
@@ -45,7 +45,7 @@ const ToolConfigModal: React.FC<ToolConfigModalProps> = ({
       setConfig({ ...defaults, ...userConfig });
       setErrors({});
     }
-  }, [isOpen, tool, initialConfig]);
+  }, [isOpen, tool, initialConfig, schemaProps]);
 
   if (!isOpen || !tool) return null;
 

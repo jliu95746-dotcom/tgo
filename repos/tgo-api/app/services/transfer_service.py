@@ -29,8 +29,14 @@ from app.models import (
     ChannelMember,
 )
 from app.services.wukongim_client import wukongim_client
-from app.utils.encoding import build_visitor_channel_id, build_project_staff_channel_id
-from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, CHANNEL_TYPE_PROJECT_STAFF, MEMBER_TYPE_STAFF
+from app.services.queue_lifecycle import (
+    assign_waiting_entries,
+    cancel_entry,
+    lock_waiting_entry,
+)
+from app.services.queue_events import schedule_queue_update
+from app.utils.encoding import build_visitor_channel_id
+from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_STAFF
 
 logger = get_logger("services.transfer")
 
@@ -90,6 +96,7 @@ async def transfer_to_staff(
     ai_disabled: Optional[bool] = None,
     add_to_queue_if_no_staff: bool = True,
     send_notification: bool = True,
+    expected_queue_entry_id: Optional[UUID] = None,
 ) -> TransferResult:
     """
     Transfer a visitor to staff service.
@@ -139,7 +146,7 @@ async def transfer_to_staff(
             Visitor.id == visitor_id,
             Visitor.project_id == project_id,
             Visitor.deleted_at.is_(None),
-        ).with_for_update().first()
+        ).populate_existing().with_for_update().first()
         
         if not visitor:
             return TransferResult(
@@ -153,6 +160,17 @@ async def transfer_to_staff(
                 message="Visitor not found",
             )
         
+        if expected_queue_entry_id is not None:
+            expected_entry = lock_waiting_entry(db, visitor, expected_queue_entry_id)
+            if expected_entry is None:
+                return TransferResult(
+                    success=False, session=None, assignment_history=None,
+                    assigned_staff_id=None, candidate_staff_ids=None,
+                    waiting_queue=None, queue_position=None,
+                    message="Queue entry is no longer waiting or has expired",
+                )
+            expected_entry.record_attempt()
+
         # 1.5. Check if visitor can enter queue (only for non-direct assignments)
         # Skip this check if:
         # - target_staff_id is specified (direct assignment)
@@ -226,6 +244,7 @@ async def transfer_to_staff(
         if assigned_staff_id:
             # Staff assigned - set to ACTIVE
             visitor.set_status_active()
+            assign_waiting_entries(db, visitor, assigned_staff_id)
         # If not assigned (queued), status was already set to QUEUED above
         
         # 7. Update session with assigned staff
@@ -550,17 +569,7 @@ async def _add_to_waiting_queue(
         }
     )
     
-    # Send queue updated event
-    try:
-        staff_channel_id = build_project_staff_channel_id(project_id)
-        await wukongim_client.send_queue_updated_event(
-            channel_id=staff_channel_id,
-            channel_type=CHANNEL_TYPE_PROJECT_STAFF,
-            project_id=str(project_id),
-            waiting_count=queue_position,
-        )
-    except Exception as e:
-        logger.error(f"Failed to send queue updated event: {e}")
+    schedule_queue_update(db, project_id, "entered")
     
     return waiting_queue_entry, queue_position
 
@@ -1124,10 +1133,6 @@ async def assign_from_waiting_queue(
         logger.info(f"No visitors in waiting queue for project {project_id}")
         return None
     
-    # Mark queue entry as assigned
-    queue_entry.assign_to_staff(staff_id)
-    db.flush()
-    
     logger.info(
         f"Assigning visitor {queue_entry.visitor_id} from queue to staff {staff_id}"
     )
@@ -1143,6 +1148,7 @@ async def assign_from_waiting_queue(
         visitor_message=queue_entry.visitor_message,
         notes=f"Assigned from waiting queue (position: {queue_entry.position})",
         ai_disabled=queue_entry.ai_disabled,
+        expected_queue_entry_id=queue_entry.id,
     )
     
     return result
@@ -1206,7 +1212,8 @@ async def cancel_visitor_from_queue(
     if not queue_entry:
         return False
     
-    queue_entry.cancel()
+    if not cancel_entry(db, queue_entry.id, project_id):
+        return False
     db.commit()
     
     logger.info(f"Cancelled visitor {visitor_id} from waiting queue")

@@ -82,7 +82,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
             </div>
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-100 dark:border-gray-700">
-            © {new Date().getFullYear()} TGO Web. {t('about.copyright', 'All rights reserved.')}
+            {t('brand.name')} · {t('brand.description')}
           </div>
         </div>
 

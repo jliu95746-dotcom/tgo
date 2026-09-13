@@ -37,10 +37,11 @@ class ConditionNodeExecutor(BaseNodeExecutor):
             resolved_expr = context.resolve_template(expression)
             try:
                 # Use simple_eval instead of eval for safety
-                result = simple_eval(resolved_expr, names=context.data)
+                result = simple_eval(resolved_expr, names=context.get_expression_context())
             except Exception as e:
-                logger.error(f"Error evaluating expression '{resolved_expr}': {e}")
-                result = False
+                logger.error("Condition expression failed for node %s: %s",
+                             self.node_id, type(e).__name__)
+                raise ValueError("条件表达式无法计算，请检查变量和表达式。") from None
                 
         elif condition_type == "llm":
             prompt = self.config.get("llm_prompt", "")

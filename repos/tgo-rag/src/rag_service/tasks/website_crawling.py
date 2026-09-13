@@ -18,21 +18,36 @@ Performance optimizations:
 
 import asyncio
 import os
+import sys
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
+from urllib.parse import urlparse
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import select
 
 from .celery_app import celery_app
 from ..config import get_settings
 from ..database import get_db_session, reset_db_state
 from ..logging_config import get_logger
 from ..models import Collection, File, WebsitePage
-from ..services.crawler import CrawlOptions, WebCrawlerService, url_hash
+from ..services.crawler import CrawlOptions, WebCrawlerService
+from ..services.crawl_errors import CrawlError
+from ..services.website_discovery import reserve_child_pages
+from ..services.website_dispatch import (
+    fail_website_dispatch,
+    prepare_website_dispatch,
+)
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+
+def create_crawl_event_loop() -> asyncio.AbstractEventLoop:
+    """Browser subprocesses require Proactor on Windows, regardless of policy."""
+    if sys.platform == "win32":
+        return asyncio.ProactorEventLoop()
+    return asyncio.new_event_loop()
 
 
 @dataclass
@@ -57,6 +72,11 @@ class CrawlConfig:
     delay_seconds: float
     user_agent: Optional[str]
     timeout_seconds: int
+    respect_robots_txt: bool
+    headers: Optional[Dict[str, str]]
+    wait_time: float
+    follow_external_links: bool
+    headers_origin: Optional[str]
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any], max_depth_override: Optional[int] = None) -> "CrawlConfig":
@@ -66,10 +86,17 @@ class CrawlConfig:
             max_pages=config.get("max_pages", 100),
             include_patterns=config.get("include_patterns", []),
             exclude_patterns=config.get("exclude_patterns", []),
-            render_js=config.get("render_js", False),
-            delay_seconds=config.get("delay_seconds", 1.0),
+            render_js=config.get("render_js", config.get("js_rendering", False)),
+            delay_seconds=config.get(
+                "delay_seconds", config.get("delay_between_requests", 1.0),
+            ),
             user_agent=config.get("user_agent"),
-            timeout_seconds=config.get("timeout_seconds", 30),
+            timeout_seconds=config.get("timeout_seconds", config.get("timeout", 30)),
+            respect_robots_txt=config.get("respect_robots_txt", True),
+            headers=config.get("headers"),
+            wait_time=config.get("wait_time", 0),
+            follow_external_links=config.get("follow_external_links", False),
+            headers_origin=config.get("headers_origin"),
         )
 
 
@@ -104,7 +131,13 @@ async def _load_page_and_config(
     """
     async with get_db_session() as db:
         result = await db.execute(
-            select(WebsitePage).where(WebsitePage.id == page_id)
+            select(WebsitePage).join(
+                Collection, Collection.id == WebsitePage.collection_id,
+            ).where(
+                WebsitePage.id == page_id,
+                Collection.project_id == WebsitePage.project_id,
+                Collection.deleted_at.is_(None),
+            ).with_for_update(of=(Collection, WebsitePage))
         )
         page = result.scalar_one_or_none()
 
@@ -116,7 +149,11 @@ async def _load_page_and_config(
 
         # Load collection for configuration
         coll_result = await db.execute(
-            select(Collection).where(Collection.id == page.collection_id)
+            select(Collection).where(
+                Collection.id == page.collection_id,
+                Collection.project_id == page.project_id,
+                Collection.deleted_at.is_(None),
+            )
         )
         collection = coll_result.scalar_one_or_none()
 
@@ -125,6 +162,10 @@ async def _load_page_and_config(
 
         # Merge and parse crawl configurations
         merged_config = merge_crawl_configs(collection.crawl_config, page.crawl_config)
+        if merged_config.get("headers") and not merged_config.get("headers_origin"):
+            merged_config["headers_origin"] = (
+                (collection.crawl_config or {}).get("start_url") or page.url
+            )
         crawl_config = CrawlConfig.from_dict(merged_config, max_depth_override)
 
         page_info = PageInfo(
@@ -147,15 +188,21 @@ async def _update_page_status(
     page_id: UUID,
     status: str,
     error_message: Optional[str] = None,
+    http_status_code: Optional[int] = None,
+    expected_status: Optional[str] = None,
 ) -> None:
     """Update page status in database."""
     async with get_db_session() as db:
-        result = await db.execute(select(WebsitePage).where(WebsitePage.id == page_id))
+        query = select(WebsitePage).where(WebsitePage.id == page_id)
+        if expected_status is not None:
+            query = query.where(WebsitePage.status == expected_status)
+        result = await db.execute(query.with_for_update())
         page = result.scalar_one_or_none()
         if page:
             page.status = status
-            if error_message:
-                page.error_message = error_message
+            page.error_message = error_message
+            if http_status_code is not None:
+                page.http_status_code = http_status_code
             await db.commit()
 
 
@@ -183,6 +230,7 @@ async def crawl_page_async(
     Returns:
         Dictionary containing crawl results
     """
+    persisted_file: Optional[File] = None
     try:
         # Step 1: Load page and collection info
         page_info, crawl_config, error = await _load_page_and_config(page_id, max_depth)
@@ -203,11 +251,24 @@ async def crawl_page_async(
             return {"page_id": str(page_id), "status": "skipped", "reason": "max_depth_exceeded"}
 
         # Step 3: Initialize crawler and crawl the page
+        # An external descendant must not receive the source site's custom headers.
+        request_headers = crawl_config.headers
+        if crawl_config.headers_origin:
+            header_origin = urlparse(crawl_config.headers_origin)
+            request_origin = urlparse(page_info.url)
+            if (header_origin.scheme, header_origin.netloc.lower()) != (
+                request_origin.scheme, request_origin.netloc.lower(),
+            ):
+                request_headers = None
         options = CrawlOptions(
             render_js=crawl_config.render_js,
             delay_seconds=crawl_config.delay_seconds,
             user_agent=crawl_config.user_agent,
             timeout_seconds=crawl_config.timeout_seconds,
+            respect_robots_txt=crawl_config.respect_robots_txt,
+            headers=request_headers,
+            wait_time=crawl_config.wait_time,
+            follow_external_links=crawl_config.follow_external_links,
         )
 
         crawler = WebCrawlerService(
@@ -226,8 +287,19 @@ async def crawl_page_async(
         # Step 4: Save crawl results and create File
         file_id = None
         async with get_db_session() as db:
-            result = await db.execute(select(WebsitePage).where(WebsitePage.id == page_id))
-            page = result.scalar_one()
+            result = await db.execute(select(WebsitePage).join(
+                Collection, Collection.id == WebsitePage.collection_id,
+            ).where(
+                WebsitePage.id == page_id,
+                WebsitePage.project_id == page_info.project_id,
+                WebsitePage.status == "crawling",
+                Collection.project_id == page_info.project_id,
+                Collection.deleted_at.is_(None),
+            ).with_for_update(of=(Collection, WebsitePage)))
+            page = result.scalar_one_or_none()
+            if page is None:
+                return {"page_id": str(page_id), "status": "skipped",
+                        "reason": "Page or collection changed during fetch"}
 
             # Update page with crawled content
             page.title = crawled_page.title
@@ -276,6 +348,8 @@ async def crawl_page_async(
                 page.status = "extracted"
 
             await db.commit()
+            if file_id is not None:
+                persisted_file = file_record
 
         # Step 5: Discover and create child pages (optimized batch processing)
         children_created = 0
@@ -287,104 +361,50 @@ async def crawl_page_async(
             valid_links = crawler.filter_links(crawled_page.links, page_info.url)
 
             if valid_links:
-                # Single transaction for all child page operations
+                # Every creator uses the same collection lock and quota rules.
                 async with get_db_session() as db:
-                    # Get current page count once
-                    current_page_count = await db.scalar(
-                        select(func.count()).select_from(WebsitePage).where(
-                            WebsitePage.collection_id == page_info.collection_id
-                        )
+                    reserved = await reserve_child_pages(
+                        db, page_id, page_info.project_id, valid_links,
+                        crawl_config.max_depth,
                     )
-
-                    max_pages = crawl_config.max_pages
-
-                    if current_page_count >= max_pages:
-                        logger.info(
-                            f"Collection {page_info.collection_id} reached max_pages limit "
-                            f"({current_page_count}/{max_pages}), skipping child discovery"
-                        )
-                        max_pages_reached = True
-                    else:
-                        remaining_quota = max_pages - current_page_count
-
-                        # Limit valid_links to remaining quota
-                        if len(valid_links) > remaining_quota:
-                            logger.info(
-                                f"Limiting child pages from {len(valid_links)} to {remaining_quota} "
-                                f"(max_pages={max_pages}, current={current_page_count})"
-                            )
-                            valid_links = valid_links[:remaining_quota]
-
-                        # Batch check for existing URLs - get all existing hashes in one query
-                        link_hashes = {url_hash(link): link for link in valid_links}
-                        existing_result = await db.execute(
-                            select(WebsitePage.url_hash).where(
-                                and_(
-                                    WebsitePage.collection_id == page_info.collection_id,
-                                    WebsitePage.url_hash.in_(list(link_hashes.keys())),
-                                )
-                            )
-                        )
-                        existing_hashes = set(row[0] for row in existing_result.fetchall())
-
-                        # Filter out existing URLs
-                        new_links = [
-                            (h, url) for h, url in link_hashes.items()
-                            if h not in existing_hashes
-                        ]
-
-                        # Build child crawl config once
-                        child_crawl_config = None
-                        if page_info.crawl_config and "max_depth" in page_info.crawl_config:
-                            child_crawl_config = {"max_depth": page_info.crawl_config["max_depth"]}
-
-                        # Batch create child pages
-                        for link_hash, link_url in new_links:
-                            child_page = WebsitePage(
-                                collection_id=page_info.collection_id,
-                                project_id=page_info.project_id,
-                                parent_page_id=page_id,
-                                url=link_url,
-                                url_hash=link_hash,
-                                depth=page_info.depth + 1,
-                                status="pending",
-                                crawl_source="discovered",
-                                crawl_config=child_crawl_config,
-                            )
-                            db.add(child_page)
-                            await db.flush()  # Get the ID
-                            created_child_ids.append(child_page.id)
-                            children_created += 1
-
-                        # Single commit for all child pages
-                        if children_created > 0:
-                            await db.commit()
+                    created_child_ids = reserved.page_ids
+                    children_created = len(created_child_ids)
+                    max_pages_reached = reserved.limit_reached
+                    await db.commit()
 
                 # Queue child tasks outside the DB session
                 for child_id in created_child_ids:
-                    crawl_page_task.delay(
-                        str(child_id),
-                        auto_discover=True,
-                        max_depth=crawl_config.max_depth,
-                    )
-
-                # Update discovered_links to mark created ones
-                if children_created > 0:
-                    created_urls = {link_hashes[h] for h, _ in new_links[:children_created]}
-                    async with get_db_session() as db:
-                        result = await db.execute(select(WebsitePage).where(WebsitePage.id == page_id))
-                        page = result.scalar_one()
-                        if page.discovered_links:
-                            for link_info in page.discovered_links:
-                                if link_info["url"] in created_urls:
-                                    link_info["created"] = True
-                        await db.commit()
+                    try:
+                        crawl_page_task.delay(
+                            str(child_id), auto_discover=True,
+                            max_depth=crawl_config.max_depth,
+                        )
+                    except Exception as error:
+                        logger.warning("Child crawl dispatch failed",
+                                       error_type=type(error).__name__)
+                        await _update_page_status(
+                            child_id, "failed", "抓取任务未能提交，请稍后重新抓取。",
+                            expected_status="pending",
+                        )
 
         # Step 6: Trigger document processing
-        if file_id:
+        if persisted_file is not None:
             from .document_processing import process_file_task
-            process_file_task.delay(str(file_id), str(page_info.collection_id))
-            await _update_page_status(page_id, "processing")
+            if not await prepare_website_dispatch(persisted_file):
+                return {"page_id": str(page_id), "status": "skipped",
+                        "reason": "Page or file changed before document dispatch"}
+            try:
+                process_file_task.delay(str(file_id), str(page_info.collection_id))
+            except Exception as error:
+                logger.warning("Website document dispatch failed",
+                               page_id=str(page_id), error_type=type(error).__name__)
+                safe_error = "知识库处理任务未能提交，请稍后重新抓取。"
+                failed = await fail_website_dispatch(persisted_file, safe_error)
+                if failed:
+                    return {"page_id": str(page_id), "status": "failed",
+                            "error": safe_error, "error_code": "dispatch_failed"}
+                return {"page_id": str(page_id), "status": "skipped",
+                        "reason": "Document was claimed or source changed"}
 
         logger.info(
             f"Crawled page {page_id}: {crawled_page.content_length} chars, "
@@ -403,13 +423,29 @@ async def crawl_page_async(
             "max_pages_reached": max_pages_reached,
         }
 
+    except CrawlError as error:
+        await _update_page_status(
+            page_id, "failed", str(error),
+            http_status_code=error.http_status_code,
+        )
+        return {
+            "page_id": str(page_id), "status": "failed",
+            "error": str(error), "error_code": error.code,
+        }
     except Exception as e:
-        logger.error(f"Error crawling page {page_id}: {e}")
-        await _update_page_status(page_id, "failed", str(e))
+        logger.error("Page crawl task failed", page_id=str(page_id),
+                     error_type=type(e).__name__)
+        safe_error = f"网页处理失败（{type(e).__name__}），请检查后台日志后重试。"
+        if persisted_file is not None:
+            await fail_website_dispatch(persisted_file, safe_error)
+        else:
+            await _update_page_status(
+                page_id, "failed", safe_error, expected_status="crawling",
+            )
         return {
             "page_id": str(page_id),
             "status": "failed",
-            "error": str(e),
+            "error": safe_error,
         }
 
 
@@ -445,7 +481,7 @@ def crawl_page_task(
         reset_db_state()
 
         # Run async crawling
-        loop = asyncio.new_event_loop()
+        loop = create_crawl_event_loop()
         asyncio.set_event_loop(loop)
 
         try:

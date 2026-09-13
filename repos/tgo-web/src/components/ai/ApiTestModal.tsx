@@ -140,7 +140,7 @@ const ApiTestModal: React.FC<ApiTestModalProps> = ({
             if (!regex.test(value)) {
               errors.push(t('agents.modal.apiTest.errors.formatInvalid', { name: param.name }));
             }
-          } catch (e) {
+          } catch {
             console.warn(`Invalid regex pattern for parameter ${param.name}:`, schema.pattern);
           }
         }
@@ -281,14 +281,14 @@ const ApiTestModal: React.FC<ApiTestModalProps> = ({
       const validation = validateParameters();
       if (!validation.isValid) {
         setTestResult({
-          error: t('agents.modal.apiTest.errors.validationFailedPrefix') + '\n' + validation.errors.join('\n'),
+          error: `${t('agents.modal.apiTest.errors.validationFailedPrefix')  }\n${  validation.errors.join('\n')}`,
           timestamp: new Date().toISOString()
         });
         return;
       }
 
       // 构建请求URL (使用示例基础URL，实际应用中应该从endpoint或配置中获取)
-      const baseUrl = 'https://api.example.com' + endpoint.path;
+      const baseUrl = `https://api.example.com${  endpoint.path}`;
       const requestUrl = buildRequestUrl(baseUrl);
 
       // 构建请求头

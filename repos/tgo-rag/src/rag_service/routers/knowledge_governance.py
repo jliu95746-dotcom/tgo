@@ -73,6 +73,24 @@ async def save_file_governance_draft(
         raise _invalid_transition(error) from error
 
 
+@router.put("/qa-pairs/{qa_pair_id}", response_model=KnowledgeGovernanceRecordResponse)
+async def save_qa_governance_draft(
+    qa_pair_id: UUID,
+    data: KnowledgeGovernanceDraftRequest,
+    project_id: UUID = Query(..., description="Project ID"),
+    db: AsyncSession = Depends(get_db_session_dependency),
+) -> KnowledgeGovernanceRecordResponse:
+    """Configure a QA source without implicitly approving it."""
+    try:
+        return await KnowledgeGovernanceService.upsert_qa_draft(
+            db, project_id=project_id, qa_pair_id=qa_pair_id, data=data,
+        )
+    except KnowledgeGovernanceNotFoundError as error:
+        raise _not_found(error) from error
+    except InvalidReviewTransitionError as error:
+        raise _invalid_transition(error) from error
+
+
 @router.post("/{record_id}/submit", response_model=KnowledgeGovernanceRecordResponse)
 async def submit_governance_record(
     record_id: UUID,

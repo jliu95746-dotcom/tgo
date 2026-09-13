@@ -37,8 +37,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting TGO Vision Agent Service...")
 
     # Import automators to register them
-    from app.domain.apps.wechat.automator import WeChatAutomator  # noqa: F401
-    logger.info("Registered app automators: wechat")
+    from app.domain import apps  # noqa: F401
+    from app.domain.base.app_automator import AppAutomatorFactory
+    logger.info("Registered app automators: %s", AppAutomatorFactory.get_supported_apps())
 
     # Note: Database migrations are run via Alembic in Dockerfile/entrypoint
     # We create tables here as a fallback for development

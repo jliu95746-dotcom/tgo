@@ -28,7 +28,9 @@ const ChatPage: React.FC = () => {
   const locationState = location.state as ChatPageLocationState | null;
   
   // Tab state management
-  const [activeTab, setActiveTab] = useState<ChatTabType>('mine');
+  const [activeTab, setActiveTab] = useState<ChatTabType>(() =>
+    new URLSearchParams(location.search).get('tab') === 'unassigned' ? 'unassigned' : 'mine',
+  );
   const [isCompactListOpen, setIsCompactListOpen] = useState(true);
   const [isVisitorDrawerOpen, setIsVisitorDrawerOpen] = useState(false);
   const [visibleConversationCount, setVisibleConversationCount] = useState(0);

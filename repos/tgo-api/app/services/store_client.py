@@ -2,7 +2,7 @@ import httpx
 from typing import Any, Dict, Optional, List
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.schemas.store import StoreModelDetail, StoreAgentDetail
+from app.schemas.store import StoreModelDetail
 
 logger = get_logger("store_client")
 
@@ -12,61 +12,6 @@ class StoreClient:
     def __init__(self):
         self.base_url = f"{settings.STORE_SERVICE_URL.rstrip('/')}/api/v1"
         self.timeout = settings.STORE_TIMEOUT
-
-    async def get_tool(self, tool_id: str, api_key: str) -> Dict[str, Any]:
-        """Fetch tool details from Store."""
-        url = f"{self.base_url}/tools/{tool_id}"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.get(
-                    url,
-                    headers={"X-API-Key": api_key}
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Store API error (tools): {e.response.status_code} {e.response.text}")
-                raise
-            except Exception as e:
-                logger.error(f"Store connection error: {str(e)}")
-                raise
-
-    async def install_tool(self, tool_id: str, api_key: str) -> Dict[str, Any]:
-        """Mark tool as installed in Store."""
-        url = f"{self.base_url}/install/tool/{tool_id}"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.post(
-                    url,
-                    headers={"X-API-Key": api_key}
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Store API error (install tool): {e.response.status_code} {e.response.text}")
-                raise
-            except Exception as e:
-                logger.error(f"Store connection error: {str(e)}")
-                raise
-
-    async def uninstall_tool(self, tool_id: str, api_key: str) -> Dict[str, Any]:
-        """Mark tool as uninstalled in Store."""
-        url = f"{self.base_url}/install/tool/{tool_id}"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.request(
-                    "DELETE",
-                    url,
-                    headers={"X-API-Key": api_key}
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Store API error (uninstall tool): {e.response.status_code} {e.response.text}")
-                raise
-            except Exception as e:
-                logger.error(f"Store connection error: {str(e)}")
-                raise
 
     async def get_model(self, model_id: str, api_key: str) -> StoreModelDetail:
         """Fetch model details from Store."""
@@ -118,61 +63,6 @@ class StoreClient:
                 return response.json()
             except httpx.HTTPStatusError as e:
                 logger.error(f"Store API error (uninstall model): {e.response.status_code} {e.response.text}")
-                raise
-            except Exception as e:
-                logger.error(f"Store connection error: {str(e)}")
-                raise
-
-    async def get_agent(self, agent_id: str, api_key: str) -> StoreAgentDetail:
-        """Fetch agent details from Store."""
-        url = f"{self.base_url}/agents/{agent_id}"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.get(
-                    url,
-                    headers={"X-API-Key": api_key}
-                )
-                response.raise_for_status()
-                return StoreAgentDetail.model_validate(response.json())
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Store API error (agents): {e.response.status_code} {e.response.text}")
-                raise
-            except Exception as e:
-                logger.error(f"Store connection error: {str(e)}")
-                raise
-
-    async def install_agent(self, agent_id: str, api_key: str) -> Dict[str, Any]:
-        """Mark agent as installed in Store."""
-        url = f"{self.base_url}/agents/{agent_id}/install"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.post(
-                    url,
-                    headers={"X-API-Key": api_key}
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Store API error (install agent): {e.response.status_code} {e.response.text}")
-                raise
-            except Exception as e:
-                logger.error(f"Store connection error: {str(e)}")
-                raise
-
-    async def uninstall_agent(self, agent_id: str, api_key: str) -> Dict[str, Any]:
-        """Mark agent as uninstalled in Store."""
-        url = f"{self.base_url}/agents/{agent_id}/uninstall"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.request(
-                    "DELETE",
-                    url,
-                    headers={"X-API-Key": api_key}
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Store API error (uninstall agent): {e.response.status_code} {e.response.text}")
                 raise
             except Exception as e:
                 logger.error(f"Store connection error: {str(e)}")

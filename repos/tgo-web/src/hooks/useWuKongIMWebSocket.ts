@@ -69,7 +69,7 @@ export const useWuKongIMWebSocket = (): UseWuKongIMWebSocketReturn => {
 
     console.log('🔌 Hook: Manual connect requested', {
       userId: user.id,
-      uid: uid,
+      uid,
       hasToken: !!token
     });
 
@@ -77,8 +77,8 @@ export const useWuKongIMWebSocket = (): UseWuKongIMWebSocketReturn => {
     const serverUrl = await WuKongIMApiService.resolveWebSocketUrl(uid);
     const config: WuKongIMWebSocketConfig = {
       serverUrl,
-      uid: uid,
-      token: token,
+      uid,
+      token,
     };
 
     try {
@@ -131,8 +131,8 @@ export const useWuKongIMWebSocket = (): UseWuKongIMWebSocketReturn => {
             const serverUrl = await WuKongIMApiService.resolveWebSocketUrl(uid);
             const config: WuKongIMWebSocketConfig = {
               serverUrl,
-              uid: uid,
-              token: token,
+              uid,
+              token,
             };
 
             await wukongimWebSocketService.forceReconnect(config);
@@ -230,8 +230,8 @@ export const useWuKongIMWebSocket = (): UseWuKongIMWebSocketReturn => {
             const serverUrl = await WuKongIMApiService.resolveWebSocketUrl(uid);
             const config: WuKongIMWebSocketConfig = {
               serverUrl,
-              uid: uid,
-              token: token,
+              uid,
+              token,
             };
 
             await wukongimWebSocketService.forceReconnect(config);

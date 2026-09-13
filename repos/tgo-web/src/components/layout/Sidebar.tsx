@@ -12,12 +12,12 @@ interface NavItemProps {
 
 // Icon mapping for navigation items using react-icons
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  'MessageCircle': LuMessageCircle,
-  'Sparkles': LuSparkles,
-  'Library': LuLibrary,
-  'Users': LuUsers,
-  'Platform': LuRadioTower,
-  'Settings': LuSettings
+  MessageCircle: LuMessageCircle,
+  Sparkles: LuSparkles,
+  Library: LuLibrary,
+  Users: LuUsers,
+  Platform: LuRadioTower,
+  Settings: LuSettings
 };
 
 /**
@@ -52,6 +52,7 @@ const NavItem: React.FC<NavItemProps> = ({ item }) => {
  * Sidebar component with navigation and logo
  */
 const Sidebar: React.FC = () => {
+  const { t } = useTranslation();
   const user = useAuthStore(state => state.user);
   const isAdmin = user?.role === 'admin';
 
@@ -67,8 +68,9 @@ const Sidebar: React.FC = () => {
   return (
     <aside className="w-16 flex flex-col items-center bg-white/70 dark:bg-gray-900/70 backdrop-blur-lg border-r border-gray-200/50 dark:border-gray-700/50 py-4 space-y-4 shrink-0 relative z-20">
       {/* System Logo */}
-      <div className="mb-2">
-          <img src="/logo.svg" alt="Logo" className="w-8 h-8 object-contain object-center select-none" />
+      <div className="mb-2 flex flex-col items-center gap-1">
+          <img src="/yujian-logo.svg" alt="域见" className="w-8 h-8 object-contain object-center select-none" />
+          <span className="text-xs font-semibold tracking-wider text-gray-800 dark:text-gray-100">{t('brand.name')}</span>
       </div>
 
       {/* Navigation */}

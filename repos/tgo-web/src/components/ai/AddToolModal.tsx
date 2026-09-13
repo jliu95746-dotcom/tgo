@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { X, Package, AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from './ToolToastProvider';
@@ -6,6 +6,10 @@ import { ProjectToolsApiService } from '@/services/projectToolsApi';
 import { useProjectToolsStore } from '@/stores/projectToolsStore';
 import { useAuthStore } from '@/stores/authStore';
 import type { AiToolCreateRequest } from '@/types';
+import MCPHeadersField from './MCPHeadersField';
+import MCPDiscoveryField from './MCPDiscoveryField';
+import type { ToolJson } from '@/services/toolProbeApi';
+import { serializeMcpHeaders, type MCPHeaderInput } from '@/utils/mcpHeaders';
 
 interface AddToolModalProps {
   isOpen: boolean;
@@ -13,6 +17,8 @@ interface AddToolModalProps {
 }
 
 interface FormData {
+  input_schema?: Record<string, ToolJson>;
+  headers: MCPHeaderInput[];
   name: string;
   description: string;
   transport_type: string;
@@ -20,6 +26,7 @@ interface FormData {
 }
 
 interface FormErrors {
+  headers?: string;
   name?: string;
   description?: string;
   transport_type?: string;
@@ -33,6 +40,7 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
   const { user } = useAuthStore();
 
   const [formData, setFormData] = useState<FormData>({
+    headers: [],
     name: '',
     description: '',
     transport_type: 'http',
@@ -41,9 +49,10 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
-  const handleInputChange = (field: keyof FormData, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const handleInputChange = (field: Exclude<keyof FormData, 'headers' | 'input_schema'>, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value, ...(['endpoint', 'transport_type'].includes(field) ? { name: '', input_schema: undefined } : {}) }));
     // Clear error when user starts typing
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: undefined }));
@@ -52,6 +61,9 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
+    try { serializeMcpHeaders(formData.headers); } catch {
+      newErrors.headers = t('tools.mcpHeaders.invalid', '请求头名称不能重复或包含特殊空白，内容不能换行；请检查后重试。');
+    }
 
     if (!formData.name.trim()) {
       newErrors.name = t('tools.addToolModal.errors.nameRequired', '请输入工具名称');
@@ -69,6 +81,7 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
     if (!validateForm()) {
       return;
@@ -79,6 +92,7 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -86,10 +100,10 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
         project_id: user.project_id,
         name: formData.name.trim(),
         description: formData.description.trim() || null,
-        tool_type: 'Tool',
+        tool_type: 'MCP',
         transport_type: formData.transport_type.trim() || null,
         endpoint: formData.endpoint.trim() || null,
-        config: null,
+        config: { headers: serializeMcpHeaders(formData.headers), ...(formData.input_schema ? { input_schema: formData.input_schema } : {}) },
       };
 
       await ProjectToolsApiService.createAiTool(requestData);
@@ -105,6 +119,7 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
 
       // Reset form and close modal
       setFormData({
+        headers: [],
         name: '',
         description: '',
         transport_type: 'http',
@@ -120,6 +135,7 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
         error instanceof Error ? error.message : t('tools.addToolModal.error.message', '添加工具失败，请稍后重试')
       );
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -127,6 +143,7 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
   const handleClose = () => {
     if (!isSubmitting) {
       setFormData({
+        headers: [],
         name: '',
         description: '',
         transport_type: 'http',
@@ -137,6 +154,8 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  let discoveryHeaders: Record<string, string> | null = null;
+  try { discoveryHeaders = serializeMcpHeaders(formData.headers); } catch { /* invalid headers disable discovery */ }
   if (!isOpen) return null;
 
   return (
@@ -177,6 +196,7 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
             <input
               type="text"
               value={formData.name}
+              readOnly
               onChange={(e) => handleInputChange('name', e.target.value)}
               className={`w-full px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white outline-none ${
                 errors.name ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'
@@ -248,6 +268,14 @@ const AddToolModal: React.FC<AddToolModalProps> = ({ isOpen, onClose }) => {
               )}
             </div>
           </div>
+          <MCPHeadersField value={formData.headers} disabled={isSubmitting} error={errors.headers}
+            onChange={headers => { setFormData(prev => ({ ...prev, headers, name: '', input_schema: undefined })); setErrors(prev => ({ ...prev, headers: undefined })); }} />
+          <MCPDiscoveryField
+            key={JSON.stringify([formData.endpoint, formData.transport_type, formData.headers])}
+            connection={{ endpoint: formData.endpoint.trim(), transport: formData.transport_type === 'sse' ? 'sse' : 'http', headers: discoveryHeaders ?? {} }}
+            disabled={isSubmitting || !discoveryHeaders}
+            onSelect={tool => { setFormData(prev => ({ ...prev, name: tool.name, description: tool.description, input_schema: tool.input_schema })); setErrors(prev => ({ ...prev, name: undefined })); }}
+          />
         </form>
 
         {/* Footer */}

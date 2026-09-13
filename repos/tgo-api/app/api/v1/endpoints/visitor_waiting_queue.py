@@ -29,6 +29,7 @@ from app.schemas.visitor_waiting_queue import (
     QueueUrgencyEnum,
 )
 from app.services.transfer_service import transfer_to_staff
+from app.services.queue_lifecycle import cancel_entry
 from app.utils.encoding import build_visitor_channel_id
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 
@@ -83,7 +84,7 @@ def _build_queue_detail_response(entry: VisitorWaitingQueue) -> WaitingQueueDeta
         reason=entry.reason,
         channel_id=entry.channel_id,
         channel_type=entry.channel_type,
-        retry_count=entry.retry_count,
+        retry_count=None,
         wait_duration_seconds=entry.wait_duration_seconds,
         entered_at=entry.entered_at,
         assigned_at=entry.assigned_at,
@@ -355,6 +356,7 @@ async def accept_visitor(
         platform_id=visitor.platform_id if visitor else None,
         ai_disabled=entry.ai_disabled,
         add_to_queue_if_no_staff=False,
+        expected_queue_entry_id=entry.id,
         notes=f"Accepted from waiting queue. {request.notes or ''}".strip(),
     )
     
@@ -365,8 +367,7 @@ async def accept_visitor(
         )
     
     # Update queue entry status to assigned
-    entry.assign_to_staff(current_user.id)
-    db.commit()
+    # Queue transition was committed atomically by transfer_to_staff.
     
     # Determine channel_id
     channel_id = entry.channel_id
@@ -432,9 +433,8 @@ async def cancel_queue_entry(
         )
     
     # Update status
-    entry.cancel()
-    if reason:
-        entry.reason = f"{entry.reason or ''} | Cancelled: {reason}".strip(" |")
+    if not cancel_entry(db, entry.id, current_user.project_id, reason):
+        raise HTTPException(409, "Queue entry is no longer waiting")
     
     db.commit()
     

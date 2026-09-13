@@ -1,156 +1,59 @@
-import React, { useContext } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FiEdit2, FiTrash2, FiLoader, FiZap, FiBox, FiCheckCircle, FiPlus, FiX } from 'react-icons/fi';
-import Button from '@/components/ui/Button';
-import Badge from '@/components/ui/Badge';
-import { useProvidersStore, type ModelProviderConfig } from '@/stores/providersStore';
-import { ToastContext } from '@/components/ui/ToastContainer';
-
-interface ProviderCardProps {
+import { FiCpu, FiLoader } from 'react-icons/fi';
+import type { ModelProviderConfig } from '@/stores/providersStore';
+import type { ModelType } from '@/services/aiProvidersApi';
+import { modelUsageTypes, type ModelUsageSelections } from '@/utils/modelUsage';
+import ModelRowActions from './ModelRowActions';
+interface Props {
   provider: ModelProviderConfig;
-  onEdit: (provider: ModelProviderConfig) => void;
-  onDelete: (id: string) => void;
-  onTest: (provider: ModelProviderConfig) => void;
-  onAddModel: (provider: ModelProviderConfig) => void;
-  isTesting: boolean;
+  onEdit: (provider: ModelProviderConfig, modelId?: string) => void;
+  onDelete: (providerId: string, modelId: string) => void;
+  onTest: (provider: ModelProviderConfig, modelId: string, type: ModelType) => void;
+  testingId: string | null;
+  selections: ModelUsageSelections;
+  defaultsSynced: boolean;
+  usageOptions: Record<ModelType, { value: string }[]>;
+  usageDisabled: boolean;
+  onUsageChange: (type: ModelType, value: string) => void;
 }
-
-const ProviderCard: React.FC<ProviderCardProps> = ({ 
-  provider, 
-  onEdit, 
-  onDelete, 
-  onTest,
-  onAddModel,
-  isTesting 
-}) => {
+export default function ProviderCard({ provider, onEdit, onDelete, onTest, testingId, selections, defaultsSynced, usageOptions, usageDisabled, onUsageChange }: Props) {
   const { t } = useTranslation();
-  const toast = useContext(ToastContext);
-  const { removeModelFromProvider } = useProvidersStore();
-  const isStore = !!provider.isFromStore;
-  const displayName = provider.name;
-
-  const handleDeleteModel = async (modelId: string) => {
-    if (window.confirm(t('settings.providers.confirmDeleteModel', { model: modelId }))) {
-      try {
-        await removeModelFromProvider(provider.id, modelId);
-        toast?.showToast('success', t('settings.providers.toast.modelDeleted'));
-      } catch (e: any) {
-        toast?.showToast('error', t('common.deleteFailed'), e?.message);
-      }
-    }
-  };
-
-  return (
-    <div className="group relative bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-100 dark:border-gray-800 p-8 hover:shadow-2xl hover:shadow-blue-500/10 hover:-translate-y-1 transition-all duration-500 overflow-hidden">
-      {/* Background Glow */}
-      <div className={`absolute -top-24 -right-24 w-48 h-48 blur-3xl transition-all duration-500 rounded-full ${isStore ? 'bg-purple-500/5 group-hover:bg-purple-500/10' : 'bg-blue-500/5 group-hover:bg-blue-500/10'}`} />
-      
-      <div className="relative z-10">
-        <div className="flex items-start justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-xl ${isStore ? 'bg-purple-600 shadow-purple-200 dark:shadow-none' : 'bg-blue-600 shadow-blue-200 dark:shadow-none'}`}>
-              {isStore ? <FiBox className="w-7 h-7" /> : <FiZap className="w-7 h-7" />}
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-xl font-black text-gray-900 dark:text-gray-100 tracking-tight">
-                  {displayName}
-                </h3>
-                {provider.enabled && (
-                  <Badge variant="success" size="sm">
-                    <div className="flex items-center gap-1">
-                      <FiCheckCircle className="w-3 h-3" />
-                      {t('common.enabled')}
-                    </div>
-                  </Badge>
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest">
-                {isStore ? (
-                  <span className="text-purple-500">{t('settings.providers.storeModel')}</span>
-                ) : (
-                  <span>{t(`settings.providers.provider.${provider.kind}`)}</span>
-                )}
-                <span className="text-gray-200 dark:text-gray-700">•</span>
-                <span className="truncate max-w-[200px]">{provider.apiBaseUrl || t('settings.providers.placeholders.baseUrl.default', 'Default URL')}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-4 mb-8">
-          <div className="flex flex-wrap gap-1.5">
-            {(provider.models || []).slice(0, 5).map((m) => (
-              <span key={m} className={`group/model relative px-3 py-1 text-[10px] font-black rounded-lg border uppercase tracking-tighter transition-all ${provider.defaultModel === m ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700' : 'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-100 dark:border-gray-700'}`}>
-                {m}
-                <span className="ml-1 text-[8px] text-blue-500 dark:text-blue-400">
-                  {t(`settings.providers.modelTypes.${provider.modelTypes?.[m] || 'chat'}`)}
-                </span>
-                {provider.defaultModel === m ? ` (${t('settings.providers.badges.default')})` : ''}
-                <button 
-                  onClick={(e) => { e.stopPropagation(); handleDeleteModel(m); }}
-                  className="ml-1.5 opacity-0 group-hover/model:opacity-100 hover:text-red-500 transition-all"
-                  title={t('common.delete')}
-                >
-                  <FiX className="w-2.5 h-2.5 inline-block -mt-0.5" />
-                </button>
-              </span>
-            ))}
-            {(provider.models?.length || 0) > 5 && (
-              <span className="px-3 py-1 text-[10px] font-black bg-gray-50 dark:bg-gray-800 text-gray-400 rounded-lg border border-gray-100 dark:border-gray-700">
-                +{(provider.models?.length || 0) - 5} {t('common.more').toUpperCase()}
-              </span>
-            )}
-            <button 
-              onClick={() => onAddModel(provider)}
-              className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all border border-blue-100 dark:border-blue-800"
-              title={t('settings.providers.addModel', '添加模型')}
-            >
-              <FiPlus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between pt-6 border-t border-gray-50 dark:border-gray-800">
-          <div className="flex gap-2">
-            {!isStore && (
-              <>
-                <Button 
-                  variant="secondary" 
-                  size="sm" 
-                  onClick={() => onTest(provider)} 
-                  disabled={isTesting}
-                  className="rounded-xl font-bold"
-                >
-                  {isTesting ? <FiLoader className="animate-spin mr-1" /> : null}
-                  {t('settings.providers.testButton', '测试')}
-                </Button>
-                <Button 
-                  variant="secondary" 
-                  size="sm" 
-                  onClick={() => onEdit(provider)}
-                  className="rounded-xl font-bold"
-                >
-                  <FiEdit2 className="mr-1" />
-                  {t('common.edit', '编辑')}
-                </Button>
-              </>
-            )}
-          </div>
-          
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => onDelete(provider.id)}
-            className="text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl font-bold"
-          >
-            <FiTrash2 className="mr-1" />
-            {t('common.delete', '删除')}
-          </Button>
-        </div>
-      </div>
+  return <article className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 p-5">
+    <header className="flex gap-3 items-center mb-4"><div className="p-3 rounded-lg bg-blue-600 text-white"><FiCpu className="w-5 h-5" /></div>
+      <div className="min-w-0"><div className="flex items-center gap-3 flex-wrap"><h3 className="font-semibold text-lg dark:text-gray-100">{provider.name}</h3><span className="text-xs text-green-700 dark:text-green-300">{t(provider.enabled ? 'common.enabled' : 'channelManagement.disabled')}</span></div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 break-all mt-1">{provider.apiBaseUrl}</p></div></header>
+    <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <table className="w-full text-sm text-left"><thead className="bg-gray-50 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400 text-xs"><tr><th className="p-3 font-medium">{t('modelSetup.modelId')}</th><th className="p-3 font-medium">{t('modelSetup.usage')}</th><th className="p-3 font-medium">{t('modelSetup.operation')}</th></tr></thead>
+        <tbody className="divide-y dark:divide-gray-700">{(provider.models || []).map(id => {
+          const type = provider.modelTypes?.[id] || 'chat';
+          const value = `${provider.id}:${id}`;
+          const assignedUses = modelUsageTypes.filter(usage => selections[usage] === value);
+          const selectedUsage = assignedUses[0] || '';
+          return <tr key={id}><td className="p-3 dark:text-gray-100 break-all">{id}</td><td className="p-3">
+            <select aria-label={t('modelSetup.usageFor', { model: id })} value={selectedUsage}
+              disabled={usageDisabled || !provider.enabled}
+              onChange={event => {
+                const usage = event.target.value as ModelType;
+                if (usageDisabled || !provider.enabled || !modelUsageTypes.includes(usage) || selections[usage] === value || !usageOptions[usage].some(option => option.value === value)) return;
+                onUsageChange(usage, value);
+              }}
+              className="w-full min-w-36 max-w-64 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2.5 py-2 text-xs text-gray-700 dark:text-gray-200 disabled:opacity-50">
+              <option value="" disabled>{t('modelSetup.selectUsage')}</option>
+              {modelUsageTypes.map(usage => {
+                const assigned = selections[usage] === value;
+                const eligible = usageOptions[usage].some(option => option.value === value);
+                return <option key={usage} value={usage} disabled={!eligible && !assigned}>
+                  {assigned && !defaultsSynced ? t('modelSetup.pendingDefault', { usage: t(`modelSetup.uses.${usage}`) }) : assigned || eligible ? t(`modelSetup.uses.${usage}`) : t('modelSetup.incompatibleUsage', { usage: t(`modelSetup.uses.${usage}`) })}
+                </option>;
+              })}
+            </select>
+            {assignedUses.slice(1).map(usage => <p key={usage} className="mt-1 text-xs text-gray-500">{defaultsSynced ? t(`modelSetup.uses.${usage}`) : t('modelSetup.pendingDefault', { usage: t(`modelSetup.uses.${usage}`) })}</p>)}
+          </td>
+            <td className="p-3"><div className="flex items-center gap-3 whitespace-nowrap"><button disabled={!!testingId || !provider.enabled} onClick={() => onTest(provider, id, type)} className="text-blue-600 dark:text-blue-400 text-xs whitespace-nowrap disabled:opacity-40">{testingId === `${provider.id}:${id}` ? <FiLoader className="animate-spin" /> : t('modelSetup.test')}</button>
+              <ModelRowActions modelId={id} disabled={!!testingId} onEdit={() => onEdit(provider, id)} onDelete={() => onDelete(provider.id, id)} />
+            </div></td></tr>;
+        })}</tbody></table>
+      {!provider.models?.length && <div className="p-4 text-gray-500 text-sm"><p>{t('modelSetup.modelEmpty')}</p><button onClick={() => onEdit(provider)} className="mt-2 text-blue-600 dark:text-blue-400">{t('modelSetup.addModels')}</button></div>}
     </div>
-  );
-};
-
-export default ProviderCard;
+  </article>;
+}

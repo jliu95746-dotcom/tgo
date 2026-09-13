@@ -203,6 +203,7 @@ async def test_image_timeout_returns_partial_and_fails_closed() -> None:
     assert result.can_continue is False
     assert result.requires_handoff is True
     assert result.fallback_message is not None
+    assert "已转人工" not in result.fallback_message
     ocr_stage = result.stages[0]
     assert ocr_stage.status is AnalysisStageStatus.FAILED
     assert ocr_stage.error is not None

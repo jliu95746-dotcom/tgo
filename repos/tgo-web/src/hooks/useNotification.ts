@@ -30,7 +30,7 @@ export interface UseNotificationReturn {
   /** 更新通知偏好 */
   updatePreferences: (prefs: Partial<NotificationPreferences>) => void;
   /** 发送测试通知 */
-  sendTestNotification: () => void;
+  sendTestNotification: () => boolean;
 }
 
 /**
@@ -69,9 +69,11 @@ export const useNotification = (): UseNotificationReturn => {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
     };
   }, [isSupported]);
 
@@ -97,15 +99,15 @@ export const useNotification = (): UseNotificationReturn => {
    * 更新通知偏好设置
    */
   const updatePreferences = useCallback((prefs: Partial<NotificationPreferences>) => {
-    updateUIPreferences(prefs as any);
+    updateUIPreferences(prefs);
   }, [updateUIPreferences]);
 
   /**
    * 发送测试通知
    */
   const sendTestNotification = useCallback(() => {
-    notificationService.sendTestNotification();
-  }, []);
+    return notificationService.sendTestNotification(preferences.notificationSound);
+  }, [preferences.notificationSound]);
 
   return {
     permission,

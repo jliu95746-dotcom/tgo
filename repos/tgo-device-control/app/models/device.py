@@ -131,9 +131,41 @@ class DeviceSession(Base):
     )
     screenshots_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     actions_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_actions_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    agent_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), default="running", server_default="interrupted", nullable=False
+    )
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     device: Mapped["Device"] = relationship("Device", back_populates="sessions")
+    steps: Mapped[list["DeviceSessionStep"]] = relationship(
+        "DeviceSessionStep", cascade="all, delete-orphan", passive_deletes=True
+    )
 
     def __repr__(self) -> str:
         return f"<DeviceSession {self.id} (device={self.device_id})>"
+
+
+class DeviceSessionStep(Base):
+    """Metadata of one dispatch; sensitive inputs/results are not persisted."""
+
+    __tablename__ = "dc_session_steps"
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("dc_sessions.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    tool_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

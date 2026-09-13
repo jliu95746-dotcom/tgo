@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { X, Save, RotateCcw, Bot, Wrench, FolderOpen, XCircle, User, Briefcase, GitBranch, Sparkles, Layout, ChevronRight, Settings, ChevronDown, ChevronUp, Monitor } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 // import { getIconComponent, getIconColor } from '@/components/knowledge/IconPicker';
-import { useAIStore } from '@/stores';
-import { useKnowledgeStore } from '@/stores';
+import { useAIStore, useKnowledgeStore } from '@/stores';
 import { useDeviceControlStore } from '@/stores/deviceControlStore';
 
 import { useToast } from '@/hooks/useToast';
@@ -13,7 +13,7 @@ import { TransformUtils } from '@/utils/base/BaseTransform';
 import Toggle from '@/components/ui/Toggle';
 
 import SectionHeader from '@/components/ui/SectionHeader';
-import { AIAgentsApiService, AIAgentsTransformUtils } from '@/services/aiAgentsApi';
+import { AIAgentsApiService, AIAgentsTransformUtils, SYSTEM_DEFAULT_MODEL } from '@/services/aiAgentsApi';
 import ToolSelectionModal from './ToolSelectionModal';
 import KnowledgeBaseSelectionModal from './KnowledgeBaseSelectionModal';
 import DeviceSelectionModal from './DeviceSelectionModal';
@@ -26,6 +26,7 @@ import AgentWorkflowsSection from '@/components/ui/AgentWorkflowsSection';
 import AgentDeviceSection from '@/components/ui/AgentDeviceSection';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { useAgentForm } from '@/hooks/useAgentForm';
+import AgentHumanizationField from './AgentHumanizationField';
 import { useProjectToolsStore } from '@/stores/projectToolsStore';
 import AIProvidersApiService from '@/services/aiProvidersApi';
 
@@ -84,6 +85,8 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
   const [agent, setAgent] = useState<Agent | null>(null);
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
+  const agentRequestVersion = useRef(0);
+  const initializedAgent = useRef<Agent | null>(null);
 
   // 表单状态（通过通用 hook 管理）
   const {
@@ -123,26 +126,31 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
   }, [agent?.boundDevice, devices, formData.boundDeviceId]);
 
   // Fetch agent data from API
-  const fetchAgent = async (id: string): Promise<void> => {
+  const fetchAgent = useCallback(async (id: string): Promise<void> => {
+    const requestVersion = ++agentRequestVersion.current;
     setIsLoadingAgent(true);
     setAgentError(null);
+    setAgent(null);
 
     try {
       const apiResponse = await AIAgentsApiService.getAgent(id);
+      if (requestVersion !== agentRequestVersion.current) return;
       const agentData = AIAgentsTransformUtils.transformApiAgentToAgent(apiResponse);
       setAgent(agentData);
     } catch (error) {
+      if (requestVersion !== agentRequestVersion.current) return;
       console.error('Failed to fetch agent:', error);
-      const errorMessage = error instanceof Error ? error.message : t('agents.edit.loadAgentError', '无法加载AI员工详情');
+      const errorMessage = error instanceof Error ? error.message : i18n.t('agents.edit.loadAgentError', '无法加载AI员工详情');
       setAgentError(errorMessage);
-      showToast('error', t('common.loadFailed', '加载失败'), t('agents.edit.loadAgentError', '无法加载AI员工详情，请稍后重试'));
+      showToast('error', i18n.t('common.loadFailed', '加载失败'), i18n.t('agents.edit.loadAgentError', '无法加载AI员工详情，请稍后重试'));
     } finally {
-      setIsLoadingAgent(false);
+      if (requestVersion === agentRequestVersion.current) setIsLoadingAgent(false);
     }
-  };
+  }, [showToast]);
 
   // Fetch agent when modal opens or agentId changes
   useEffect(() => {
+    const requestVersionState = agentRequestVersion;
     if (isOpen && agentId) {
       fetchAgent(agentId);
     } else if (!isOpen) {
@@ -150,20 +158,19 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
       setAgent(null);
       setAgentError(null);
     }
-  }, [isOpen, agentId]);
+    return () => { requestVersionState.current++; };
+  }, [isOpen, agentId, fetchAgent]);
 
   // 不再在编辑弹窗内主动拉取工具列表，直接使用 agent.tools 进行展示
 
   // Ensure knowledge bases are loaded when modal opens (for display of selected items)
   useEffect(() => {
     if (isOpen && knowledgeBases.length === 0) {
-      try {
-        fetchKnowledgeBases();
-      } catch (e) {
+      fetchKnowledgeBases().catch(e => {
         console.warn('Failed to load knowledge bases for EditAgentModal:', e);
-      }
+      });
     }
-  }, [isOpen]);
+  }, [isOpen, knowledgeBases.length, fetchKnowledgeBases]);
 
   // Ensure devices are loaded when modal opens (for bound device display fallback)
   useEffect(() => {
@@ -185,7 +192,9 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
 
   // 初始化表单数据（直接基于 agent.tools，无需依赖工具商店列表）
   useEffect(() => {
-    if (agent && !isLoadingAgent) {
+    if (!agent) initializedAgent.current = null;
+    if (agent && !isLoadingAgent && initializedAgent.current !== agent) {
+      initializedAgent.current = agent;
       // 直接使用 Agent 返回的工具详情
       const toolIds: string[] = agent.tools || [];
 
@@ -199,7 +208,7 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
         name: agent.name,
         profession: agent.role || t('agents.copy.defaultProfession', '专家'),
         description: agent.description,
-        llmModel: agent.llmModel || 'gemini-1.5-pro',
+        llmModel: agent.llmModel || '',
         tools: toolIds,
         toolConfigs: agent.toolConfigs || {},
         knowledgeBases: kbIds,
@@ -209,11 +218,13 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
         markdown: agent.config?.markdown ?? true,
         add_datetime_to_context: agent.config?.add_datetime_to_context ?? true,
         skills_enabled: agent.skills_enabled ?? true,
+        humanization_skill_name: agent.humanization_skill_name || null,
+        humanization_skill_enabled: agent.humanization_skill_enabled ?? false,
         tool_call_limit: agent.config?.tool_call_limit ?? 10,
         num_history_runs: agent.config?.num_history_runs ?? 5,
       });
     }
-  }, [agent, knowledgeBases, isLoadingAgent]);
+  }, [agent, isLoadingAgent, reset, t]);
 
 
 
@@ -314,7 +325,7 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
       ...toolsFromStore,
       ...placeholderTools,
     ];
-  }, [agent?.agentTools, formData.tools, aiTools]);
+  }, [agent?.agentTools, formData.tools, aiTools, t]);
 
   // 知识库启用状态：后端暂不支持单独启用/禁用，选中即关联
 
@@ -346,6 +357,7 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
   const resolvedLlmModel = useMemo(() => {
     const raw = formData.llmModel;
     if (!raw) return '';
+    if (raw === SYSTEM_DEFAULT_MODEL) return raw;
     if (raw.includes(':')) return raw;
     const match = llmOptions.find(option => option.value.split(':').slice(1).join(':') === raw);
     return match ? match.value : '';
@@ -419,17 +431,9 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
 
       // Validate selected model and keep UI value (providerId:modelName)
       const uiModel = formData.llmModel;
-      let normalized = uiModel;
-      if (!uiModel || !uiModel.includes(':')) {
-        // Try to resolve by matching model name to current options
-        const match = llmOptions.find(o => o.value.split(':').slice(1).join(':') === uiModel);
-        if (match) {
-          normalized = match.value;
-        } else {
-          showToast('error', t('agents.create.models.selectPlaceholder', '请选择模型'), t('agents.edit.modelProviderRequired', '请重新选择一个有效的模型（需要包含提供商）'));
-          setIsUpdating(false);
-          return;
-        }
+      if (!uiModel || (uiModel !== SYSTEM_DEFAULT_MODEL && !uiModel.includes(':'))) {
+        showToast('error', t('agents.create.models.selectPlaceholder', '请选择模型'), t('agents.edit.modelProviderRequired', '请重新选择一个有效的模型（需要包含提供商）'));
+        return;
       }
 
       // Build config object
@@ -443,7 +447,7 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
       await updateAgent(agentId, {
         name: formData.name,
         description: formData.description,
-        llmModel: normalized,
+        llmModel: uiModel,
         role: formData.profession,
         tools: formData.tools,
         toolConfigs: formData.toolConfigs,
@@ -451,6 +455,8 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
         workflows: formData.workflows,
         boundDeviceId: formData.boundDeviceId || undefined,
         skills_enabled: formData.skills_enabled,
+        humanization_skill_name: formData.humanization_skill_name || null,
+        humanization_skill_enabled: formData.humanization_skill_enabled ?? false,
         config: configForUpdate,
       }, mergedAvailable);
       // 强制刷新列表，确保卡片立即展示最新 tools/collections
@@ -469,7 +475,7 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
   const handleReset = (): void => {
     if (agent && !isLoadingAgent) {
       // Directly reset based on current agent.tools
-      const toolIds: string[] = (agent.tools || []).map((t: any) => t.id);
+      const toolIds: string[] = agent.tools || [];
 
       // Handle knowledge bases - use collections if available, fallback to knowledgeBases
       const kbIds = agent.collections?.map(collection => collection.id) || agent.knowledgeBases || [];
@@ -481,7 +487,7 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
         name: agent.name,
         profession: agent.role || t('agents.copy.defaultProfession', '专家'),
         description: agent.description,
-        llmModel: agent.llmModel || 'gemini-1.5-pro',
+        llmModel: agent.llmModel || '',
         tools: toolIds,
         toolConfigs: agent.toolConfigs || {},
         knowledgeBases: kbIds,
@@ -491,6 +497,8 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
         markdown: agent.config?.markdown ?? true,
         add_datetime_to_context: agent.config?.add_datetime_to_context ?? true,
         skills_enabled: agent.skills_enabled ?? true,
+        humanization_skill_name: agent.humanization_skill_name || null,
+        humanization_skill_enabled: agent.humanization_skill_enabled ?? false,
         tool_call_limit: agent.config?.tool_call_limit ?? 10,
         num_history_runs: agent.config?.num_history_runs ?? 5,
       });
@@ -627,6 +635,7 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
                             className="w-full appearance-none px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-2xl focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500 transition-all outline-none"
                             disabled={isUpdating || llmLoading}
                           >
+                            <option value={SYSTEM_DEFAULT_MODEL}>{t('modelSetup.agentFollow')}</option>
                             {llmLoading ? (
                               <option value="">{t('agents.create.models.loading', '正在加载模型...')}</option>
                             ) : llmError ? (
@@ -656,6 +665,7 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
                             <ChevronRight className="w-4 h-4 rotate-90" />
                           </div>
                         </div>
+                        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('modelSetup.agentFollowHint')}</p>
                         {llmError && (
                           <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1 ml-1">
                             <XCircle className="w-3 h-3" /> {t('agents.create.models.loadFailedInline', '模型加载失败: {{error}}', { error: llmError })}
@@ -664,6 +674,16 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
                       </div>
                     </div>
                   </div>
+
+                <AgentHumanizationField
+                  disabled={isUpdating}
+                  name={formData.humanization_skill_name}
+                  enabled={formData.humanization_skill_enabled}
+                  onChange={value => {
+                    handleInputChange('humanization_skill_name', value.humanization_skill_name);
+                    handleInputChange('humanization_skill_enabled', value.humanization_skill_enabled);
+                  }}
+                />
 
                 {/* 能力描述 Section */}
                 <div className="space-y-4">
@@ -887,7 +907,7 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
         onConfirm={(selectedToolIds, toolConfigs) => {
           setFormData({
             tools: selectedToolIds,
-            toolConfigs: toolConfigs,
+            toolConfigs,
           });
         }}
       />

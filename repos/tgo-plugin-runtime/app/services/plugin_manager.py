@@ -189,9 +189,11 @@ class PluginManager:
         
         return plugin_id, plugin
 
-    async def unregister(self, plugin_id: str):
+    async def unregister(self, plugin_id: str, expected_connection: Optional[PluginConnection] = None):
         """Unregister a plugin."""
         async with self._lock:
+            if expected_connection is not None and self._plugins.get(plugin_id) is not expected_connection:
+                return
             plugin = self._plugins.pop(plugin_id, None)
         
         if plugin:
@@ -279,13 +281,15 @@ class PluginManager:
         method: str,
         params: Dict[str, Any],
         timeout: Optional[int] = None,
+        *,
+        project_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Send a JSON-RPC request to a plugin and wait for response.
         
         Returns the result dict or None on error.
         """
-        plugin = self.get_plugin(plugin_id)
+        plugin = self.get_plugin(plugin_id, project_id=project_id)
         if not plugin or not plugin.writer or plugin.writer.is_closing():
             logger.warning(f"Plugin not available: {plugin_id}")
             return None

@@ -331,9 +331,9 @@ const CustomPlatformConfig: React.FC<Props> = ({ platform }) => {
         <section className="lg:w-3/5 w-full bg-white/80 dark:bg-gray-800/80 backdrop-blur-md p-5 rounded-lg shadow-sm border border-gray-200/60 dark:border-gray-700/60 min-h-0 overflow-y-auto auto-hide-scrollbar space-y-4">
           <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{t('platforms.custom.integration.guide', '集成指南')}</h3>
 
-          {/* 1. Chat API - Send Messages to TGO */}
+          {/* 1. Chat API - Send Messages to 域见 */}
           <details className="rounded-md border border-gray-200 dark:border-gray-600 p-3 bg-white/70 dark:bg-gray-700/50" open>
-            <summary className="cursor-pointer font-semibold text-gray-800 dark:text-gray-100">{t('platforms.custom.integration.chatApi', '对话接口说明（发送消息到 TGO）')}</summary>
+            <summary className="cursor-pointer font-semibold text-gray-800 dark:text-gray-100">{t('platforms.custom.integration.chatApi', '对话接口说明（发送消息到 域见）')}</summary>
             <div className="text-sm text-gray-700 dark:text-gray-300 mt-3 space-y-3">
               {/* API Endpoint */}
               <div>
@@ -380,7 +380,7 @@ Content-Type: application/json
               {/* Response Handling */}
               <div>
                 <p className="font-medium text-gray-800 dark:text-gray-100 mb-1">{t('platforms.custom.integration.responseHandling', '响应处理')}</p>
-                <p className="text-xs text-gray-600 dark:text-gray-400">{t('platforms.custom.integration.responseHandlingDesc', '调用对话接口后，TGO 系统会返回 AI 助手的回复内容。第三方平台需要将返回的回复内容发送给对应的第三方用户。响应格式与 OpenAI ChatGPT API 兼容，支持流式和非流式响应。')}</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400">{t('platforms.custom.integration.responseHandlingDesc', '调用对话接口后，域见 系统会返回 AI 助手的回复内容。第三方平台需要将返回的回复内容发送给对应的第三方用户。响应格式与 OpenAI ChatGPT API 兼容，支持流式和非流式响应。')}</p>
               </div>
             </div>
           </details>

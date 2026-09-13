@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import styled from '@emotion/styled'
 import { css } from '@emotion/react'
 import Header from './components/Header'
@@ -21,6 +22,7 @@ const WidgetWrap = styled.div`
 const Grow = styled.div`flex: 1; min-height: 0; display: flex; flex-direction: column;`
 
 export default function App(){
+  const { t } = useTranslation()
   const messages = useChatStore(s => s.messages)
   const unreadCount = useChatStore(s => s.unreadCount)
   const clearUnreadCount = useChatStore(s => s.clearUnreadCount)
@@ -88,7 +90,7 @@ export default function App(){
         window.parent?.postMessage({ 
           type: 'TGO_SHOW_TOAST', 
           payload: { 
-            title: pConfig.widget_title || 'Tgo',
+            title: pConfig.widget_title || '域见',
             body: content,
             icon: pConfig.logo_url || undefined,
             id: lastMsg.id
@@ -145,7 +147,7 @@ export default function App(){
 
   const onSend = (text: string)=>{ void sendMessage(text) }
 
-  const title = useMemo(()=> pConfig?.widget_title || 'Tgo', [pConfig?.widget_title])
+  const title = useMemo(()=> pConfig?.widget_title || '域见', [pConfig?.widget_title])
 
   const theme = useMemo(()=>{
     const c = pConfig?.theme_color || '#2f80ed'
@@ -453,10 +455,7 @@ export default function App(){
           <MessageList messages={messages} />
           <MessageInput onSend={onSend} />
         </Grow>
-        <a
-          href="https://tgo.ai"
-          target="_blank"
-          rel="noopener noreferrer"
+        <div
           css={css`
             display:block;
             text-align:center;
@@ -466,7 +465,7 @@ export default function App(){
             text-decoration: none;
             &:hover { color: var(--text-secondary, #6b7280); }
           `}
-        >Powered by tgo.ai</a>
+        >{t('brand.poweredBy')}</div>
       </WidgetWrap>
       <ImagePreviewProvider />
     </ThemeProvider>

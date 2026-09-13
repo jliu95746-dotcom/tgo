@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import Field
 
-from app.schemas.base import BaseSchema, PaginatedResponse
+from app.schemas.base import BaseSchema, PaginationMetadata
 
 
 class WaitingStatusEnum(str, Enum):
@@ -81,7 +81,9 @@ class WaitingQueueResponse(BaseSchema):
     channel_id: Optional[str] = Field(None, description="Channel ID")
     channel_type: Optional[int] = Field(None, description="Channel type")
     
-    retry_count: int = Field(0, description="Retry count")
+    retry_count: Optional[int] = Field(
+        default=None, description="Unavailable: assignment attempts are not counted"
+    )
     wait_duration_seconds: Optional[int] = Field(None, description="Wait duration in seconds")
     
     entered_at: datetime = Field(..., description="Queue entry time")
@@ -99,13 +101,14 @@ class WaitingQueueDetailResponse(WaitingQueueResponse):
     extra_metadata: Optional[Dict[str, Any]] = Field(None, description="Extra metadata")
 
 
-class WaitingQueueListResponse(PaginatedResponse):
+class WaitingQueueListResponse(BaseSchema):
     """Paginated list of waiting queue entries."""
     
     items: List[WaitingQueueDetailResponse] = Field(
         default_factory=list,
         description="List of waiting queue entries"
     )
+    pagination: PaginationMetadata
 
 
 # ============================================================================

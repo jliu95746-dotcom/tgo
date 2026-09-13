@@ -156,7 +156,7 @@ const WebsitePlatformConfig: React.FC<WebsitePlatformConfigProps> = ({ platform 
       position: cfg.position ?? defaultWebsiteConfig.position,
       displayMode: (cfg.displayMode ?? cfg.display_mode) ?? defaultWebsiteConfig.displayMode,
     } as WebsiteWidgetConfig;
-  }, [platform.config, platform.logo_url]);
+  }, [platform.config, platform.logo_url, defaultWebsiteConfig]);
 
   const [formValues, setFormValues] = useState<WebsiteWidgetConfig>(initialFormValues);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -237,7 +237,7 @@ const WebsitePlatformConfig: React.FC<WebsitePlatformConfigProps> = ({ platform 
   // Generate and download example HTML file with embedded API key
   const handleDownloadExample = useCallback(() => {
     const scriptUrl = getWidgetScriptBase();
-    const platformDisplayName = platform.display_name || platform.name || 'TGO Widget';
+    const platformDisplayName = platform.display_name || platform.name || '域见网站客服';
 
     const htmlContent = `<!DOCTYPE html>
 <html lang="en">
@@ -323,7 +323,7 @@ const WebsitePlatformConfig: React.FC<WebsitePlatformConfigProps> = ({ platform 
 <body>
     <div class="container">
         <h1>🎉 ${t('platforms.website.download.welcomeTitle', 'Welcome!')}</h1>
-        <p>${t('platforms.website.download.welcomeDesc', 'Your TGO chat widget is now integrated! Click the chat button in the bottom-right corner to start a conversation.')}</p>
+        <p>${t('platforms.website.download.welcomeDesc', 'Your 域见 chat widget is now integrated! Click the chat button in the bottom-right corner to start a conversation.')}</p>
 
         <div class="info-box">
             <h3>📋 ${t('platforms.website.download.integrationCode', 'Integration Code')}</h3>
@@ -337,7 +337,7 @@ const WebsitePlatformConfig: React.FC<WebsitePlatformConfigProps> = ({ platform 
 
     <div class="arrow">👇</div>
 
-    <!-- TGO Widget SDK - Your API Key is pre-configured -->
+    <!-- 域见网站客服 SDK - Your API Key is pre-configured -->
     <script src="${scriptUrl}?api_key=${apiKey}" async></script>
 </body>
 </html>`;

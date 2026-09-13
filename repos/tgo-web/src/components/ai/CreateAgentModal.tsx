@@ -2,8 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Save, RotateCcw, Bot, Wrench, FolderOpen, XCircle, User, Briefcase, GitBranch, Sparkles, Layout, ChevronRight, Settings, ChevronDown, ChevronUp, Monitor } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { useAIStore } from '@/stores';
-import { useKnowledgeStore } from '@/stores';
+import { useAIStore, useKnowledgeStore } from '@/stores';
 import { useProjectToolsStore } from '@/stores/projectToolsStore';
 import { useDeviceControlStore } from '@/stores/deviceControlStore';
 
@@ -25,8 +24,9 @@ import AgentWorkflowsSection from '@/components/ui/AgentWorkflowsSection';
 import AgentDeviceSection from '@/components/ui/AgentDeviceSection';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { useAgentForm } from '@/hooks/useAgentForm';
+import AgentHumanizationField from './AgentHumanizationField';
 import AIProvidersApiService from '@/services/aiProvidersApi';
-import ProjectConfigApiService from '@/services/projectConfigApi';
+import { SYSTEM_DEFAULT_MODEL } from '@/services/aiAgentsApi';
 import { useAuthStore } from '@/stores/authStore';
 
 
@@ -94,28 +94,10 @@ const CreateAgentModal: React.FC = () => {
     return () => { cancelled = true; };
   }, [showCreateAgentModal, t]);
 
-  // Preselect default model from project AI config if available (only when create modal is open)
+  // Following is a persistent mode, not a copy of today's default model.
   useEffect(() => {
-    if (!showCreateAgentModal) return;
-    let cancelled = false;
-    (async () => {
-      if (!projectId) return;
-      try {
-        const svc = new ProjectConfigApiService();
-        const conf = await svc.getAIConfig(projectId);
-        if (cancelled) return;
-        const uiValue = conf.default_chat_provider_id && conf.default_chat_model ? `${conf.default_chat_provider_id}:${conf.default_chat_model}` : '';
-        if (uiValue && !createAgentFormData.llmModel) {
-          // Only set when form has no value yet; ensure the option exists or still set for persistence
-          setCreateAgentFormData({ llmModel: uiValue });
-        }
-      } catch (_) {
-        // ignore
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [showCreateAgentModal, projectId, createAgentFormData.llmModel, setCreateAgentFormData]);
-
+    if (showCreateAgentModal && !createAgentFormData.llmModel) setCreateAgentFormData({ llmModel: SYSTEM_DEFAULT_MODEL });
+  }, [showCreateAgentModal, createAgentFormData.llmModel, setCreateAgentFormData]);
 
   // Tool selection modal state
   const [showToolSelectionModal, setShowToolSelectionModal] = useState(false);
@@ -253,7 +235,7 @@ const CreateAgentModal: React.FC = () => {
 
       // Validate selected model and keep UI value (providerId:modelName)
       const uiModel = createAgentFormData.llmModel;
-      if (!uiModel || !uiModel.includes(':')) {
+      if (!uiModel || (uiModel !== SYSTEM_DEFAULT_MODEL && !uiModel.includes(':'))) {
         showToast(
           'error',
           t('agents.create.models.selectPlaceholder', '请选择模型'),
@@ -445,6 +427,7 @@ const CreateAgentModal: React.FC = () => {
                           }`}
                           disabled={isCreatingAgent || llmLoading}
                         >
+                          <option value={SYSTEM_DEFAULT_MODEL}>{t('modelSetup.agentFollow')}</option>
                           {llmLoading ? (
                             <option value="">{t('agents.create.models.loading', '正在加载模型...')}</option>
                           ) : llmError ? (
@@ -468,6 +451,7 @@ const CreateAgentModal: React.FC = () => {
                           <ChevronRight className="w-4 h-4 rotate-90" />
                         </div>
                       </div>
+                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('modelSetup.agentFollowHint')}</p>
                       {createAgentErrors.llmModel && (
                         <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1 ml-1">
                           <XCircle className="w-3 h-3" /> {createAgentErrors.llmModel}
@@ -481,6 +465,16 @@ const CreateAgentModal: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+              <AgentHumanizationField
+                disabled={isCreatingAgent}
+                name={createAgentFormData.humanization_skill_name}
+                enabled={createAgentFormData.humanization_skill_enabled}
+                onChange={value => {
+                  handleInputChange('humanization_skill_name', value.humanization_skill_name);
+                  handleInputChange('humanization_skill_enabled', value.humanization_skill_enabled);
+                }}
+              />
 
               {/* 能力描述 Section */}
               <div className="space-y-4">
@@ -711,7 +705,7 @@ const CreateAgentModal: React.FC = () => {
         onConfirm={(selectedToolIds, toolConfigs) => {
           setCreateAgentFormData({
             tools: selectedToolIds,
-            toolConfigs: toolConfigs
+            toolConfigs
           });
           setShowToolSelectionModal(false);
         }}

@@ -1,8 +1,9 @@
 """Device Control API endpoints - Proxies to tgo-device-control service."""
 
 from typing import Optional
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import httpx
@@ -11,24 +12,51 @@ from app.core.logging import get_logger
 from app.core.security import get_current_active_user
 from app.services.device_control_client import device_control_client
 from app.models import Staff
+from app.core.exceptions import TGOAPIException
+from app.schemas.device_debug_chat import DeviceDebugChatRequest
+from app.schemas.device_session import DeviceSessionDetail, DeviceSessionList
+from app.services.device_debug_chat import (
+    stream_device_debug,
+    validate_device_debug,
+)
 
 logger = get_logger("api.device_control")
 router = APIRouter()
 
 
-# Request/Response schemas for device debug chat
-class DeviceDebugChatRequest(BaseModel):
-    """Request schema for device debug chat."""
-    device_id: str = Field(..., description="ID of the device to control")
-    message: str = Field(..., description="User message/task to execute")
-    model: Optional[str] = Field(None, description="Optional LLM model to use")
-    max_iterations: Optional[int] = Field(None, description="Optional max iterations")
-    system_prompt: Optional[str] = Field(None, description="Optional custom system prompt")
+@router.get("/sessions", response_model=DeviceSessionList)
+async def list_device_sessions(
+    device_id: UUID | None = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    current_user: Staff = Depends(get_current_active_user),
+) -> DeviceSessionList:
+    return await device_control_client.list_sessions(
+        str(current_user.project_id),
+        device_id=device_id,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get("/sessions/{session_id}", response_model=DeviceSessionDetail)
+async def get_device_session(
+    session_id: UUID,
+    step_skip: int = Query(0, ge=0),
+    step_limit: int = Query(100, ge=1, le=100),
+    current_user: Staff = Depends(get_current_active_user),
+) -> DeviceSessionDetail:
+    return await device_control_client.get_session(
+        session_id,
+        str(current_user.project_id),
+        step_skip=step_skip,
+        step_limit=step_limit,
+    )
 
 
 def _handle_service_error(e: Exception, context: str):
     """Helper to handle errors from device control service."""
-    if isinstance(e, HTTPException):
+    if isinstance(e, (HTTPException, TGOAPIException)):
         raise e
 
     if isinstance(e, httpx.HTTPStatusError):
@@ -37,20 +65,28 @@ def _handle_service_error(e: Exception, context: str):
                 detail = e.response.json().get("detail", e.response.text)
             except Exception:
                 detail = e.response.text
-            raise HTTPException(status_code=e.response.status_code, detail=detail)
+            raise HTTPException(
+                status_code=e.response.status_code, detail=detail
+            )
         logger.error(
-            f"Device control service error ({e.response.status_code}) during {context}: {e.response.text}"
+            f"Device control error ({e.response.status_code}) during {context}"
         )
-        raise HTTPException(status_code=502, detail="Device control service error")
+        raise HTTPException(
+            status_code=502, detail="Device control service error"
+        )
 
     if isinstance(e, httpx.RequestError):
-        logger.error(f"Device control service connection error during {context}: {e}")
+        logger.error(
+            f"Device control service connection error during {context}: {e}"
+        )
         raise HTTPException(
             status_code=502, detail="Device control service unavailable"
         )
 
     logger.error(f"Unexpected error during {context}: {e}")
-    raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    raise HTTPException(
+        status_code=500, detail=f"Internal server error: {str(e)}"
+    )
 
 
 @router.get("/devices")
@@ -107,9 +143,14 @@ async def generate_bind_code(
 
 class DeviceUpdateRequest(BaseModel):
     """Request schema for updating a device."""
+
     device_name: Optional[str] = Field(None, description="Device name")
-    ai_provider_id: Optional[str] = Field(None, description="AI Provider ID for this device")
-    model: Optional[str] = Field(None, description="LLM model identifier for this device")
+    ai_provider_id: Optional[str] = Field(
+        None, description="AI Provider ID for this device"
+    )
+    model: Optional[str] = Field(
+        None, description="LLM model identifier for this device"
+    )
 
 
 @router.patch("/devices/{device_id}")
@@ -172,75 +213,27 @@ async def disconnect_device(
 
 # Device Debug Chat Endpoints
 
+
 @router.post("/chat")
 async def device_debug_chat(
     request: DeviceDebugChatRequest,
     current_user: Staff = Depends(get_current_active_user),
 ):
-    """Start a device debug chat session with streaming response.
-    
-    This endpoint allows users to control a device using natural language.
-    The AI agent will interpret the message and execute appropriate actions
-    on the device, streaming back progress updates and results.
-    
-    Returns an SSE stream with events:
-    - started: Agent started processing
-    - tools_loaded: Available tools loaded from device
-    - thinking: AI is analyzing/deciding
-    - tool_call: Executing a tool on the device
-    - tool_result: Result from tool execution (may include screenshot)
-    - completed: Task completed successfully
-    - error: An error occurred
+    """Debug an explicitly selected, device-bound agent using standard AI SSE.
+
+    Requires agent_id. Uses its saved model and tool-call limit unchanged.
+    Events match /agents/run: connected, event, error; domain terminal
+    events are workflow_completed and workflow_failed. No customer message is
+    sent, and conversational memory is disabled for this isolated execution.
     """
     project_id = str(current_user.project_id)
-
-    # Verify device belongs to current user's project
     try:
-        device = await device_control_client.get_device(
-            device_id=request.device_id,
-            project_id=project_id,
-        )
-        if not device:
-            raise HTTPException(status_code=404, detail="Device not found")
-    except HTTPException:
-        raise
+        await validate_device_debug(request, project_id)
     except Exception as e:
         _handle_service_error(e, "device_debug_chat_verify")
 
-    # Use model from request (required)
-    model: Optional[str] = request.model
-    provider_id: Optional[str] = None
-
-    async def event_generator():
-        """Generate SSE events from device control agent."""
-        try:
-            async for line in device_control_client.run_agent_stream(
-                device_id=request.device_id,
-                task=request.message,
-                provider_id=provider_id,
-                model=model,
-                project_id=project_id,
-                max_iterations=request.max_iterations,
-                system_prompt=request.system_prompt,
-            ):
-                # Forward SSE events directly
-                if line.startswith("data:"):
-                    yield f"{line}\n\n"
-                elif line.strip():
-                    yield f"data: {line}\n\n"
-        except httpx.HTTPStatusError as e:
-            error_data = f'{{"event_type": "error", "error": "Service error: {e.response.status_code}"}}'
-            yield f"data: {error_data}\n\n"
-        except httpx.RequestError as e:
-            error_data = f'{{"event_type": "error", "error": "Connection error: {str(e)}"}}'
-            yield f"data: {error_data}\n\n"
-        except Exception as e:
-            logger.exception(f"Device debug chat error: {e}")
-            error_data = f'{{"event_type": "error", "error": "Internal error: {str(e)}"}}'
-            yield f"data: {error_data}\n\n"
-
     return StreamingResponse(
-        event_generator(),
+        stream_device_debug(request, project_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -255,26 +248,14 @@ async def list_connected_devices(
     current_user: Staff = Depends(get_current_active_user),
 ):
     """List all connected devices available for agent control.
-    
+
     Returns devices that are currently connected via TCP and can receive
     commands from the AI agent.
     """
     try:
-        result = await device_control_client.list_connected_devices()
-        
-        # Filter devices by project_id
-        project_id = str(current_user.project_id)
-        devices = await device_control_client.list_devices(project_id=project_id)
-        device_ids = {d["id"] for d in devices.get("devices", [])}
-        
-        # Only return connected devices that belong to the user's project
-        connected = result.get("devices", [])
-        filtered = [d for d in connected if d.get("device_id") in device_ids]
-        
-        return {
-            "devices": filtered,
-            "count": len(filtered),
-        }
+        return await device_control_client.list_connected_devices(
+            project_id=str(current_user.project_id)
+        )
     except Exception as e:
         _handle_service_error(e, "list_connected_devices")
 
@@ -285,7 +266,7 @@ async def get_device_tools(
     current_user: Staff = Depends(get_current_active_user),
 ):
     """Get available tools from a connected device.
-    
+
     Returns the list of MCP tools available on the device for AI agent control.
     """
     # Verify device belongs to current user's project
@@ -302,11 +283,13 @@ async def get_device_tools(
         _handle_service_error(e, "get_device_tools_verify")
 
     try:
-        result = await device_control_client.get_device_tools(device_id=device_id)
+        result = await device_control_client.get_device_tools(
+            device_id=device_id, project_id=str(current_user.project_id)
+        )
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail="Device not connected or tools unavailable"
+                detail="Device not connected or tools unavailable",
             )
         return result
     except HTTPException:

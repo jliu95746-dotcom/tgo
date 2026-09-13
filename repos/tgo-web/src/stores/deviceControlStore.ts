@@ -7,6 +7,7 @@
  */
 
 import { create } from 'zustand';
+import i18n from 'i18next';
 import type { Device, DeviceStatus, DeviceType, DeviceUpdateRequest } from '@/types/deviceControl';
 import * as deviceControlApi from '@/services/deviceControlApi';
 
@@ -19,6 +20,8 @@ interface DeviceControlState {
 
   // UI State
   isLoading: boolean;
+  hasLoadedDevices: boolean;
+  loadError: string | null;
   isGeneratingCode: boolean;
   error: string | null;
 
@@ -33,115 +36,138 @@ interface DeviceControlState {
   clearBindCode: () => void;
 }
 
-export const useDeviceControlStore = create<DeviceControlState>((set) => ({
-  // Initial state
-  devices: [],
-  selectedDevice: null,
-  bindCode: null,
-  bindCodeExpiresAt: null,
-  isLoading: false,
-  isGeneratingCode: false,
-  error: null,
+export const useDeviceControlStore = create<DeviceControlState>((set) => {
+  let listRequest: AbortController | null = null;
+  return {
+    // Initial state
+    devices: [],
+    selectedDevice: null,
+    bindCode: null,
+    bindCodeExpiresAt: null,
+    isLoading: false,
+    hasLoadedDevices: false,
+    loadError: null,
+    isGeneratingCode: false,
+    error: null,
 
-  // Load devices
-  loadDevices: async (deviceType, status) => {
-    set({ isLoading: true, error: null });
-
-    try {
-      const response = await deviceControlApi.listDevices({
-        device_type: deviceType,
-        status: status,
+    // Load devices
+    loadDevices: async (deviceType, status) => {
+      listRequest?.abort();
+      const request = new AbortController();
+      listRequest = request;
+      set({ isLoading: true, error: null, loadError: null });
+      let onAbort = () => {};
+      const interrupted = new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(new Error(i18n.t('deviceControl.loadTimeout')));
+        request.signal.addEventListener('abort', onAbort, { once: true });
       });
-      set({ devices: response.devices, isLoading: false });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to load devices';
-      set({ error: message, isLoading: false });
-    }
-  },
+      const timer = setTimeout(() => request.abort(), 15000);
+      try {
+        const response = await Promise.race([
+          deviceControlApi.listDevices({ device_type: deviceType, status }, { signal: request.signal }),
+          interrupted,
+        ]);
+        if (listRequest !== request) return;
+        if (!Array.isArray(response?.devices)) {
+          throw new Error(i18n.t('deviceControl.loadErrorFallback'));
+        }
+        set({ devices: response.devices, isLoading: false, hasLoadedDevices: true });
+      } catch (error) {
+        if (listRequest !== request) return;
+        const message = error instanceof Error ? error.message : i18n.t('deviceControl.loadErrorFallback');
+        const loadError = request.signal.aborted ? i18n.t('deviceControl.loadTimeout') : message;
+        set({ loadError, error: loadError, isLoading: false });
+      } finally {
+        clearTimeout(timer);
+        request.signal.removeEventListener('abort', onAbort);
+        if (listRequest === request) listRequest = null;
+      }
+    },
 
-  // Generate bind code
-  generateBindCode: async () => {
-    set({ isGeneratingCode: true, error: null });
+    // Generate bind code
+    generateBindCode: async () => {
+      set({ isGeneratingCode: true, error: null });
 
-    try {
-      const response = await deviceControlApi.generateBindCode();
-      set({
-        bindCode: response.bind_code,
-        bindCodeExpiresAt: response.expires_at,
-        isGeneratingCode: false,
-      });
-      return response.bind_code;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to generate bind code';
-      set({ error: message, isGeneratingCode: false });
-      throw error;
-    }
-  },
+      try {
+        const response = await deviceControlApi.generateBindCode();
+        set({
+          bindCode: response.bind_code,
+          bindCodeExpiresAt: response.expires_at,
+          isGeneratingCode: false,
+        });
+        return response.bind_code;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to generate bind code';
+        set({ error: message, isGeneratingCode: false });
+        throw error;
+      }
+    },
 
-  // Update device
-  updateDevice: async (deviceId, data) => {
-    try {
-      const updated = await deviceControlApi.updateDevice(deviceId, data);
+    // Update device
+    updateDevice: async (deviceId, data) => {
+      try {
+        const updated = await deviceControlApi.updateDevice(deviceId, data);
 
-      // Update local state
-      set((state) => ({
-        devices: state.devices.map((d) => (d.id === deviceId ? updated : d)),
-        selectedDevice: state.selectedDevice?.id === deviceId ? updated : state.selectedDevice,
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update device';
-      set({ error: message });
-      throw error;
-    }
-  },
+        // Update local state
+        set((state) => ({
+          devices: state.devices.map((d) => (d.id === deviceId ? updated : d)),
+          selectedDevice: state.selectedDevice?.id === deviceId ? updated : state.selectedDevice,
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update device';
+        set({ error: message });
+        throw error;
+      }
+    },
 
-  // Delete device
-  deleteDevice: async (deviceId) => {
-    try {
-      await deviceControlApi.deleteDevice(deviceId);
+    // Delete device
+    deleteDevice: async (deviceId) => {
+      try {
+        await deviceControlApi.deleteDevice(deviceId);
 
-      // Update local state
-      set((state) => ({
-        devices: state.devices.filter((d) => d.id !== deviceId),
-        selectedDevice: state.selectedDevice?.id === deviceId ? null : state.selectedDevice,
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete device';
-      set({ error: message });
-      throw error;
-    }
-  },
+        // Update local state
+        set((state) => ({
+          devices: state.devices.filter((d) => d.id !== deviceId),
+          selectedDevice: state.selectedDevice?.id === deviceId ? null : state.selectedDevice,
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to delete device';
+        set({ error: message });
+        throw error;
+      }
+    },
 
-  // Disconnect device
-  disconnectDevice: async (deviceId) => {
-    try {
-      await deviceControlApi.disconnectDevice(deviceId);
+    // Disconnect device
+    disconnectDevice: async (deviceId) => {
+      try {
+        await deviceControlApi.disconnectDevice(deviceId);
 
-      // Update local state - set status to offline
-      set((state) => ({
-        devices: state.devices.map((d) =>
-          d.id === deviceId ? { ...d, status: 'offline' as const } : d
-        ),
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to disconnect device';
-      set({ error: message });
-      throw error;
-    }
-  },
+        // Update local state - set status to offline
+        set((state) => ({
+          devices: state.devices.map((d) =>
+            d.id === deviceId ? { ...d, status: 'offline' as const } : d
+          ),
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to disconnect device';
+        set({ error: message });
+        throw error;
+      }
+    },
 
-  // Select device
-  selectDevice: (device) => {
-    set({ selectedDevice: device });
-  },
+    // Select device
+    selectDevice: (device) => {
+      set({ selectedDevice: device });
+    },
 
-  // Clear error
-  clearError: () => {
-    set({ error: null });
-  },
+    // Clear error
+    clearError: () => {
+      set({ error: null });
+    },
 
-  // Clear bind code
-  clearBindCode: () => {
-    set({ bindCode: null, bindCodeExpiresAt: null });
-  },
-}));
+    // Clear bind code
+    clearBindCode: () => {
+      set({ bindCode: null, bindCodeExpiresAt: null });
+    },
+  };
+});

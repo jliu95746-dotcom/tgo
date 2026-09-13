@@ -14,6 +14,13 @@ from app.api.v1.endpoints import platforms as platform_endpoints
 from app.schemas.chat import ChatCompletionRequest, StaffAgentChatRequest
 from app.schemas.platform_schema import PlatformCreate
 from app.models.platform import PlatformType
+from app.schemas.employee_style import EmployeeStyle
+
+
+@pytest.fixture(autouse=True)
+def isolate_employee_settings(monkeypatch):
+    monkeypatch.setattr(chat_endpoints, "resolve_employee_style", AsyncMock(
+        side_effect=lambda _project, agent_id, *_args: EmployeeStyle(agent_id=agent_id)))
 
 
 class _NoOpDB:
@@ -38,6 +45,11 @@ class _PlatformDB:
     def add(self, obj: object) -> None:
         self.added.append(obj)
 
+    def query(self, *_args):
+        query = MagicMock()
+        query.filter.return_value.first.return_value = None
+        return query
+
     def commit(self) -> None:
         return None
 
@@ -53,6 +65,7 @@ async def test_chat_completion_prefers_platform_agent_id(monkeypatch) -> None:
     project_id = uuid4()
     assigned_staff_id = uuid4()
     visitor = SimpleNamespace(
+        project_id=project_id, humanization_skill_name=None, humanization_skill_enabled=False,
         id=uuid4(),
         is_unassigned=True,
         ai_disabled=None,
@@ -154,6 +167,7 @@ async def test_chat_completion_omits_agent_id_without_platform_override(
     project_id = uuid4()
     assigned_staff_id = uuid4()
     visitor = SimpleNamespace(
+        project_id=project_id, humanization_skill_name=None, humanization_skill_enabled=False,
         id=uuid4(),
         is_unassigned=True,
         ai_disabled=None,

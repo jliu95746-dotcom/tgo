@@ -14,6 +14,7 @@ from app.core.agentbay_client import AgentBayClientFactory
 from app.core.encryption import encrypt_api_key, decrypt_api_key
 from app.db.models import VisionAgentSession
 from app.domain.entities import AppLoginStatus, SessionStatus
+from app.domain.base.app_automator import AppAutomatorFactory
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,9 @@ class SessionService:
         Returns:
             Created VisionAgentSession
         """
+        if app_type not in AppAutomatorFactory.get_supported_apps():
+            raise ValueError(f"Unsupported application type: {app_type}")
+
         # Validate required model configuration
         if not vision_provider_id or not vision_model_id:
             raise ValueError("Vision model configuration (vision_provider_id and vision_model_id) is required")

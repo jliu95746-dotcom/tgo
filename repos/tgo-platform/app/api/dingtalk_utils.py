@@ -11,7 +11,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -94,7 +93,7 @@ async def dingtalk_send_webhook(
     if at:
         payload["at"] = at
 
-    logging.info("[DINGTALK] Sending to webhook: %s, msgtype=%s", session_webhook[:80] + "...", msgtype)
+    logging.info("[DINGTALK] Sending via session webhook, msgtype=%s", msgtype)
 
     async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
         resp = await client.post(session_webhook, json=payload)

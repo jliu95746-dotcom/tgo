@@ -11,6 +11,11 @@ export type KnowledgeReviewStatus =
 
 export type KnowledgeSourceOrigin = 'internal' | 'customer' | 'website';
 
+export interface KnowledgeGovernanceSource {
+  id: string;
+  name: string;
+}
+
 export interface KnowledgeGovernanceDraftRequest {
   document_type: KnowledgeDocumentType;
   product_line: string;

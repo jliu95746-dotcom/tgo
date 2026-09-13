@@ -2,9 +2,10 @@
 Common Pydantic schemas used across the application.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field
+from .observability import HealthChecks, KnowledgeCounts, RequestMetricsValues
 
 
 class ErrorResponse(BaseModel):
@@ -87,7 +88,7 @@ class HealthResponse(BaseModel):
         ...,
         description="Health check timestamp (ISO format)"
     )
-    checks: Dict[str, Any] = Field(
+    checks: HealthChecks = Field(
         ...,
         description="Individual health check results",
         examples=[
@@ -103,7 +104,11 @@ class HealthResponse(BaseModel):
 class MetricsResponse(BaseModel):
     """Metrics response schema."""
     
-    metrics: Dict[str, Any] = Field(
+    enabled: bool = True
+    scope: Literal["current_api_worker"] = "current_api_worker"
+    knowledge: KnowledgeCounts = Field(default_factory=lambda: KnowledgeCounts())
+    unavailable_metrics: list[str] = Field(default_factory=list)
+    metrics: RequestMetricsValues = Field(
         ...,
         description="Application metrics",
         examples=[

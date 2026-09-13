@@ -124,7 +124,7 @@ export const uploadFileWithProgress = (
           options.onComplete?.(response);
 
           resolve(response);
-        } catch (error) {
+        } catch {
           const parseError = new Error('Failed to parse server response');
           
           const errorEvent: UploadProgressEvent = {
@@ -331,7 +331,7 @@ export const uploadMultipleFilesWithProgress = async (
     await Promise.allSettled(uploadPromises);
     options.onAllComplete?.(results);
     return results;
-  } catch (error) {
+  } catch {
     // This shouldn't happen with Promise.allSettled, but just in case
     options.onAllComplete?.(results);
     return results;

@@ -164,6 +164,7 @@ class WorkflowEventEmitter:
         tool_call_id: Optional[str] = None,
         tool_input: Optional[dict] = None,
         tool_output: Optional[str] = None,
+        tool_call_error: bool = False,
     ) -> None:
         """Emit agent tool call completed event."""
         data = AgentToolCallData(
@@ -174,12 +175,13 @@ class WorkflowEventEmitter:
             tool_call_id=tool_call_id,
             tool_input=tool_input,
             tool_output=tool_output,
-            status="completed",
+            status="failed" if tool_call_error else "completed",
+            error=(tool_output or "Tool execution failed") if tool_call_error else None,
         )
         self.emitter.emit(
             EventType.AGENT_TOOL_CALL_COMPLETED,
             data,
-            EventSeverity.SUCCESS,
+            EventSeverity.ERROR if tool_call_error else EventSeverity.SUCCESS,
             {
                 "phase": "agent_execution",
                 "agent_id": agent_id,

@@ -1,4 +1,7 @@
 import { BaseApiService } from './base/BaseApiService';
+import type { ConversationTurn } from './skillsApi';
+import { apiClient } from './api';
+import type { StaffDeliveryRequest, StaffDeliveryReceipt, StaffDeliveryQuery, StaffDeliveryRecord } from '@/types/staffDelivery';
 
 // Request type based on OpenAPI docs#/components/schemas/StaffSendPlatformMessageRequest
 export interface StaffSendPlatformMessageRequest {
@@ -32,22 +35,48 @@ export interface AssistDraftRequest {
   customer_message: string;
   humanization_skill_name?: string | null;
   source_message_id?: string | null;
+  message_type?: 1 | 2 | 4;
+  media_file_id?: string | null;
 }
 
 export interface AssistDraftResponse {
   draft: string;
   humanization_skill_name?: string | null;
   source_message_id?: string | null;
+  recent_messages: ConversationTurn[];
+  customer_message?: string | null;
 }
 
 class ChatMessagesApiService extends BaseApiService {
   protected readonly apiVersion = 'v1';
   protected readonly endpoints = {
     sendPlatformMessage: '/v1/chat/messages/send',
+    deliverMessage: '/v1/chat/messages/deliver',
+    deliveryStatus: '/v1/chat/messages/delivery',
+    pendingDeliveries: '/v1/chat/messages/deliveries',
     agentChat: '/v1/chat/agent',
     clearMemory: '/v1/chat/memory',
     assistDraft: '/v1/chat/assist/draft',
   } as const;
+
+  async deliverStaffMessage(data: StaffDeliveryRequest): Promise<StaffDeliveryReceipt> {
+    // Preserve HTTP error status for the delivery coordinator. Never fall back to WS.
+    return apiClient.post<StaffDeliveryReceipt>(this.endpoints.deliverMessage, data);
+  }
+
+  async getStaffDelivery(data: StaffDeliveryQuery): Promise<StaffDeliveryReceipt> {
+    const query = new URLSearchParams({
+      channel_id: data.channel_id,
+      channel_type: String(data.channel_type),
+      client_msg_no: data.client_msg_no,
+    });
+    return apiClient.get<StaffDeliveryReceipt>(`${this.endpoints.deliveryStatus}?${query}`);
+  }
+
+  async getPendingStaffDeliveries(channelId: string, after = ''): Promise<StaffDeliveryRecord[]> {
+    const query = new URLSearchParams({ channel_id: channelId, channel_type: '251', limit: '100', after });
+    return apiClient.get<StaffDeliveryRecord[]>(`${this.endpoints.pendingDeliveries}?${query}`);
+  }
 
   /**
    * Forward a staff-authenticated outbound message to the Platform Service.

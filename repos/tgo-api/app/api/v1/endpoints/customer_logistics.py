@@ -72,7 +72,13 @@ async def test_query_tool(
     project_and_api_key=Depends(get_authenticated_project),
 ) -> LogisticsToolTestResponse:
     project, _ = project_and_api_key
-    result = await _service(db).execute_live_query(project.id, request.tracking_no)
+    query_details = {key: value for key, value in {
+        "carrier_code": request.carrier_code, "phone": request.phone,
+    }.items() if value is not None}
+    result = await _service(db).execute_live_query(
+        project.id, request.tracking_no, query_tool_id=request.query_tool_id,
+        **query_details,
+    )
     return LogisticsToolTestResponse(
         success=True,
         message="快递查询工具连接成功",

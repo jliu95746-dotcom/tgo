@@ -1,6 +1,7 @@
 import json
 import uuid
 import httpx
+from contextlib import AsyncExitStack
 from typing import Any, Dict, List, Optional
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,8 +10,15 @@ from app.models.tool import Tool, ToolType, ToolSourceType
 from app.services.rag_service import rag_service_client
 from app.services.api_service import api_service_client
 from mcp import ClientSession
+from mcp.types import CallToolResult
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.sse import sse_client
 from app.core.logging import get_logger
+from app.services.mcp_result import mcp_result_text
+from app.services.http_tool_errors import http_tool_error
+from app.services.plugin_result import plugin_result_text
+from app.schemas.plugin_execution import PluginExecutionContext
+from app.schemas.mcp_connection import mcp_connection_headers
 
 logger = get_logger(__name__)
 
@@ -112,6 +120,14 @@ def _extract_store_output(result: Any) -> str:
         error_message = _format_store_jsonrpc_error(payload["error"])
         return f"<error>Store execution failed: {error_message}</error>"
 
+    if isinstance(payload, dict) and (
+        "structuredContent" in payload or payload.get("isError") is True
+    ):
+        try:
+            return mcp_result_text(CallToolResult.model_validate({"content": [], **payload}))
+        except ValueError as exc:
+            return f"<error>Store execution failed: {exc}</error>"
+
     if isinstance(payload, dict) and "content" in payload:
         content = payload["content"]
         output_text: str
@@ -127,8 +143,6 @@ def _extract_store_output(result: Any) -> str:
                 output_text = json.dumps(content, ensure_ascii=False)
         else:
             output_text = json.dumps(content, ensure_ascii=False)
-        if payload.get("isError") is True:
-            return f"<error>Store execution failed: {output_text}</error>"
         return output_text
 
     if isinstance(payload, (dict, list)):
@@ -139,7 +153,7 @@ def _extract_store_output(result: Any) -> str:
 class ToolExecutor:
     """Executor for dynamic tools referenced by IDs in Chat Completions API."""
 
-    def __init__(self, db: AsyncSession, project_id: uuid.UUID):
+    def __init__(self, db: AsyncSession, project_id: uuid.UUID) -> None:
         self.db = db
         self.project_id = project_id
         self._tool_registry: Dict[str, Dict[str, Any]] = {}
@@ -152,7 +166,7 @@ class ToolExecutor:
         agent_id: Optional[str] = None,
         language: Optional[str] = None,
         knowledge_channel: Optional[str] = None,
-    ):
+    ) -> None:
         """Set execution context for plugin tools."""
         self._context = {
             "visitor_id": visitor_id,
@@ -166,7 +180,7 @@ class ToolExecutor:
         self, 
         tool_ids: Optional[List[uuid.UUID]] = None, 
         collection_ids: Optional[List[str]] = None
-    ):
+    ) -> None:
         """Register tools to establish a mapping from tool_name to execution info."""
         if tool_ids:
             stmt = select(Tool).where(
@@ -274,24 +288,24 @@ class ToolExecutor:
         if not tool_model.endpoint:
             return "<error>MCP tool missing endpoint</error>"
             
-        # server_url should include /mcp if it's following the convention in AgentBuilder
+        # Use the saved endpoint verbatim, as AgentBuilder does. MCP servers
+        # may expose custom paths; appending /mcp breaks otherwise valid tools.
         server_url = tool_model.endpoint.rstrip("/")
-        if not server_url.endswith("/mcp") and (tool_model.transport_type or "http") == "http":
-            server_url += "/mcp"
+        transport = tool_model.transport_type or "http"
+        if transport not in ("http", "sse"):
+            return "<error>MCP direct execution supports HTTP or SSE transport only</error>"
 
         try:
-            async with streamablehttp_client(server_url) as streams:
-                read_stream, write_stream, _ = streams
+            headers = mcp_connection_headers(tool_model.config)
+            async with AsyncExitStack() as stack:
+                if transport == "sse":
+                    read_stream, write_stream = await stack.enter_async_context(sse_client(server_url, headers=headers))
+                else:
+                    read_stream, write_stream, _ = await stack.enter_async_context(streamablehttp_client(server_url, headers=headers))
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
                     result = await session.call_tool(tool_model.name, arguments=args)
-                    
-                    if result.content:
-                        texts = [c.text for c in result.content if hasattr(c, "text") and c.text]
-                        if texts:
-                            return "\n".join(texts)
-                        return str(result.content)
-                    return "Tool executed successfully with no content returned."
+            return mcp_result_text(result)
         except Exception as e:
             return f"<error>MCP execution failed: {str(e)}</error>"
 
@@ -350,25 +364,25 @@ class ToolExecutor:
 
     async def _execute_plugin(self, tool_model: Tool, args: Dict[str, Any]) -> str:
         """Execute a plugin tool via the core API service proxy."""
-        plugin_id = tool_model.config.get("plugin_id")
-        tool_name = tool_model.config.get("tool_name")
+        config = tool_model.config or {}
+        plugin_id = config.get("plugin_id")
+        tool_name = config.get("tool_name")
         
         if not plugin_id or not tool_name:
             return "<error>Plugin tool missing configuration (plugin_id or tool_name)</error>"
 
         try:
+            context = PluginExecutionContext.model_validate(self._context)
+            context.visitor_id = PluginExecutionContext.visitor_from_user(context.visitor_id)
             result = await api_service_client.execute_plugin_tool(
                 plugin_id=plugin_id,
                 tool_name=tool_name,
                 arguments=args,
-                context=self._context,
+                context=context.model_dump(mode="json"),
+                project_id=str(self.project_id),
             )
             
-            if result.get("success"):
-                return result.get("content", "工具执行成功")
-            else:
-                error_msg = result.get("error") or result.get("content") or "工具执行失败"
-                return f"<error>{error_msg}</error>"
+            return plugin_result_text(result)
         except Exception as e:
             return f"<error>Plugin tool execution failed: {str(e)}</error>"
 
@@ -378,6 +392,15 @@ class ToolExecutor:
             return "<error>HTTP tool missing endpoint</error>"
 
         config = tool_model.config or {}
+        if config.get("logistics_provider"):
+            from app.services.logistics_provider import execute_logistics_provider
+            try:
+                result = await execute_logistics_provider(tool_model.endpoint, config["logistics_provider"], args)
+                return json.dumps(result, ensure_ascii=False)
+            except ValueError:
+                return "<error>快递服务商查询失败：请检查单号、授权、额度和返回字段配置</error>"
+            except Exception as exc:
+                return http_tool_error(exc)
         method = config.get("method", "POST").upper()
         headers = config.get("headers", {})
         
@@ -405,7 +428,5 @@ class ToolExecutor:
                     return json.dumps(response.json(), ensure_ascii=False)
                 except ValueError:
                     return response.text
-        except httpx.HTTPStatusError as e:
-            return f"<error>HTTP execution failed with status {e.response.status_code}: {e.response.text}</error>"
         except Exception as e:
-            return f"<error>HTTP execution failed: {str(e)}</error>"
+            return http_tool_error(e)

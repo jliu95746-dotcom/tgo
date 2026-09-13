@@ -7,6 +7,10 @@ from typing import BinaryIO, Optional
 class StorageBackend(ABC):
     """Abstract base class for file storage backends."""
 
+    async def read(self, path: str, *, max_bytes: int) -> bytes:
+        """Read a server-owned object key with a strict byte limit."""
+        raise NotImplementedError("This storage backend does not support bounded reads")
+
     @abstractmethod
     async def upload(self, file: BinaryIO, path: str, content_type: str) -> str:
         """

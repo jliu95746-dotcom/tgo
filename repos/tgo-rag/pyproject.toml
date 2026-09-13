@@ -121,6 +121,7 @@ module = [
     "pgvector.*",
     "testcontainers.*",
     "magic.*",
+    "crawl4ai.*",  # This dependency does not ship a py.typed marker.
 ]
 ignore_missing_imports = true
 

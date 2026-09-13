@@ -5,16 +5,16 @@ import Icon from '@/components/ui/Icon';
 import Pagination from '@/components/ui/Pagination';
 import { useTranslation } from 'react-i18next';
 import { searchApiService, type SearchRequestParams } from '@/services/searchApi';
-import type {
-  SearchScope,
-  UnifiedSearchResponse,
-  VisitorBasicResponse,
-  MessageSearchResult,
-  ChannelVisitorExtra,
-  ChannelInfo,
-  Chat,
+import {
+  PlatformType,
+  type SearchScope,
+  type UnifiedSearchResponse,
+  type VisitorBasicResponse,
+  type MessageSearchResult,
+  type ChannelVisitorExtra,
+  type ChannelInfo,
+  type Chat,
 } from '@/types';
-import { PlatformType } from '@/types';
 import { useToast } from '@/hooks/useToast';
 import { showApiError } from '@/utils/toastHelpers';
 import { useChatStore } from '@/stores/chatStore';
@@ -36,7 +36,7 @@ const parseMinutesAgo = (timestamp?: string): number | undefined => {
   let ms = Date.parse(normalized);
   if (!Number.isFinite(ms)) {
     // Fallback: drop fractional seconds entirely, still assume UTC
-    normalized = timestamp.replace(' ', 'T').split('.')[0] + 'Z';
+    normalized = `${timestamp.replace(' ', 'T').split('.')[0]  }Z`;
     ms = Date.parse(normalized);
   }
   if (!Number.isFinite(ms)) return undefined;
@@ -432,9 +432,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ open, onClose }) => {
     );
   }, [t, openVisitorConversation]);
 
-  const renderMessageItem = useCallback((m: MessageSearchResult) => {
+  const renderMessageItem = (m: MessageSearchResult) => {
     return <SearchMessageItem m={m} />;
-  }, [t, openConversation]);
+  };
 
   const messageTotalPages = useMemo(() => {
     const p = data?.message_pagination;

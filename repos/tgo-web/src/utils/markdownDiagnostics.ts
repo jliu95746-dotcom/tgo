@@ -160,7 +160,7 @@ export const diagnoseWuKongIMMessage = (wkMessage: any): DiagnosticResult[] => {
       message: 'stream_data 字段存在且有有效值',
       details: { 
         length: streamDataValue.length,
-        preview: streamDataValue.substring(0, 100) + '...'
+        preview: `${streamDataValue.substring(0, 100)  }...`
       }
     });
   }

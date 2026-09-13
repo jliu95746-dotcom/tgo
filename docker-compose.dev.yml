@@ -65,7 +65,7 @@ services:
     command:
       - /bin/sh
       - -lc
-      - /app/.venv/bin/celery -A src.rag_service.tasks.celery_app worker --loglevel=info --hostname=worker@tgo-rag-worker -Q document_processing,embedding,website_crawling,qa_processing,celery
+      - exec /app/.venv/bin/celery -A src.rag_service.tasks.celery_app worker --loglevel=info --hostname=worker@tgo-rag-worker -Q document_processing,embedding,website_crawling,qa_processing,celery
 
   tgo-rag-beat:
     <<: *backend-dev

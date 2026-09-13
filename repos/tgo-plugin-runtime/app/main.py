@@ -48,6 +48,7 @@ async def lifespan(application: FastAPI):
                 for p in installed_plugins:
                     config = {
                         "id": p.plugin_id,
+                        "project_id": str(p.project_id),
                         "name": p.name,
                         "version": p.version,
                         "source": p.source_config,

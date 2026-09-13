@@ -18,6 +18,7 @@ from app.models.visitor_activity import VisitorActivity
 from app.models.visitor_tag import VisitorTag
 from app.models.channel_member import ChannelMember
 from app.models.chat_file import ChatFile
+from app.models.staff_message_delivery import StaffMessageDelivery
 from app.models.visitor_customer_update import VisitorCustomerUpdate
 from app.models.ai_provider import AIProvider
 from app.models.ai_model import AIModel
@@ -66,6 +67,7 @@ __all__ = [
     "VisitorTag",
     "ChannelMember",
     "ChatFile",
+    "StaffMessageDelivery",
     "AIProvider",
     "AIModel",
     "AIProviderDefaultModel",

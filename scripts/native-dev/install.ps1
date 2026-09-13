@@ -35,13 +35,16 @@ foreach ($service in @(
     'tgo-rag',
     'tgo-platform',
     'tgo-workflow',
-    'tgo-device-control'
+    'tgo-device-control',
+    'tgo-plugin-runtime'
 )) {
     $serviceDirectory = Join-Path $script:RepoRoot "repos\$service"
     Write-Host "Installing locked Python dependencies for $service..."
     Push-Location $serviceDirectory
     try {
-        & $toolsPython -m poetry install --with dev --no-interaction
+        $installArguments = @('-m', 'poetry', 'install', '--with', 'dev', '--no-interaction')
+        if ($service -eq 'tgo-plugin-runtime') { $installArguments += '--no-root' }
+        & $toolsPython @installArguments
         if ($LASTEXITCODE -ne 0) {
             throw "Poetry install failed for $service."
         }

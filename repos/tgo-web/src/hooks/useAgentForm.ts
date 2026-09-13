@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react';
 
 export interface AgentFormState {
+  humanization_skill_name?: string | null;
+  humanization_skill_enabled?: boolean;
   name: string;
   profession: string;
   description: string;
@@ -43,10 +45,12 @@ export interface UseAgentFormResult {
 }
 
 const defaultForm: AgentFormState = {
+  humanization_skill_name: null,
+  humanization_skill_enabled: false,
   name: '',
   profession: '',
   description: '',
-  llmModel: 'gemini-1.5-pro',
+  llmModel: '',
   tools: [],
   toolConfigs: {},
   knowledgeBases: [],

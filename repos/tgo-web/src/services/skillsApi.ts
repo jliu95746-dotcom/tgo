@@ -6,6 +6,7 @@
  */
 
 import { BaseApiService } from './base/BaseApiService';
+import { apiClient } from './api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -13,6 +14,7 @@ import { BaseApiService } from './base/BaseApiService';
 
 /** Lightweight summary returned in list responses. */
 export interface SkillSummary {
+  used_by?: { id: string; name: string; enabled: boolean }[];
   name: string;
   description: string;
   author: string | null;
@@ -59,6 +61,7 @@ export interface SkillCreateRequest {
 
 /** Request body for updating an existing skill. */
 export interface SkillUpdateRequest {
+  display_name?: string;
   description?: string;
   instructions?: string;
   author?: string;
@@ -68,10 +71,10 @@ export interface SkillUpdateRequest {
   metadata?: Record<string, string>;
 }
 
-/** Request body for importing a skill from GitHub. */
+/** Local file upload for an ordinary skill. */
 export interface SkillImportRequest {
-  github_url: string;
-  github_token?: string;
+  file: File;
+  display_name?: string;
 }
 
 export interface HumanizationSkillCreateRequest {
@@ -85,6 +88,7 @@ export interface HumanizationTrainingSampleRequest {
   ai_draft: string;
   final_reply: string;
   source_message_id?: string;
+  recent_messages?: ConversationTurn[];
 }
 
 export interface HumanizationTrainingStatus {
@@ -96,6 +100,46 @@ export interface HumanizationTrainingStatus {
 export interface HumanizationTrainingApplyResponse
   extends HumanizationTrainingStatus {
   applied_count: number;
+}
+
+export interface ConversationTurn { role: 'customer' | 'staff' | 'assistant'; content: string }
+export interface TrainingExample {
+  id: string;
+  customer_message: string;
+  ai_draft: string;
+  final_reply: string;
+  source_message_id: string;
+  created_at: string;
+  recent_messages: ConversationTurn[];
+  scene_tags: string[];
+  change_kind: 'expression' | 'facts' | 'mixed' | 'review';
+  rules: string[];
+  warnings: string[];
+  selected: boolean;
+}
+export interface TrainingReview {
+  name: string;
+  published_version: number;
+  snapshot_id: string;
+  pending: TrainingExample[];
+  published: TrainingExample[];
+  rules: string[];
+  analysis_error?: string | null;
+}
+export interface TrainingPublishRequest { snapshot_id: string; samples: TrainingExample[] }
+export interface HumanizationTryRequest {
+  customer_message: string;
+  factual_draft: string;
+  recent_messages?: ConversationTurn[];
+  candidate?: TrainingPublishRequest;
+}
+export interface HumanizationTryResponse {
+  published_reply: string;
+  candidate_reply: string | null;
+  published_version: number;
+  matched_example_ids: string[];
+  candidate_example_ids: string[];
+  quality_issues: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -170,18 +214,37 @@ export class SkillsApiService extends BaseApiService {
 
   static async applyHumanizationTraining(
     name: string,
+    data: TrainingPublishRequest,
   ): Promise<HumanizationTrainingApplyResponse> {
     const service = new SkillsApiService();
     return service.post<HumanizationTrainingApplyResponse>(
       service.endpoints.HUMANIZATION_APPLY(name),
-      {},
+      data,
     );
   }
 
   /** Import a skill from a GitHub directory URL. */
+  static async reviewTraining(name: string): Promise<TrainingReview> {
+    const service = new SkillsApiService();
+    return service.get<TrainingReview>(`${service.endpoints.SKILL_BY_NAME(name)}/training-review`);
+  }
+
+  static async previewTraining(name: string): Promise<TrainingReview> {
+    const service = new SkillsApiService();
+    return service.post<TrainingReview>(`${service.endpoints.SKILL_BY_NAME(name)}/training-preview`, {});
+  }
+
+  static async tryReply(name: string, data: HumanizationTryRequest): Promise<HumanizationTryResponse> {
+    const service = new SkillsApiService();
+    return service.post<HumanizationTryResponse>(`${service.endpoints.SKILL_BY_NAME(name)}/try-reply`, data);
+  }
+
   static async importSkill(data: SkillImportRequest): Promise<SkillDetail> {
     const service = new SkillsApiService();
-    return service.post<SkillDetail>(service.endpoints.SKILLS_IMPORT, data);
+    const form = new FormData();
+    form.append('file', data.file);
+    if (data.display_name) form.append('display_name', data.display_name);
+    return apiClient.postFormData<SkillDetail>(service.endpoints.SKILLS_IMPORT, form);
   }
 
   /** Update an existing project-private skill. */

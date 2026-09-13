@@ -4,7 +4,7 @@ import base64
 import binascii
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 import httpx
@@ -171,6 +171,8 @@ class WuKongIMClient:
         endpoint: str,
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
+        allow_not_found: bool = False,
+        strict_response: bool = False,
     ) -> Dict[str, Any]:
         """Make HTTP request to WuKongIM service."""
         if not self.enabled:
@@ -192,12 +194,16 @@ class WuKongIMClient:
 
             logger.debug(f"WuKongIM response: {response.status_code}")
 
+            if response.status_code == 404 and allow_not_found:
+                return {}
             # WuKongIM API returns 200 for success, other codes for errors
             if response.status_code == 200:
                 # Some endpoints return empty response body on success
                 try:
                     return response.json() if response.text else {}
-                except Exception:
+                except Exception as exc:
+                    if strict_response:
+                        raise HTTPException(502, "WuKongIM returned invalid JSON") from exc
                     return {}
 
             try:
@@ -802,6 +808,7 @@ class WuKongIMClient:
         project_id: str,
         waiting_count: int,
         client_msg_no: Optional[str] = None,
+        reason: Literal["entered", "updated"] = "entered",
     ) -> Optional[WuKongIMMessageSendResponse]:
         """Send a waiting queue updated event to notify staff of pending visitors.
 
@@ -827,6 +834,7 @@ class WuKongIMClient:
         data = {
             "project_id": project_id,
             "waiting_count": waiting_count,
+            "reason": reason,
         }
 
         logger.info(
@@ -959,6 +967,7 @@ class WuKongIMClient:
         channel_id: str,
         channel_type: int,
         client_msg_no: str,
+        raise_on_error: bool = False,
     ) -> Optional[WuKongIMMessage]:
         """Get a message by client_msg_no via POST /message.
 
@@ -966,6 +975,7 @@ class WuKongIMClient:
             channel_id: Channel ID
             channel_type: Channel type
             client_msg_no: The client message number to search for
+            raise_on_error: Distinguish lookup outages from an absent message
 
         Returns:
             WuKongIMMessage with decoded payload, or None if not found
@@ -999,6 +1009,8 @@ class WuKongIMClient:
                 method="GET",
                 endpoint="/message/byclientmsgno",
                 params=request_data,
+                allow_not_found=True,
+                strict_response=raise_on_error,
             )
 
             if not response:
@@ -1011,6 +1023,8 @@ class WuKongIMClient:
             return WuKongIMMessage(**response)
         except Exception as e:
             logger.error(f"Failed to get message by client_msg_no {client_msg_no}: {e}")
+            if raise_on_error:
+                raise
             return None
 
     async def create_channel(

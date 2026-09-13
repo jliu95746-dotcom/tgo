@@ -77,6 +77,7 @@ class MessageCallback(Protocol):
         contact_id: str,
         contact_name: str,
         message_content: str,
+        app_type: str,
         message_type: str,
     ) -> bool:
         """Notify tgo-platform about a new incoming message."""

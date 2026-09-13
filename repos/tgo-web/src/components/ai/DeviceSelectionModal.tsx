@@ -26,12 +26,15 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
   onConfirm,
 }) => {
   const navigate = useNavigate();
-  const { devices, isLoading, error, loadDevices } = useDeviceControlStore();
+  const { devices, isLoading, hasLoadedDevices, loadError, loadDevices } = useDeviceControlStore();
   const { showToast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
-  const [tempSelectedDeviceId, setTempSelectedDeviceId] = useState<string | null>(null);
+  const [tempSelectedDeviceId, setTempSelectedDeviceId] = useState<string | null>(selectedDeviceId);
   const { t } = useTranslation();
+  const listReady = hasLoadedDevices && !isLoading && !loadError;
+  const selectionMissing = tempSelectedDeviceId !== null && !devices.some((device) => device.id === tempSelectedDeviceId);
+  const canConfirm = Boolean(listReady && !selectionMissing);
 
   // Load devices when modal opens
   useEffect(() => {
@@ -68,6 +71,7 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
   };
 
   const handleConfirm = () => {
+    if (!canConfirm) return;
     onConfirm(tempSelectedDeviceId);
     onClose();
   };
@@ -120,7 +124,9 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
         <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-300">
             <span>
-              {t('agents.deviceSelectModal.totalDevices', '共 {{count}} 台设备', { count: devices.length })}
+              {listReady
+                ? t('agents.deviceSelectModal.totalDevices', '共 {{count}} 台设备', { count: devices.length })
+                : t('deviceControl.stats.unavailable')}
             </span>
             <span>
               {tempSelectedDeviceId
@@ -134,7 +140,7 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
         <div className="flex-1 overflow-y-auto min-h-0 dark:bg-gray-900">
           <div className="p-4">
             {/* Loading State */}
-            {isLoading && (
+            {(isLoading || (!hasLoadedDevices && !loadError)) && (
               <div className="flex items-center justify-center py-8">
                 <div className="text-center">
                   <RefreshCw className="w-6 h-6 animate-spin text-gray-400 dark:text-gray-500 mx-auto mb-2" />
@@ -146,8 +152,8 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
             )}
 
             {/* Error State */}
-            {error && !isLoading && (
-              <div className="flex items-center justify-center py-8">
+            {loadError && !isLoading && (
+              <div role="alert" className="flex items-center justify-center py-8">
                 <div className="text-center">
                   <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-3">
                     <X className="w-6 h-6 text-red-600 dark:text-red-400" />
@@ -155,7 +161,7 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
                   <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
                     {t('common.loadFailed', '加载失败')}
                   </h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{error}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{loadError}</p>
                   <button
                     onClick={handleRetry}
                     className="px-3 py-1.5 bg-blue-500 dark:bg-blue-600 text-white text-xs rounded hover:bg-blue-600 dark:hover:bg-blue-700 transition-colors"
@@ -167,8 +173,9 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
             )}
 
             {/* Device List */}
-            {!isLoading && !error && (
+            {listReady && (
               <div className="space-y-2">
+                {selectionMissing && <p role="alert" className="text-sm text-amber-700 dark:text-amber-400">{t('deviceControl.selectionMissing')}</p>}
                 {filteredDevices.length === 0 ? (
                   <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                     <Monitor className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -268,7 +275,8 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
           </button>
           <button
             onClick={handleConfirm}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-blue-700 border border-transparent rounded-md hover:bg-blue-700 dark:hover:bg-blue-800"
+            disabled={!canConfirm}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-blue-700 border border-transparent rounded-md hover:bg-blue-700 dark:hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {t('agents.deviceSelectModal.confirmSelection', '确认选择')}
           </button>

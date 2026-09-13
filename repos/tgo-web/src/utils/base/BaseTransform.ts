@@ -3,7 +3,7 @@
  * Provides common transformation patterns and utilities
  */
 
-import type { ToolStatus, ToolSourceType, AiToolStatus, ToolCategory, ToolStoreCategory } from '@/types';
+import type { ToolStatus, ToolSourceType, AiToolStatus, ToolCategory } from '@/types';
 import i18n from '@/i18n';
 
 
@@ -62,45 +62,6 @@ export class TransformUtils {
     if (['integration', 'api', 'webhook', 'service'].includes(category)) return 'integration';
 
     return 'integration'; // Default fallback
-  }
-
-  /**
-   * Transform string category to ToolStoreCategory object
-   */
-  static transformToStoreCategory(category: string | null): ToolStoreCategory {
-    const slug = category ? category.toLowerCase() : 'other';
-    const name_zh = category || '其他';
-    return {
-      id: slug,
-      slug: slug,
-      name_zh: name_zh,
-      name_en: category,
-      icon: 'Package',
-      label: name_zh
-    };
-  }
-
-  /**
-   * Transform API categories to ToolStoreCategory objects
-   */
-  static transformToStoreCategories(categories: any): ToolStoreCategory[] {
-    if (Array.isArray(categories)) {
-      return categories.map(cat => {
-        if (typeof cat === 'string') return this.transformToStoreCategory(cat);
-        return {
-          id: cat.id || cat.slug || 'other',
-          slug: cat.slug || cat.id || 'other',
-          name_zh: cat.name_zh || cat.name || cat.label || '其他',
-          name_en: cat.name_en || cat.name || null,
-          icon: cat.icon || 'Package',
-          label: cat.name_zh || cat.name || cat.label || '其他'
-        };
-      });
-    }
-    if (typeof categories === 'string') {
-      return [this.transformToStoreCategory(categories)];
-    }
-    return [];
   }
 
   /**

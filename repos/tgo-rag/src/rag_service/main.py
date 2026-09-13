@@ -24,11 +24,13 @@ from .routers import (
     files,
     health,
     knowledge_governance,
+    knowledge_versions,
     monitoring,
     qa,
     websites,
 )
 from .schemas.common import ErrorResponse
+from .services.request_metrics import RequestMetricsMiddleware
 from .startup_banner import (
     print_startup_banner,
     print_config_info,
@@ -237,6 +239,9 @@ def setup_middleware(app: FastAPI, settings) -> None:
             # Clean up request context
             clear_request_context()
 
+    # Observe middleware-generated replies (including CORS) as well as route replies.
+    app.add_middleware(RequestMetricsMiddleware, enabled=settings.metrics_enabled)
+
 
 def setup_routers(app: FastAPI) -> None:
     """
@@ -272,6 +277,7 @@ def setup_routers(app: FastAPI) -> None:
         tags=["Knowledge Governance"],
     )
     # Embedding configuration endpoints (no auth)
+    app.include_router(knowledge_versions.router, prefix=f"{api_v1_prefix}/knowledge-versions", tags=["Knowledge Versions"])
     app.include_router(
         embedding_config.router,
         prefix=f"{api_v1_prefix}/embedding-configs",

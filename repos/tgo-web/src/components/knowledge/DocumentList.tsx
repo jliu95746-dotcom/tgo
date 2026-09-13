@@ -93,7 +93,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
   // Filter and sort documents
   const filteredAndSortedDocuments = useMemo(() => {
-    let filtered = documents.filter(doc => {
+    const filtered = documents.filter(doc => {
       const matchesSearch = doc.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesType = !fileTypeFilter || doc.type === fileTypeFilter;
       return matchesSearch && matchesType;
@@ -154,7 +154,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   }
 
   return (
-    <div className="flex-grow p-6 h-full" style={{ height: 0 }}>
+    <div className="p-6">
 
       {/* Document Table */}
       <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md rounded-lg shadow-sm border border-gray-200/60 dark:border-gray-700/60 overflow-hidden">
@@ -230,6 +230,11 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                 {/* Status */}
                 <div>
                   {getStatusBadge(doc.statusType, doc.status)}
+                  {doc.statusType === 'error' && doc.error_message && (
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-400 break-words">
+                      {doc.error_message}
+                    </p>
+                  )}
                 </div>
 
                 {/* Actions */}

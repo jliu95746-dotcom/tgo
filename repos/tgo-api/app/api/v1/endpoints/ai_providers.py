@@ -26,6 +26,8 @@ from app.schemas.remote_model import RemoteModelListResponse, RemoteModelInfo
 from app.utils.crypto import decrypt_str, encrypt_str, mask_secret
 from app.services.ai_provider_sync import sync_provider_with_retry_and_update
 from app.services.ai_provider_default_models import resolve_initial_model_seeds
+from app.services.provider_usage import assert_provider_unused
+from app.api.v1.endpoints.provider_setup import router as setup_router
 from app.services.store_sync import sync_uninstall_models_to_store, sync_uninstall_all_provider_models
 
 logger = get_logger("endpoints.ai_providers")
@@ -201,6 +203,7 @@ def _parse_remote_models(provider: str, data: Any) -> list[RemoteModelInfo]:
 
 
 router = APIRouter()
+router.include_router(setup_router)
 
 
 @router.get("/{provider_id}/remote-models", response_model=RemoteModelListResponse)
@@ -364,7 +367,10 @@ async def create_ai_provider(
 ) -> AIProviderResponse:
     """Create a new AI provider configuration for current project."""
 
-    initial_model_seeds = resolve_initial_model_seeds(db, payload.provider, payload.available_models)
+    requested = payload.available_models or []
+    model_details = {model.model_id: model for model in requested if isinstance(model, AIModelInput)}
+    requested_ids = [model if isinstance(model, str) else model.model_id for model in requested]
+    initial_model_seeds = resolve_initial_model_seeds(db, payload.provider, requested_ids)
     initial_model_ids = [seed.model_id for seed in initial_model_seeds]
 
     if payload.default_model and payload.default_model not in initial_model_ids:
@@ -391,7 +397,8 @@ async def create_ai_provider(
             provider=item.provider,
             model_id=seed.model_id,
             model_name=seed.model_name,
-            model_type=seed.model_type,
+            model_type=model_details[seed.model_id].model_type if seed.model_id in model_details else seed.model_type,
+            capabilities=model_details[seed.model_id].capabilities if seed.model_id in model_details else None,
             is_active=True
         )
         db.add(model_record)
@@ -494,8 +501,11 @@ async def update_ai_provider(
         new_available = current_available
 
     new_default = data.get("default_model", item.default_model)
-    if new_default and new_available and new_default not in new_available:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="default_model must be in available_models")
+    removed_models = set(current_available) - set(new_available)
+    if removed_models:
+        await assert_provider_unused(db, current_user.project_id, item.id, removed_models)
+    if new_default and new_default not in new_available:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="此模型仍是该服务的默认模型，不能移除")
 
     # Handle secret update with encryption (ignore empty to keep existing)
     if "api_key" in data:
@@ -618,6 +628,8 @@ async def delete_ai_provider(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI provider not found")
 
+    await assert_provider_unused(db, current_user.project_id, provider_id)
+
     # Soft delete and mark inactive, then sync remote as inactive
     now = datetime.utcnow()
     item.is_active = False
@@ -682,11 +694,18 @@ async def delete_provider_model(
     if not model:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
 
+    await assert_provider_unused(db, current_user.project_id, provider_id, {model_id})
+    if item.default_model == model_id:
+        raise HTTPException(409, '此模型仍是服务的兼容默认模型，请先指定其他默认模型后删除')
     model.deleted_at = datetime.utcnow()
     db.add(model)
     db.commit()
 
     logger.info("Deleted model from provider", extra={"provider_id": str(provider_id), "model_id": model_id})
+    try:
+        await sync_provider_with_retry_and_update(db, item)
+    except Exception:
+        logger.warning("AIProvider sync after model removal failed", extra={"id": str(item.id)})
     return None
 
 

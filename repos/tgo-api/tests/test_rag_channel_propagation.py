@@ -94,6 +94,7 @@ async def test_chat_service_forwards_channel_to_streaming_ai_client(
             yield "message", {}
 
     monkeypatch.setattr(chat_service.ai_client, "run_supervisor_agent_stream", fake_stream)
+    monkeypatch.setattr(chat_service, "forward_ai_event_to_wukongim", AsyncMock())
 
     events = [
         event
@@ -109,5 +110,5 @@ async def test_chat_service_forwards_channel_to_streaming_ai_client(
         )
     ]
 
-    assert events == []
+    assert [event["event_type"] for event in events] == ["workflow_failed"]
     assert captured["knowledge_channel"] == "wecom_kf"

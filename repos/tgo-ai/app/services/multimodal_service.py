@@ -342,7 +342,7 @@ class MultimodalService:
             if request.media_type is MediaType.VOICE:
                 fallback_message = "语音识别失败，请重新发送语音或转人工处理。"
             elif status is MediaAnalysisStatus.PARTIAL:
-                fallback_message = "图片识别结果不完整，已转人工进一步处理。"
+                fallback_message = "这张图片没能完整识别，可以补充文字说明或联系人工客服。"
             else:
                 fallback_message = "图片识别失败，请重新发送图片或转人工处理。"
 

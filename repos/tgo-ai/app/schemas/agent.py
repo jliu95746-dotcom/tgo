@@ -57,6 +57,10 @@ class AgentToolResponse(AgentToolBase, IDMixin, TimestampMixin):
 class AgentBase(BaseSchema):
     """Base agent schema with common fields."""
 
+    humanization_skill_name: Optional[str] = Field(default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]{1,63}$")
+    humanization_skill_enabled: bool = False
+    is_active: bool = Field(default=True, description="Whether the agent accepts new runs")
+
     name: str = Field(
         max_length=255,
         description="Agent name",
@@ -147,6 +151,25 @@ class AgentUpdate(BaseSchema):
     """Schema for updating an existing agent."""
 
     model_config = ConfigDict(extra="forbid")
+
+    humanization_skill_name: Optional[str] = Field(default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]{1,63}$")
+    humanization_skill_enabled: Optional[bool] = None
+
+    @field_validator("humanization_skill_enabled")
+    @classmethod
+    def style_switch_not_null(cls, value: Optional[bool]) -> bool:
+        if value is None:
+            raise ValueError("humanization_skill_enabled must be true or false")
+        return value
+
+    is_active: Optional[bool] = Field(default=None, description="Enable or disable new runs; existing runs are not cancelled")
+
+    @field_validator("is_active")
+    @classmethod
+    def activation_must_not_be_null(cls, value: Optional[bool]) -> bool:
+        if value is None:
+            raise ValueError("is_active must be true or false")
+        return value
 
     name: Optional[str] = Field(
         default=None,

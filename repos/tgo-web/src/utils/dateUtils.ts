@@ -20,7 +20,7 @@ export function parseAPITimestampToLocalDate(iso?: string | null): Date | null {
     const d = new Date(s);
     if (!Number.isFinite(d.getTime())) {
       // Fallback: manual UTC parse or more aggressive cleaning
-      const cleanS = s.split('.')[0] + 'Z';
+      const cleanS = `${s.split('.')[0]  }Z`;
       const d2 = new Date(cleanS);
       if (Number.isFinite(d2.getTime())) return d2;
 

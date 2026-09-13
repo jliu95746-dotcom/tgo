@@ -137,8 +137,6 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
                 assigned_count = 0
                 for entry in waiting_entries:
                     try:
-                        entry.record_attempt()
-                        
                         result = await transfer_to_staff(
                             db=db,
                             visitor_id=entry.visitor_id,
@@ -151,10 +149,10 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
                             auto_commit=False,
                             ai_disabled=entry.ai_disabled,
                             add_to_queue_if_no_staff=False,  # Already in queue
+                            expected_queue_entry_id=entry.id,
                         )
                         
                         if result.success and result.assigned_staff_id:
-                            entry.assign_to_staff(result.assigned_staff_id)
                             db.commit()
                             assigned_count += 1
                             logger.info(
@@ -241,8 +239,6 @@ async def trigger_queue_for_entry(entry_id: UUID) -> bool:
                     logger.debug(f"Queue entry {entry_id} not found or not waiting")
                     return False
                 
-                entry.record_attempt()
-                
                 result = await transfer_to_staff(
                     db=db,
                     visitor_id=entry.visitor_id,
@@ -255,10 +251,10 @@ async def trigger_queue_for_entry(entry_id: UUID) -> bool:
                     auto_commit=False,
                     ai_disabled=entry.ai_disabled,
                     add_to_queue_if_no_staff=False,  # Already in queue
+                    expected_queue_entry_id=entry.id,
                 )
                 
                 if result.success and result.assigned_staff_id:
-                    entry.assign_to_staff(result.assigned_staff_id)
                     db.commit()
                     logger.info(
                         f"Queue entry {entry_id} immediately assigned to staff {result.assigned_staff_id}",

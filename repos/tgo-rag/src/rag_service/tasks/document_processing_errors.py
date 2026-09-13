@@ -96,6 +96,23 @@ class DocumentProcessingError(Exception):
         }
 
 
+def safe_processing_failure(error: Exception) -> str:
+    """Describe the failed step without exposing provider or database secrets."""
+    if "No active embedding configuration" in str(error):
+        return "尚未配置可用的向量模型，请在模型设置中配置后重试。"
+    if isinstance(error, DocumentProcessingError):
+        labels = {
+            ProcessingStep.LOADING_FILE: "读取文件",
+            ProcessingStep.EXTRACTING_CONTENT: "提取正文",
+            ProcessingStep.CHUNKING_DOCUMENTS: "拆分正文",
+            ProcessingStep.GENERATING_EMBEDDINGS: "生成向量",
+            ProcessingStep.STORING_DOCUMENTS: "保存正文",
+            ProcessingStep.UPDATING_STATUS: "保存状态",
+        }
+        return f"{labels[error.step]}失败，请检查后台日志后重试。"
+    return f"文件处理失败（{type(error).__name__}），请检查后台日志后重试。"
+
+
 async def _handle_processing_error(
     file_uuid: UUID,
     file_id: str,

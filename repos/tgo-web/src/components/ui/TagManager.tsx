@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { X, Check, Edit3, RefreshCw } from 'lucide-react';
-import type { VisitorTag } from '@/data/mockVisitor';
+import type { VisitorTag } from '@/types/visitor';
 
 interface SuggestedTag {
   id: string;
@@ -184,7 +184,7 @@ const TagManager: React.FC<TagManagerProps> = ({
       setSuggestionsError(null);
       const data = await fetchCommonTags();
       setSuggestions(data);
-    } catch (e) {
+    } catch {
       setSuggestionsError(t('visitor.tags.common.loadFailed', '获取常用标签失败'));
     } finally {
       setSuggestionsLoading(false);
@@ -270,7 +270,7 @@ const TagManager: React.FC<TagManagerProps> = ({
               style={{
                 backgroundColor: colorConfig.bgHex,
                 color: colorConfig.textHex,
-                borderColor: colorConfig.hex + '40' // 添加透明度
+                borderColor: `${colorConfig.hex  }40` // 添加透明度
               }}
             >
               {tag.name}
@@ -469,7 +469,7 @@ const TagManager: React.FC<TagManagerProps> = ({
                 style={{
                   backgroundColor: presetColorConfig.bgHex,
                   color: presetColorConfig.textHex,
-                  borderColor: presetColorConfig.hex + '40'
+                  borderColor: `${presetColorConfig.hex  }40`
                 }}
               >
                 {preset.display_name}

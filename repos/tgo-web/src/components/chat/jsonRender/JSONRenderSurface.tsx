@@ -87,7 +87,7 @@ function formatActionMessage(
 export const JSONRenderSurface: React.FC<JSONRenderSurfaceProps> = ({ spec, loading, onSendMessage }) => {
   const stateKey = useMemo(() => JSON.stringify(spec?.state ?? {}), [spec?.state]);
 
-  const store = useMemo(() => createStateStore(spec?.state ?? {}), [stateKey]);
+  const store = useMemo(() => createStateStore(JSON.parse(stateKey) as StateModel), [stateKey]);
 
   const actionHandlers = useMemo(() => {
     const handlers: Record<string, (params: Record<string, unknown>) => Promise<void>> = {};

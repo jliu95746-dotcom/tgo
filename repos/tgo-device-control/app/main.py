@@ -1,15 +1,18 @@
 """FastAPI application entry point for TGO Device Control Service."""
 
-import asyncio
 import json
 from contextlib import asynccontextmanager
+from uuid import UUID
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from app.config import settings
 from app.core.logging import setup_logging, startup_log
+from app.core.device_auth import require_bound_device, require_management_project, require_service_principal
+from app.schemas.device_access import DeviceServicePrincipal
+from app.schemas.device_debug import DeviceDebugResponse
 
 # Setup logging
 setup_logging()
@@ -27,13 +30,11 @@ async def lifespan(application: FastAPI):
     startup_log("=" * 64)
 
     # Debug: Log configuration
-    startup_log(f"[DEBUG] Configuration:")
+    startup_log("[DEBUG] Configuration:")
     startup_log(f"[DEBUG]   HTTP HOST: {settings.HOST}")
     startup_log(f"[DEBUG]   HTTP PORT: {settings.PORT}")
     startup_log(f"[DEBUG]   TCP_RPC_HOST: {settings.TCP_RPC_HOST}")
     startup_log(f"[DEBUG]   TCP_RPC_PORT: {settings.TCP_RPC_PORT}")
-    startup_log(f"[DEBUG]   REDIS_URL: {settings.REDIS_URL}")
-    startup_log(f"[DEBUG]   DATABASE_URL: {settings.DATABASE_URL[:50]}...")
     startup_log(f"[DEBUG]   ENVIRONMENT: {settings.ENVIRONMENT}")
     startup_log(f"[DEBUG]   DEBUG: {settings.DEBUG}")
     startup_log(f"[DEBUG]   LOG_LEVEL: {settings.LOG_LEVEL}")
@@ -45,7 +46,11 @@ async def lifespan(application: FastAPI):
 
     # Start TCP RPC server
     startup_log("[DEBUG] Starting TCP RPC server...")
-    await tcp_rpc_server.start()
+    try:
+        await tcp_rpc_server.start()
+    except BaseException:
+        await tcp_connection_manager.shutdown()
+        raise
     startup_log("[DEBUG] TCP RPC server started")
 
     startup_log(f"   HTTP API: http://0.0.0.0:{settings.PORT}")
@@ -57,12 +62,12 @@ async def lifespan(application: FastAPI):
     startup_log("Device Control Service is ready!")
     startup_log("=" * 64)
 
-    yield
-
-    # Shutdown logic
-    startup_log("Shutting down Device Control Service...")
-    await tcp_rpc_server.stop()
-    await tcp_connection_manager.shutdown()
+    try:
+        yield
+    finally:
+        startup_log("Shutting down Device Control Service...")
+        await tcp_rpc_server.stop()
+        await tcp_connection_manager.shutdown()
 
 
 app = FastAPI(
@@ -101,29 +106,35 @@ async def health_check():
 
     tcp_server_status = "unknown"
     if tcp_rpc_server.server:
-        tcp_server_status = (
-            "serving" if tcp_rpc_server.server.is_serving() else "not_serving"
-        )
+        tcp_server_status = "serving" if tcp_rpc_server.server.is_serving() else "not_serving"
     else:
         tcp_server_status = "not_started"
 
-    return {
-        "status": "healthy",
-        "connected_devices": tcp_connection_manager.get_connected_count(),
-        "tcp_server": {
-            "status": tcp_server_status,
-            "host": settings.TCP_RPC_HOST,
-            "port": settings.TCP_RPC_PORT,
+    healthy = tcp_server_status == "serving"
+    return JSONResponse(
+        {
+            "status": "healthy" if healthy else "unhealthy",
+            "connected_devices": tcp_connection_manager.get_connected_count(),
+            "tcp_server": {
+                "status": tcp_server_status,
+                "host": settings.TCP_RPC_HOST,
+                "port": settings.TCP_RPC_PORT,
+            },
         },
-    }
+        status_code=200 if healthy else 503,
+    )
 
 
 # ------------------------------------------------------------------ #
 #  MCP Streamable HTTP endpoint: /mcp/{device_id}                     #
 # ------------------------------------------------------------------ #
 
-@app.post("/mcp/{device_id}")
-async def mcp_streamable_http(device_id: str, request: Request):
+
+@app.post("/mcp/{device_id}", dependencies=[Depends(require_bound_device)])
+async def mcp_streamable_http(
+    device_id: UUID, request: Request,
+    principal: DeviceServicePrincipal = Depends(require_service_principal),
+):
     """MCP Streamable HTTP endpoint – transparent proxy to a device.
 
     Implements the MCP Streamable HTTP transport protocol:
@@ -149,14 +160,25 @@ async def mcp_streamable_http(device_id: str, request: Request):
             status_code=400,
         )
 
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32600, "message": "Invalid Request"},
+            },
+            status_code=400,
+        )
     try:
-        response = await mcp_proxy.handle_jsonrpc(device_id, body)
-    except Exception as e:
+        response = await mcp_proxy.handle_jsonrpc(str(device_id), body, principal)
+    except HTTPException:
+        raise
+    except Exception:
         return JSONResponse(
             {
                 "jsonrpc": "2.0",
                 "id": body.get("id"),
-                "error": {"code": -32603, "message": str(e)},
+                "error": {"code": -32603, "message": "Internal device service error"},
             },
             status_code=500,
         )
@@ -179,20 +201,19 @@ app.include_router(api_v1_router, prefix="/v1")
 
 
 @app.get("/debug/status")
-async def debug_status():
+async def debug_status(project_id: UUID = Depends(require_management_project)) -> DeviceDebugResponse:
     """Debug endpoint to check service status and connectivity."""
     from app.services.tcp_connection_manager import tcp_connection_manager
     from app.services.tcp_rpc_server import tcp_rpc_server
     from app.services.bind_code_service import bind_code_service
     import socket
 
-    result = {
+    result: DeviceDebugResponse = {
         "config": {
             "tcp_rpc_host": settings.TCP_RPC_HOST,
             "tcp_rpc_port": settings.TCP_RPC_PORT,
             "http_host": settings.HOST,
             "http_port": settings.PORT,
-            "redis_url": settings.REDIS_URL,
             "environment": settings.ENVIRONMENT,
             "log_level": settings.LOG_LEVEL,
         },
@@ -204,9 +225,7 @@ async def debug_status():
     # TCP Server status
     if tcp_rpc_server.server:
         result["tcp_server"]["is_serving"] = tcp_rpc_server.server.is_serving()
-        result["tcp_server"]["sockets"] = [
-            str(s.getsockname()) for s in tcp_rpc_server.server.sockets
-        ]
+        result["tcp_server"]["sockets"] = [str(s.getsockname()) for s in tcp_rpc_server.server.sockets]
     else:
         result["tcp_server"]["is_serving"] = False
         result["tcp_server"]["error"] = "Server not started"
@@ -217,9 +236,7 @@ async def debug_status():
         sock.settimeout(1)
         local_result = sock.connect_ex(("127.0.0.1", settings.TCP_RPC_PORT))
         sock.close()
-        result["tcp_server"]["local_port_check"] = (
-            "accessible" if local_result == 0 else f"error_code_{local_result}"
-        )
+        result["tcp_server"]["local_port_check"] = "accessible" if local_result == 0 else f"error_code_{local_result}"
     except Exception as e:
         result["tcp_server"]["local_port_check"] = f"error: {e}"
 
@@ -227,12 +244,14 @@ async def debug_status():
     try:
         await bind_code_service.redis.ping()
         result["redis"]["status"] = "connected"
-        # List bind codes
-        keys = await bind_code_service.redis.keys("dc:bind_code:*")
-        result["redis"]["active_bind_codes"] = len(keys)
-        result["redis"]["bind_code_keys"] = keys[:10]  # Show first 10
+        # Diagnostic counts must never reveal one-time registration credentials.
+        count = 0
+        async for key in bind_code_service.redis.scan_iter(match="dc:bind_code:*"):
+            if await bind_code_service.redis.get(key) == str(project_id):
+                count += 1
+        result["redis"]["active_bind_codes"] = count
     except Exception as e:
-        result["redis"]["status"] = f"error: {e}"
+        result["redis"]["status"] = f"error: {type(e).__name__}"
 
     # Active connections
     connections = tcp_connection_manager.list_connections()
@@ -246,6 +265,7 @@ async def debug_status():
             "last_seen": c.last_seen.isoformat(),
         }
         for c in connections
+        if c.project_id == str(project_id)
     ]
 
     return result

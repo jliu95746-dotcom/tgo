@@ -106,6 +106,11 @@ class WorkerManager:
         Returns:
             True if workers started successfully
         """
+        from app.domain.base.app_automator import AppAutomatorFactory
+
+        if app_type not in AppAutomatorFactory.get_supported_apps():
+            logger.warning("Skipping unsupported application type: %s", app_type)
+            return False
         async with self._lock:
             # Check if workers already exist
             if platform_id in self._workers:

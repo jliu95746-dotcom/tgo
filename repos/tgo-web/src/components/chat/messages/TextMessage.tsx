@@ -1,7 +1,6 @@
 import React from 'react';
 import MarkdownContent from '../MarkdownContent';
-import type { Message } from '@/types';
-import { MessagePayloadType } from '@/types';
+import { MessagePayloadType, type Message } from '@/types';
 
 /**
  * Streaming cursor animation component

@@ -8,7 +8,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -31,7 +31,7 @@ from ..schemas.collections import (
 )
 from ..schemas.common import ErrorResponse
 from ..schemas.common import PaginationMetadata
-from ..schemas.search import SearchResponse
+from ..schemas.search import AutomaticAnswerSearchResponse, SearchResponse
 from ..schemas.websites import (
     CrawlProgressSchema,
     WebsitePageListResponse,
@@ -259,8 +259,17 @@ async def create_collection(
                         f"Auto-triggered crawl for website collection {collection.id}, "
                         f"page {new_page.id}, task {task.id}"
                     )
-                except Exception as e:
-                    logger.warning(f"Failed to trigger crawl task for collection {collection.id}: {e}")
+                except Exception as error:
+                    logger.warning("Initial website crawl dispatch failed",
+                                   error_type=type(error).__name__)
+                    await db.execute(update(WebsitePage).where(
+                        WebsitePage.id == new_page.id,
+                        WebsitePage.project_id == project_id,
+                        WebsitePage.status == "pending",
+                    ).values(status="failed", error_message=(
+                        "抓取任务未能提交，请稍后点击重新抓取。"
+                    )))
+                    await db.commit()
 
     # Create response manually with file_count = 0 (new collection has no files)
     return CollectionResponse(
@@ -665,7 +674,7 @@ async def delete_collection(
             Collection.project_id == project_id,
             Collection.deleted_at.is_(None)
         )
-    )
+    ).with_for_update()
 
     result = await db.execute(query)
     collection = result.scalar_one_or_none()
@@ -686,21 +695,21 @@ async def delete_collection(
             pages_result = await db.execute(pages_query)
             pages = list(pages_result.scalars().all())
 
-            # Collect file IDs from pages
-            file_ids = [page.file_id for page in pages if page.file_id]
-
             # Delete all pages
             await db.execute(
-                delete(WebsitePage).where(WebsitePage.collection_id == collection_id)
+                delete(WebsitePage).where(
+                    WebsitePage.collection_id == collection_id,
+                    WebsitePage.project_id == project_id,
+                )
             )
             logger.info(f"Deleted {len(pages)} WebsitePage records for collection {collection_id}")
-        else:
-            # For non-website collections, get file IDs directly
-            files_query = select(FileModel.id).where(
-                FileModel.collection_id == collection_id
-            )
-            files_result = await db.execute(files_query)
-            file_ids = [row[0] for row in files_result.fetchall()]
+        # Include older published and failed crawl versions, not only page.file_id.
+        files_query = select(FileModel.id).where(
+            FileModel.collection_id == collection_id,
+            FileModel.project_id == project_id,
+        )
+        files_result = await db.execute(files_query)
+        file_ids = [row[0] for row in files_result.fetchall()]
 
         # Delete FileDocuments and Files
         if file_ids:
@@ -918,7 +927,7 @@ async def search_collection_documents(
 
 @router.post(
     "/{collection_id}/documents/search/automatic-answer",
-    response_model=SearchResponse,
+    response_model=AutomaticAnswerSearchResponse,
     responses={
         404: {"model": ErrorResponse, "description": "Collection not found or not accessible"},
         422: {"model": ErrorResponse, "description": "Missing or invalid knowledge channel"},
@@ -930,7 +939,7 @@ async def search_collection_documents_for_automatic_answer(
     search_request: AutomaticAnswerSearchRequest,
     project_id: UUID = Query(..., description="Project ID"),
     db: AsyncSession = Depends(get_db_session_dependency),
-) -> SearchResponse:
+) -> AutomaticAnswerSearchResponse:
     """Search only approved, current knowledge allowed for the request channel."""
     collection_query = select(Collection).where(
         and_(

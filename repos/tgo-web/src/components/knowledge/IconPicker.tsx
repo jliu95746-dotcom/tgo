@@ -7,38 +7,38 @@ import i18n from '@/i18n';
 // Icon color mapping for semantic visual distinction
 const ICON_COLOR_MAP = {
   // Blue family - Documentation and books
-  'Book': 'text-blue-600',
-  'BookOpen': 'text-blue-500',
-  'FileText': 'text-blue-700',
-  'Library': 'text-blue-600',
-  'Bookmark': 'text-blue-500',
+  Book: 'text-blue-600',
+  BookOpen: 'text-blue-500',
+  FileText: 'text-blue-700',
+  Library: 'text-blue-600',
+  Bookmark: 'text-blue-500',
 
   // Green family - Data and storage
-  'Database': 'text-green-600',
-  'HardDrive': 'text-green-700',
-  'Archive': 'text-green-500',
-  'Package': 'text-green-600',
-  'FolderOpen': 'text-green-500',
+  Database: 'text-green-600',
+  HardDrive: 'text-green-700',
+  Archive: 'text-green-500',
+  Package: 'text-green-600',
+  FolderOpen: 'text-green-500',
 
   // Purple family - Intelligence and learning
-  'Brain': 'text-purple-600',
-  'GraduationCap': 'text-purple-500',
-  'Lightbulb': 'text-purple-700',
-  'Target': 'text-purple-600',
+  Brain: 'text-purple-600',
+  GraduationCap: 'text-purple-500',
+  Lightbulb: 'text-purple-700',
+  Target: 'text-purple-600',
 
   // Orange family - Business and work
-  'Briefcase': 'text-orange-600',
-  'Layers': 'text-orange-500',
+  Briefcase: 'text-orange-600',
+  Layers: 'text-orange-500',
 
   // Yellow family - Energy and highlights
-  'Zap': 'text-yellow-600',
-  'Star': 'text-yellow-500',
+  Zap: 'text-yellow-600',
+  Star: 'text-yellow-500',
 
   // Red family - Important and favorites
-  'Heart': 'text-red-500',
+  Heart: 'text-red-500',
 
   // Teal family - Global and connectivity
-  'Globe': 'text-teal-600',
+  Globe: 'text-teal-600',
 } as const;
 
 // Common knowledge base icons with color mapping

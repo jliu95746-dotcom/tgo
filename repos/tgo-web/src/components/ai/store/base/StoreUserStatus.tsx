@@ -17,7 +17,7 @@ const StoreUserStatus: React.FC<StoreUserStatusProps> = ({
       const config = await storeApi.getStoreConfig();
       const rechargeUrl = `${config.store_web_url}/account?recharge=true`;
       window.open(rechargeUrl, '_blank');
-    } catch (e) {
+    } catch {
       window.open('https://store.tgo.ai/account?recharge=true', '_blank');
     }
   };

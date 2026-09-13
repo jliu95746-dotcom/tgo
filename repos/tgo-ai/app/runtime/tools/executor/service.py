@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
@@ -18,6 +20,7 @@ from app.config import settings
 from app.core.logging import get_logger
 from app.runtime.tools.builder.agent_builder import AgentBuilder
 from app.runtime.tools.config import ToolsRuntimeSettings
+from app.runtime.tools.mcp_lifecycle import mcp_request_scope
 from app.runtime.tools.models import (
     AgentRunRequest,
     AgentRunResponse,
@@ -45,6 +48,10 @@ class ToolsRuntimeService:
         self._logger = get_logger(__name__)
 
     async def run_agent(self, request: AgentRunRequest) -> AgentRunResponse:
+        async with mcp_request_scope():
+            return await self._run_agent(request)
+
+    async def _run_agent(self, request: AgentRunRequest) -> AgentRunResponse:
         """执行非流式智能体调用.
 
         Args:
@@ -153,6 +160,12 @@ class ToolsRuntimeService:
         )
 
     async def stream_agent(self, request: AgentRunRequest) -> AsyncIterator[StreamEventType]:
+        async with mcp_request_scope():
+            async with aclosing(self._stream_agent(request)) as stream:
+                async for event in stream:
+                    yield event
+
+    async def _stream_agent(self, request: AgentRunRequest) -> AsyncGenerator[StreamEventType, None]:
         """执行流式智能体调用, 返回事件流.
 
         Args:
@@ -223,7 +236,9 @@ class ToolsRuntimeService:
             response_stream = agent.arun(
                 request.message,
                 stream=True,
-                stream_intermediate_steps=request.stream_intermediate_steps,
+                # Completion/error events are required even when intermediate
+                # tool steps are hidden from the caller.
+                stream_events=True,
                 session_id=request.session_id,
                 user_id=request.user_id,
             )
@@ -244,10 +259,31 @@ class ToolsRuntimeService:
             ) from exc
 
         # Process stream events
+        terminal_seen = False
+        tool_records: list[ToolExecution] = []
         try:
             async for event in response_stream:
                 try:
                     converted = self._convert_agno_event(event)
+                    if terminal_seen:
+                        continue
+                    if isinstance(converted, ToolCallStreamEvent):
+                        if converted.status == "completed":
+                            tool_records.append(ToolExecution(
+                                tool_call_id=converted.tool_call_id,
+                                tool_name=converted.tool_name,
+                                tool_args=converted.tool_input,
+                                result=converted.tool_output,
+                                tool_call_error=converted.tool_call_error,
+                            ))
+                        if not request.stream_intermediate_steps:
+                            continue
+                    if isinstance(converted, CompleteStreamEvent):
+                        terminal_seen = True
+                        if converted.final_response is not None:
+                            converted.final_response.tools = tool_records or None
+                    elif isinstance(converted, ErrorStreamEvent):
+                        terminal_seen = True
                     if converted:
                         yield converted
                 except Exception as e:
@@ -280,6 +316,17 @@ class ToolsRuntimeService:
                 user_id=request.user_id,
                 error=str(exc)
             ) from exc
+        finally:
+            # Finish the model generator before releasing its MCP connections.
+            if isinstance(response_stream, AsyncGenerator):
+                await response_stream.aclose()
+
+        if not terminal_seen:
+            yield ErrorStreamEvent(
+                error="Agent stream ended without a completion event",
+                error_type="IncompleteStream",
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
 
         self._logger.debug(
             "Agent streaming completed",

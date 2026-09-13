@@ -11,6 +11,7 @@ $ragDirectory = Join-Path $script:RepoRoot 'repos\tgo-rag'
 $platformDirectory = Join-Path $script:RepoRoot 'repos\tgo-platform'
 $workflowDirectory = Join-Path $script:RepoRoot 'repos\tgo-workflow'
 $deviceDirectory = Join-Path $script:RepoRoot 'repos\tgo-device-control'
+$pluginDirectory = Join-Path $script:RepoRoot 'repos\tgo-plugin-runtime'
 $webDirectory = Join-Path $script:RepoRoot 'repos\tgo-web'
 $widgetDirectory = Join-Path $script:RepoRoot 'repos\tgo-widget-js'
 $apiPython = Join-Path $apiDirectory '.venv\Scripts\python.exe'
@@ -19,6 +20,7 @@ $ragPython = Join-Path $ragDirectory '.venv\Scripts\python.exe'
 $platformPython = Join-Path $platformDirectory '.venv\Scripts\python.exe'
 $workflowPython = Join-Path $workflowDirectory '.venv\Scripts\python.exe'
 $devicePython = Join-Path $deviceDirectory '.venv\Scripts\python.exe'
+$pluginPython = Join-Path $pluginDirectory '.venv\Scripts\python.exe'
 $viteScript = Join-Path $webDirectory 'node_modules\vite\bin\vite.js'
 $widgetViteScript = Join-Path $widgetDirectory 'node_modules\vite\bin\vite.js'
 $node = (Get-Command node -ErrorAction Stop).Source
@@ -30,6 +32,7 @@ foreach ($requiredPath in @(
     $platformPython,
     $workflowPython,
     $devicePython,
+    $pluginPython,
     $viteScript,
     $widgetViteScript
 )) {
@@ -216,26 +219,6 @@ $processes += Start-NativeProcess `
     -WorkingDirectory $ragDirectory
 Save-ProcessState -Processes $processes
 
-if (-not $SkipRagWorker) {
-    $processes += Start-NativeProcess `
-        -Name 'tgo-rag-worker' `
-        -FilePath $ragPython `
-        -ArgumentList @(
-            '-m',
-            'celery',
-            '-A',
-            'src.rag_service.tasks.celery_app',
-            'worker',
-            '--pool=solo',
-            '--loglevel=info',
-            '--hostname=worker@tgo-rag-native',
-            '-Q',
-            'document_processing,embedding,website_crawling,qa_processing,celery'
-        ) `
-        -WorkingDirectory $ragDirectory
-    Save-ProcessState -Processes $processes
-}
-
 Set-NativeEnvironment -Service workflow
 $processes += Start-NativeProcess `
     -Name 'tgo-workflow' `
@@ -279,6 +262,9 @@ Wait-Http -Url "http://127.0.0.1:$webPort/chat" -Label 'tgo-web'
 Wait-Http -Url "http://127.0.0.1:$webPort/api/v1/setup/status" -Label 'tgo-web API proxy'
 Wait-Http -Url 'http://127.0.0.1:5174/' -Label 'tgo-widget-js'
 
+& (Join-Path $PSScriptRoot 'start-background.ps1') `
+    -SkipRagWorker:$SkipRagWorker -SkipMigrations:$SkipMigrations
+
 Write-Host ''
 Write-Host 'Hybrid native development stack is ready:'
 Write-Host "  Admin UI:     http://127.0.0.1:$webPort/chat"
@@ -288,6 +274,7 @@ Write-Host '  TGO AI:       http://127.0.0.1:8081'
 Write-Host '  TGO RAG:      http://127.0.0.1:18082'
 Write-Host '  Platform:     http://127.0.0.1:8003'
 Write-Host '  Workflow:     http://127.0.0.1:8004'
+Write-Host '  Plugins:      http://127.0.0.1:8090'
 Write-Host '  Device HTTP:  http://127.0.0.1:8085'
 Write-Host '  Device TCP:   0.0.0.0:9876'
 Write-Host '  Visitor UI:   http://127.0.0.1:5174'

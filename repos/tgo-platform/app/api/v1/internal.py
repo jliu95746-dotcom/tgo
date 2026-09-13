@@ -92,7 +92,7 @@ class VisionAgentInboundMessage(BaseModel):
     """Inbound message from tgo-vision-agent."""
 
     platform_id: str = Field(..., description="Platform ID (UUID string)")
-    platform_type: str = Field(..., description="Platform type (e.g., wechat_personal)")
+    platform_type: str = Field(..., description="Platform type (e.g., douyin_personal)")
     from_uid: str = Field(..., description="Contact/sender ID")
     content: str = Field(..., description="Message content")
     msg_type: int = Field(default=1, description="Message type: 1=text, 2=image, etc.")
@@ -133,6 +133,11 @@ async def vision_agent_inbound(
         )
         if not platform:
             raise HTTPException(status_code=404, detail="Platform not found or inactive")
+
+        if platform.type == "wechat_personal" or msg.platform_type == "wechat_personal":
+            raise HTTPException(status_code=410, detail="This channel has been retired")
+        if platform.type != msg.platform_type:
+            raise HTTPException(status_code=400, detail="Platform type mismatch")
 
         if not platform.api_key:
             raise HTTPException(status_code=400, detail="Platform has no API key configured")

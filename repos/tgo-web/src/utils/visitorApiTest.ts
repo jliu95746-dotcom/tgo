@@ -3,8 +3,7 @@
  * 用于测试访客属性更新功能
  */
 
-import { visitorApiService } from '@/services/visitorApi';
-import type { VisitorAttributesUpdateRequest } from '@/services/visitorApi';
+import { visitorApiService, type VisitorAttributesUpdateRequest } from '@/services/visitorApi';
 
 /**
  * 测试访客属性更新功能
@@ -39,10 +38,10 @@ export const testVisitorAttributeUpdate = async (visitorId: string): Promise<voi
     console.log('🧪 测试自定义属性更新...');
     const customAttributesUpdate: VisitorAttributesUpdateRequest = {
       custom_attributes: {
-        '兴趣爱好': '阅读、旅行',
-        '购买意向': '高',
-        '预算范围': '10万-50万',
-        '决策周期': '3个月内'
+        兴趣爱好: '阅读、旅行',
+        购买意向: '高',
+        预算范围: '10万-50万',
+        决策周期: '3个月内'
       }
     };
 
@@ -69,10 +68,10 @@ export const testVisitorAttributeUpdate = async (visitorId: string): Promise<voi
       source: '朋友推荐',
       note: '这是一个综合功能测试的备注信息，包含了所有可更新的字段。',
       custom_attributes: {
-        '测试类型': '综合测试',
-        '测试时间': new Date().toISOString(),
-        '测试状态': '进行中',
-        '优先级': '高'
+        测试类型: '综合测试',
+        测试时间: new Date().toISOString(),
+        测试状态: '进行中',
+        优先级: '高'
       }
     };
 

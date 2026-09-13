@@ -53,6 +53,19 @@ async def save_file_governance_draft(
     return KnowledgeGovernanceRecordResponse.model_validate(result)
 
 
+@router.put("/qa-pairs/{qa_pair_id}", response_model=KnowledgeGovernanceRecordResponse)
+async def save_qa_governance_draft(
+    qa_pair_id: UUID,
+    request: KnowledgeGovernanceDraftRequest,
+    current_user: Staff = Depends(get_current_active_user),
+) -> KnowledgeGovernanceRecordResponse:
+    result = await rag_client.save_qa_knowledge_governance(
+        project_id=str(current_user.project_id), qa_pair_id=str(qa_pair_id),
+        data=request.model_dump(mode="json", exclude_none=True),
+    )
+    return KnowledgeGovernanceRecordResponse.model_validate(result)
+
+
 @router.post("/{record_id}/submit", response_model=KnowledgeGovernanceRecordResponse)
 async def submit_governance_record(
     record_id: UUID,

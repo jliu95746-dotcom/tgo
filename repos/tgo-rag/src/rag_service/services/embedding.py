@@ -207,8 +207,10 @@ class Qwen3EmbeddingClient(BaseEmbeddingClient):
             return embeddings
 
         except Exception as e:
+            from .qa_errors import safe_exception_chain
             logger.error(
-                "OpenAI client embeddings request failed", error_type=type(e).__name__,
+                f"OpenAI client embeddings request failed ({safe_exception_chain(e)})",
+                error_type=type(e).__name__,
             )
             raise Exception(f"Qwen3 embeddings API request failed: {str(e)}")
 

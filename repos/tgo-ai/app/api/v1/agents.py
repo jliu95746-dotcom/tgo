@@ -242,6 +242,7 @@ async def run_supervisor_agent(
         payload,
         project_id,
         extra_headers={**extra_headers, "X-Request-ID": request_id},
+        http_request=request,
     )
     return response
 

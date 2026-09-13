@@ -12,17 +12,28 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.tool import Tool, ToolType
+from app.models.tool import Tool, ToolType, ToolSourceType
 from app.models.project import Project
 from app.schemas.tool import ToolResponse, ToolCreate, ToolUpdate
 from app.core.logging import get_logger
 from app.dependencies import get_current_or_internal_project_id
 from app.services.tool_executor import ToolExecutor
+from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse
+from app.services.tool_probe import discover_mcp
+from app.services.logistics_provider import prepare_config
 
 logger = get_logger(__name__)
 
 # Define router with prefix and tags as requested
 router = APIRouter(prefix="/tools", tags=["tools"])
+
+
+@router.post("/discover", response_model=MCPDiscoverResponse)
+async def discover_tools(
+    request: MCPDiscoverRequest,
+    project_id: uuid.UUID = Depends(get_current_or_internal_project_id),
+) -> MCPDiscoverResponse:
+    return await discover_mcp(request)
 
 
 class DirectToolExecuteRequest(BaseModel):
@@ -83,9 +94,9 @@ async def create_tool(
     db: AsyncSession = Depends(get_db),
 ) -> ToolResponse:
     """Create a new tool for the specified project."""
-    tool = Tool(
-        **tool_in.model_dump(exclude_none=True)
-    )
+    data = tool_in.model_dump(exclude_none=True)
+    _prepare_logistics_tool(data)
+    tool = Tool(**data)
 
     db.add(tool)
     await db.commit()
@@ -115,6 +126,7 @@ async def update_tool(
         raise HTTPException(status_code=404, detail="Tool not found")
 
     update_data = tool_in.model_dump(exclude_unset=True)
+    _prepare_logistics_tool(update_data, tool)
     for field, value in update_data.items():
         setattr(tool, field, value)
 
@@ -122,6 +134,34 @@ async def update_tool(
     await db.refresh(tool)
 
     return ToolResponse.model_validate(tool)
+
+
+def _prepare_logistics_tool(data: dict[str, object], previous: Tool | None = None) -> None:
+    old_config = previous.config or {} if previous else {}
+    config = data.get("config", old_config) or {}
+    if not isinstance(config, dict):
+        return
+    if not config.get("logistics_provider"):
+        return
+    try:
+        prepared = prepare_config(
+            config["logistics_provider"], old_config.get("logistics_provider"),
+            endpoint=data.get("endpoint", previous.endpoint if previous else "") or "",
+        )
+    except ValueError:
+        # Validation errors can contain the input value (including credentials).
+        raise HTTPException(status_code=422, detail="快递服务商配置无效：请检查 HTTPS 地址、授权密钥和返回字段。更换接口地址或授权方式后需重新填写密钥。") from None
+    data["config"] = {"logistics_provider": prepared, "parameters": [
+        {"name": "tracking_no", "type": "string", "required": True, "description": "需要查询的物流单号"},
+        {"name": "carrier_code", "type": "string", "required": False, "description": "服务商的快递公司编码；无法自动识别时由用户提供，不要猜测"},
+        {"name": "phone", "type": "string", "required": False, "description": "用户提供的寄件或收件手机号后四位，用于顺丰等快递核验；不知道时先询问，不要编造"},
+    ]}
+    data["endpoint"] = prepared["credential_endpoint"]
+    data["transport_type"] = "http_webhook"
+    data["tool_type"] = ToolType.FUNCTION
+    # Keep the same record and employee/archive bindings, but never call Store.
+    data["tool_source_type"] = ToolSourceType.LOCAL
+    data["store_resource_id"] = None
 
 
 @router.post("/{tool_id}/execute", response_model=DirectToolExecuteResponse)

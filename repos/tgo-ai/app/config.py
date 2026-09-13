@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     )
 
     # RAG Service Configuration
+    logistics_kuaidi100_endpoint: str = "https://poll.kuaidi100.com/poll/query.do"
+    logistics_kuaidi100_recognize_endpoint: str = "https://www.kuaidi100.com/autonumber/auto"
+    logistics_kdniao_endpoint: str = "https://api.kdniao.com/Ebusiness/EbusinessOrderHandle.aspx"
+
     rag_service_url: str = Field(
         default="http://localhost:8085",
         description="Base URL for the RAG service"
@@ -109,6 +113,10 @@ class Settings(BaseSettings):
     )
 
     # Device Control MCP Configuration
+    device_control_service_url: str = Field(
+        default="http://tgo-device-control:8085",
+        description="Base URL for the internal device management service",
+    )
     device_control_mcp_endpoint: str = Field(
         default="http://tgo-device-control:8085/mcp/{device_id}",
         description="Device Control MCP endpoint URL template. {device_id} is replaced at runtime."
@@ -179,6 +187,8 @@ class Settings(BaseSettings):
     intent_max_input_characters: int = Field(default=8192, ge=1, le=65536)
     intent_max_response_characters: int = Field(default=65536, ge=256, le=262144)
     intent_max_output_tokens: int = Field(default=1024, ge=64, le=8192)
+    multimodal_provider_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    multimodal_max_media_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=25 * 1024 * 1024)
     metrics_enabled: bool = Field(
         default=True, description="Enable metrics collection"
     )

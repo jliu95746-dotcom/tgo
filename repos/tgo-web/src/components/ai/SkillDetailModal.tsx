@@ -417,7 +417,7 @@ const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
             </div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                {detail?.name || skillName}
+                {detail?.display_name || detail?.name || skillName}
               </h2>
               <span className="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
                 SKILL

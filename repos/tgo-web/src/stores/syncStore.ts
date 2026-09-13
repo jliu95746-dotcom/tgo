@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { Chat, ChatStatus, WuKongIMConversation, WuKongIMConversationSyncResponse } from '@/types';
-import { MessagePayloadType } from '@/types';
+import { MessagePayloadType, type Chat, type ChatStatus, type WuKongIMConversation, type WuKongIMConversationSyncResponse } from '@/types';
 import { WuKongIMApiService, WuKongIMUtils } from '@/services/wukongimApi';
 import { getChannelKey } from '@/utils/channelUtils';
 import { useChannelStore } from './channelStore';
@@ -136,9 +135,7 @@ export const useSyncStore = create<SyncState>()(
 
         try {
           const { mineTagIds } = useConversationStore.getState();
-          let response: WuKongIMConversationSyncResponse;
-
-          response = await WuKongIMApiService.syncConversationsInitial(20, { tag_ids: mineTagIds });
+          const response: WuKongIMConversationSyncResponse = await WuKongIMApiService.syncConversationsInitial(20, { tag_ids: mineTagIds });
 
           // Debug: Log sync response
           console.log('📋 syncConversations - API response:', {

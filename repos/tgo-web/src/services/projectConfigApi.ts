@@ -6,6 +6,8 @@ export interface ProjectAIConfigResponse {
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
+  sync_status?: 'pending' | 'synced' | 'failed' | null;
+  last_synced_at?: string | null;
   default_chat_provider_id: string | null;
   default_chat_model: string | null;
   default_embedding_provider_id: string | null;
@@ -47,6 +49,10 @@ export default class ProjectConfigApiService extends BaseApiService {
 
   async upsertAIConfig(projectId: string, payload: ProjectAIConfigUpdate): Promise<ProjectAIConfigResponse> {
     return this.put<ProjectAIConfigResponse>(this.aiConfigEndpoint(projectId), payload);
+  }
+
+  async syncAIConfig(projectId: string): Promise<ProjectAIConfigResponse> {
+    return this.post<ProjectAIConfigResponse>(`${this.aiConfigEndpoint(projectId)}/sync`, {});
   }
 }
 

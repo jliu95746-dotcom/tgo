@@ -474,11 +474,23 @@ def test_staff_batch_analysis_api_is_project_scoped(
     )
     db_override.session = session  # type: ignore[attr-defined]
 
-    response = client.post(  # type: ignore[attr-defined]
-        "/v1/message-analysis/staff/messages/batch",
-        json={"source_message_ids": ["web-message-1", "missing-message"]},
-    )
+    from app.api.v1.endpoints.message_analysis import require_message_analysis_read
+    from app.main import app
+    from app.models import Staff
+    from app.utils.encoding import build_visitor_channel_id
 
-    assert response.status_code == 200, response.text
-    assert response.json()["results"][0]["source_message_id"] == "web-message-1"
-    assert response.json()["results"][0]["intent"]["intent"] == "logistics_query"
+    staff = Staff(id=uuid4(), project_id=platform.project_id, username="analysis-test-staff",
+                  password_hash="disabled-test-account", role="admin")
+    body = {"messages": [{"channel_id": build_visitor_channel_id(visitor.id),
+                          "source_message_id": source} for source in ("web-message-1", "missing-message")]}
+    app.dependency_overrides[require_message_analysis_read] = lambda: staff
+    try:
+        response = client.post("/v1/message-analysis/staff/messages/query", json=body)  # type: ignore[attr-defined]
+        assert response.status_code == 200, response.text
+        assert response.json()["items"][0]["source_message_id"] == "web-message-1"
+        assert response.json()["items"][0]["intent"]["intent"] == "logistics_query"
+        staff.project_id = uuid4()
+        foreign = client.post("/v1/message-analysis/staff/messages/query", json=body)  # type: ignore[attr-defined]
+        assert foreign.status_code == 200 and foreign.json()["items"] == []
+    finally:
+        app.dependency_overrides.pop(require_message_analysis_read, None)

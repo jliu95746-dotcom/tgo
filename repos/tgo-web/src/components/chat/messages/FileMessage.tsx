@@ -1,11 +1,13 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Message } from '@/types';
-import { MessagePayloadType } from '@/types';
+import { MessagePayloadType, type Message, type ChannelVisitorExtra } from '@/types';
 import { uploadChatFileWithProgress } from '@/services/chatUploadApi';
 import { toAbsoluteApiUrl } from '@/utils/url';
 import { useWuKongIMWebSocket } from '@/hooks/useWuKongIMWebSocket';
 import { useChatStore } from '@/stores/chatStore';
+import { useAuthStore } from '@/stores/authStore';
+import { useChannelStore } from '@/stores/channelStore';
+import { sendCustomerMessage } from '@/services/customerMessageDelivery';
 import { useToast } from '@/hooks/useToast';
 import { showApiError } from '@/utils/toastHelpers';
 import { getFileIcon } from '@/utils/fileIcons';
@@ -34,6 +36,11 @@ const FileMessage: React.FC<MessageComponentProps> = ({ message, isStaff }) => {
   const updateMessageByClientMsgNo = useChatStore(state => state.updateMessageByClientMsgNo);
   const { sendMessage: sendWsMessage, isConnected } = useWuKongIMWebSocket();
   const { showToast } = useToast();
+  const staffId = useAuthStore(state => state.user?.id || '');
+  const platformType = useChannelStore(state => {
+    if (!message.channelId || typeof message.channelType !== 'number') return undefined;
+    return (state.getChannel(message.channelId, message.channelType)?.extra as ChannelVisitorExtra | undefined)?.platform_type;
+  });
 
   const retryFileUpload = React.useCallback(async () => {
     const f: File | undefined = (message.metadata as any)?.file;
@@ -52,12 +59,13 @@ const FileMessage: React.FC<MessageComponentProps> = ({ message, isStaff }) => {
         const name = (message.metadata as any)?.file_name || f.name;
         const size = (message.metadata as any)?.file_size || f.size;
         updateMessageByClientMsgNo(clientKey, { metadata: { file_url: url, upload_progress: 100, upload_status: 'completed' } });
-        // try send via WS
-        const payload: any = { type: MessagePayloadType.FILE, content: '[文件]', url, name, size, timestamp: Date.now() };
+        const payload = { type: MessagePayloadType.FILE, content: '[文件]', url, name, size, timestamp: Date.now() };
         try {
-          if (!isConnected) throw new Error('WebSocket 未连接，无法发送文件消息');
-          await sendWsMessage(message.channelId as string, message.channelType as number, payload, clientKey);
-          updateMessageByClientMsgNo(clientKey, { metadata: { ws_sent: true, ws_send_error: false } });
+          await sendCustomerMessage({
+            staffId, channelId: message.channelId as string, channelType: message.channelType as number,
+            clientMsgNo: clientKey, payload, platformType, isConnected, sendWsMessage,
+            updateMessage: updateMessageByClientMsgNo,
+          });
         } catch (err) {
           updateMessageByClientMsgNo(clientKey, { metadata: { ws_send_error: true } });
           showApiError?.(showToast, err as any);
@@ -66,10 +74,10 @@ const FileMessage: React.FC<MessageComponentProps> = ({ message, isStaff }) => {
         updateMessageByClientMsgNo(clientKey, { metadata: { upload_status: 'error' } });
         showApiError?.(showToast, err);
       });
-    } catch (e) {
+    } catch {
       // no-op handled
     }
-  }, [message.metadata, message.channelId, message.channelType, message.clientMsgNo, message.id, isConnected, sendWsMessage, updateMessageByClientMsgNo, showToast]);
+  }, [message.metadata, message.channelId, message.channelType, message.clientMsgNo, message.id, isConnected, sendWsMessage, updateMessageByClientMsgNo, showToast, staffId, platformType]);
 
   const wrapperClass = isStaff
     ? 'bg-white dark:bg-gray-700 p-3 rounded-lg rounded-tr-none shadow-sm border border-blue-200 dark:border-blue-700 w-[280px] max-w-xs cursor-pointer'

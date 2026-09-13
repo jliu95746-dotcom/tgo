@@ -14,8 +14,7 @@
 
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
-import type { Chat, Message, ChatStatus, WuKongIMConversation, WuKongIMMessage, ChannelInfo } from '@/types';
-import { MessagePayloadType, isChannelRefreshSystemMessage } from '@/types';
+import { MessagePayloadType, isChannelRefreshSystemMessage, type Chat, type Message, type ChatStatus, type WuKongIMConversation, type WuKongIMMessage, type ChannelInfo } from '@/types';
 
 import { useConversationStore } from './conversationStore';
 import { useMessageStore } from './messageStore';
@@ -469,7 +468,7 @@ export const useChatStore = create<ChatState>()(
           handleRealtimeMessage: (message: Message) => {
             console.log('📨 Chat Store: Handling real-time message', {
               messageId: message.messageId || message.id,
-              content: message.content.substring(0, 50) + '...',
+              content: `${message.content.substring(0, 50)  }...`,
               sender: message.fromInfo?.name,
               type: message.type,
               channelId: message.channelId,

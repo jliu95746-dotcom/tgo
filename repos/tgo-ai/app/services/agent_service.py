@@ -15,6 +15,8 @@ from app.models.workflow import AgentWorkflow
 from app.schemas.agent import AgentCreate, AgentUpdate
 from app.services.rag_service import rag_service_client
 from app.services.workflow_service import workflow_service_client
+from app.services.device_control_client import device_control_client
+from app.services.agent_humanization import validate_humanization_binding
 
 
 class AgentService:
@@ -39,6 +41,11 @@ class AgentService:
         Raises:
             ValidationError: If tools not found
         """
+        await validate_humanization_binding(
+            project_id, agent_data.humanization_skill_name, agent_data.humanization_skill_enabled)
+        if agent_data.bound_device_id is not None:
+            await device_control_client.validate_binding(project_id, agent_data.bound_device_id)
+
         # Validate tools if provided
         if agent_data.tools:
             tool_ids = [tool.tool_id for tool in agent_data.tools]
@@ -55,11 +62,15 @@ class AgentService:
             instruction=agent_data.instruction,
             model=agent_data.model,
             is_default=agent_data.is_default,
+            is_active=agent_data.is_active,
             is_remote_store_agent=agent_data.is_remote_store_agent,
             remote_agent_url=agent_data.remote_agent_url,
             store_agent_id=agent_data.store_agent_id,
             config=agent_data.config,
             bound_device_id=agent_data.bound_device_id,
+            skills_enabled=agent_data.skills_enabled,
+            humanization_skill_name=agent_data.humanization_skill_name,
+            humanization_skill_enabled=agent_data.humanization_skill_enabled,
         )
 
         self.db.add(agent)
@@ -247,6 +258,18 @@ class AgentService:
         """
         # Get existing agent
         agent = await self.get_agent(project_id, agent_id)
+
+        if {"humanization_skill_name", "humanization_skill_enabled"} & agent_data.model_fields_set:
+            await validate_humanization_binding(
+                project_id,
+                agent_data.humanization_skill_name if "humanization_skill_name" in agent_data.model_fields_set
+                else agent.humanization_skill_name,
+                agent_data.humanization_skill_enabled if "humanization_skill_enabled" in agent_data.model_fields_set
+                else agent.humanization_skill_enabled,
+            )
+
+        if agent_data.bound_device_id is not None:
+            await device_control_client.validate_binding(project_id, agent_data.bound_device_id)
 
         # Validate collections if provided
         if agent_data.collections is not None:
@@ -820,13 +843,18 @@ class AgentService:
         for agent in agents:
             tool_details = []
             for tool_entity in agent.tools or []:
-                if not tool_entity:
+                if (
+                    not tool_entity
+                    or tool_entity.deleted_at is not None
+                    or tool_entity.project_id != project_id
+                    or agent.project_id != project_id
+                ):
                     continue
 
                 # Get association data
-                assoc_data = assoc_map.get(
-                    (agent.id, tool_entity.id), (True, None, None)
-                )
+                assoc_data = assoc_map.get((agent.id, tool_entity.id))
+                if assoc_data is None:
+                    continue
                 enabled, permissions, tool_config = assoc_data
 
                 # Build AgentToolDetail from Tool entity with association fields
@@ -849,7 +877,7 @@ class AgentService:
                         "tool_config": tool_config,
                     }
 
-                    tool_detail = AgentToolDetail(**tool_dict)
+                    tool_detail = AgentToolDetail.model_validate(tool_dict)
                     tool_details.append(tool_detail)
                 except Exception:
                     # Skip tools that fail validation
