@@ -8,8 +8,18 @@ from fastapi import APIRouter
 
 from app.api.internal.endpoints import ai_events, ai_providers, users, store
 from app.api.internal.endpoints import reply_phases
+from app.api.internal.endpoints import ai_usage
+from app.api.v1.endpoints.wukongim_webhook import handle_wukongim_webhook
 
 internal_router = APIRouter()
+internal_router.include_router(ai_usage.router, prefix="/billing/usage", tags=["Private quota"])
+
+internal_router.add_api_route(
+    "/integrations/wukongim/webhook",
+    handle_wukongim_webhook,
+    methods=["POST"],
+    tags=["Internal IM Events"],
+)
 
 internal_router.include_router(
     reply_phases.router,

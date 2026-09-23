@@ -2,14 +2,24 @@
 
 from typing import List, Union, Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.runtime.supervisor.config import SupervisorRuntimeSettings
 from app.runtime.tools.config import ToolsRuntimeSettings
+from app.schemas.model_usage import ModelCostRate
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+    saas_enabled: bool = False
+    saas_billing_enabled: bool = False
+    saas_internal_token: SecretStr | None = None
+    saas_approved_models: list[str] = Field(default_factory=list)
+    saas_model_cost_rates: dict[str, ModelCostRate] = Field(default_factory=dict)
+    saas_max_input_characters: int = Field(default=64000, ge=1000, le=1000000)
+    saas_max_output_tokens: int = Field(default=4096, ge=128, le=32000)
+    saas_max_tool_calls: int = Field(default=8, ge=1, le=100)
+    saas_max_history_runs: int = Field(default=6, ge=0, le=30)
 
     model_config = SettingsConfigDict(
         env_file=".env",

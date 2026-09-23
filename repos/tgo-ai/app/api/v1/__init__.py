@@ -7,6 +7,7 @@ from app.api.v1 import (
     chat,
     intent_analysis,
     media_analysis,
+    model_usage,
     llm_models,
     llm_providers,
     project_ai_configs,
@@ -15,6 +16,7 @@ from app.api.v1 import (
 )
 
 api_router = APIRouter(prefix="/api/v1")
+api_router.include_router(model_usage.router, prefix="/internal/model-usage", tags=["Internal model usage"])
 
 # Include route modules
 api_router.include_router(agents.router, prefix="/agents", tags=["Agents"])

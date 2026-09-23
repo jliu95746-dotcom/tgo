@@ -56,6 +56,42 @@ class Settings(BaseSettings):
         description="JWT algorithm"
     )
 
+    # Commercial rollout is opt-in; existing companies are not enrolled here.
+    SAAS_ENABLED: bool = Field(default=False)
+    SAAS_NEW_PURCHASES_ENABLED: bool = Field(default=False)
+    SAAS_BILLING_ENABLED: bool = Field(default=False)
+    SAAS_INTERNAL_TOKEN: Optional[SecretStr] = Field(default=None)
+    SAAS_REGISTRATION_ENABLED: bool = Field(default=False)
+    SAAS_TRIAL_DAYS: int = Field(default=7, ge=1, le=30)
+    SAAS_TRIAL_SEATS: int = Field(default=3, ge=1, le=100)
+    SAAS_TRIAL_AI_REPLIES: int = Field(default=100, ge=0, le=100000)
+    SAAS_TRIAL_KNOWLEDGE_BYTES: int = Field(default=104857600, ge=1)
+    SAAS_TRIAL_CHANNELS: int = Field(default=2, ge=1, le=100)
+    SAAS_AI_MAX_CONCURRENT_REPLIES: int = Field(default=5, ge=1, le=100)
+    SAAS_WEB_BASE_URL: str = Field(default="")
+    SAAS_SMTP_HOST: str = Field(default="")
+    SAAS_SMTP_PORT: int = Field(default=465, ge=1, le=65535)
+    SAAS_SMTP_USER: str = Field(default="")
+    SAAS_SMTP_PASSWORD: Optional[SecretStr] = Field(default=None)
+    SAAS_SMTP_FROM: str = Field(default="")
+    SAAS_SMTP_STARTTLS: bool = Field(default=False)
+    WECHAT_PAY_MCH_ID: str = Field(default="")
+    WECHAT_PAY_APP_ID: str = Field(default="")
+    WECHAT_PAY_CERT_SERIAL: str = Field(default="")
+    WECHAT_PAY_PRIVATE_KEY_FILE: str = Field(default="")
+    WECHAT_PAY_TRUSTED_KEYS: dict[str, str] = Field(default_factory=dict)
+    WECHAT_PAY_API_V3_KEY: Optional[SecretStr] = Field(default=None)
+    WECHAT_PAY_NOTIFY_URL: str = Field(default="")
+    WECHAT_PAY_REFUND_NOTIFY_URL: str = Field(default="")
+    WECHAT_PAY_API_BASE_URL: str = Field(default="https://api.mch.weixin.qq.com")
+    SAAS_IM_PUBLIC_URL: str = Field(default="")
+    SAAS_IM_UPSTREAM_URL: str = Field(default="")
+    SAAS_VISITOR_IM_TOKEN_MINUTES: int = Field(default=1440, ge=5, le=10080)
+    # Operator inventory can roll out before tenant billing and the IM gateway.
+    OPS_ENABLED: bool = Field(default=False)
+    OPS_SECRET_KEY: Optional[SecretStr] = Field(default=None, min_length=32)
+    OPS_ACCESS_TOKEN_MINUTES: int = Field(default=15, ge=1, le=60)
+
     # Database
     DATABASE_URL: PostgresDsn = Field(
         ...,
@@ -441,6 +477,15 @@ class Settings(BaseSettings):
     )
 
     # Chat Upload Settings (preferred)
+    MESSAGE_SEARCH_SCAN_LIMIT: int = Field(
+        default=5000, ge=100, le=100000, multiple_of=100,
+        description="Maximum raw messages scanned per authorized search page",
+    )
+    MESSAGE_SEARCH_TIMEOUT_SECONDS: float = Field(
+        default=10.0, ge=0.1, le=60.0,
+        description="Deadline for authorized message search in seconds",
+    )
+
     UPLOAD_BASE_DIR: str = Field(
         default="./uploads",
         description="Base directory for file uploads",

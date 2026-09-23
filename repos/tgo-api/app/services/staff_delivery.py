@@ -336,6 +336,8 @@ def _rejection(response: httpx.Response, target: StaffMessageTarget) -> tuple[st
 async def deliver(
     db: Session, target: StaffMessageTarget, request: StaffDeliveryRequest
 ) -> StaffDeliveryResponse:
+    from app.services.company_entitlements import require_human_service
+    require_human_service(db, target.project_id, target.visitor_id)
     if target.platform_type == "wechat_personal":
         raise HTTPException(410, "该渠道已下线，无法发送消息")
     if (request.channel_id, request.channel_type) != (

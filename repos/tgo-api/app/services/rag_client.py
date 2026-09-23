@@ -45,6 +45,8 @@ class RAGServiceClient:
             "Content-Type": "application/json",
             "User-Agent": "TGO-API-Service/0.1.0",
         }
+        if settings.SAAS_ENABLED and settings.SAAS_BILLING_ENABLED and settings.SAAS_INTERNAL_TOKEN:
+            headers["X-SaaS-Service-Token"] = settings.SAAS_INTERNAL_TOKEN.get_secret_value()
         return headers
 
     def _get_multipart_headers(self) -> Dict[str, str]:
@@ -52,6 +54,8 @@ class RAGServiceClient:
         headers = {
             "User-Agent": "TGO-API-Service/0.1.0",
         }
+        if settings.SAAS_ENABLED and settings.SAAS_BILLING_ENABLED and settings.SAAS_INTERNAL_TOKEN:
+            headers["X-SaaS-Service-Token"] = settings.SAAS_INTERNAL_TOKEN.get_secret_value()
         return headers
 
     async def _make_request(

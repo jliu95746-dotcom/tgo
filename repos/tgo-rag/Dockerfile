@@ -39,7 +39,8 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
     && apt-get clean
 
 # Install Poetry (cached layer)
-RUN pip install --no-cache-dir poetry==1.7.1
+ARG PIP_INDEX_URL=https://pypi.org/simple/
+RUN pip install --no-cache-dir poetry==2.1.4 poetry-plugin-export==1.9.0
 
 # =========================
 # Stage 2: Python dependencies builder
@@ -63,7 +64,10 @@ COPY pyproject.toml poetry.lock* ./
 # Install only production dependencies into .venv
 # Use BuildKit cache mount for faster rebuilds
 RUN --mount=type=cache,target=/tmp/poetry_cache \
-    poetry install --only=main --no-root
+    poetry export --only=main -f requirements.txt -o /tmp/requirements.lock && \
+    python -m venv /app/.venv && \
+    /app/.venv/bin/pip install --no-deps --require-hashes -r /tmp/requirements.lock && \
+    /app/.venv/bin/pip check && rm /tmp/requirements.lock
 
 # Download NLTK data (cached layer)
 RUN .venv/bin/python -m nltk.downloader -d /app/nltk_data punkt punkt_tab averaged_perceptron_tagger averaged_perceptron_tagger_eng

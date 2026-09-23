@@ -8,10 +8,14 @@ export type PlatformConfig = {
 }
 
 export type PlatformInfo = {
-  id?: string
-  name?: string
-  config?: PlatformConfig
-  [k: string]: any
+  id: string
+  name: string
+  display_name: string
+  type: string
+  is_active: boolean
+  service_available?: boolean
+  logo_url?: string
+  config: PlatformConfig
 }
 
 export async function fetchPlatformInfo(params: { apiBase: string; platformApiKey: string; signal?: AbortSignal }): Promise<PlatformInfo> {

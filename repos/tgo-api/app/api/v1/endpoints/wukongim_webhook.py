@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -714,8 +714,19 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
 
 
 @router.post("/webhook", status_code=status.HTTP_200_OK)
-async def wukongim_webhook(request: Request, background_tasks: BackgroundTasks) -> Dict[str, Any]:
-    """Handle WuKongIM webhook callbacks."""
+async def wukongim_webhook(
+    request: Request, background_tasks: BackgroundTasks,
+) -> dict[str, int | str]:
+    """Keep pre-SaaS migration compatibility; commercial callbacks are internal."""
+    if settings.SAAS_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    return await handle_wukongim_webhook(request, background_tasks)
+
+
+async def handle_wukongim_webhook(
+    request: Request, background_tasks: BackgroundTasks,
+) -> dict[str, int | str]:
+    """Handle events only after the calling application enforces its boundary."""
 
     event = request.query_params.get("event")
     logger.info("WuKongIM webhook received1", extra={"event": event})

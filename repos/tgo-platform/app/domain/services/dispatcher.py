@@ -290,7 +290,7 @@ async def process_message(
         "team_member_failed",
         "stream.error",
     }
-    no_reply_events = {"ai_disabled", "assist_mode", "queued"}
+    no_reply_events = {"ai_disabled", "assist_mode", "queued", "human_handoff"}
     chunks: list[str] = []
     final_content: str | None = None
     completed = False
@@ -298,6 +298,10 @@ async def process_message(
     async for event in events:
         payload = event.payload or {}
         event_type = str(payload.get("event_type") or event.event or "")
+        if event_type == "service_paused":
+            if ptype == "wecom":
+                await adapter.send_final({"text": "当前客服服务已暂停，请稍后再试。"})
+            return None  # System notice is not an AI reply or a billable receipt.
         if event_type in no_reply_events:
             logging.info(
                 "[DISPATCH] No automatic reply for event=%s platform_id=%s",

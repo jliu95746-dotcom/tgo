@@ -122,17 +122,9 @@ def authenticate_staff_or_platform(
     platform: Optional[Platform] = None
 
     if credentials and credentials.credentials:
-        from app.core.security import verify_token
+        from app.core.security import resolve_staff_token
 
-        payload = verify_token(credentials.credentials)
-        if payload:
-            username = payload.get("sub")
-            if username:
-                current_user = (
-                    db.query(Staff)
-                    .filter(Staff.username == username, Staff.deleted_at.is_(None))
-                    .first()
-                )
+        current_user = resolve_staff_token(db, credentials.credentials)
 
     if not current_user and platform_api_key:
         platform = (
@@ -222,6 +214,13 @@ async def forward_ai_event_to_wukongim(
 
         elif event_type in {"workflow_completed", "agent_response_complete"}:
             final_content = data.get("final_content")
+            from app.services.ai_usage_runtime import begin_delivery, confirm_im_delivery, current_permit
+            if current_permit() is not None:
+                if data.get("success") is False or not isinstance(final_content, str) or not final_content.strip():
+                    raise RuntimeError("Cannot bill an unsuccessful or empty reply")
+                if not wukongim_client.enabled:
+                    raise RuntimeError("Message delivery is unavailable")
+                await begin_delivery()
             total_chunks = data.get("total_chunks")
             fallback_content: Optional[str] = None
             if isinstance(final_content, str) and final_content and total_chunks == 0:
@@ -256,6 +255,7 @@ async def forward_ai_event_to_wukongim(
                 event_key="main",
                 from_uid=from_uid,
             )
+            await confirm_im_delivery()
             return fallback_content
 
         elif event_type == "workflow_failed":
@@ -285,6 +285,9 @@ async def forward_ai_event_to_wukongim(
 
     except Exception as e:
         logger.error(f"Failed to forward AI event {event_type} to WuKongIM: {e}")
+        from app.services.ai_usage_runtime import current_permit
+        if current_permit() is not None:
+            raise
     return None
 
 
@@ -315,16 +318,36 @@ async def process_ai_stream_to_wukongim(
         receipt = SupervisorCancelResponse.model_validate(raw)
         return receipt.run_id == run_id and receipt.cancelled
 
-    def source() -> AsyncGenerator[ReplyEvent, None]:
-        return _process_ai_reply_to_wukongim(
+    async def source() -> AsyncGenerator[ReplyEvent, None]:
+        from app.services.ai_usage_runtime import metered_reply
+        from app.core.exceptions import TGOAPIException
+        try:
+            async with metered_reply(project_id, client_msg_no, channel_id, channel_type):
+                from app.services.ai_usage_intent import route_reply_intent
+                routed_system = system_message
+                routed_excluded = excluded_tool_ids
+                if channel_type == 251 and media_input is None:
+                    outcome = await route_reply_intent(project_id, client_msg_no, message)
+                    if outcome is not None:
+                        if outcome.routing_target == "human_handoff":
+                            yield {"event_type": "human_handoff", "data": {"message": "该问题需要人工客服处理，已停止 AI 自动回复。"}}
+                            return
+                        context = "本轮只询问一个必要的澄清问题，不得猜测订单号或客户意图。" if outcome.routing_target == "clarify" else outcome.tool_context
+                        if context:
+                            routed_system = (system_message or "") + "\n" + context
+                        routed_excluded = tuple(set(excluded_tool_ids) | set(outcome.excluded_tool_ids))
+                async for event in _process_ai_reply_to_wukongim(
             project_id=project_id, user_id=user_id, message=message,
             channel_id=channel_id, channel_type=channel_type,
             client_msg_no=client_msg_no, from_uid=from_uid,
-            session_id=session_id, system_message=system_message,
+            session_id=session_id, system_message=routed_system,
             expected_output=expected_output, agent_id=agent_id,
-            knowledge_channel=knowledge_channel, excluded_tool_ids=excluded_tool_ids,
-            humanization_skill_name=humanization_skill_name, media_input=media_input,
-        )
+            knowledge_channel=knowledge_channel, excluded_tool_ids=routed_excluded,
+                    humanization_skill_name=humanization_skill_name, media_input=media_input,
+                ):
+                    yield event
+        except TGOAPIException as exc:
+            yield {"event_type": "workflow_failed", "data": {"error_message": exc.message, "code": exc.code}}
     async with aclosing(controlled_reply(identity, source, publish_error, stop_upstream)) as events:
         async for event in events:
             yield event
@@ -561,6 +584,8 @@ async def handle_ai_response_non_stream(
         media_input=media_input,
     ):
         last_data = event["data"]
+        if event["event_type"] == "human_handoff":
+            return {"success": True, "handoff": True, "content": "", "data": last_data}
         if event["event_type"] == "workflow_failed":
             failure = last_data["error_message"]
         if event["event_type"] in {"agent_response_complete", "workflow_completed"}:
@@ -899,6 +924,8 @@ async def get_or_create_visitor(
         .first()
     )
 
+    from app.services.company_entitlements import require_human_service
+    require_human_service(db, platform.project_id, visitor.id if visitor else None)
     if not visitor:
         # 创建新访客
         visitor = await visitor_service.create_visitor_with_channel(

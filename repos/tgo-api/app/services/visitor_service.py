@@ -225,6 +225,8 @@ async def create_visitor_with_channel(
     ip_address: Optional[str] = None,
 ) -> Visitor:
     """Create a new visitor with WuKongIM channel setup."""
+    from app.services.company_entitlements import require_new_service
+    require_new_service(db, platform.project_id)
     use_visitor_id_as_open_id = not platform_open_id
     
     if use_visitor_id_as_open_id:

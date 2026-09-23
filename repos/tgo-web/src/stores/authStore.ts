@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { STORAGE_KEYS } from '@/constants';
 
-import { authAPI, APIError, RegistrationLoginError } from '@/services/api';
+import { authAPI, APIError, RegistrationLoginError, RegistrationVerificationRequired } from '@/services/api';
 import { wukongimWebSocketService } from '@/services/wukongimWebSocket';
 import { useChatStore } from './chatStore';
 import type { LoginFormData, RegisterFormData } from '@/types';
@@ -122,6 +122,9 @@ export const useAuthStore = create<AuthState>()(
           });
 
           // After successful registration, automatically log in
+          if (registeredAccount.account_enabled === false) {
+            throw new RegistrationVerificationRequired();
+          }
           const loginResponse = await authAPI.login({
             username: registeredAccount.username,
             password: userData.password

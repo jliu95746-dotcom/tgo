@@ -5,7 +5,7 @@ from enum import Enum
 from typing import List, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -88,6 +88,16 @@ class Staff(Base):
     )
     
     # Service control
+    account_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true",
+        comment="Login and seat eligibility, independent of reception status",
+    )
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1",
+    )
+    email_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
     is_active: Mapped[bool] = mapped_column(
         nullable=False,
         default=True,
@@ -125,6 +135,7 @@ class Staff(Base):
     
     # Constraints
     __table_args__ = (
+        CheckConstraint("token_version >= 1", name="ck_staff_token_version"),
         CheckConstraint(
             role.in_(["user", "admin", "agent"]),
             name="chk_api_staff_role"
@@ -157,4 +168,7 @@ class Staff(Base):
     @property
     def is_available_for_service(self) -> bool:
         """Check if the staff is available for accepting new visitors."""
-        return self.is_active and not self.service_paused and not self.is_deleted
+        return (
+            self.account_enabled and self.is_active
+            and not self.service_paused and not self.is_deleted
+        )

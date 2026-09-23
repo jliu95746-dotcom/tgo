@@ -103,6 +103,8 @@ async def process_qa_pair_async(
     # is_update stays wire-compatible; a persisted document is reused on every retry.
     snapshot: QASnapshot | None = None
     try:
+        from .company_resources import require_processing
+        await require_processing(project_id)
         async with get_db_session() as db:
             pair = await current_pair(db, qa_pair_id, project_id)
             if pair is None:

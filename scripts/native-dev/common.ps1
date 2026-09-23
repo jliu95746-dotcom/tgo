@@ -149,6 +149,7 @@ function Set-NativeEnvironment {
     }
 
     if ($Service -eq 'rag') {
+        Set-ProcessEnv -Name 'SAAS_API_INTERNAL_URL' -Value 'http://127.0.0.1:18001'
         $ragUploadDirectory = Join-Path $script:RepoRoot 'data\tgo-rag\uploads'
         Set-ProcessEnv -Name 'REDIS_URL' -Value "redis://127.0.0.1:${redisPort}/2"
         Set-ProcessEnv -Name 'REDIS_DB' -Value '2'

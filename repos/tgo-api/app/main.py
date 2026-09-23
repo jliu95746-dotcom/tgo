@@ -185,6 +185,10 @@ def create_app(
 
         from app.tasks.recover_staff_delivery_history import start_staff_history_recovery
         start_staff_history_recovery()
+        from app.tasks.company_mail import start_company_mail
+        start_company_mail()
+        from app.tasks.billing import start_billing
+        start_billing()
 
         # Start background sync monitor
         try:
@@ -268,6 +272,10 @@ def create_app(
         """Application shutdown event: stop background tasks."""
         from app.tasks.recover_staff_delivery_history import stop_staff_history_recovery
         await stop_staff_history_recovery()
+        from app.tasks.company_mail import stop_company_mail
+        await stop_company_mail()
+        from app.tasks.billing import stop_billing
+        await stop_billing()
         # Stop periodic AIProvider sync task (best-effort)
         try:
             from app.tasks.sync_ai_providers import stop_ai_provider_sync_task

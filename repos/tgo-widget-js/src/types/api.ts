@@ -9,6 +9,7 @@ export type VisitorSystemInfo = {
 
 export type VisitorRegisterRequest = {
   platform_api_key: string
+  platform_open_id?: string
   name?: string | null
   nickname?: string | null
   avatar_url?: string | null

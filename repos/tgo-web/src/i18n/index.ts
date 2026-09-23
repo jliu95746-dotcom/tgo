@@ -7,6 +7,15 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import enTranslations from './locales/en.json';
 import zhTranslations from './locales/zh.json';
 import { logisticsProviderEn, logisticsProviderZh } from './logisticsProvider';
+import { operationsEn, operationsZh } from './operations';
+import { companyAccountEn, companyAccountZh } from './companyAccount';
+import { trialActivationEn, trialActivationZh } from './trialActivation';
+import { companyMembersEn, companyMembersZh } from './companyMembers';
+import { billingEn, billingZh } from './billing';
+import { operationsBillingEn, operationsBillingZh } from './operationsBilling';
+import { productEn, productZh } from './product';
+import { billingSupportEn, billingSupportZh } from './billingSupport';
+import { launchGuideZh } from './launchGuide';
 
 
 /**
@@ -15,10 +24,10 @@ import { logisticsProviderEn, logisticsProviderZh } from './logisticsProvider';
  */
 const resources = {
   zh: {
-    translation: { ...zhTranslations, logisticsProvider: logisticsProviderZh }
+    translation: { ...zhTranslations, launchGuide: launchGuideZh, logisticsProvider: logisticsProviderZh, operations: operationsZh, companyAccount: companyAccountZh, trialActivation: trialActivationZh, companyMembers: companyMembersZh, billing: billingZh, operationsBilling: operationsBillingZh, product: productZh, billingSupport: billingSupportZh }
   },
   en: {
-    translation: { ...enTranslations, logisticsProvider: logisticsProviderEn }
+    translation: { ...enTranslations, logisticsProvider: logisticsProviderEn, operations: operationsEn, companyAccount: companyAccountEn, trialActivation: trialActivationEn, companyMembers: companyMembersEn, billing: billingEn, operationsBilling: operationsBillingEn, product: productEn, billingSupport: billingSupportEn }
   }
 };
 

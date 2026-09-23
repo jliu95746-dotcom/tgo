@@ -97,6 +97,7 @@ async def transfer_to_staff(
     add_to_queue_if_no_staff: bool = True,
     send_notification: bool = True,
     expected_queue_entry_id: Optional[UUID] = None,
+    expected_unassigned: bool = False,
 ) -> TransferResult:
     """
     Transfer a visitor to staff service.
@@ -140,6 +141,11 @@ async def transfer_to_staff(
     no_staff_reason: Optional[str] = None
     
     try:
+        if settings.SAAS_BILLING_ENABLED:
+            from app.services.company_membership import lock_company
+            lock_company(db, project_id)
+            from app.services.company_entitlements import require_human_service
+            require_human_service(db, project_id, visitor_id)
         # 1. Validate visitor exists and lock the row to prevent deadlocks
         # Using FOR UPDATE ensures consistent lock ordering across concurrent transactions
         visitor = db.query(Visitor).filter(
@@ -160,6 +166,13 @@ async def transfer_to_staff(
                 message="Visitor not found",
             )
         
+        if expected_unassigned and visitor.service_status == "active":
+            return TransferResult(
+                success=False, session=None, assignment_history=None,
+                assigned_staff_id=None, candidate_staff_ids=None,
+                waiting_queue=None, queue_position=None,
+                message="Visitor has already been claimed",
+            )
         if expected_queue_entry_id is not None:
             expected_entry = lock_waiting_entry(db, visitor, expected_queue_entry_id)
             if expected_entry is None:
@@ -392,13 +405,19 @@ async def assign_staff(
             Staff.id == target_staff_id,
             Staff.project_id == project_id,
             Staff.deleted_at.is_(None),
-        ).first()
+            Staff.account_enabled.is_(True),
+            Staff.role.in_(["admin", "user"]),
+        ).populate_existing().first()
         
         if staff:
+            if settings.SAAS_BILLING_ENABLED and not staff.is_available_for_service:
+                raise ValueError("Target staff account is not available")
             assigned_staff_id = target_staff_id
             candidate_staff_ids = [target_staff_id]
             logger.info(f"Direct assignment to staff {target_staff_id}")
         else:
+            if settings.SAAS_BILLING_ENABLED:
+                raise ValueError("Target staff account is not available")
             logger.warning(f"Target staff {target_staff_id} not found, will try auto-assignment")
     
     # Auto-assignment if no target specified or target not found
@@ -878,6 +897,8 @@ async def _get_available_staff_candidates(
         Staff.project_id == project_id,
         Staff.deleted_at.is_(None),
         Staff.is_active == True,  # noqa: E712 - SQLAlchemy requires == for boolean
+        Staff.account_enabled.is_(True),
+        Staff.role.in_(["admin", "user"]),
         Staff.service_paused == False,  # noqa: E712 - SQLAlchemy requires == for boolean
     )
     

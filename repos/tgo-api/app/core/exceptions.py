@@ -239,6 +239,18 @@ async def validation_exception_handler(
             [{"type": exc.__class__.__name__, "msg": str(exc)}]
         )
 
+    # Credential validation may contain the raw body, including unparsed secrets.
+    # Keep field locations and error types, but never log or echo those inputs.
+    if request.url.path.rstrip("/") in {
+        "/v1/ops/login", "/v1/staff/login", "/v1/staff/register",
+        "/v1/ops/model-policy",
+    }:
+        error_list = [
+            {"type": item.get("type"), "loc": item.get("loc", []),
+             "msg": "Invalid field value"}
+            for item in error_list
+        ]
+
     logger.warning(
         "Validation Exception",
         extra={

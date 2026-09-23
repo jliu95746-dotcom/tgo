@@ -1,6 +1,7 @@
 {
   "brand": { "poweredBy": "域见提供支持" },
   "common": {
+    "servicePaused": "当前已暂停新接待。已有人工会话可在收尾期间继续沟通。",
     "retry": "重试",
     "cancel": "取消",
     "delete": "删除",
@@ -30,6 +31,7 @@
     "uploading": "上传中…"
   },
   "errors": {
+    "textReplyUnconfirmed": "消息已送达，后续接待处理暂未确认，请稍候，无需重复发送。",
     "replyStopUnconfirmed": "尚未确认停止，请稍后重试。",
     "mediaReplyFailed": "图片或语音已发送，但回复请求失败，请联系人工客服。",
     "authFail": "认证失败，无法发送消息",

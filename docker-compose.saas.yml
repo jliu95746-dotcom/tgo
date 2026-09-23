@@ -1,0 +1,11 @@
+# Mandatory overlay when enabling SaaS. API gateway is the public IM entry.
+# Keep this file last, including after the Windows native overlay.
+services:
+  wukongim:
+    environment:
+      WK_TOKENAUTHON: "true"
+    ports: !override
+      - "127.0.0.1:5100:5100"
+      - "127.0.0.1:5200:5200"
+      - "127.0.0.1:5001:5001"
+      - "127.0.0.1:${WUKONGIM_ADMIN_PORT:-15300}:5300"

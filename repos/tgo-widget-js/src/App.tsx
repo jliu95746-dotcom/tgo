@@ -36,6 +36,7 @@ export default function App(){
   const isVisible = usePlatformStore(s => s.isVisible)
   const setVisible = usePlatformStore(s => s.setVisible)
   const initPlatform = usePlatformStore(s => s.init)
+  const serviceAvailable = usePlatformStore(s => s.serviceAvailable)
   const welcomeInjected = usePlatformStore(s => s.welcomeInjected)
   const markWelcomeInjected = usePlatformStore(s => s.markWelcomeInjected)
 
@@ -136,14 +137,27 @@ export default function App(){
     void initIM({ apiBase: cfg.apiBase! })
   }, [])
 
+  useEffect(() => {
+    let pending = false
+    const refresh = async () => {
+      if (pending || document.hidden) return
+      pending = true
+      try { await usePlatformStore.getState().refreshAvailability() }
+      finally { pending = false }
+    }
+    const timer = window.setInterval(() => { void refresh() }, 30000)
+    window.addEventListener('focus', refresh)
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh) }
+  }, [])
+
   // Insert welcome message once after platform config available
   useEffect(()=>{
     const welcome = pConfig?.welcome_message
-    if (welcome && !welcomeInjected) {
+    if (welcome && !welcomeInjected && serviceAvailable === true) {
       ensureWelcomeMessage(welcome)
       markWelcomeInjected()
     }
-  }, [pConfig?.welcome_message, welcomeInjected])
+  }, [pConfig?.welcome_message, welcomeInjected, serviceAvailable])
 
   const onSend = (text: string)=>{ void sendMessage(text) }
 
@@ -451,6 +465,7 @@ export default function App(){
     <ThemeProvider initialMode={themeMode}>
       <WidgetWrap role="dialog" aria-label="Customer Support">
         <Header title={title} onClose={requestClose} />
+        {serviceAvailable === false && <div role="status" style={{ padding: '10px 16px', background: 'var(--bg-tertiary, #f3f4f6)', color: 'var(--text-secondary, #6b7280)', fontSize: 13 }}>{t('common.servicePaused')}</div>}
         <Grow>
           <MessageList messages={messages} />
           <MessageInput onSend={onSend} />

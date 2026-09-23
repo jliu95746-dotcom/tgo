@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { useAuthorizedChatMarkdown } from '@/hooks/useChatFileUrls';
 import { Marked, RendererObject, RendererThis, Tokens } from 'marked';
 import { markedHighlight } from "marked-highlight";
 import hljs from 'highlight.js/lib/core';
@@ -300,9 +301,10 @@ const renderMarkdownToHtml = (markdown: string): string => {
  * Renders markdown content using Marked with caching and sanitization for performance & safety
  */
 const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, className = '' }) => {
+  const authorizedContent = useAuthorizedChatMarkdown(content);
   const html = useMemo(() => {
-    return renderMarkdownToHtml(content || '');
-  }, [content]);
+    return renderMarkdownToHtml(authorizedContent || '');
+  }, [authorizedContent]);
 
   const combinedClassName = className
     ? `markdown-content ${className}`.trim()

@@ -31,6 +31,7 @@ from .routers import (
 )
 from .schemas.common import ErrorResponse
 from .services.request_metrics import RequestMetricsMiddleware
+from .services.service_auth import ServiceIdentityMiddleware
 from .startup_banner import (
     print_startup_banner,
     print_config_info,
@@ -241,6 +242,7 @@ def setup_middleware(app: FastAPI, settings) -> None:
 
     # Observe middleware-generated replies (including CORS) as well as route replies.
     app.add_middleware(RequestMetricsMiddleware, enabled=settings.metrics_enabled)
+    app.add_middleware(ServiceIdentityMiddleware)
 
 
 def setup_routers(app: FastAPI) -> None:

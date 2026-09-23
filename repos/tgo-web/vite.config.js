@@ -39,14 +39,17 @@ export default defineConfig({
       '/api': {
         target: process.env.VITE_API_PROXY_TARGET || 'http://tgo-api:8000',
         changeOrigin: true,
+        ws: true,
         rewrite: (requestPath) => requestPath.replace(/^\/api/, ''),
       },
     },
   },
   build: {
     rollupOptions: {
+      input: { main: path.resolve(__dirname, 'index.html'), launchGuide: path.resolve(__dirname, 'launch-guide.html') },
       output: {
         manualChunks(id) {
+          if (id.includes('/pages/LaunchGuide.tsx') || id.includes('/i18n/launchGuide.ts')) return 'launch-guide';
           // React core libraries + react-i18next (must be together)
           if (id.includes('node_modules/react/') ||
               id.includes('node_modules/react-dom/') ||

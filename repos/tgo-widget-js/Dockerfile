@@ -11,6 +11,9 @@ ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 COPY package.json yarn.lock ./
+ARG NPM_REGISTRY=https://registry.npmjs.org
+RUN yarn config set registry "$NPM_REGISTRY" && \
+    node -e 'const fs=require("fs");const u=new URL(process.env.NPM_REGISTRY);if(u.protocol!=="https:"||u.username||u.password||u.search||u.hash)throw Error("Invalid registry");fs.writeFileSync("yarn.lock",fs.readFileSync("yarn.lock","utf8").replace(/https:\/\/registry\.(npmjs\.org|yarnpkg\.com)/g,u.href.replace(/\/$/,"")))'
 RUN yarn install --frozen-lockfile
 
 COPY . .
@@ -24,7 +27,7 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 
 # Copy nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf

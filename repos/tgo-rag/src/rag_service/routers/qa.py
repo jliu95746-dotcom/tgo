@@ -100,6 +100,8 @@ async def create_qa_pair(
     db: AsyncSession = Depends(get_db_session_dependency),
 ):
     """Create a new QA pair in the specified collection."""
+    from ..services.company_resources import ensure_capacity
+    await ensure_capacity(db, project_id, len(request.question.encode('utf-8')) + len(request.answer.encode('utf-8')))
     # Validate collection
     await validate_qa_collection(db, collection_id, project_id)
 
@@ -295,6 +297,8 @@ async def update_qa_pair(
     db: AsyncSession = Depends(get_db_session_dependency),
 ):
     """Update an existing QA pair."""
+    from ..services.company_resources import ensure_capacity
+    await ensure_capacity(db, project_id)
     result = await db.execute(
         select(QAPair).where(
             and_(
@@ -334,6 +338,7 @@ async def update_qa_pair(
         qa_pair.priority = request.priority
 
     # Check if question or answer content actually changed
+    await ensure_capacity(db, project_id)
     content_changed = (
         qa_pair.question != original_question or 
         qa_pair.answer != original_answer
@@ -427,6 +432,8 @@ async def batch_create_qa_pairs(
     db: AsyncSession = Depends(get_db_session_dependency),
 ):
     """Batch create multiple QA pairs."""
+    from ..services.company_resources import ensure_capacity
+    await ensure_capacity(db, project_id)
     # Validate collection
     await validate_qa_collection(db, collection_id, project_id)
 
@@ -457,6 +464,7 @@ async def batch_create_qa_pairs(
                 continue
 
             # Create QA pair
+            await ensure_capacity(db, project_id, len(qa_request.question.encode('utf-8')) + len(qa_request.answer.encode('utf-8')))
             qa_pair = QAPair(
                 collection_id=collection_id,
                 project_id=project_id,

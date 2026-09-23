@@ -13,6 +13,18 @@ class HttpxTgoApiClient(TgoApiClient):
     async def chat_completion(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
         url = "/v1/chat/completion"
         async with self._client.stream("POST", url, json=req.model_dump()) as r:
+            if r.status_code == 402:
+                await r.aread()
+                try:
+                    payload = r.json()
+                    error = payload.get("error") if isinstance(payload, dict) else None
+                    paused = isinstance(error, dict) and error.get("code") == "SUBSCRIPTION_EXPIRED"
+                except ValueError:
+                    paused = False
+                if paused:
+                    yield b"event: service_paused"
+                    yield b'data: {"event_type":"service_paused"}'
+                    return
             r.raise_for_status()
             async for line in r.aiter_lines():
                 if line:

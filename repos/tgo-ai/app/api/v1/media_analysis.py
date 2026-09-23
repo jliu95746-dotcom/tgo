@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.quota_authorization import require_internal_reply_quota
 from app.dependencies import get_current_or_internal_project_id, get_db
 from app.runtime.multimodal.providers.base import ProviderExecutionError
 from app.schemas.multimodal import MediaAnalysisRequest, MediaAnalysisResult
@@ -19,7 +20,7 @@ from app.services.media_model_probe import MAX_PROBE_BYTES, probe_media_model
 router = APIRouter()
 
 
-@router.post("/probe", response_model=MediaProbeResult)
+@router.post("/probe", response_model=MediaProbeResult, dependencies=[Depends(require_internal_reply_quota)])
 async def probe_media(
     provider_id: Annotated[uuid.UUID, Form()],
     model_id: Annotated[str, Form(min_length=1, max_length=150)],
@@ -45,7 +46,7 @@ async def probe_media(
         await file.close()
 
 
-@router.post("/media", response_model=MediaAnalysisResult)
+@router.post("/media", response_model=MediaAnalysisResult, dependencies=[Depends(require_internal_reply_quota)])
 async def analyze_media(
     metadata: Annotated[str, Form(max_length=8192)],
     file: Annotated[UploadFile, File()],

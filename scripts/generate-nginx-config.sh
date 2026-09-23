@@ -35,6 +35,13 @@ read_env_var() {
     echo "$value"
 }
 
+# In SaaS mode even the legacy WebSocket hostname must use the API gateway.
+IM_PROXY_TARGET="http://wukongim:5200"
+SAAS_FLAG="$(read_env_var SAAS_ENABLED "$ENV_FILE")"
+case "${SAAS_FLAG,,}" in
+    true|1|on|yes) IM_PROXY_TARGET="http://tgo-api:8000/v1/wukongim/ws" ;;
+esac
+
 # Load domain configuration
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "[WARN] Domain configuration not found: $CONFIG_FILE"
@@ -91,6 +98,10 @@ cat > "$NGINX_CONF_DIR/default.conf" << 'NGINX_CONFIG'
 # Shared routing helpers
 # DNS resolver for dynamic upstreams (Docker internal DNS)
 resolver 127.0.0.11 ipv6=off;
+map $http_upgrade $yujian_connection_upgrade {
+    default upgrade;
+    '' close;
+}
 # Decide which upstream (web vs widget) should serve frontend traffic based on Referer
 map $http_referer $assets_upstream {
     ~*/widget(/|$)  tgo-widget-js:80;
@@ -132,6 +143,9 @@ else
     location ~ ^/api(/|$) {
         rewrite ^/api(/.*)$ $1 break;
         proxy_pass http://tgo-api:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $yujian_connection_upgrade;
         # Upload settings (configured via .env)
         client_max_body_size CLIENT_MAX_BODY_SIZE;
         proxy_request_buffering off;
@@ -150,6 +164,9 @@ else
     # In non-SSL (HTTP) mode, without this rule /v1 would fall through to frontend upstream and return HTML.
     location ~ ^/v1(/|$) {
         proxy_pass http://tgo-api:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $yujian_connection_upgrade;
         # Upload settings (configured via .env)
         client_max_body_size CLIENT_MAX_BODY_SIZE;
         proxy_request_buffering off;
@@ -217,7 +234,7 @@ server {
     }
 
     location / {
-        proxy_pass http://wukongim:5200;
+        proxy_pass IM_PROXY_TARGET;
         proxy_http_version 1.1;
         proxy_redirect off;
         proxy_set_header Upgrade $http_upgrade;
@@ -293,6 +310,9 @@ server {
 
     location / {
         proxy_pass http://tgo-api:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $yujian_connection_upgrade;
         # Upload settings (configured via .env)
         client_max_body_size CLIENT_MAX_BODY_SIZE;
         proxy_request_buffering off;
@@ -320,7 +340,7 @@ server {
     ssl_prefer_server_ciphers on;
 
     location / {
-        proxy_pass http://wukongim:5200;
+        proxy_pass IM_PROXY_TARGET;
         proxy_redirect off;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -358,6 +378,9 @@ server {
     location ~ ^/api(/|$) {
         rewrite ^/api(/.*)$ $1 break;
         proxy_pass http://tgo-api:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $yujian_connection_upgrade;
         # Upload settings (configured via .env)
         client_max_body_size CLIENT_MAX_BODY_SIZE;
         proxy_request_buffering off;
@@ -376,6 +399,9 @@ server {
     # In localhost unified mode, /v1 would otherwise go to tgo-web, causing Swagger to load HTML instead of OpenAPI JSON.
     location ~ ^/v1(/|$) {
         proxy_pass http://tgo-api:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $yujian_connection_upgrade;
         # Upload settings (configured via .env)
         client_max_body_size CLIENT_MAX_BODY_SIZE;
         proxy_request_buffering off;
@@ -419,6 +445,7 @@ fi
 # Replace domain placeholders using a temporary file to avoid sed issues
 TEMP_CONF=$(mktemp)
 cat "$NGINX_CONF_DIR/default.conf" | sed "s/WEB_DOMAIN/$WEB_DOMAIN/g" | \
+  sed "s|IM_PROXY_TARGET|$IM_PROXY_TARGET|g" | \
   sed "s/WIDGET_DOMAIN/$WIDGET_DOMAIN/g" | \
   sed "s/API_DOMAIN/$API_DOMAIN/g" | \
   sed "s/WS_DOMAIN/$WS_DOMAIN/g" | \

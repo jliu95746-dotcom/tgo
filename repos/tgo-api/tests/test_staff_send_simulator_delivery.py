@@ -50,6 +50,7 @@ def build_context(*, synthetic_visitor: bool) -> tuple[object, object, FakeDb, s
         deleted_at=None,
         is_active=True,
         api_key="platform-key",
+        agent_id=None,
     )
     visitor = SimpleNamespace(
         id=visitor_id,
@@ -134,4 +135,3 @@ async def test_real_wecom_visitor_still_uses_external_platform_delivery(
     assert response.status_code == 200
     assert len(outbound_requests) == 1
     assert outbound_requests[0]["url"].endswith("/v1/messages/send")
-

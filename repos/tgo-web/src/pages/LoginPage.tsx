@@ -311,6 +311,9 @@ const LoginPage: React.FC = () => {
         </form>
 
         <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+          <Link to="/auth/reset-password" className="mb-3 block text-blue-600 hover:underline dark:text-blue-400">
+            {t('companyAccount.forgot')}
+          </Link>
           <Link to="/register" className="text-blue-600 hover:underline dark:text-blue-400">
             {t('auth.register.newProjectLink')}
           </Link>

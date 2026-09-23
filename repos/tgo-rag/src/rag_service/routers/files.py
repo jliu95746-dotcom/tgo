@@ -181,10 +181,14 @@ async def upload_file(
     storage_filename = f"{file_id}{file_extension}"
     storage_path = os.path.join(settings.upload_dir, storage_filename)
     
+    from ..services.company_resources import ensure_capacity
+    content = await file.read(settings.max_file_size + 1)
+    if len(content) > settings.max_file_size:
+        raise HTTPException(413, "文件超过大小限制")
+    await ensure_capacity(db, project_id, len(content))
     # Save file to disk
     try:
         with open(storage_path, "wb") as buffer:
-            content = await file.read()
             buffer.write(content)
         
         file_size = len(content)
@@ -493,7 +497,7 @@ async def upload_files_batch(
                 continue
 
             # Check file size
-            content = await file.read()
+            content = await file.read(settings.max_file_size + 1)
             file_size = len(content)
             total_size += file_size
 
@@ -515,6 +519,8 @@ async def upload_files_batch(
                 continue
 
             # Generate file ID and storage path
+            from ..services.company_resources import ensure_capacity
+            await ensure_capacity(db, project_id, file_size)
             file_id = uuid4()
             storage_path = os.path.join(settings.upload_dir, str(file_id))
 
@@ -695,17 +701,19 @@ async def download_file(
         upload_dir_resolved = Path(settings.upload_dir).resolve()
         file_path_resolved = Path(storage_path).resolve()
 
-        # Check if file path is within upload directory
-        if not str(file_path_resolved).startswith(str(upload_dir_resolved)):
-            logger.error(f"Security violation: File path {storage_path} is outside upload directory")
-            raise HTTPException(status_code=403, detail="Access denied")
-
-    except Exception as e:
-        logger.error(f"Path validation error for file {file_id}: {str(e)}")
+    except (OSError, RuntimeError, ValueError):
+        logger.error("Path validation failed", file_id=str(file_id))
         raise HTTPException(status_code=500, detail="File path validation failed")
 
+    # Compare path components: an uploads-other sibling is outside uploads.
+    if not file_path_resolved.is_relative_to(upload_dir_resolved):
+        logger.warning(
+            "Download path outside upload directory", file_id=str(file_id)
+        )
+        raise HTTPException(status_code=403, detail="Access denied")
+
     # Check if file exists on disk
-    if not os.path.exists(storage_path):
+    if not file_path_resolved.is_file():
         logger.error(f"File not found on disk: {storage_path}")
         raise HTTPException(status_code=404, detail="File not found on storage system")
 
@@ -732,7 +740,7 @@ async def download_file(
 
     # Return file as streaming response
     return FastAPIFileResponse(
-        path=storage_path,
+        path=file_path_resolved,
         media_type=content_type,
         filename=safe_filename,
         headers={

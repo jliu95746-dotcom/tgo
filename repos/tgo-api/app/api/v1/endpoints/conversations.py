@@ -41,6 +41,10 @@ from app.schemas.visitor import VisitorResponse, resolve_visitor_display_name, s
 from app.api.v1.endpoints.channels import _build_enriched_visitor_payload
 from app.services.wukongim_client import wukongim_client
 from app.services.reply_history import reconcile_reply_history
+from app.services.staff_conversation_scope import restricted_staff, owned_visitor_ids
+from app.services.channel_access import (
+    filter_staff_conversations, require_staff_channel_access,
+)
 from app.utils.encoding import build_visitor_channel_id, parse_visitor_channel_id
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 
@@ -201,6 +205,7 @@ class WuKongIMConversationPaginatedResponse(BaseModel):
         description="List of conversations"
     )
     pagination: PaginationMetadata = Field(..., description="Pagination metadata")
+    channels: List[ChannelInfo] = Field(default_factory=list)
 
 
 class WuKongIMConversationWithChannelsPaginatedResponse(BaseModel):
@@ -260,6 +265,9 @@ async def sync_my_conversations(
             uid=staff_uid,
             last_msg_seqs=request.last_msg_seqs,
             msg_count=request.msg_count,
+        )
+        conversations = await filter_staff_conversations(
+            db, current_user, conversations,
         )
 
         logger.info(f"Successfully synced {len(conversations)} conversations for staff {current_user.username}")
@@ -414,6 +422,8 @@ async def sync_all_conversations(
     if only_completed_recent:
         # A visitor is considered "completed" only when the visitor's latest session is CLOSED
         latest_sessions_query = latest_sessions_query.filter(VisitorSession.status == SessionStatus.CLOSED.value)
+    if restricted_staff(current_user):
+        latest_sessions_query = latest_sessions_query.filter(VisitorSession.visitor_id.in_(owned_visitor_ids(current_user)))
 
     # Total count of visitors after applying filters
     total_count = latest_sessions_query.distinct(latest_session_subquery.c.visitor_id).count()
@@ -542,6 +552,12 @@ async def sync_waiting_conversations(
     此接口获取当前项目中所有状态为 WAITING 的访客的 WuKongIM 会话信息，
     包括最近的消息记录。用于客服人员查看待接入访客的对话内容。
     """
+    if restricted_staff(current_user):
+        from app.services.company_queue import queue_previews
+        conversations, channels, total = queue_previews(db, current_user, limit, offset)
+        return WuKongIMConversationPaginatedResponse(conversations=conversations, channels=channels,
+            pagination=PaginationMetadata(total=total, limit=limit, offset=offset,
+                has_next=offset + limit < total, has_prev=offset > 0))
     # 1. Get total count of waiting entries
     total_count = (
         db.query(VisitorWaitingQueue)
@@ -704,6 +720,8 @@ async def sync_recent_conversations_by_visitor_tags(
     )
 
     # tag_ids filter (OR)
+    if restricted_staff(current_user):
+        subquery_base = subquery_base.filter(VisitorSession.visitor_id.in_(owned_visitor_ids(current_user)))
     if tag_ids_resolved:
         subquery_base = subquery_base.join(
             vt_filter,
@@ -823,8 +841,12 @@ async def sync_recent_conversations_by_visitor_tags(
 async def set_conversation_unread(
     request: WuKongIMSetUnreadRequest,
     current_user: Staff = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
 ) -> Dict[str, str]:
     """设置会话的未读消息数量。"""
+    await require_staff_channel_access(
+        db, current_user, request.channel_id, request.channel_type,
+    )
     staff_uid = f"{current_user.id}-staff"
 
     logger.info(
@@ -866,8 +888,12 @@ async def set_conversation_unread(
 async def delete_conversation(
     request: WuKongIMDeleteConversationRequest,
     current_user: Staff = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
 ) -> Dict[str, str]:
     """从会话列表中删除指定的会话。"""
+    await require_staff_channel_access(
+        db, current_user, request.channel_id, request.channel_type,
+    )
     staff_uid = f"{current_user.id}-staff"
 
     logger.info(
@@ -911,6 +937,9 @@ async def sync_channel_messages(
     db: Session = Depends(get_db),
 ) -> WuKongIMChannelMessageSyncResponse:
     """同步指定频道的历史消息记录。"""
+    await require_staff_channel_access(
+        db, current_user, request.channel_id, request.channel_type,
+    )
     staff_uid = f"{current_user.id}-staff"
 
     # 1) Check if there is a memory clearance record for this staff and channel

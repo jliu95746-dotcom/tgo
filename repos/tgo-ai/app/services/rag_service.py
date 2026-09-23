@@ -3,6 +3,7 @@
 import uuid
 from typing import Any, Dict, List, Optional
 
+from app.services.service_identity import rag_service_headers
 import httpx
 from pydantic import BaseModel, Field
 
@@ -66,7 +67,7 @@ class RAGServiceClient:
         if not collection_ids:
             return CollectionBatchResponse(collections=[], not_found=[])
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=rag_service_headers()) as client:
             try:
                 response = await client.post(
                     f"{self.base_url}/v1/collections/batch",
@@ -192,7 +193,7 @@ class RAGServiceClient:
                 "knowledge_channel",
             ) from exc
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=rag_service_headers()) as client:
             try:
                 response = await client.post(
                     (
@@ -239,7 +240,7 @@ class RAGServiceClient:
 
         payload = {"configs": [c.model_dump(mode="json", exclude_none=True) for c in configs]}
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=rag_service_headers()) as client:
             try:
                 response = await client.post(
                     f"{self.base_url}/v1/embedding-configs/batch-sync",

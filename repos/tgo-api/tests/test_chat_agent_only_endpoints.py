@@ -15,6 +15,7 @@ from app.schemas.chat import ChatCompletionRequest, StaffAgentChatRequest
 from app.schemas.platform_schema import PlatformCreate
 from app.models.platform import PlatformType
 from app.schemas.employee_style import EmployeeStyle
+from app.services.ai_client import ai_client
 
 
 @pytest.fixture(autouse=True)
@@ -310,6 +311,9 @@ async def test_create_platform_uses_single_agent_id(monkeypatch) -> None:
 
     db = _PlatformDB()
     agent_id = uuid4()
+    project_id = uuid4()
+    lookup = AsyncMock(return_value={"id": str(agent_id)})
+    monkeypatch.setattr(ai_client, "get_agent", lookup)
 
     monkeypatch.setattr(platform_endpoints, "generate_api_key", lambda: "pk_platform")
     monkeypatch.setattr(
@@ -325,8 +329,12 @@ async def test_create_platform_uses_single_agent_id(monkeypatch) -> None:
             agent_id=agent_id,
         ),
         db=db,
-        current_user=SimpleNamespace(project_id=uuid4(), username="alice"),
+        current_user=SimpleNamespace(project_id=project_id, username="alice"),
     )
 
     assert response.agent_id == agent_id
     assert db.added[0].agent_id == agent_id
+    lookup.assert_awaited_once_with(
+        project_id=str(project_id), agent_id=str(agent_id),
+        include_tools=False, include_collections=False, include_workflows=False,
+    )

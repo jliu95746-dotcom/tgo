@@ -3,7 +3,9 @@
 from logging.config import fileConfig
 
 from alembic import context
+from alembic.runtime.environment import NameFilterParentNames, NameFilterType
 from sqlalchemy import create_engine, pool
+from sqlalchemy.engine import Connection
 
 from app.core.config import settings
 from app.core.database import Base
@@ -25,10 +27,14 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
-def include_name(name, type_, parent_names):
+def include_name(
+    name: str | None,
+    type_: NameFilterType,
+    parent_names: NameFilterParentNames,
+) -> bool:
     """只管理 api_* 前缀的表，避免与 SaaS 迁移冲突。"""
     if type_ == "table":
-        return name.startswith("api_")
+        return name is not None and name.startswith("api_")
     return True
 
 # other values from the config, defined by the needs of env.py,
@@ -72,23 +78,30 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-    connectable = create_engine(
-        get_url(),
-        poolclass=pool.NullPool,
+def run_migrations_on_connection(connection: Connection) -> None:
+    """Use the caller's transaction for atomic application and dry runs."""
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        version_table="api_alembic_version",
+        include_name=include_name,
     )
+    with context.begin_transaction():
+        context.run_migrations()
 
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            version_table="api_alembic_version",
-            include_name=include_name,
-        )
 
-        with context.begin_transaction():
-            context.run_migrations()
+def run_migrations_online() -> None:
+    """Use a supplied connection or open the configured database."""
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        run_migrations_on_connection(connection)
+        return
+    connectable = create_engine(get_url(), poolclass=pool.NullPool)
+    try:
+        with connectable.connect() as connection:
+            run_migrations_on_connection(connection)
+    finally:
+        connectable.dispose()
 
 
 if context.is_offline_mode():

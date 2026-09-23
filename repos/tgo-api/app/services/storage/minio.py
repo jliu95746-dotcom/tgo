@@ -12,6 +12,8 @@ except ImportError:
     ClientError = Exception
 
 from app.services.storage.base import StorageBackend
+from app.services.storage.urls import resolve_private_chat_file_url
+from app.core.config import settings
 
 
 class MinIOBackend(StorageBackend):
@@ -140,6 +142,10 @@ class MinIOBackend(StorageBackend):
         """
         if not url or not isinstance(url, str):
             return url
+
+        private_url = resolve_private_chat_file_url(url, settings.API_BASE_URL)
+        if private_url is not None:
+            return private_url
             
         # If it's a relative path, resolve it using get_public_url
         if url.startswith("/"):
@@ -151,10 +157,14 @@ class MinIOBackend(StorageBackend):
         # If it's an absolute URL, check if it's localhost and fix it
         if url.startswith("http://") or url.startswith("https://"):
             parsed = urlparse(url)
-            if "localhost" in parsed.netloc or "127.0.0.1" in parsed.netloc:
+            if parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
                 p = parsed.path
                 if p.startswith("/api/v1"):
                     p = p[4:]
+                if parsed.query:
+                    p += f"?{parsed.query}"
+                if parsed.fragment:
+                    p += f"#{parsed.fragment}"
                 return self.get_public_url(p)
                 
         return url

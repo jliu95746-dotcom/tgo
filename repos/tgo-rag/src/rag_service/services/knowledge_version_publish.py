@@ -29,6 +29,8 @@ async def locked_version(db: AsyncSession, project: UUID, version_id: UUID) -> t
 
 
 async def publish(db: AsyncSession, project: UUID, version_id: UUID, actor: str) -> KnowledgeVersion:
+    from .company_resources import ensure_capacity
+    await ensure_capacity(db, project)
     version, source, parent = await locked_version(db, project, version_id)
     if version.state == 'published' and source.active_number == version.number:
         return version
@@ -157,6 +159,7 @@ async def publish(db: AsyncSession, project: UUID, version_id: UUID, actor: str)
     version.state, version.published_by, version.published_at = 'published', actor, now
     source.active_number, source.disabled = version.number, False
     await db.flush()
+    await ensure_capacity(db, project)
     return version
 
 

@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useEffect } from 'react';
+import { useAuthorizedChatMarkdown } from '../store/chatFileAccess';
 import { Marked, RendererObject, RendererThis, Tokens } from 'marked';
 import { markedHighlight } from "marked-highlight";
 import hljs from 'highlight.js/lib/core';
@@ -312,10 +313,11 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
   className = '',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const authorizedContent = useAuthorizedChatMarkdown(content);
 
   const html = useMemo(() => {
-    return renderMarkdownToHtml(content || '');
-  }, [content]);
+    return renderMarkdownToHtml(authorizedContent || '');
+  }, [authorizedContent]);
 
   // 处理 Markdown 中图片的点击事件
   useEffect(() => {

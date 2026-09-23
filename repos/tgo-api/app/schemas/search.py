@@ -67,6 +67,19 @@ class SearchPagination(BaseSchema):
         return self.page > 1 and self.total > 0
 
 
+class MessageSearchPagination(BaseSchema):
+    """Only authorized records contribute to message pagination."""
+
+    page: int = Field(..., ge=1)
+    page_size: int = Field(..., ge=1)
+    total: Optional[int] = Field(
+        None, ge=0,
+        description="Exact authorized total, only known after search exhaustion",
+    )
+    has_next: bool
+    has_previous: bool
+
+
 class UnifiedSearchResponse(BaseSchema):
     """Response payload for unified visitor/message search."""
 
@@ -85,6 +98,6 @@ class UnifiedSearchResponse(BaseSchema):
     visitor_pagination: Optional[SearchPagination] = Field(
         None, description="Pagination metadata for visitor results"
     )
-    message_pagination: Optional[SearchPagination] = Field(
+    message_pagination: Optional[MessageSearchPagination] = Field(
         None, description="Pagination metadata for message results"
     )

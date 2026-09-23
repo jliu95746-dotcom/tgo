@@ -17,6 +17,7 @@ from agno.agent import (
 )
 
 from app.core.logging import get_logger
+from app.services.model_usage import track_model_usage
 from app.models.internal import AgentExecutionContext
 from app.runtime.supervisor.streaming.workflow_events import WorkflowEventEmitter
 from app.schemas.agent_run import (
@@ -49,14 +50,26 @@ class AgnoAgentRunner:
     ) -> SupervisorRunResponse:
         """Run one agent and translate its result into the public response schema."""
         start_time = time.time()
-        output = await built_agent.agent.arun(
-            context.message,
-            stream=False,
-            session_id=context.session_id,
-            user_id=context.user_id,
-        )
+        async with track_model_usage(
+            context.project_id, context.agent.model, context.response_purpose
+        ) as usage:
+            output = await built_agent.agent.arun(
+                context.message,
+                stream=False,
+                session_id=context.session_id,
+                user_id=context.user_id,
+            )
+            usage.observe(getattr(output, "metrics", None))
+            status = getattr(output, "status", None)
+            status_value = getattr(status, "value", status)
+            final_content = self._extract_final_content(output)
+            if (status_value is not None and status_value != "COMPLETED") or not final_content:
+                usage.status = "cancelled" if status_value == "CANCELLED" else "failed"
+                return SupervisorRunResponse(
+                    success=False, message="AI 生成未完成", content="",
+                    error="模型未完成可发送的答复，请重试或转人工处理",
+                )
         total_time = time.time() - start_time
-        final_content = self._extract_final_content(output)
         tools_used = self._extract_tool_names(getattr(output, "tools", None))
 
         result = AgentExecutionResult(
@@ -101,86 +114,94 @@ class AgnoAgentRunner:
         chunk_index = 0
         tool_calls = 0
 
-        async for event in built_agent.agent.arun(
-            context.message,
-            stream=True,
-            stream_events=True,
-            run_id=execution_id,
-            session_id=context.session_id,
-            user_id=context.user_id,
-        ):
-            timestamp = datetime.now(timezone.utc).isoformat()
-            if isinstance(event, RunContentEvent):
-                content = event.content or ""
-                if content:
-                    content_chunks.append(content)
-                    workflow_events.emit_agent_content_chunk(
+        async with track_model_usage(
+            context.project_id, context.agent.model, context.response_purpose
+        ) as usage:
+            async for event in built_agent.agent.arun(
+                context.message,
+                stream=True,
+                stream_events=True,
+                run_id=execution_id,
+                session_id=context.session_id,
+                user_id=context.user_id,
+            ):
+                timestamp = datetime.now(timezone.utc).isoformat()
+                if isinstance(event, RunContentEvent):
+                    content = event.content or ""
+                    if content:
+                        content_chunks.append(content)
+                        workflow_events.emit_agent_content_chunk(
+                            agent_id=str(context.agent.id),
+                            agent_name=context.agent.name,
+                            execution_id=execution_id,
+                            content_chunk=content,
+                            chunk_index=chunk_index,
+                            is_final=False,
+                        )
+                        chunk_index += 1
+                    continue
+
+                if isinstance(event, ToolCallStartedEvent) and event.tool:
+                    tool_calls += 1
+                    workflow_events.emit_agent_tool_call_started(
                         agent_id=str(context.agent.id),
                         agent_name=context.agent.name,
                         execution_id=execution_id,
-                        content_chunk=content,
-                        chunk_index=chunk_index,
-                        is_final=False,
+                        tool_name=getattr(event.tool, "tool_name", "unknown_tool"),
+                        tool_call_id=getattr(event.tool, "tool_call_id", None),
+                        tool_input=getattr(event.tool, "tool_args", None),
                     )
-                    chunk_index += 1
-                continue
+                    continue
 
-            if isinstance(event, ToolCallStartedEvent) and event.tool:
-                tool_calls += 1
-                workflow_events.emit_agent_tool_call_started(
-                    agent_id=str(context.agent.id),
-                    agent_name=context.agent.name,
-                    execution_id=execution_id,
-                    tool_name=getattr(event.tool, "tool_name", "unknown_tool"),
-                    tool_call_id=getattr(event.tool, "tool_call_id", None),
-                    tool_input=getattr(event.tool, "tool_args", None),
-                )
-                continue
+                if isinstance(event, ToolCallCompletedEvent) and event.tool:
+                    workflow_events.emit_agent_tool_call_completed(
+                        agent_id=str(context.agent.id),
+                        agent_name=context.agent.name,
+                        execution_id=execution_id,
+                        tool_name=getattr(event.tool, "tool_name", "unknown_tool"),
+                        tool_call_id=getattr(event.tool, "tool_call_id", None),
+                        tool_input=getattr(event.tool, "tool_args", None),
+                        tool_output=getattr(event.tool, "result", None),
+                        tool_call_error=bool(getattr(event.tool, "tool_call_error", False)),
+                    )
+                    continue
 
-            if isinstance(event, ToolCallCompletedEvent) and event.tool:
-                workflow_events.emit_agent_tool_call_completed(
-                    agent_id=str(context.agent.id),
-                    agent_name=context.agent.name,
-                    execution_id=execution_id,
-                    tool_name=getattr(event.tool, "tool_name", "unknown_tool"),
-                    tool_call_id=getattr(event.tool, "tool_call_id", None),
-                    tool_input=getattr(event.tool, "tool_args", None),
-                    tool_output=getattr(event.tool, "result", None),
-                    tool_call_error=bool(getattr(event.tool, "tool_call_error", False)),
-                )
-                continue
+                if isinstance(event, RunCompletedEvent):
+                    usage.observe(getattr(event, "metrics", None))
+                    completed_seen = True
+                    completed_content = self._ensure_text(getattr(event, "content", None))
+                    continue
 
-            if isinstance(event, RunCompletedEvent):
-                completed_seen = True
-                completed_content = self._ensure_text(getattr(event, "content", None))
-                continue
+                if isinstance(event, RunErrorEvent):
+                    usage.failed()
+                    usage.observe(getattr(event, "metrics", None))
+                    success = False
+                    error = event.content or event.error_type or "Agent run failed"
+                    self._logger.error(
+                        "Agent streaming run failed",
+                        agent_id=str(context.agent.id),
+                        request_id=context.request_id,
+                        timestamp=timestamp,
+                        error=error,
+                    )
+                    continue
 
-            if isinstance(event, RunErrorEvent):
+                if isinstance(event, RunCancelledEvent):
+                    usage.status = "cancelled"
+                    success = False
+                    error = event.reason or "Agent run cancelled"
+                    self._logger.info(
+                        "Agent streaming run cancelled",
+                        agent_id=str(context.agent.id),
+                        request_id=context.request_id,
+                        timestamp=timestamp,
+                        error=error,
+                    )
+
+            if not completed_seen and success:
+                usage.failed()
                 success = False
-                error = event.content or event.error_type or "Agent run failed"
-                self._logger.error(
-                    "Agent streaming run failed",
-                    agent_id=str(context.agent.id),
-                    request_id=context.request_id,
-                    timestamp=timestamp,
-                    error=error,
-                )
-                continue
-
-            if isinstance(event, RunCancelledEvent):
-                success = False
-                error = event.reason or "Agent run cancelled"
-                self._logger.info(
-                    "Agent streaming run cancelled",
-                    agent_id=str(context.agent.id),
-                    request_id=context.request_id,
-                    timestamp=timestamp,
-                    error=error,
-                )
-
-        if not completed_seen and success:
-            success = False
-            error = "Agent stream ended without a completion event"
+                error = "Agent stream ended without a completion event"
 
         streamed_content = "".join(content_chunks)
         final_content = completed_content or streamed_content

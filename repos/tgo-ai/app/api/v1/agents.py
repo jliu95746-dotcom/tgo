@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.services.quota_authorization import require_reply_quota
 from app.core.logging import get_logger
 from app.dependencies import (
     get_agent_service,
@@ -115,6 +116,7 @@ _run_success_responses = {
 
 @router.post(
     "/run",
+    dependencies=[Depends(require_reply_quota)],
     response_model=SupervisorRunResponse,
     responses={
         **_run_success_responses,

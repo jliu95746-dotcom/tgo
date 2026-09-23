@@ -41,6 +41,8 @@ from app.schemas.chat import (
 from app.services.llm_provider_service import LLMProviderService
 from app.services.rag_service import rag_service_client
 from app.services.tool_executor import ToolExecutor
+from app.services.chat_accounting import account_completion, account_stream
+from app.services.commercial_ai_limits import constrain_chat
 
 logger = get_logger(__name__)
 
@@ -122,6 +124,7 @@ class ChatService:
         project_id: uuid.UUID,
     ) -> ChatCompletionResponse:
         """Create a non-streaming chat completion with optional agentic loop."""
+        request = constrain_chat(request)
         provider = await self._get_provider(request.provider_id, project_id)
         provider_kind = (provider.provider_kind or "").lower()
 
@@ -246,6 +249,7 @@ class ChatService:
         project_id: uuid.UUID,
     ) -> AsyncIterator[str]:
         """Create a streaming chat completion with optional agentic loop."""
+        request = constrain_chat(request)
         provider = await self._get_provider(request.provider_id, project_id)
         provider_kind = (provider.provider_kind or "").lower()
 
@@ -559,6 +563,10 @@ class ChatService:
         project_id: uuid.UUID,
     ) -> LLMProvider:
         """Get and validate the LLM provider."""
+        from app.services.platform_models import provider_for_request
+        platform_provider = provider_for_request(provider_id, project_id)
+        if platform_provider is not None:
+            return platform_provider
         provider = await self.provider_service.get_provider_by_id(provider_id)
 
         if not provider or provider.project_id != project_id:
@@ -582,6 +590,7 @@ class ChatService:
             timeout=provider.timeout or 60.0,
         )
 
+    @account_completion
     async def _openai_completion(
         self,
         request: ChatCompletionRequest,
@@ -626,6 +635,7 @@ class ChatService:
                 details={"provider_kind": "openai", "model": request.model},
             ) from exc
 
+    @account_stream
     async def _openai_stream(
         self,
         request: ChatCompletionRequest,
@@ -759,6 +769,7 @@ class ChatService:
             timeout=provider.timeout or 60.0,
         )
 
+    @account_completion
     async def _anthropic_completion(
         self,
         request: ChatCompletionRequest,
@@ -802,6 +813,7 @@ class ChatService:
                 details={"provider_kind": "anthropic", "model": request.model},
             ) from exc
 
+    @account_stream
     async def _anthropic_stream(
         self,
         request: ChatCompletionRequest,
@@ -901,6 +913,7 @@ class ChatService:
         """Configure Gemini API with credentials."""
         genai.configure(api_key=api_key)
 
+    @account_completion
     async def _google_completion(
         self,
         request: ChatCompletionRequest,
@@ -935,9 +948,15 @@ class ChatService:
             )
 
             content = response.text
-            # Estimate token counts
-            prompt_tokens = sum(len(str(m.get("parts", [""])[0]).split()) for m in history) + len(last_message.split())
-            completion_tokens = len(content.split())
+            metadata = getattr(response, "usage_metadata", None)
+            prompt_tokens = getattr(metadata, "prompt_token_count", None)
+            completion_tokens = getattr(metadata, "candidates_token_count", None)
+            measured_usage = (
+                Usage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+                      total_tokens=prompt_tokens + completion_tokens)
+                if type(prompt_tokens) is int and type(completion_tokens) is int
+                else None
+            )
 
             return ChatCompletionResponse(
                 id=create_completion_id(),
@@ -950,11 +969,7 @@ class ChatService:
                         finish_reason="stop",
                     )
                 ],
-                usage=Usage(
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=prompt_tokens + completion_tokens,
-                ),
+                usage=measured_usage,
             )
         except Exception as exc:
             self._logger.error(
@@ -966,6 +981,7 @@ class ChatService:
                 details={"provider_kind": "google", "model": request.model},
             ) from exc
 
+    @account_stream
     async def _google_stream(
         self,
         request: ChatCompletionRequest,

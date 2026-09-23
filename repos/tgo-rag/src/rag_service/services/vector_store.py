@@ -469,6 +469,19 @@ class VectorStoreService:
         Returns:
             List of (Document, score) tuples
         """
+        if not project_key or not project_key.strip():
+            raise ValueError(
+                "project_key is required for project similarity search"
+            )
+
+        # All project-specific store objects share one index table. Bind the
+        # tenant here even when a caller omits filters or supplies nested ORs.
+        # Additional filters may narrow access, never replace this constraint.
+        tenant_filter = {"project_id": project_key}
+        scoped_filter = (
+            {"$and": [tenant_filter, filter_dict]}
+            if filter_dict else tenant_filter
+        )
         try:
             # Use per-project vector store bound to the provided embedding client
             vector_store = await self.get_vector_store_for_project(project_key, embeddings_client)
@@ -480,7 +493,7 @@ class VectorStoreService:
                 lambda: vector_store.similarity_search_with_score(
                     query=query,
                     k=k,
-                    filter=filter_dict,
+                    filter=scoped_filter,
                     # Keep semantic search purely vector-based. Hybrid search
                     # is composed separately by SearchService.
                     hybrid_search_config=None,

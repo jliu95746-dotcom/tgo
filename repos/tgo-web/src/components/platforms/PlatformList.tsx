@@ -242,7 +242,7 @@ const PlatformList: React.FC = () => {
       onSelect={handleTypeSelect}
     />
     {pendingType && <PlatformNameModal typeName={pendingType.name}
-      existingNames={platforms.map(platform => platform.display_name || platform.name)}
+      existingNames={platforms.map((platform: Platform) => platform.display_name || platform.name)}
       onClose={() => setPendingType(null)} onCreate={handleCreate} />}
     </>
   );

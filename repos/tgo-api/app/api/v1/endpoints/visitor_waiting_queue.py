@@ -3,7 +3,7 @@
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
@@ -30,12 +30,18 @@ from app.schemas.visitor_waiting_queue import (
 )
 from app.services.transfer_service import transfer_to_staff
 from app.services.queue_lifecycle import cancel_entry
+from app.services.staff_conversation_scope import restricted_staff
 from app.utils.encoding import build_visitor_channel_id
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 
 logger = get_logger("api.visitor_waiting_queue")
 
-router = APIRouter()
+def enforce_queue_scope(request: Request, actor: Staff = Depends(require_permission("visitors:read"))) -> None:
+    if restricted_staff(actor) and not request.url.path.endswith(("/count", "/accept")):
+        raise HTTPException(403, "请通过公共待接待队列领取访客，领取前仅可查看接待摘要")
+
+
+router = APIRouter(dependencies=[Depends(enforce_queue_scope)])
 
 
 def _build_visitor_brief(visitor: Visitor) -> VisitorBriefResponse:

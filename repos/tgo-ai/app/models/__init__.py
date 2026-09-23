@@ -14,9 +14,11 @@ from app.models.llm_provider import LLMProvider
 from app.models.llm_model import LLMModel
 from app.models.project_ai_config import ProjectAIConfig
 from app.models.tool import Tool, ToolType
+from app.models.model_usage import ModelUsageRecord
 
 
 __all__ = [
+    "ModelUsageRecord",
     "BaseModel",
     "Project",
     "Agent",

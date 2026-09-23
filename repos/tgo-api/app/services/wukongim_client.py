@@ -11,6 +11,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.services.im_credentials import transport_token
 from app.schemas.wukongim import (
     WuKongIMChannelLastMessage,
     WuKongIMChannelMessageSyncResponse,
@@ -1383,13 +1384,18 @@ class WuKongIMClient:
             return {}
 
         # Use provided values or defaults from settings
-        token = token or str(uuid4())
+        token = transport_token(uid, token or str(uuid4()))
         device_flag = (
             device_flag if device_flag is not None else settings.WUKONGIM_DEVICE_FLAG
         )
         device_level = (
             device_level if device_level is not None else settings.WUKONGIM_DEVICE_LEVEL
         )
+        # SaaS sessions share an IM identity across browser tabs. Primary
+        # devices evict earlier connections; the gateway authorizes each
+        # secondary connection independently and rechecks revocation.
+        if settings.SAAS_ENABLED:
+            device_level = 0
 
         request_data = {
             "uid": uid,

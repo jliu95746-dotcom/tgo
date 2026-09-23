@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.database import get_db
-from app.core.security import verify_token, get_user_language, UserLanguage
+from app.core.security import resolve_staff_token, get_user_language, UserLanguage
 from app.models import Staff, Visitor, VisitorTag, VisitorActivity, Platform, VisitorSession, SessionStatus
 from app.schemas.visitor import (
     VisitorResponse,
@@ -334,15 +334,7 @@ async def get_channel_info(
 
     # Try JWT (staff)
     if credentials and credentials.credentials:
-        payload = verify_token(credentials.credentials)
-        if payload:
-            username = payload.get("sub")
-            if username:
-                current_user = (
-                    db.query(Staff)
-                    .filter(Staff.username == username, Staff.deleted_at.is_(None))
-                    .first()
-                )
+        current_user = resolve_staff_token(db, credentials.credentials)
 
     # Try Platform API key if no staff user
     if current_user is None:

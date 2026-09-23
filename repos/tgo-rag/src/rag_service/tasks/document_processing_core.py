@@ -49,7 +49,7 @@ from .document_processing_types import (
     ProcessingResult
 )
 from ..database import get_db_session
-from ..models import File, FileDocument, WebsitePage
+from ..models import Collection, File, FileDocument, WebsitePage
 
 logger = logging.getLogger(__name__)
 
@@ -181,16 +181,27 @@ async def process_file_async(
         
         # Load file information
         file_info = await _load_file_info(file_uuid, file_id)
+        from ..services.company_resources import require_processing
+        await require_processing(file_info.project_id)
+        if file_info.collection_id != collection_id:
+            return ProcessingResult(
+                "skipped", file_id, 0, 0, 0,
+                error="文件处理任务与知识库归属不匹配。",
+            )
 
         from ..services import website_documents
         is_website = (file_info.storage_metadata or {}).get("source") == "website_crawl"
         if is_website:
-            if (
-                file_info.collection_id != collection_id
-                or not await website_documents.claim_website_file(file_info)
-            ):
+            if not await website_documents.claim_website_file(file_info):
                 return ProcessingResult("skipped", file_id, 0, 0, 0)
         else:
+            if not await _is_current_file_scope(
+                file_uuid, collection_id, file_info.project_id,
+            ):
+                return ProcessingResult(
+                    "skipped", file_id, 0, 0, 0,
+                    error="文件或知识库已失效，或企业归属不一致。",
+                )
             await _update_file_status(file_uuid, ProcessingStatus.PROCESSING)
         
         # Load and extract document content
@@ -366,6 +377,26 @@ async def _generate_qa_pairs(
             
     logger.info(f"QA Generation completed. Generated {len(qa_chunks)} QA pairs from {total_chunks} chunks.")
     return qa_chunks
+
+
+async def _is_current_file_scope(
+    file_uuid: UUID, collection_id: UUID, project_id: UUID,
+) -> bool:
+    """Check current ownership before ordinary uploads change any state."""
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(File.id)
+            .join(Collection, Collection.id == File.collection_id)
+            .where(
+                File.id == file_uuid,
+                File.collection_id == collection_id,
+                File.project_id == project_id,
+                File.deleted_at.is_(None),
+                Collection.project_id == project_id,
+                Collection.deleted_at.is_(None),
+            )
+        )
+        return result.scalar_one_or_none() is not None
 
 
 async def _load_file_info(file_uuid: UUID, file_id: str) -> Any:

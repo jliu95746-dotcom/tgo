@@ -169,6 +169,20 @@ class HTTPMediaProvider:
         form: dict[str, str] | None = None,
         files: dict[str, tuple[str, bytes, str]] | None = None,
     ) -> bytes:
+        from app.services.media_accounting import media_execution, observe_media_usage
+        async with media_execution(self._model.model) as usage:
+            result = await self._send(path, body=body, form=form, files=files)
+            observe_media_usage(usage, result)
+            return result
+
+    async def _send(
+        self,
+        path: str,
+        *,
+        body: dict[str, JsonValue] | None = None,
+        form: dict[str, str] | None = None,
+        files: dict[str, tuple[str, bytes, str]] | None = None,
+    ) -> bytes:
         try:
             url = httpx.URL(self._model.api_base_url)
             if (

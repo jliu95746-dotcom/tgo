@@ -135,6 +135,9 @@ def get_staff_message_analyses(
         ): message.channel_id
         for message in request.messages
     }
+    from app.services.staff_conversation_scope import require_owned_visitor
+    for visitor_id in {key.visitor_id for key in key_to_channel}:
+        require_owned_visitor(db, current_user, visitor_id)
     combined_results = MessageAnalysisService(
         db
     ).get_combined_results_for_project(

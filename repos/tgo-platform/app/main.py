@@ -13,6 +13,7 @@ from app.api.v1 import health, messages
 from app.api.v1 import platforms as platforms_v1
 from app.api.v1 import callbacks as callbacks_v1
 from app.api.v1 import internal as internal_v1
+from app.api.v1 import billing_receipts
 from app.infra.http import HttpxTgoApiClient
 from app.infra.sse import DefaultSSEManager
 from app.db.base import SessionLocal
@@ -219,3 +220,4 @@ app.include_router(platforms_v1.router, tags=["platforms"])
 app.include_router(callbacks_v1.router, tags=["callbacks"])
 
 app.include_router(internal_v1.router, tags=["internal"])
+app.include_router(billing_receipts.router, tags=["internal billing"])

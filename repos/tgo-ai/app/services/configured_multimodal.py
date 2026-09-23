@@ -49,6 +49,13 @@ class ConfiguredMultimodalService:
         model_name: str | None = getattr(config, f"default_{capability.value}_model")
         if provider_id is None or not model_name:
             return None
+        from app.services.platform_models import current_model
+        from app.services.quota_authorization import metered_execution
+        platform = current_model()
+        if metered_execution.get():
+            approved = [platform.model] if platform else settings.saas_approved_models
+            if model_name not in approved:
+                return None
         row = (
             await self._db.execute(
                 select(LLMProvider, LLMModel)
@@ -78,7 +85,12 @@ class ConfiguredMultimodalService:
                     and (model.capabilities or {}).get("vision") is True
                 )
             )
-        if not supported or not provider.api_key or not provider.api_base_url:
+        api_key = platform.api_key.get_secret_value() if platform else provider.api_key
+        api_base_url = platform.api_base_url if platform else provider.api_base_url
+        provider_kind = platform.provider_kind if platform else provider.provider_kind
+        if provider_kind not in {"openai", "openai_compatible"}:
+            return None
+        if not supported or not api_key or not api_base_url:
             return None
         timeout = settings.multimodal_provider_timeout_seconds
         if provider.timeout is not None and provider.timeout > 0:
@@ -86,10 +98,10 @@ class ConfiguredMultimodalService:
         return ConfiguredMediaModel(
             name=str(provider.id),
             model=model_name,
-            api_base_url=provider.api_base_url,
-            api_key=provider.api_key,
+            api_base_url=api_base_url,
+            api_key=api_key,
             timeout_seconds=timeout,
-            organization=provider.organization,
+            organization=None if platform else provider.organization,
         )
 
     async def analyze(

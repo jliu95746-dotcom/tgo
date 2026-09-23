@@ -24,6 +24,7 @@ from app.core.config import settings
 from app.core.security import verify_token
 
 from app.services.wukongim_client import wukongim_client
+from app.services.im_access import issue_visitor_im_token
 from app.services.reply_history import reconcile_reply_history
 from app.schemas.employee_style import EmployeeStyle
 from app.services.employee_style import resolve_employee_style
@@ -90,7 +91,10 @@ from app.services.transfer_service import transfer_to_staff
 
 
 logger = get_logger("endpoints.visitors")
-router = APIRouter()
+from app.services.staff_conversation_scope import (
+    enforce_visitor_detail_scope, owned_visitor_ids, restricted_staff,
+)
+router = APIRouter(dependencies=[Depends(enforce_visitor_detail_scope)])
 
 
 @router.get("", response_model=VisitorListResponse)
@@ -128,6 +132,8 @@ async def list_visitors(
     )
 
     # Apply filters
+    if restricted_staff(current_user):
+        query = query.filter(Visitor.id.in_(owned_visitor_ids(current_user)))
     if platform_id:
         query = query.filter(Visitor.platform_id == platform_id)
     if is_online is not None:
@@ -486,7 +492,12 @@ async def register_visitor(
         await notify_visitor_profile_updated(db, visitor)
 
     # 3c) Register or login visitor to WuKongIM and generate token for IM login
-    im_token = str(uuid.uuid4())
+    im_token = (
+        issue_visitor_im_token(
+            visitor, timedelta(minutes=settings.SAAS_VISITOR_IM_TOKEN_MINUTES)
+        )
+        if settings.SAAS_ENABLED else str(uuid.uuid4())
+    )
     try:
         await wukongim_client.register_or_login_user(
             uid=str(visitor.id) + "-vtr",
@@ -748,6 +759,7 @@ async def accept_visitor_direct(
         ai_disabled=True,  # 人工接入通常禁用 AI
         add_to_queue_if_no_staff=False,
         notes=f"Accepted manually by {current_user.username}",
+        expected_unassigned=True,
     )
 
     if not result.success:

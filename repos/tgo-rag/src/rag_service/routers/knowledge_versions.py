@@ -161,6 +161,8 @@ async def upload_replacement(reference: UUID, project_id: UUID = Query(...),
     if not content or len(content) > settings.max_file_size:
         raise HTTPException(413, '文件为空或超过大小限制。')
     async with errors():
+        from ..services.company_resources import ensure_capacity
+        await ensure_capacity(db, project_id, len(content))
         source, _ = await ensure_source(db, project_id, 'file', reference, actor)
         identifier = uuid4()
         suffix = Path(file.filename or '').suffix[:12]

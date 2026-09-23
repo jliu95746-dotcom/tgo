@@ -69,6 +69,13 @@ async def cancel_by_client_no(
 async def cancel_run_by_staff(
     req: StaffCancelRequest,
     current_user: Staff = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
 ) -> ReplyCancelResponse:
     item = await get_reply_run(str(current_user.project_id), req.client_msg_no)
+    from app.services.staff_conversation_scope import restricted_staff
+    if restricted_staff(current_user):
+        from app.services.channel_access import require_staff_channel_access
+        if item.channel_type != 251:
+            raise HTTPException(403, "仅可停止本人负责的客户会话回复")
+        await require_staff_channel_access(db, current_user, item.channel_id, item.channel_type)
     return await cancel_reply(item)

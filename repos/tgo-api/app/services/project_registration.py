@@ -23,6 +23,16 @@ async def register_project_account(
 ) -> StaffResponse:
     if not settings.PUBLIC_REGISTRATION_ENABLED:
         raise HTTPException(403, "Public registration is disabled")
+    if settings.SAAS_ENABLED:
+        if not settings.SAAS_REGISTRATION_ENABLED:
+            raise HTTPException(403, "企业自助注册尚未开放")
+        if not settings.SAAS_BILLING_ENABLED:
+            raise HTTPException(503, "企业试用权限尚未配置")
+        from app.services.company_email import require_mail_configuration
+        require_mail_configuration()
+        from app.services.platform_models import runtime_model
+        if runtime_model(db) is None:
+            raise HTTPException(503, "平台客服模型尚未配置，请联系平台开通试用")
     setup = db.query(SystemSetup).order_by(SystemSetup.created_at.asc()).first()
     if not setup or not setup.is_installed:
         raise HTTPException(409, "Complete system installation before registering")
@@ -46,6 +56,7 @@ async def register_project_account(
             password_hash=get_password_hash(data.password),
             role="admin",
             status="offline",
+            account_enabled=not settings.SAAS_ENABLED,
         )
         db.add(owner)
         # No model keys, customers, skills or third-party channel settings are copied.
@@ -65,6 +76,11 @@ async def register_project_account(
             )
         )
         db.flush()
+        if settings.SAAS_ENABLED:
+            from app.models.company_account import CompanyAccount
+            from app.services.company_email import enqueue_action
+            db.add(CompanyAccount(project_id=project.id))
+            enqueue_action(db, owner, "verify")
         result = StaffResponse.model_validate(owner)
         # Commit before external I/O: concurrent signup must not hold a unique-index
         # lock while waiting for IM. Login reconciles the project notification channel.
@@ -94,6 +110,7 @@ async def ensure_project_staff_channel(db: Session, staff: Staff) -> None:
         .filter(
             Staff.project_id == staff.project_id,
             Staff.deleted_at.is_(None),
+            Staff.account_enabled.is_(True),
         )
         .all()
     )

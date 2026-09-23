@@ -37,6 +37,8 @@ class AIServiceClient:
             "User-Agent": "TGO-API-Service/0.1.0",
         }
         # Authentication headers have been removed per latest AI service API spec
+        from app.services.ai_usage_runtime import authorization_headers
+        headers.update(authorization_headers())
         return headers
 
     def _to_jsonable(self, obj: Any) -> Any:
@@ -240,6 +242,8 @@ class AIServiceClient:
         )
         data = await self._handle_response(response)
         if isinstance(data, dict):
+            if data.get("success") is False:
+                raise HTTPException(502, "AI 生成失败，请稍后重试或转人工处理")
             return data
 
         return {"content": data}

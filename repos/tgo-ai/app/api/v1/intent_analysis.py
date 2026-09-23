@@ -14,6 +14,7 @@ from app.schemas.intent import IntentClassificationResult
 from app.schemas.intent_analysis import IntentAnalysisRequest
 from app.services.chat_service import ChatService
 from app.services.intent_classifier import IntentClassifier
+from app.services.quota_authorization import require_internal_reply_quota
 from app.services.structured_output_chat_client import (
     ChatServiceStructuredOutputClient,
 )
@@ -24,6 +25,7 @@ router = APIRouter()
 
 @router.post(  # type: ignore[misc]
     "/intent",
+    dependencies=[Depends(require_internal_reply_quota)],
     response_model=IntentClassificationResult,
     summary="分类客户意图并执行安全路由策略",
 )

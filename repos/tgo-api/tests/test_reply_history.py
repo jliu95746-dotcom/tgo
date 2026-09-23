@@ -226,7 +226,9 @@ async def test_both_authorized_history_endpoints_reconcile(monkeypatch, actor):
     platform_id = uuid4()
     if actor == "staff":
         endpoint = conversations
-        database.query.return_value.filter.return_value.first.return_value = None
+        database.query.return_value.filter.return_value.first.side_effect = [
+            (VISITOR,), None,
+        ]
     else:
         endpoint = visitors
         database.query.return_value.filter.return_value.first.side_effect = [

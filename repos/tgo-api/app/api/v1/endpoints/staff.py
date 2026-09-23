@@ -62,6 +62,8 @@ def _build_staff_response(staff: Staff, is_working: bool = None) -> StaffRespons
         "status": staff.status,
         "is_active": staff.is_active,
         "service_paused": staff.service_paused,
+        "account_enabled": staff.account_enabled,
+        "email_verified_at": staff.email_verified_at,
         "is_working": is_working,
         "created_at": staff.created_at,
         "updated_at": staff.updated_at,
@@ -101,7 +103,8 @@ async def login_staff(
         subject=user.username,
         project_id=user.project_id,
         role=user.role,
-        expires_delta=access_token_expires
+        expires_delta=access_token_expires,
+        token_version=user.token_version,
     )
 
     # Register/synchronize user with WuKongIM for instant messaging
@@ -211,6 +214,8 @@ async def create_staff(
     logger.info(f"User {current_user.username} creating staff: {staff_data.username}")
     
     # Only allow creating staff with 'user' role
+    if settings.SAAS_BILLING_ENABLED:
+        raise HTTPException(409, "请通过企业成员邀请添加客服并验证邮箱")
     if staff_data.role != "user":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -434,11 +439,20 @@ async def update_staff(
         )
     
     # Update fields
+    if settings.SAAS_BILLING_ENABLED:
+        from app.services.company_membership import lock_company, protect_last_admin, validate_human_role_change
+        lock_company(db, current_user.project_id, current_user)
+        db.refresh(staff)
+        if staff_data.role is not None:
+            validate_human_role_change(staff, staff_data.role)
+        if staff_data.role is not None and staff_data.role != "admin":
+            protect_last_admin(db, staff)
     update_data = staff_data.model_dump(exclude_unset=True)
     
     # Handle password update
     if "password" in update_data:
         update_data["password_hash"] = get_password_hash(update_data.pop("password"))
+        staff.token_version += 1
     
     for field, value in update_data.items():
         setattr(staff, field, value)
@@ -592,6 +606,18 @@ async def delete_staff(
         )
     
     # Prevent self-deletion
+    if settings.SAAS_BILLING_ENABLED:
+        from app.models import VisitorSession
+        from app.services.company_membership import lock_company, protect_last_admin
+        lock_company(db, current_user.project_id, current_user)
+        db.refresh(staff)
+        protect_last_admin(db, staff)
+        if db.query(VisitorSession.id).filter(
+            VisitorSession.project_id == staff.project_id,
+            VisitorSession.staff_id == staff.id,
+            VisitorSession.status == "open",
+        ).first():
+            raise HTTPException(409, "请先转交或退回该成员的未结束会话")
     if staff.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

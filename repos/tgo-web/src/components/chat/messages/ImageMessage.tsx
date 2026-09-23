@@ -4,6 +4,7 @@ import { MessagePayloadType, type Message } from '@/types';
 import Lightbox from 'yet-another-react-lightbox';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
 import 'yet-another-react-lightbox/styles.css';
+import { useChatFileUrls } from '@/hooks/useChatFileUrls';
 
 /**
  * ImageMessage renders single image messages with preview/lightbox.
@@ -17,7 +18,8 @@ const ImageMessage: React.FC<MessageComponentProps> = ({ message, isStaff }) => 
   const { t } = useTranslation();
   const typedPayload = message.payload as any | undefined;
 
-  const imageUrl = ((typedPayload?.type === MessagePayloadType.IMAGE && typedPayload?.url) || message.metadata?.image_url || message.metadata?.image_preview_url || '') as string;
+  const sourceUrl = ((typedPayload?.type === MessagePayloadType.IMAGE && typedPayload?.url) || message.metadata?.image_url || message.metadata?.image_preview_url || '') as string;
+  const [imageUrl] = useChatFileUrls([sourceUrl]);
   let imgW = (typedPayload?.type === MessagePayloadType.IMAGE && typeof typedPayload?.width === 'number') ? typedPayload.width : (Number(message.metadata?.image_width) || 0);
   let imgH = (typedPayload?.type === MessagePayloadType.IMAGE && typeof typedPayload?.height === 'number') ? typedPayload.height : (Number(message.metadata?.image_height) || 0);
   if (!imgW || !imgH) { imgW = 200; imgH = 200; }

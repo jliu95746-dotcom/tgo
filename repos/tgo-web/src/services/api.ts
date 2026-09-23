@@ -68,6 +68,8 @@ export interface StaffCreateRequest {
 }
 
 export interface StaffResponse {
+  account_enabled?: boolean;
+  email_verified_at?: string | null;
   id: string;
   project_id: string;
   username: string;
@@ -111,19 +113,23 @@ class APIClient {
   private baseURL: string;
   private token: string | null = null;
 
-  constructor(baseURL: string) {
+  constructor(
+    baseURL: string,
+    private storage: Storage = localStorage,
+    private storageKey = 'tgo-auth-token',
+    private handleUnauthorized: () => void = () => onUnauthorized?.(),
+  ) {
     this.baseURL = baseURL;
-    // Load token from localStorage on initialization
-    this.token = localStorage.getItem('tgo-auth-token');
+    this.token = storage.getItem(storageKey);
   }
 
   // Set authentication token
   setToken(token: string | null) {
     this.token = token;
     if (token) {
-      localStorage.setItem('tgo-auth-token', token);
+      this.storage.setItem(this.storageKey, token);
     } else {
-      localStorage.removeItem('tgo-auth-token');
+      this.storage.removeItem(this.storageKey);
     }
   }
 
@@ -163,7 +169,7 @@ class APIClient {
       if (!response.ok) {
         // Trigger global unauthorized handler on 401 when token exists
         if (response.status === 401 && this.token) {
-          try { onUnauthorized?.(); } catch {}
+          try { this.handleUnauthorized(); } catch {}
         }
         let errorData: APIErrorDetail;
         try {
@@ -374,7 +380,7 @@ class APIClient {
       if (!response.ok) {
         // Trigger global unauthorized handler on 401 when token exists
         if (response.status === 401 && this.token) {
-          try { onUnauthorized?.(); } catch {}
+          try { this.handleUnauthorized(); } catch {}
         }
         let errorData: APIErrorDetail;
         try {
@@ -429,7 +435,7 @@ class APIClient {
     if (!response.ok) {
       // Trigger global unauthorized handler on 401 when token exists
       if (response.status === 401 && this.token) {
-        try { onUnauthorized?.(); } catch {}
+        try { this.handleUnauthorized(); } catch {}
       }
       // Let caller handle specific status, but throw a structured error for consistency
       let message = `HTTP ${response.status}: ${response.statusText}`;
@@ -502,11 +508,22 @@ export class APIError extends Error {
 // Create API client instance
 export const apiClient = new APIClient(API_BASE_URL);
 
+/** Independent browser-tab session, using the existing transport and error format. */
+export const createScopedApiClient = (storageKey: string, onExpired: () => void) =>
+  new APIClient(API_BASE_URL, sessionStorage, storageKey, onExpired);
+
 // Authentication API methods
 export class RegistrationLoginError extends Error {
   constructor() {
     super('Account created, but automatic login did not complete');
     this.name = 'RegistrationLoginError';
+  }
+}
+
+export class RegistrationVerificationRequired extends Error {
+  constructor() {
+    super('Email verification required');
+    this.name = 'RegistrationVerificationRequired';
   }
 }
 

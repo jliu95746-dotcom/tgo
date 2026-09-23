@@ -16,7 +16,10 @@ from sqlalchemy import func
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.core.security import generate_api_key, require_permission
-from app.models import Platform, PlatformTypeDefinition, Staff
+from app.models import Platform, PlatformTypeDefinition, Project, Staff
+from app.schemas.public_platform import PublicPlatformResponse
+from app.services.public_platform import public_platform_response
+from app.services.platform_agent_binding import require_platform_agent
 from app.models.platform import PlatformType
 from app.services.platform_configuration import is_platform_configured
 from app.schemas import (
@@ -216,7 +219,8 @@ async def list_platforms(
 
 @router.get(
     "/info",
-    response_model=PlatformResponse,
+    response_model=PublicPlatformResponse,
+    response_model_exclude_none=True,
     summary="Platform: Get Platform Info",
     description="Retrieve platform information using Platform API key (visitor-facing).",
 )
@@ -225,11 +229,11 @@ async def get_platform_info(
     db: Session = Depends(get_db),
     x_platform_api_key: str | None = Header(None, alias="X-Platform-API-Key"),
     x_user_language: str = Header("zh", alias="X-User-Language"),
-) -> PlatformResponse:
+) -> PublicPlatformResponse:
     """Get platform information by Platform API key.
 
     - Auth: API key in query param `platform_api_key` or header `X-Platform-API-Key`
-    - Returns: PlatformResponse on success
+    - Returns: public widget presentation; no administrator configuration
     - Errors: 401 (invalid/missing), 403 (disabled/deleted)
     """
     api_key = platform_api_key or x_platform_api_key
@@ -237,7 +241,12 @@ async def get_platform_info(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing platform_api_key")
 
     # Look up by api_key (without status/deleted filters) to distinguish 401 vs 403 as required
-    platform = db.query(Platform).filter(Platform.api_key == api_key).first()
+    platform = (
+        db.query(Platform)
+        .join(Project, Platform.project_id == Project.id)
+        .filter(Platform.api_key == api_key, Project.deleted_at.is_(None))
+        .first()
+    )
 
     # Log attempt with sanitized key hash prefix
     try:
@@ -262,7 +271,12 @@ async def get_platform_info(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Platform is disabled")
 
     logger.info("Platform info retrieved", extra={"platform_id": str(platform.id)})
-    return _build_platform_response(platform, language=x_user_language)
+    response = public_platform_response(
+        platform, _build_platform_list_item(platform, language=x_user_language)
+    )
+    from app.services.company_entitlements import new_service_available
+    response.service_available = new_service_available(db, platform.project_id)
+    return response
 
 
 @router.post("", response_model=PlatformResponse, status_code=status.HTTP_201_CREATED)
@@ -288,6 +302,10 @@ async def create_platform(
     ).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="渠道名称已存在，请使用不同名称")
+
+    await require_platform_agent(current_user.project_id, platform_data.agent_id)
+    from app.services.company_resources import reserve_channel_creation
+    reserve_channel_creation(db, current_user.project_id)
 
     # Create platform
     platform = Platform(
@@ -391,6 +409,19 @@ async def update_platform(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Platform name already exists"
             )
+
+    # Confirm new or reactivated bindings before changing any stored field.
+    if (
+        "agent_id" in platform_data.model_fields_set
+        or platform_data.is_active is True
+        or platform_data.ai_mode in ("auto", "assist")
+    ):
+        target_agent_id = (
+            platform_data.agent_id
+            if "agent_id" in platform_data.model_fields_set
+            else platform.agent_id
+        )
+        await require_platform_agent(current_user.project_id, target_agent_id)
 
     # Update fields
     update_data = platform_data.model_dump(exclude_unset=True)
@@ -508,6 +539,7 @@ async def enable_platform(
     if not platform:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found")
 
+    await require_platform_agent(current_user.project_id, platform.agent_id)
     platform.is_active = True
     platform.updated_at = datetime.utcnow()
     db.commit()
@@ -711,6 +743,7 @@ async def enable_ai_for_platform(
     if not platform:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found")
 
+    await require_platform_agent(current_user.project_id, platform.agent_id)
     platform.ai_mode = "auto"
     platform.updated_at = datetime.utcnow()
     db.commit()

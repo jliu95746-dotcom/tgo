@@ -1,13 +1,20 @@
 """WuKongIM public endpoints."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, WebSocket, status
 
 from app.core.logging import get_logger
+from app.core.config import settings
 from app.schemas.wukongim import WuKongIMRouteResponse
 from app.services.wukongim_client import wukongim_client
+from app.services.im_gateway import gateway_urls, serve_im_gateway
 
 logger = get_logger("endpoints.wukongim")
 router = APIRouter()
+
+
+@router.websocket("/ws")
+async def realtime_messages(websocket: WebSocket) -> None:
+    await serve_im_gateway(websocket)
 
 
 @router.get(
@@ -45,6 +52,13 @@ async def get_wukongim_route(
             detail="uid parameter is required and cannot be empty"
         )
     
+    if settings.SAAS_ENABLED:
+        public_url, _ = gateway_urls()
+        return WuKongIMRouteResponse(
+            tcp_addr="", ws_addr=public_url,
+            wss_addr=public_url if public_url.startswith("wss://") else "",
+        )
+
     logger.info(f"Getting WuKongIM route for uid: {uid}")
     
     try:

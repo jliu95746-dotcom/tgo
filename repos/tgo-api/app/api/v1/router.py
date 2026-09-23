@@ -1,6 +1,13 @@
 """Main API v1 router."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.api.company_knowledge_access import require_knowledge_write
+from app.api.company_configuration_access import require_configuration_write
+from app.api.v1.endpoints import billing, operations_billing, wechat_payments
+from app.api.v1.endpoints import billing_support
+from app.api.v1.endpoints import operations_tasks
+from app.api.v1.endpoints import trial_activation
+from app.api.v1.endpoints import billing_refunds
 
 from app.api.v1.endpoints import (
     ai_agents,
@@ -13,6 +20,7 @@ from app.api.v1.endpoints import (
     docs,
     email,
     onboarding,
+    operations,
     platforms,
     plugins,
     plugin_tools,
@@ -27,6 +35,8 @@ from app.api.v1.endpoints import (
     sessions,
     staff,
     registration,
+    company_email,
+    company_membership,
     tags,
     visitors,
     visitor_assignment_rules,
@@ -47,6 +57,21 @@ from app.api.v1.endpoints import (
 )
 
 api_router = APIRouter()
+api_router.include_router(billing.router, prefix="/billing", tags=["Billing"])
+api_router.include_router(operations_billing.router, prefix="/ops", tags=["Operations billing"])
+api_router.include_router(operations_tasks.router, prefix="/ops", tags=["Operations tasks"])
+api_router.include_router(trial_activation.ops_router, prefix="/ops", tags=["Trial activation"])
+api_router.include_router(trial_activation.company_router, prefix="/company", tags=["Trial activation"])
+api_router.include_router(wechat_payments.router, tags=["WeChat payments"])
+api_router.include_router(billing_support.router, prefix="/billing", tags=["Billing support"])
+api_router.include_router(billing_support.ops_router, prefix="/ops", tags=["Operations support"])
+api_router.include_router(billing_refunds.router, prefix="/ops", tags=["Operations refunds"])
+api_router.include_router(billing_refunds.callback_router, tags=["Refund notification"])
+
+api_router.include_router(operations.router, prefix="/ops", tags=["域见运营"])
+api_router.include_router(company_email.router, prefix="/staff", tags=["企业邮箱"])
+api_router.include_router(company_membership.router, prefix="/company", tags=["企业成员"])
+api_router.include_router(company_membership.public_router, prefix="/company", tags=["企业成员"])
 
 # Setup endpoints (no authentication required)
 api_router.include_router(
@@ -113,6 +138,7 @@ api_router.include_router(
 
 api_router.include_router(
     ai_providers.router,
+    dependencies=[Depends(require_configuration_write)],
     prefix="/ai/providers",
     tags=["AI Providers"]
 )
@@ -120,45 +146,52 @@ api_router.include_router(
 # RAG Service Proxy Endpoints
 api_router.include_router(
     rag_collections.router,
+    dependencies=[Depends(require_knowledge_write)],
     prefix="/rag/collections",
     tags=["RAG Collections"]
 )
 
 api_router.include_router(
     rag_files.router,
+    dependencies=[Depends(require_knowledge_write)],
     prefix="/rag/files",
     tags=["RAG Files"]
 )
 
 api_router.include_router(
     rag_websites.router,
+    dependencies=[Depends(require_knowledge_write)],
     prefix="/rag/websites",
     tags=["RAG Websites"]
 )
 
 api_router.include_router(
     rag_qa_pairs.router,
+    dependencies=[Depends(require_knowledge_write)],
     prefix="/rag",
     tags=["RAG QA Pairs"]
 )
 
 api_router.include_router(
     knowledge_governance.router,
+    dependencies=[Depends(require_knowledge_write)],
     prefix="/rag/knowledge-governance",
     tags=["Knowledge Governance"],
 )
 
-api_router.include_router(knowledge_versions.router, prefix="/rag/knowledge-versions", tags=["Knowledge Versions"])
+api_router.include_router(knowledge_versions.router, prefix="/rag/knowledge-versions", tags=["Knowledge Versions"], dependencies=[Depends(require_knowledge_write)])
 
 
 api_router.include_router(
     ai_models.router,
+    dependencies=[Depends(require_configuration_write)],
     prefix="/ai-models",
     tags=["AI Models"]
 )
 
 api_router.include_router(
     ai_agents.router,
+    dependencies=[Depends(require_configuration_write)],
     prefix="/ai/agents",
     tags=["AI Agents"]
 )
@@ -173,6 +206,7 @@ api_router.include_router(
 # AI Tools endpoints
 api_router.include_router(
     ai_tools.router,
+    dependencies=[Depends(require_configuration_write)],
     prefix="/ai/tools",
     tags=["AI Tools"]
 )
@@ -180,6 +214,7 @@ api_router.include_router(
 # AI Skills endpoints
 api_router.include_router(
     ai_skills.router,
+    dependencies=[Depends(require_configuration_write)],
     prefix="/ai/skills",
     tags=["AI Skills"]
 )
@@ -187,6 +222,7 @@ api_router.include_router(
 # AI Workflows endpoints
 api_router.include_router(
     ai_workflows.router,
+    dependencies=[Depends(require_configuration_write)],
     prefix="/ai/workflows",
     tags=["AI Workflows"]
 )

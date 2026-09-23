@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores';
-import { APIError, RegistrationLoginError } from '@/services/api';
+import { APIError, RegistrationLoginError, RegistrationVerificationRequired } from '@/services/api';
+import { companyEmailApi } from '@/services/companyEmailApi';
 import type { RegisterFormData, AuthValidationErrors } from '@/types';
 
 /**
@@ -14,6 +15,11 @@ const RegisterPage: React.FC = () => {
   const { t } = useTranslation();
   const { register, isLoading, isAuthenticated } = useAuthStore();
   const [accountCreated, setAccountCreated] = useState(false);
+  const [loginRequired, setLoginRequired] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationBusy, setVerificationBusy] = useState(false);
+  const [verificationComplete, setVerificationComplete] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState('');
   const [formData, setFormData] = useState<RegisterFormData>({
     email: '',
     password: '',
@@ -72,8 +78,14 @@ const RegisterPage: React.FC = () => {
       // On success, navigate to main app
       navigate('/');
     } catch (error) {
+      if (error instanceof RegistrationVerificationRequired) {
+        setAccountCreated(true);
+        setFormData(previous => ({ ...previous, password: '', passwordConfirmation: '' }));
+        return;
+      }
       if (error instanceof RegistrationLoginError) {
         setAccountCreated(true);
+        setLoginRequired(true);
         setErrors({ general: t('auth.register.createdLoginRequired') });
         return;
       }
@@ -116,6 +128,31 @@ const RegisterPage: React.FC = () => {
     }
   };
 
+  const handleVerification = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (verificationBusy || verificationComplete) return;
+    setVerificationBusy(true); setErrors({});
+    try {
+      const result = await companyEmailApi.verifyCode(formData.email, verificationCode);
+      setVerificationCode('');
+      setVerificationMessage(result.message);
+      setVerificationComplete(true);
+    } catch (error) {
+      setErrors({ general: error instanceof APIError ? error.getUserMessage() : t('companyAccount.failed') });
+    } finally { setVerificationBusy(false); }
+  };
+
+  const resendVerification = async () => {
+    if (verificationBusy) return;
+    setVerificationBusy(true); setErrors({});
+    try {
+      const result = await companyEmailApi.request(formData.email, false);
+      setVerificationMessage(result.message);
+    } catch (error) {
+      setErrors({ general: error instanceof APIError ? error.getUserMessage() : t('companyAccount.failed') });
+    } finally { setVerificationBusy(false); }
+  };
+
   // Handle input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -156,7 +193,30 @@ const RegisterPage: React.FC = () => {
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
+        {verificationComplete ? <div role="status" className="rounded-lg bg-green-50 p-4 text-sm text-green-800">
+          <p>{verificationMessage}</p>
+          <Link to="/login" className="mt-3 inline-block font-medium text-blue-600">{t('companyAccount.login')}</Link>
+        </div> : accountCreated && !loginRequired ? <form onSubmit={handleVerification} className="space-y-4">
+          <p className="text-sm text-gray-600 dark:text-gray-300">{t('companyAccount.verifyHint')}</p>
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{formData.email}</p>
+          <label htmlFor="registrationCode" className="block text-sm text-gray-600 dark:text-gray-300">
+            {t('companyAccount.code')}
+            <input id="registrationCode" type="text" inputMode="numeric" autoComplete="one-time-code"
+              pattern="[0-9]{6}" maxLength={6} required value={verificationCode}
+              onChange={event => setVerificationCode(event.target.value.replace(/\D/g, ''))}
+              className="mt-2 w-full rounded-md border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200" />
+          </label>
+          <p className="text-xs text-gray-500">{t('companyAccount.codeHint')}</p>
+          {verificationMessage && <p role="status" className="text-sm text-gray-600 dark:text-gray-300">{verificationMessage}</p>}
+          <button type="submit" disabled={verificationBusy}
+            className="w-full rounded-md bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">
+            {t('companyAccount.verify')}
+          </button>
+          <button type="button" disabled={verificationBusy} onClick={() => void resendVerification()}
+            className="w-full rounded-md border border-blue-600 px-4 py-2.5 text-sm font-medium text-blue-600 disabled:opacity-50">
+            {t('companyAccount.resendCode')}
+          </button>
+        </form> : !loginRequired && <form onSubmit={handleSubmit}>
           <div className="mb-4">
             <label htmlFor="workspaceName" className="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-300">
               {t('auth.register.workspaceName')}
@@ -257,9 +317,14 @@ const RegisterPage: React.FC = () => {
               )}
             </button>
           </div>
-        </form>
+        </form>}
 
         {/* Login Link */}
+        <p className="mt-5 text-center text-sm text-gray-600 dark:text-gray-300">
+          <Link to="/auth/verify-email" className="font-medium text-blue-600 dark:text-blue-400">
+            {t('companyAccount.verifyTitle')}
+          </Link>
+        </p>
         <p className="mt-8 text-xs text-center text-gray-500 dark:text-gray-400">
           {t('auth.register.hasAccount')}
           <Link to="/login" className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">

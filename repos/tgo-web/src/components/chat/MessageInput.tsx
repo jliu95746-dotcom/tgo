@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useChatStore, chatSelectors, useMessageStore } from '@/stores';
 import { useChannelStore } from '@/stores/channelStore';
 import { useAuthStore } from '@/stores/authStore';
+import { companyMembersApi } from '@/services/companyMembersApi';
 import {
   MessagePayloadType,
   type ChannelVisitorExtra,
@@ -417,6 +418,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
   // Image upload & send (WeChat-like)
   const user = useAuthStore(state => state.user);
+  const [commercialDrafts, setCommercialDrafts] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    setCommercialDrafts(null);
+    void companyMembersApi.status().then(status => { if (active) setCommercialDrafts(status.enabled); })
+      .catch(() => { if (active) setCommercialDrafts(true); });
+    return () => { active = false; };
+  }, [user?.id]);
   const addMessage = useChatStore(state => state.addMessage);
   const updateConversationLastMessage = useChatStore(state => state.updateConversationLastMessage);
   const moveConversationToTop = useChatStore(state => state.moveConversationToTop);
@@ -690,6 +699,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     try {
       const result = await chatMessagesApiService.generateAssistDraft({
         visitor_id: visitorId,
+        request_id: crypto.randomUUID(),
         customer_message: customerMessage,
         message_type: customerInput.messageType,
         media_file_id: customerInput.mediaFileId,
@@ -735,7 +745,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   }, [isAssistMode]);
 
   useEffect(() => {
-    if (!isAssistMode || !styleReady || !latestVisitorMessage || latestVisitorMessage.type !== 'visitor') return;
+    if (commercialDrafts !== false || !isAssistMode || !styleReady || !latestVisitorMessage || latestVisitorMessage.type !== 'visitor') return;
     const hasEditedInput = Boolean(
       message.trim()
       && (!assistDraft || message.trim() !== assistDraft.trim()),
@@ -745,7 +755,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     if (lastGeneratedSourceRef.current === sourceId) return;
     lastGeneratedSourceRef.current = sourceId;
     void generateAssistDraft();
-  }, [assistDraft, generateAssistDraft, isAssistMode, latestVisitorMessage, message, styleReady]);
+  }, [assistDraft, commercialDrafts, generateAssistDraft, isAssistMode, latestVisitorMessage, message, styleReady]);
 
   useEffect(() => {
     if (shouldMaintainFocus.current) {
@@ -1810,7 +1820,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
                 ? t('chat.input.assist.generating', '正在生成回复草稿...')
                 : assistDraft
                   ? t('chat.input.assist.draftReady', 'AI 草稿已填入，修改后再发送')
-                  : t('chat.input.assist.waiting', '辅助模式不会自动发送，草稿需要人工确认')}
+                  : commercialDrafts ? t('billingSupport.draftCost') : t('chat.input.assist.waiting', '辅助模式不会自动发送，草稿需要人工确认')}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1">

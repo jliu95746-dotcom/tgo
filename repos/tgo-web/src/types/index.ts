@@ -1011,6 +1011,7 @@ export type VisitorServiceStatus = 'new' | 'queued' | 'assigned_pending' | 'acti
 export type VisitorServiceMode = 'auto' | 'assist' | 'manual';
 
 export interface ChannelVisitorExtra {
+  queue_summary?: boolean;
   id: string;
   platform_id: string;
   platform_type: PlatformType;
@@ -1441,7 +1442,11 @@ export interface SearchPagination {
   page_size: number;
   total: number;
   has_next: boolean;
-  has_prev: boolean;
+  has_previous: boolean;
+}
+
+export interface MessageSearchPagination extends Omit<SearchPagination, 'total'> {
+  total: number | null;
 }
 
 export interface MessageSearchResult {
@@ -1480,5 +1485,5 @@ export interface UnifiedSearchResponse {
   visitor_count: number;
   message_count: number;
   visitor_pagination: SearchPagination | null;
-  message_pagination: SearchPagination | null;
+  message_pagination: MessageSearchPagination | null;
 }

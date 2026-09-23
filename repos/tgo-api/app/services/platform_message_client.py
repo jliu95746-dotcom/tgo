@@ -1,11 +1,29 @@
 """The shared HTTP transport used by legacy and durable staff delivery."""
 
 import httpx
-from pydantic import JsonValue
+from pydantic import BaseModel, JsonValue
+from typing import Literal
+from uuid import UUID
 
 from app.core.config import settings
 from app.services.staff_message_target import PlatformMessageTarget, StaffMessageTarget
 from app.services.storage import get_storage
+
+
+class PlatformDeliveryReceipt(BaseModel):
+    state: Literal["accepted", "pending", "unknown"]
+
+
+async def get_ai_delivery_receipt(project_id: UUID, platform_id: UUID,
+                                 source_message_id: str) -> PlatformDeliveryReceipt:
+    if settings.SAAS_INTERNAL_TOKEN is None:
+        raise RuntimeError("Internal billing credentials are not configured")
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+        response = await client.post(settings.PLATFORM_SERVICE_URL.rstrip("/") + "/internal/billing/delivery",
+            json={"project_id": str(project_id), "platform_id": str(platform_id), "source_message_id": source_message_id},
+            headers={"X-SaaS-Service-Token": settings.SAAS_INTERNAL_TOKEN.get_secret_value()})
+    response.raise_for_status()
+    return PlatformDeliveryReceipt.model_validate_json(response.content)
 
 
 def resolve_media_urls(value: JsonValue) -> JsonValue:

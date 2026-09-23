@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ImgBox, ImgEl } from './messageStyles'
 import { imagePreviewManager } from '../ImagePreview'
+import { useChatFileUrls } from '../../store/chatFileAccess'
 
 export interface ImageMessageProps {
   url: string
@@ -29,7 +30,10 @@ function getMaxWidth(): number {
 }
 
 export default function ImageMessage({ url, w, h, allImages, imageIndex = 0 }: ImageMessageProps){
+  const [displayUrl] = useChatFileUrls([url])
+  const authorizedImages = useChatFileUrls(allImages?.length ? allImages : [url])
   const [error, setError] = useState(false)
+  useEffect(() => { setError(false) }, [displayUrl])
   const [maxW, setMaxW] = useState(280)
 
   // Listen for CSS variable changes
@@ -45,8 +49,7 @@ export default function ImageMessage({ url, w, h, allImages, imageIndex = 0 }: I
   }, [])
 
   const handleClick = () => {
-    const images = allImages && allImages.length > 0 ? allImages : [url]
-    imagePreviewManager.open(images, imageIndex)
+    imagePreviewManager.open(authorizedImages, imageIndex)
   }
 
   const maxH = Math.round(maxW * 0.78) // maintain similar aspect ratio constraint
@@ -62,7 +65,7 @@ export default function ImageMessage({ url, w, h, allImages, imageIndex = 0 }: I
       aria-label="查看大图"
     >
       {!error ? (
-        <ImgEl src={url} alt="[图片]" loading="lazy" onError={()=>setError(true)} />
+        <ImgEl src={displayUrl || undefined} referrerPolicy="no-referrer" alt="[图片]" loading="lazy" onError={()=>setError(true)} />
       ) : (
         <div style={{width:'100%',height:'100%',display:'grid',placeItems:'center', color:'#9ca3af', fontSize:12}}>图片加载失败</div>
       )}

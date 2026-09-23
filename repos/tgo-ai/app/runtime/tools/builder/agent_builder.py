@@ -680,6 +680,8 @@ class AgentBuilder:
     ) -> Agent:
         """Helper to construct a local Agno Agent."""
         config = self._normalize_config(request.config)
+        from app.services.commercial_ai_limits import constrain_agent
+        config = constrain_agent(config, request.message)
         tools: List[Any] = []
         if not request.disable_tools:
             tools = await self._build_tools(

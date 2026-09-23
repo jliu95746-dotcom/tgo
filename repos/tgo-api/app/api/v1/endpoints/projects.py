@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.core.security import generate_api_key, get_current_active_user, require_admin
+from app.core.security import get_current_active_user, require_admin
 from app.models import Project, Staff
 from app.schemas import (
     ProjectCreate,
@@ -60,30 +60,11 @@ async def create_project(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin()),
 ) -> ProjectResponse:
-    """
-    Create project.
-
-    Create a new project (tenant). This automatically generates an API key for the project
-    and publishes a project creation event for AI Service synchronization.
-    """
-    logger.info(f"User {current_user.username} creating project: {project_data.name}")
-
-    # Generate API key
-    api_key = generate_api_key()
-
-    # Create project
-    project = Project(
-        name=project_data.name,
-        api_key=api_key,
+    """Company admins manage their own company; signup provisions new ones."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="企业管理员不能创建其他企业，请通过企业注册流程开通。",
     )
-
-    db.add(project)
-    db.commit()
-    db.refresh(project)
-
-    logger.info(f"Created project {project.id} with name: {project.name}")
-
-    return ProjectResponse.model_validate(project)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

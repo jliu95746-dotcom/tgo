@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/useToast';
 import { showApiError } from '@/utils/toastHelpers';
 import { formatBytes } from '@/utils/format';
 import { getFileIcon } from '@/utils/fileIcons';
+import { useChatFileUrls } from '@/hooks/useChatFileUrls';
 
 import Lightbox from 'yet-another-react-lightbox';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
@@ -64,7 +65,8 @@ const RichTextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, on
     }));
   }, [typedPayload, message.metadata]);
 
-  const richSlides = React.useMemo(() => richImages.filter(im => im.url).map(im => ({ src: im.url })), [richImages]);
+  const authorizedImages = useChatFileUrls(richImages.map(image => image.url));
+  const richSlides = authorizedImages.map(src => ({ src }));
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [previewIndex, setPreviewIndex] = React.useState(0);
 
@@ -93,6 +95,8 @@ const RichTextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, on
     }
     return null;
   }, [typedPayload, message.metadata]);
+
+  const [authorizedFile] = useChatFileUrls([richFile?.url || '']);
 
   // Layout measurement for text vs grid width
   const rtTextRef = React.useRef<HTMLDivElement | null>(null);
@@ -202,7 +206,7 @@ const RichTextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, on
         )}
         {richFile.url && richFile.upload_status !== 'uploading' && (
           <a
-            href={richFile.url}
+            href={authorizedFile || undefined}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 flex-shrink-0"
@@ -271,7 +275,7 @@ const RichTextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, on
               >
                 {im.url ? (
                   <img
-                    src={im.url}
+                    src={authorizedImages[idx] || undefined}
                     alt={`图片${idx + 1}`}
                     className="w-[100px] h-[100px] object-cover"
                     loading="lazy"

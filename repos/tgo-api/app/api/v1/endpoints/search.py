@@ -19,6 +19,9 @@ from app.schemas import (
     UnifiedSearchResponse,
     VisitorBasicResponse,
 )
+from app.core.exceptions import TGOAPIException
+from app.schemas.search import MessageSearchPagination
+from app.services.message_search import search_staff_messages
 from app.services.wukongim_client import wukongim_client
 
 logger = get_logger("endpoints.search")
@@ -140,19 +143,16 @@ async def unified_search(
         )
 
     messages: List[MessageSearchResult] = []
-    message_pagination: SearchPagination | None = None
+    message_pagination: MessageSearchPagination | None = None
     if scope in (SearchScope.ALL, SearchScope.MESSAGES):
         if not wukongim_client.enabled:
             logger.debug("WuKongIM integration disabled; skipping message search")
         else:
             try:
-                search_response = await wukongim_client.search_user_messages(
-                    uid=f"{current_user.id}-staff",
-                    keyword=keyword,
-                    page=message_page,
-                    limit=message_page_size,
+                search_response = await search_staff_messages(
+                    db, current_user, keyword, message_page, message_page_size,
                 )
-            except HTTPException:
+            except (HTTPException, TGOAPIException):
                 # Propagate downstream errors (already sanitized by client)
                 raise
             except Exception as exc:
@@ -167,23 +167,17 @@ async def unified_search(
                 ) from exc
             else:
                 raw_messages = search_response.messages
-                message_total_int = search_response.total
-                response_limit_int = message_page_size
-                response_page_int = message_page
-
                 for raw in raw_messages:
                     normalized = _build_message_result(raw.model_dump())
                     messages.append(MessageSearchResult.model_validate(normalized))
-                message_pagination = SearchPagination(
-                    page=response_page_int,
-                    page_size=response_limit_int,
-                    total=message_total_int,
-                )
+                message_pagination = search_response.pagination
     if message_pagination is None:
-        message_pagination = SearchPagination(
+        message_pagination = MessageSearchPagination(
             page=message_page,
             page_size=message_page_size,
             total=0,
+            has_next=False,
+            has_previous=message_page > 1,
         )
 
     return UnifiedSearchResponse(

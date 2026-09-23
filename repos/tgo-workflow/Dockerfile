@@ -21,7 +21,8 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry (pinned to 1.8.3 to avoid 2.0+ breaking changes)
-RUN pip install --no-cache-dir poetry==1.8.3 -i https://mirrors.aliyun.com/pypi/simple/
+ARG PIP_INDEX_URL=https://pypi.org/simple/
+RUN pip install --no-cache-dir poetry==2.1.4 poetry-plugin-export==1.9.0
 
 # Configure Poetry to use a local venv
 ENV POETRY_NO_INTERACTION=1 \
@@ -31,7 +32,11 @@ ENV POETRY_NO_INTERACTION=1 \
 
 # Install Python deps
 COPY pyproject.toml poetry.lock* ./
-RUN poetry install --no-root && rm -rf "$POETRY_CACHE_DIR"
+RUN poetry export --with dev -f requirements.txt -o /tmp/requirements.lock && \
+    python -m venv /app/.venv && \
+    /app/.venv/bin/pip install --no-deps --require-hashes -r /tmp/requirements.lock && \
+    /app/.venv/bin/pip check && \
+    rm -rf "$POETRY_CACHE_DIR" /tmp/requirements.lock
 
 # Verify alembic is installed in builder
 RUN ./.venv/bin/python -m alembic --version

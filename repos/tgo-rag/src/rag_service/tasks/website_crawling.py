@@ -159,6 +159,8 @@ async def _load_page_and_config(
 
         if not collection:
             return None, None, "Collection not found"
+        from ..services.company_resources import require_processing
+        await require_processing(page.project_id)
 
         # Merge and parse crawl configurations
         merged_config = merge_crawl_configs(collection.crawl_config, page.crawl_config)
@@ -287,6 +289,8 @@ async def crawl_page_async(
         # Step 4: Save crawl results and create File
         file_id = None
         async with get_db_session() as db:
+            from ..services.company_resources import ensure_capacity
+            await ensure_capacity(db, page_info.project_id, len((crawled_page.content_markdown or "").encode("utf-8")))
             result = await db.execute(select(WebsitePage).join(
                 Collection, Collection.id == WebsitePage.collection_id,
             ).where(

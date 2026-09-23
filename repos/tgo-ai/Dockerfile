@@ -22,7 +22,8 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry (pinned to existing version)
-RUN pip install poetry==1.7.1
+ARG PIP_INDEX_URL=https://pypi.org/simple/
+RUN pip install poetry==2.1.4 poetry-plugin-export==1.9.0
 
 # Configure Poetry to use a project-local virtualenv
 ENV POETRY_NO_INTERACTION=1 \
@@ -32,7 +33,11 @@ ENV POETRY_NO_INTERACTION=1 \
 
 # Copy Poetry files and install dependencies
 COPY pyproject.toml poetry.lock* ./
-RUN poetry install --only=main --no-root && rm -rf "$POETRY_CACHE_DIR"
+RUN poetry export --only=main -f requirements.txt -o /tmp/requirements.lock && \
+    python -m venv /app/.venv && \
+    /app/.venv/bin/pip install --no-deps --require-hashes -r /tmp/requirements.lock && \
+    /app/.venv/bin/pip check && \
+    rm -rf "$POETRY_CACHE_DIR" /tmp/requirements.lock
 
 # Copy application source (for any build-time needs)
 COPY . .

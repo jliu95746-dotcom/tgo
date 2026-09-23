@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/useToast';
 import { showApiError } from '@/utils/toastHelpers';
 import { getFileIcon } from '@/utils/fileIcons';
 import { formatBytes } from '@/utils/format';
+import { useChatFileUrls } from '@/hooks/useChatFileUrls';
 
 /**
  * FileMessage renders file/document messages with upload progress and retry.
@@ -25,7 +26,8 @@ const FileMessage: React.FC<MessageComponentProps> = ({ message, isStaff }) => {
   const { t } = useTranslation();
   const typedPayload = message.payload as any | undefined;
 
-  const fileUrl = ((typedPayload?.type === MessagePayloadType.FILE && (typedPayload as any)?.url) || (message.metadata as any)?.file_url || '') as string;
+  const sourceUrl = ((typedPayload?.type === MessagePayloadType.FILE && (typedPayload as any)?.url) || (message.metadata as any)?.file_url || '') as string;
+  const [fileUrl] = useChatFileUrls([sourceUrl]);
   const fileName = ((typedPayload?.type === MessagePayloadType.FILE && (typedPayload as any)?.name) || (message.metadata as any)?.file_name || '[文件]') as string;
   const fileSize = ((typedPayload?.type === MessagePayloadType.FILE && (typedPayload as any)?.size) || (message.metadata as any)?.file_size) as number | undefined;
 

@@ -27,7 +27,6 @@ import { useAgentForm } from '@/hooks/useAgentForm';
 import AgentHumanizationField from './AgentHumanizationField';
 import AIProvidersApiService from '@/services/aiProvidersApi';
 import { SYSTEM_DEFAULT_MODEL } from '@/services/aiAgentsApi';
-import { useAuthStore } from '@/stores/authStore';
 
 
 /**
@@ -64,8 +63,6 @@ const CreateAgentModal: React.FC = () => {
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmError, setLlmError] = useState<string | null>(null);
 
-
-  const projectId = useAuthStore((s) => s.user?.project_id);
 
   // Fetch chat models from /v1/ai-models with model_type=chat
   useEffect(() => {

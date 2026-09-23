@@ -269,6 +269,11 @@ export default function MessageList({ messages }: { messages: ChatMessage[] }){
                 <LinkBtn onClick={()=>remove(m.id)} aria-label={t('common.delete')}><Trash2 size={14} /> {t('common.delete')}</LinkBtn>
               </Status>
             )}
+            {m.role==='user' && m.replyRequestFailed && (
+              <Status self kind="error" role="status">
+                <AlertCircle size={14} /> {t('errors.textReplyUnconfirmed')}
+              </Status>
+            )}
 
           </li>
         )})}

@@ -14,6 +14,9 @@ import WorkflowEditorPage from '../pages/WorkflowEditorPage';
 // @ts-ignore
 import { LoginPage, RegisterPage } from 'auth-pages';
 import SetupWizard from '../pages/SetupWizard';
+import OperationsConsole from '../pages/OperationsConsole';
+import LaunchGuide from '../pages/LaunchGuide';
+import CompanyEmailPage from '../pages/CompanyEmailPage';
 
 import { useTranslation } from 'react-i18next';
 
@@ -38,7 +41,9 @@ import SettingsLayout from '../pages/SettingsLayout';
 
 import GeneralSettings from '../components/settings/GeneralSettings';
 import ProfileSettings from '../components/settings/ProfileSettings';
-import StaffSettings from '../components/settings/StaffSettings';
+import StaffSettings from '../components/settings/CompanyStaffSettings';
+import BillingPage from '../pages/BillingPage';
+import ProductPage from '../pages/ProductPage';
 import NotificationSettings from '../components/settings/NotificationSettings';
 import ModelProvidersSettings from '../components/settings/ModelProvidersSettings';
 import PluginsSettings from '../components/settings/PluginsSettings';
@@ -54,6 +59,12 @@ import { saasRoutes, saasPublicRoutes } from 'saas-routes';
  * Router configuration for the application
  */
 export const router = createBrowserRouter([
+  { path: '/ops', element: <OperationsConsole /> },
+  { path: '/launch-guide', element: <LaunchGuide /> },
+  { path: '/product', element: <ProductPage /> },
+  { path: '/auth/verify-email', element: <CompanyEmailPage key="verify" /> },
+  { path: '/auth/reset-password', element: <CompanyEmailPage key="reset" reset /> },
+  { path: '/auth/accept-invitation', element: <CompanyEmailPage key="invite" invite /> },
   {
     path: '/',
     element: <RootLayout />,
@@ -97,6 +108,7 @@ export const router = createBrowserRouter([
           { path: 'general', element: <GeneralSettings /> },
           { path: 'notifications', element: <NotificationSettings /> },
           { path: 'staff', element: <StaffSettings /> },
+          { path: 'billing', element: <BillingPage /> },
           { path: 'providers', element: <ModelProvidersSettings /> },
           { path: 'plugins', element: <PluginsSettings /> },
           { path: 'logistics', element: <LogisticsSettings /> },

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PlatformType, type Chat, type ChannelVisitorExtra } from '@/types';
 import { DEFAULT_CHANNEL_TYPE } from '@/constants';
@@ -8,6 +8,8 @@ import { ChatPlatformIcon } from './ChatPlatformIcon';
 import { toPlatformType } from '@/utils/platformUtils';
 import { formatChatLastMessage } from '@/utils/messageFormatting';
 import { Clock } from 'lucide-react';
+import { conversationsApi } from '@/services/conversationsApi';
+import { useChannelStore } from '@/stores/channelStore';
 
 export interface UnassignedChatListItemProps {
   chat: Chat;
@@ -50,6 +52,20 @@ export const UnassignedChatListItem: React.FC<UnassignedChatListItemProps> = Rea
 
   const displayName = name;
   const displayAvatar = avatar;
+  const summaryOnly = Boolean(extra && 'queue_summary' in extra && extra.queue_summary);
+  const [claiming, setClaiming] = useState(false);
+  const [claimError, setClaimError] = useState('');
+  const claim = async () => {
+    if (claiming || !channelId) return;
+    setClaiming(true); setClaimError('');
+    try {
+      const result = await conversationsApi.acceptVisitor(channelId.replace(/-vtr$/, ''));
+      if (!result.success) throw new Error(result.message);
+      await useChannelStore.getState().refreshChannel({ channel_id: channelId, channel_type: channelType });
+      onClick(chat);
+    } catch (caught) { setClaimError(caught instanceof Error ? caught.message : t('billingSupport.error')); }
+    finally { setClaiming(false); }
+  };
 
   const parseMinutesAgo = useCallback((timestamp?: string): number | undefined => {
     if (!timestamp) return undefined;
@@ -89,8 +105,8 @@ export const UnassignedChatListItem: React.FC<UnassignedChatListItemProps> = Rea
 
   // Handle click - no unread clearing for unassigned chats
   const handleClick = useCallback(() => { 
-    onClick(chat); 
-  }, [onClick, chat]);
+    if (!summaryOnly) onClick(chat);
+  }, [onClick, chat, summaryOnly]);
 
   /**
    * Format waiting time duration with i18n
@@ -196,7 +212,7 @@ export const UnassignedChatListItem: React.FC<UnassignedChatListItemProps> = Rea
         {/* Second row: Last message preview + "等待接入" badge (in place of unread count) */}
         <div className="flex justify-between items-center mt-1">
           <p className={`text-xs truncate flex-1 ${isActive ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
-            {formatChatLastMessage(chat, t)}
+            {summaryOnly ? t('billingSupport.queueHint') : formatChatLastMessage(chat, t)}
           </p>
           {/* Status indicator - in place of unread badge */}
           <span className={`
@@ -209,6 +225,8 @@ export const UnassignedChatListItem: React.FC<UnassignedChatListItemProps> = Rea
             {t('chat.list.waiting.status', '等待接入')}
           </span>
         </div>
+        {summaryOnly && <button type="button" disabled={claiming} onClick={event => { event.stopPropagation(); void claim(); }} className="mt-2 rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">{t('billingSupport.claim')}</button>}
+        {claimError && <p role="alert" className="mt-2 text-xs text-red-600">{claimError}</p>}
       </div>
     </div>
   );

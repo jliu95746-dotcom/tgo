@@ -50,14 +50,14 @@ services:
       WK_EXTERNAL_IP: ${SERVER_HOST:-127.0.0.1}
       WK_EXTERNAL_WSADDR: ${WK_EXTERNAL_WSADDR:-}
       WK_EXTERNAL_WSSADDR: ${WK_EXTERNAL_WSSADDR:-}
-      WK_TOKENAUTHON: ${WK_TOKENAUTHON:-false}
-      WK_WEBHOOK_HTTPADDR: http://tgo-api:8000/v1/integrations/wukongim/webhook
+      WK_TOKENAUTHON: ${WK_TOKENAUTHON:-true}
+      WK_WEBHOOK_HTTPADDR: ${WUKONGIM_WEBHOOK_URL:-http://tgo-api:8001/internal/integrations/wukongim/webhook}
     volumes:
       - ./data/wukongim:/root/wukongim
     ports:
       - "5100:5100"   # tcp
       - "5200:5200"   # websocket
-      - "${WUKONGIM_ADMIN_PORT:-15300}:5300"   # admin
+      - "127.0.0.1:${WUKONGIM_ADMIN_PORT:-15300}:5300"   # local admin only
     healthcheck:
       test: ["CMD-SHELL", "wget -q -Y off -O /dev/null http://localhost:5001/health > /dev/null 2>&1 || exit 1"]
       interval: 10s

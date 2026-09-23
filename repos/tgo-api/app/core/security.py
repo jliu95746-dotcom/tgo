@@ -8,7 +8,7 @@ from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -57,7 +57,8 @@ def create_access_token(
     subject: Union[str, Any],
     project_id: Optional[Union[str, UUID]] = None,
     role: Optional[str] = None,
-    expires_delta: Optional[timedelta] = None
+    expires_delta: Optional[timedelta] = None,
+    token_version: int = 1,
 ) -> str:
     """Create JWT access token with optional project_id and role."""
     if expires_delta:
@@ -67,7 +68,10 @@ def create_access_token(
             minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
 
-    to_encode = {"exp": expire, "sub": str(subject)}
+    to_encode = {
+        "exp": expire, "sub": str(subject), "type": "staff_access",
+        "token_version": token_version,
+    }
 
     # Include project_id in token claims if provided
     if project_id:
@@ -92,19 +96,50 @@ def get_password_hash(password: str) -> str:
 
 
 def verify_token(token: str) -> Optional[Dict[str, Any]]:
-    """Verify a staff access token, excluding plugin-only credentials."""
+    """Accept staff tokens and legacy untyped tokens, never other purposes."""
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
-        # Plugin debugging shares a signing key, not staff/API permissions.
-        if payload.get("type") == "plugin_dev":
+        if payload.get("type") not in (None, "staff_access"):
             return None
         return payload
     except JWTError as e:
         # Downgrade to debug to avoid noisy logs on unauthenticated endpoints
         logger.debug(f"Token verification failed: {e}")
         return None
+
+
+def resolve_staff_token(db: Session, token: str) -> Optional[Staff]:
+    """Resolve current membership; signed claims cannot replace DB authority."""
+    payload = verify_token(token)
+    if payload is None:
+        return None
+    username = payload.get("sub")
+    if not isinstance(username, str) or not username:
+        return None
+    user = db.query(Staff).filter(
+        Staff.username == username,
+        Staff.deleted_at.is_(None),
+        Staff.project_id.in_(
+            select(Project.id).where(Project.deleted_at.is_(None))
+        ),
+    ).first()
+    if user is None:
+        return None
+    if not user.account_enabled:
+        return None
+    version = payload.get("token_version", 1)
+    if type(version) is not int or version != user.token_version:
+        return None
+    claimed_project = payload.get("project_id")
+    if claimed_project is not None:
+        try:
+            if UUID(str(claimed_project)) != user.project_id:
+                return None
+        except (ValueError, TypeError, AttributeError):
+            return None
+    return user
 
 
 async def get_current_user(
@@ -118,27 +153,7 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     
-    try:
-        payload = verify_token(credentials.credentials)
-        if payload is None:
-            logger.info("Token verification failed: No credentials provided")
-            raise credentials_exception
-        
-        username: str = payload.get("sub")
-        if username is None:
-            logger.info("Token verification failed: No subject provided")
-            raise credentials_exception
-            
-    except JWTError:
-        logger.info("Token verification failed: JWTError")
-        raise credentials_exception
-    
-    # Get user from database
-    user = db.query(Staff).filter(
-        Staff.username == username,
-        Staff.deleted_at.is_(None)
-    ).first()
-    
+    user = resolve_staff_token(db, credentials.credentials)
     if user is None:
         logger.info("Token verification failed: User not found")
         raise credentials_exception
@@ -174,6 +189,9 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Sta
     
     if not user:
         return None
+
+    if not user.account_enabled:
+        return None
     
     if not verify_password(password, user.password_hash):
         return None
@@ -184,8 +202,12 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Sta
 
 def get_project_by_id(db: Session, project_id: Union[str, UUID]) -> Optional[Project]:
     """Get project by ID."""
+    try:
+        identifier = UUID(str(project_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
     return db.query(Project).filter(
-        Project.id == str(project_id),
+        Project.id == identifier,
         Project.deleted_at.is_(None)
     ).first()
 
@@ -215,7 +237,8 @@ async def get_authenticated_project(
 
     Authentication Method:
         - JWT Bearer token (required)
-        - Token must contain 'project_id' claim or user must be associated with a project
+        - Current staff membership determines the project
+        - Any project_id claim must match that current membership
 
     Return Value:
         The second element of the tuple (api_key_for_forwarding) is the project's API key,
@@ -242,37 +265,8 @@ async def get_authenticated_project(
         )
         ```
     """
-    # Verify JWT token
-    payload = verify_token(credentials.credentials)
-    if payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid JWT token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Extract project_id from JWT claims
-    project_id = payload.get("project_id")
-    if not project_id:
-        # Fallback: get project_id from user's project association
-        username = payload.get("sub")
-        if username:
-            user = db.query(Staff).filter(
-                Staff.username == username,
-                Staff.deleted_at.is_(None)
-            ).first()
-            if user:
-                project_id = user.project_id
-
-    if not project_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No project information in JWT token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Get project from database
-    project = get_project_by_id(db, project_id)
+    user = await get_current_user(credentials=credentials, db=db)
+    project = get_project_by_id(db, user.project_id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -366,33 +360,7 @@ def require_permission(permission: str):
         db: Session = Depends(get_db),
     ) -> Staff:
         """Check user has required permission."""
-        # First authenticate the user
-        credentials_exception = HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-        
-        try:
-            payload = verify_token(credentials.credentials)
-            if payload is None:
-                raise credentials_exception
-            
-            username: str = payload.get("sub")
-            if username is None:
-                raise credentials_exception
-                
-        except JWTError:
-            raise credentials_exception
-        
-        # Get user from database
-        user = db.query(Staff).filter(
-            Staff.username == username,
-            Staff.deleted_at.is_(None)
-        ).first()
-        
-        if user is None:
-            raise credentials_exception
+        user = await get_current_user(credentials=credentials, db=db)
         
         # Check if user is active
         if user.deleted_at is not None:
@@ -402,6 +370,12 @@ def require_permission(permission: str):
             )
         
         # Check permission
+        if settings.SAAS_BILLING_ENABLED and user.role != "admin" and permission in {
+            "staff:create", "staff:update", "staff:delete",
+            "projects:create", "projects:update", "projects:delete",
+            "platforms:create", "platforms:update", "platforms:delete",
+        }:
+            raise HTTPException(403, "仅企业管理员可以执行此操作")
         if not check_user_permission(db, user, permission):
             logger.warning(
                 f"Permission denied: user {user.username} lacks permission {permission}"

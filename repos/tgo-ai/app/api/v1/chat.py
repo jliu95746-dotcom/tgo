@@ -19,6 +19,7 @@ from app.schemas.chat import (
     ChatCompletionResponse,
 )
 from app.services.chat_service import ChatService
+from app.services.quota_authorization import require_reply_quota
 
 logger = get_logger(__name__)
 
@@ -90,6 +91,7 @@ _completions_success_responses = {
 
 @router.post(
     "/completions",
+    dependencies=[Depends(require_reply_quota)],
     response_model=ChatCompletionResponse,
     responses={
         **_completions_success_responses,

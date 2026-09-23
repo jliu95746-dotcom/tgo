@@ -153,4 +153,6 @@ export type ChatMessage = {
   reasonCode?: ReasonCode
   // AI 处理错误信息（来自 ___TextMessageEnd 事件的 data 字段或离线消息的 error 字段）
   errorMessage?: string
+  // Delivery succeeded, but the follow-up reception request was not confirmed.
+  replyRequestFailed?: boolean
 }

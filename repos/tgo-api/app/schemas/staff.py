@@ -132,6 +132,8 @@ class StaffInDB(StaffBase, TimestampMixin, SoftDeleteMixin):
 
 
 class StaffResponse(BaseSchema):
+    account_enabled: bool = Field(default=True)
+    email_verified_at: Optional[datetime] = Field(default=None)
     """Schema for staff response (excludes password_hash)."""
     
     id: UUID = Field(..., description="Staff ID")

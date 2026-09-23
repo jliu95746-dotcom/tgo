@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import ConfigDict, Field
 
@@ -33,6 +33,7 @@ class AssistDraftRequest(BaseSchema):
     model_config = ConfigDict(extra="forbid")
 
     visitor_id: UUID
+    request_id: UUID = Field(default_factory=uuid4, description="Stable generation ID; reuse for transport retries")
     customer_message: str = Field(..., min_length=1, max_length=10000)
     humanization_skill_name: Optional[str] = Field(default=None, max_length=64)
     source_message_id: Optional[str] = Field(default=None, max_length=255)

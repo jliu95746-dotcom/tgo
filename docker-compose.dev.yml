@@ -31,7 +31,7 @@ services:
       - .env.dev
     environment:
       WK_EXTERNAL_WSADDR: ${WK_EXTERNAL_WSADDR:-ws://127.0.0.1:5200}
-      WK_WEBHOOK_HTTPADDR: http://tgo-api:8000/v1/integrations/wukongim/webhook
+      WK_WEBHOOK_HTTPADDR: ${WUKONGIM_WEBHOOK_URL:-http://tgo-api:8001/internal/integrations/wukongim/webhook}
     ports:
       - "5001:5001"
 

@@ -54,7 +54,6 @@ export async function registerVisitor(params: {
       id: data?.id,
       channel_id: data?.channel_id,
       hasImToken: !!data?.im_token,
-      im_token: data?.im_token ? `${data.im_token.substring(0, 10)}...` : 'undefined'
     })
     if (!data?.id || !data?.channel_id) {
       throw new Error('[Visitor] invalid register response: missing id/channel_id')
@@ -66,5 +65,27 @@ export async function registerVisitor(params: {
   } finally {
     clearTimeout(timeout)
   }
+}
+
+// Refresh credentials on every new IM session; cache identifies the visitor only.
+export async function refreshVisitorSession(params: {
+  apiBase: string
+  platformApiKey: string
+  extra?: Omit<VisitorRegisterRequest, 'platform_api_key' | 'platform_open_id'>
+}): Promise<VisitorRegisterResponse> {
+  const cached = loadCachedVisitor(params.apiBase, params.platformApiKey)
+  if (cached && !cached.platform_open_id) {
+    throw new Error('[Visitor] Missing cached visitor identity')
+  }
+  const visitor = await registerVisitor({
+    ...params,
+    extra: {
+      ...params.extra,
+      ...(cached ? { platform_open_id: cached.platform_open_id } : {}),
+    },
+  })
+  if (!visitor.im_token) throw new Error('[Visitor] Missing im_token in refreshed session')
+  saveCachedVisitor(params.apiBase, params.platformApiKey, visitor)
+  return visitor
 }
 

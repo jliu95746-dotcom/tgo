@@ -577,11 +577,14 @@ export const useChatStore = create<ChatState>()(
               // 强制刷新频道信息以获取最新的 service_status
               channelStore
                 .refreshChannel({ channel_id: channelId, channel_type: channelType })
-                .then((info) => {
+                .then(async (info) => {
                   if (info) {
                     console.log('📨 Chat Store: Channel info refreshed after system message', { channelId, serviceStatus: (info.extra as any)?.service_status });
                     get().applyChannelInfo(channelId, channelType, info);
                   }
+                  // Assignment can be the first message for this channel.
+                  // Reconcile membership even if no profile event arrives.
+                  await get().forceSyncConversations();
                 })
                 .catch((error) => {
                   console.warn('📨 Chat Store: Failed to refresh channel info after system message:', error);

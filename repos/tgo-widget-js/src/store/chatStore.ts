@@ -3,7 +3,7 @@ import { createMixedStreamParser, type MixedStreamParser } from '@json-render/co
 import IMService from '../services/wukongim'
 import type { ChatMessage, MessagePayload, MixedPart, JSONRenderPatchPart } from '../types/chat'
 import { isSystemMessageType } from '../types/chat'
-import { loadCachedVisitor, registerVisitor, saveCachedVisitor } from '../services/visitor'
+import { refreshVisitorSession } from '../services/visitor'
 import { resolveApiKey } from '../utils/url'
 import { ReasonCode } from 'easyjssdk'
 import { syncVisitorMessages, type WuKongIMMessage } from '../services/messageHistory'
@@ -336,32 +336,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Request notification permission
       requestNotificationPermission()
 
-      // Load cached visitor/channel or register
-      let cached = loadCachedVisitor(cfg.apiBase, platformApiKey)
-      if (!cached) {
-        const sys = collectVisitorSystemInfo()
-        // 获取访客时区
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || null
-        const res = await registerVisitor({
-          apiBase: cfg.apiBase,
-          platformApiKey,
-          extra: {
-            ...(sys ? { system_info: sys } : {}),
-            timezone,
-          },
-        })
-        saveCachedVisitor(cfg.apiBase, platformApiKey, res)
-        cached = loadCachedVisitor(cfg.apiBase, platformApiKey)!
-      }
+      // 保留访客身份，每次建立新连接前刷新消息凭据。
+      const sys = collectVisitorSystemInfo()
+      const cached = await refreshVisitorSession({
+        apiBase: cfg.apiBase,
+        platformApiKey,
+        extra: {
+          ...(sys ? { system_info: sys } : {}),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+        },
+      })
 
       // WuKongIM 连接要求：使用 visitor_id + "-vtr" 作为 uid
-      const uid = String(cached.visitor_id || '')
+      const uid = String(cached.id || '')
       const uidForIM = uid.endsWith('-vtr') ? uid : `${uid}-vtr`
       const target = cached.channel_id
       const channelType = mapChannelTypeToString(cached.channel_type)
       const token = cached.im_token
 
-      console.log('[Chat] Initializing IM with:', { uid: uidForIM, target, channelType, hasToken: !!token, token: token ? `${token.substring(0, 10)}...` : 'undefined' })
+      console.log('[Chat] Initializing IM with:', { uid: uidForIM, target, channelType, hasToken: !!token })
 
       // persist identity/channel info into store for history sync
       set({ myUid: uidForIM, channelId: target, channelType: cached.channel_type ?? 251 })
@@ -625,6 +618,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 1. 先渲染消息到消息列表（发送中状态）
     set(state => ({ messages: [...state.messages, you] }))
 
+    let deliveryConfirmed = false
     try {
       const st = get()
       const apiBase = st.apiBase
@@ -669,6 +663,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }))
         return
       }
+
+      deliveryConfirmed = true
+      set(state => ({
+        messages: state.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: result.reasonCode } : m)
+      }))
 
       // 3. WebSocket 发送成功后，再调用 /v1/chat/completion 接口（stream=false）
       const url = `${apiBase.replace(/\/$/, '')}/v1/chat/completion`
@@ -761,7 +760,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       console.error('[Chat] Send failed:', e)
       try { get().markStreamingEnd() } catch {}
       set(state => ({
-        messages: state.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: ReasonCode.Unknown } : m),
+        messages: state.messages.map(m => m.id === id ? {
+          ...m,
+          status: undefined,
+          reasonCode: deliveryConfirmed ? ReasonCode.Success : ReasonCode.Unknown,
+          replyRequestFailed: deliveryConfirmed,
+        } : m),
         error: (e as any)?.message || String(e)
       }))
     }
@@ -926,7 +930,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   retryMessage: async (messageId: string) => {
     const state = get()
     const msg = state.messages.find(m => m.id === messageId)
-    if (!msg || msg.role !== 'user') return
+    if (!msg || msg.role !== 'user' || msg.reasonCode === ReasonCode.Success) return
     // set to sending
     set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: 'sending', reasonCode: undefined } : m) }))
     try {

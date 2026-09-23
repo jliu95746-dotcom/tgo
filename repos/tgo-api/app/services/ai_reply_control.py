@@ -184,7 +184,7 @@ async def controlled_reply(
             source = source_factory()
             async with aclosing(source):
                 async for event in source:
-                    completed |= event.get("event_type") == "workflow_completed"
+                    completed |= event.get("event_type") in {"workflow_completed", "human_handoff"}
                     failed |= event.get("event_type") == "workflow_failed"
                     queue.put_nowait(event)
         except asyncio.CancelledError:

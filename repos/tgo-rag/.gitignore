@@ -219,12 +219,16 @@ dump.rdb
 
 # Test files (temporary)
 test_*.py
+!/tests/test_file_tenant_boundary.py
 *_test.py
 !tests/test_knowledge_governance.py
 !tests/test_knowledge_governance_api.py
 !tests/test_automatic_answer_search.py
 !tests/test_qwen3_embedding_client.py
 !tests/test_vector_store_similarity.py
+!tests/test_vector_tenant_boundary.py
+!tests/test_knowledge_tenant_boundary.py
+!tests/test_file_processing_scope.py
 !tests/test_qa_processing.py
 !tests/test_qa_import.py
 !tests/test_database_logging.py

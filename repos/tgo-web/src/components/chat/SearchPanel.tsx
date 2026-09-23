@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
 import Icon from '@/components/ui/Icon';
-import Pagination from '@/components/ui/Pagination';
+import SearchResultPagination from './SearchResultPagination';
 import { useTranslation } from 'react-i18next';
 import { searchApiService, type SearchRequestParams } from '@/services/searchApi';
 import {
@@ -436,11 +436,6 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ open, onClose }) => {
     return <SearchMessageItem m={m} />;
   };
 
-  const messageTotalPages = useMemo(() => {
-    const p = data?.message_pagination;
-    return p ? Math.max(1, Math.ceil((p.total || 0) / (p.page_size || 20))) : 1;
-  }, [data]);
-
   if (!open) return null;
 
   return createPortal(
@@ -550,15 +545,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ open, onClose }) => {
                       ))}
                     </div>
                   )}
-                  {data.message_pagination && data.message_pagination.total > data.messages.length && (
-                    <div className="mt-2">
-                      <Pagination
-                        currentPage={data.message_pagination.page}
-                        totalPages={messageTotalPages}
-                        onPageChange={(p) => setMessagePage(p)}
-                      />
-                    </div>
-                  )}
+                  <SearchResultPagination pagination={data.message_pagination} onPageChange={setMessagePage} />
                 </div>
               </div>
             ) : activeTab === 'visitors' ? (
@@ -590,15 +577,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ open, onClose }) => {
                     ))}
                   </div>
                 )}
-                {data.message_pagination && data.message_pagination.total > data.messages.length && (
-                  <div className="mt-2">
-                    <Pagination
-                      currentPage={data.message_pagination.page}
-                      totalPages={messageTotalPages}
-                      onPageChange={(p) => setMessagePage(p)}
-                    />
-                  </div>
-                )}
+                <SearchResultPagination pagination={data.message_pagination} onPageChange={setMessagePage} />
               </div>
             )
           ) : (

@@ -1,0 +1,103 @@
+# Apply after docker-compose.yml and docker-compose.saas.yml.
+# Existing host Nginx terminates HTTPS; all published ports stay on loopback.
+name: yujian
+services:
+  postgres:
+    container_name: yujian-postgres
+    mem_limit: 1g
+  redis:
+    container_name: yujian-redis
+    mem_limit: 512m
+  wukongim:
+    container_name: yujian-wukongim
+    mem_limit: 512m
+    ports: !override
+      - "127.0.0.1:15001:5001"
+  tgo-api:
+    container_name: yujian-api
+    image: yujian-api:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 1g
+    ports:
+      - "127.0.0.1:18000:8000"
+    environment:
+      API_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL}
+      BACKEND_CORS_ORIGINS: '["${PUBLIC_BASE_URL}"]'
+      UPLOAD_BASE_DIR: /app/uploads
+      SAAS_IM_PUBLIC_URL: ${SAAS_IM_PUBLIC_URL:?Set SAAS_IM_PUBLIC_URL}
+      SAAS_IM_UPSTREAM_URL: ws://wukongim:5200
+  tgo-ai:
+    container_name: yujian-ai
+    image: yujian-ai:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 1536m
+  tgo-rag:
+    container_name: yujian-rag
+    image: yujian-rag:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 768m
+    command: uvicorn src.rag_service.main:app --host 0.0.0.0 --port 8082 --workers 1
+  tgo-rag-worker:
+    container_name: yujian-rag-worker
+    image: yujian-rag:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 1g
+    command: celery -A src.rag_service.tasks.celery_app worker --loglevel=info --pool=solo --concurrency=1 --hostname=worker@tgo-rag-worker -Q document_processing,embedding,website_crawling,qa_processing,celery
+  tgo-rag-beat:
+    container_name: yujian-rag-beat
+    image: yujian-rag:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 256m
+  tgo-platform:
+    container_name: yujian-platform
+    image: yujian-platform:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 512m
+    environment:
+      MEDIA_STORAGE_PATH: /app/media
+    volumes:
+      - ./data/tgo-platform/media:/app/media
+  tgo-plugin-runtime:
+    container_name: yujian-plugin-runtime
+    image: yujian-plugin-runtime:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 384m
+    ports: !reset []
+  tgo-workflow:
+    container_name: yujian-workflow
+    image: yujian-workflow:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 384m
+  tgo-workflow-worker:
+    container_name: yujian-workflow-worker
+    image: yujian-workflow:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 768m
+    command: celery -A celery_app.celery worker --loglevel=info --pool=solo --concurrency=1 -Q workflow
+  tgo-device-control:
+    container_name: yujian-device-control
+    image: yujian-device-control:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 384m
+  tgo-web:
+    container_name: yujian-web
+    image: yujian-web:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 128m
+    ports:
+      - "127.0.0.1:15173:80"
+  tgo-widget-js:
+    container_name: yujian-widget-js
+    image: yujian-widget-js:${RELEASE_TAG:?Set RELEASE_TAG}
+    pull_policy: never
+    mem_limit: 128m
+    ports:
+      - "127.0.0.1:15174:80"
+  nginx:
+    profiles: [unused-production-proxy]
+    ports: !reset []
+  tgo-celery-flower:
+    profiles: [unused-production-monitor]
+    ports: !reset []
+  tgo-vision-agent:
+    profiles: [optional-vision]

@@ -6,6 +6,8 @@ import { applyExpandedLayout } from '../contexts/ThemeContext'
 
 export type PlatformState = {
   loading: boolean
+  serviceAvailable: boolean | null
+  refreshAvailability: () => Promise<void>
   error?: string | null
   config: Required<Pick<PlatformConfig, 'position' | 'theme_color' | 'widget_title'>> & {
     welcome_message?: string
@@ -42,6 +44,17 @@ const EXPANDED_KEY = (apiBase: string, platformApiKey: string) => `tgo:expanded:
 
 export const usePlatformStore = create<PlatformState>((set, get) => ({
   loading: false,
+  serviceAvailable: null,
+  refreshAvailability: async () => {
+    const { _apiBase: apiBase, _platformApiKey: platformApiKey } = get()
+    if (!apiBase || !platformApiKey) return
+    try {
+      const info = await fetchPlatformInfo({ apiBase, platformApiKey })
+      if (get()._apiBase === apiBase && get()._platformApiKey === platformApiKey) {
+        set({ serviceAvailable: info.service_available !== false })
+      }
+    } catch { /* Preserve the last confirmed status; the API gates every send. */ }
+  },
   error: null,
   config: defaultConfig,
   isExpanded: false,
@@ -119,6 +132,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
       console.log('[Platform] Loaded config:', cfg)
       set(s => ({
         config: { ...s.config, ...cfg },
+        serviceAvailable: info.service_available !== false,
       }))
 
       // Apply display_mode: if set, use it as default (unless user has explicitly toggled before)

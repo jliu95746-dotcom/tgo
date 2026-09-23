@@ -268,6 +268,9 @@ export const WebSocketManager: React.FC = () => {
       if (updatedInfo) {
         useChatStore.getState().applyChannelInfo(channelId, channelType, updatedInfo);
       }
+      // Assignment changes may introduce or remove a conversation. The server
+      // determines list membership; a cached profile update alone cannot do so.
+      await useChatStore.getState().forceSyncConversations();
     } catch (error) {
       console.error('🔌 WebSocket Manager: Error handling visitor.profile.updated:', error);
     }

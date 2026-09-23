@@ -1,0 +1,27 @@
+export const companyMembersZh = {
+  title: '企业成员管理', seats: '席位：已用 {{used}}，预留 {{reserved}}，上限 {{limit}}',
+  seatHint: '每个启用的人工账号占一个席位，包含管理员。暂停接待不释放席位。',
+  legacy: '待配置', email: '成员邮箱', role: '角色', admin: '管理员', staff: '客服',
+  invite: '发送邀请', invitations: '最近的成员邀请', members: '成员账号',
+  name: '名称', enabled: '已启用', disabled: '已停用／待验证', state: '账号状态',
+  action: '操作', enable: '启用', disable: '停用', revoke: '撤销邀请',
+  pending: '等待接受', accepted: '已接受', revoked: '已撤销', expired: '已过期',
+  expires: '有效期至', refresh: '刷新', loading: '正在加载…', retry: '重试',
+  failed: '操作失败，请稍后重试', invited: '邀请已创建并加入邮件发送队列', saved: '已保存',
+  disableTitle: '停用 {{name}}', disableHint: '停用后不能登录，也不再占用席位。未结束会话必须转交或退回公共队列。',
+  queue: '退回公共待接待队列', receiver: '转交给以下客服', cancel: '取消', confirm: '确认停用',
+  previous: '上一页', next: '下一页', empty: '暂无记录',
+  acceptTitle: '接受企业邀请', acceptHint: '请设置登录密码，接受邀请后会占用已预留的席位。',
+  acceptButton: '设置密码并加入企业', adminOnly: '仅管理员可管理企业成员',
+  inviteLinkRequired: '请使用邀请邮件中的完整链接。链接失效时，请联系企业管理员重新邀请。',
+};
+export const companyMembersEn: Record<keyof typeof companyMembersZh, string> = {
+  ...companyMembersZh,
+  title: 'Company members', email: 'Member email', role: 'Role', admin: 'Administrator', staff: 'Support agent',
+  invite: 'Send invitation', invitations: 'Recent invitations', members: 'Member accounts',
+  name: 'Name', enabled: 'Enabled', disabled: 'Disabled / awaiting verification', state: 'Account status',
+  action: 'Actions', enable: 'Enable', disable: 'Disable', revoke: 'Revoke invitation',
+  pending: 'Awaiting acceptance', accepted: 'Accepted', revoked: 'Revoked', expired: 'Expired',
+  refresh: 'Refresh', loading: 'Loading…', retry: 'Retry', cancel: 'Cancel', confirm: 'Confirm disable',
+  previous: 'Previous', next: 'Next', empty: 'No records',
+};

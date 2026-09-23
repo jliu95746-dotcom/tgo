@@ -13,6 +13,7 @@ import { useChannelDisplay } from '@/hooks/useChannelDisplay';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
 import { chatMessagesApiService } from '@/services/chatMessagesApi';
+import ConversationExport from './ConversationExport';
 
 /**
  * Props for the ChatHeader component
@@ -263,6 +264,9 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
         </button>
       )}
       {/* 操作按钮 - 只对访客会话显示 */}
+      {!isAIChat && currentUser?.role === 'admin' && activeChat.channelId && activeChat.channelType !== undefined && (
+        <ConversationExport key={`${activeChat.channelType}:${activeChat.channelId}`} channelId={activeChat.channelId} channelType={activeChat.channelType} />
+      )}
       {showEndChatButton && (
         <div className="flex items-center gap-1">
           {/* 转接按钮 */}

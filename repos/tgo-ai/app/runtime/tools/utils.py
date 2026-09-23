@@ -218,10 +218,11 @@ async def create_rag_tool(
         ) from exc
 
     url = rag_url.rstrip("/")
+    from app.services.service_identity import rag_service_headers
     collection_endpoint = f"{url}/v1/collections/{collection_id}"
     params = {"project_id": str(project_id)}
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(headers=rag_service_headers(url)) as session:
         async with session.get(collection_endpoint, params=params) as response:
             response.raise_for_status()
             collection_data = await response.json()
@@ -259,7 +260,7 @@ async def create_rag_tool(
         }
         started_at = time.perf_counter()
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(headers=rag_service_headers(url)) as session:
                 async with session.post(
                     search_endpoint,
                     params=params,

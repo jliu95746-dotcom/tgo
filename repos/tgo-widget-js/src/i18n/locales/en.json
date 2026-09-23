@@ -1,6 +1,7 @@
 {
   "brand": { "poweredBy": "Powered by 域见" },
   "common": {
+    "servicePaused": "New conversations are paused. Existing staff conversations may continue during the closing window.",
     "retry": "Retry",
     "cancel": "Cancel",
     "delete": "Delete",
@@ -30,6 +31,7 @@
     "uploading": "Uploading..."
   },
   "errors": {
+    "textReplyUnconfirmed": "Message delivered. Follow-up handling is not yet confirmed. Please wait; no need to resend.",
     "replyStopUnconfirmed": "The stop has not been confirmed. Please try again.",
     "mediaReplyFailed": "The attachment was sent, but its reply could not be requested. Please contact a support agent.",
     "authFail": "Authentication failed, cannot send message",

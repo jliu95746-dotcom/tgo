@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import ImageMessage from './ImageMessage'
 import { Grid, GridImg, GridItem } from './messageStyles'
 import { getGridLayout } from './messageUtils'
 import { imagePreviewManager } from '../ImagePreview'
+import { useChatFileUrls } from '../../store/chatFileAccess'
 
 export interface MixedImagesProps {
   images: Array<{ url: string; width: number; height: number }>
@@ -15,11 +16,13 @@ interface SquareItemProps {
 }
 
 function SquareItem({ url, moreCount = 0, onClick }: SquareItemProps){
+  const [displayUrl] = useChatFileUrls([url])
   const [error, setError] = useState(false)
+  useEffect(() => { setError(false) }, [displayUrl])
   return (
     <GridItem onClick={onClick} title={moreCount>0?`+${moreCount}`:'点击查看大图'}>
       {!error ? (
-        <GridImg src={url} alt="[图片]" loading="lazy" onError={()=>setError(true)} />
+        <GridImg src={displayUrl || undefined} referrerPolicy="no-referrer" alt="[图片]" loading="lazy" onError={()=>setError(true)} />
       ) : (
         <div style={{width:'100%',height:'100%',display:'grid',placeItems:'center', color:'#9ca3af', fontSize:12}}>图片加载失败</div>
       )}
@@ -40,7 +43,7 @@ export default function MixedImages({ images }: MixedImagesProps){
   const isSingle = visible.length === 1
 
   // 所有图片的 URL 列表
-  const allImageUrls = useMemo(() => imgs.map(img => img.url), [imgs])
+  const allImageUrls = useChatFileUrls(useMemo(() => imgs.map(img => img.url), [imgs]))
 
   const handleImageClick = (index: number) => {
     imagePreviewManager.open(allImageUrls, index)

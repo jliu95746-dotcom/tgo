@@ -2,6 +2,15 @@
 
 from app.models.platform import Platform, PlatformType, PlatformTypeDefinition
 from app.models.project import Project
+from app.models.platform_operator import PlatformOperator
+from app.models.billing import (
+    BillingPlan, BillingQuote, BillingOrder, SubscriptionPeriod, SeatAddon,
+    PaymentEvent, BillingJob, BillingRefund, BillingAudit, InvoiceRequest,
+)
+from app.models.company_invitation import CompanyInvitation
+from app.models.company_account import (
+    CompanyAccount, EmailAction, EmailOutbox, AICreditBatch,
+)
 from app.models.system_setup import SystemSetup
 from app.models.staff import Staff, StaffRole, StaffStatus
 from app.models.tag import Tag, TagCategory
@@ -51,6 +60,7 @@ from app.models.customer_logistics import (
 __all__ = [
     # Models
     "Project",
+    "PlatformOperator",
     "Platform",
     "PlatformTypeDefinition",
     "Staff",
@@ -105,3 +115,7 @@ __all__ = [
     "ClearanceUserType",
     "AIInteractionRunStatus",
 ]
+from app.models.ai_usage import AIUsageReservation, AIUsageMovement
+from app.models.billing_reconciliation import BillingReconciliation
+from app.models.trial_policy import TrialPolicy
+from app.models.trial_activation_code import TrialActivationCode

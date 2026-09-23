@@ -5,12 +5,16 @@ Configuration management for RAG service using Pydantic Settings v2.
 import os
 from typing import Any, Dict, List, Optional
 
-from pydantic import Field, PostgresDsn, RedisDsn, field_validator
+from pydantic import Field, PostgresDsn, RedisDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
+    saas_enabled: bool = False
+    saas_billing_enabled: bool = False
+    saas_internal_token: SecretStr | None = None
+    saas_api_internal_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

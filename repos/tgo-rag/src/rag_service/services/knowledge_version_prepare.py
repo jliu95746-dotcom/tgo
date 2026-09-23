@@ -36,6 +36,8 @@ def safe_version_failure(error: Exception) -> str:
 
 
 async def prepare_snapshot(project: UUID, version_id: UUID, attempt: UUID) -> VersionSnapshot:
+    from .company_resources import require_processing
+    await require_processing(project)
     from ..tasks.document_chunking import chunk_documents
     from ..tasks.document_loaders import get_document_loader
     from ..tasks.website_crawling import CrawlConfig, merge_crawl_configs

@@ -32,6 +32,7 @@ export interface StaffAgentChatResponse {
 
 export interface AssistDraftRequest {
   visitor_id: string;
+  request_id?: string;
   customer_message: string;
   humanization_skill_name?: string | null;
   source_message_id?: string | null;

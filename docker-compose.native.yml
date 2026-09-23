@@ -5,7 +5,7 @@ services:
 
   wukongim:
     environment:
-      WK_WEBHOOK_HTTPADDR: http://host.docker.internal:18000/v1/integrations/wukongim/webhook
+      WK_WEBHOOK_HTTPADDR: ${WUKONGIM_WEBHOOK_URL:-http://host.docker.internal:18001/internal/integrations/wukongim/webhook}
     ports: !override
-      - "5001:5001"
+      - "127.0.0.1:5001:5001"
       - "5200:5200"
