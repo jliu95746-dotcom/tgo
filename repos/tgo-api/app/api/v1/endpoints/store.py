@@ -181,6 +181,9 @@ async def install_model_from_store(
     current_user: Staff = Depends(get_current_active_user),
 ) -> Any:
     """从商店安装模型到项目"""
+    from app.services.shared_models import shared_models_active
+    if shared_models_active(db):
+        raise HTTPException(403, "模型由平台统一配置，请联系平台管理员")
     project_id = current_user.project_id
     # 1. 获取项目绑定的商店凭证
     credential = db.scalar(
@@ -209,6 +212,9 @@ async def uninstall_model_from_store(
     current_user: Staff = Depends(get_current_active_user),
 ) -> Any:
     """从本地项目卸载商店模型"""
+    from app.services.shared_models import shared_models_active
+    if shared_models_active(db):
+        raise HTTPException(403, "模型由平台统一配置，请联系平台管理员")
     project_id = current_user.project_id
     
     # 1. 获取项目绑定的商店凭证

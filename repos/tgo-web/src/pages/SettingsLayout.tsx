@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, NavLink } from 'react-router-dom';
 import { Settings as SettingsIcon, Puzzle, Truck } from 'lucide-react';
-import { FiSettings, FiCpu, FiUsers, FiUser, FiBell } from 'react-icons/fi';
+import { FiSettings, FiUsers, FiUser, FiBell } from 'react-icons/fi';
 import SettingsSidebar from '@/components/settings/SettingsSidebar';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -16,14 +16,13 @@ const SettingsLayout: React.FC = () => {
     { id: 'notifications', label: t('settings.menu.notifications', '消息通知') },
     { id: 'staff', label: t('settings.menu.staff', '人工坐席') },
     { id: 'billing', label: t('billing.title') },
-    { id: 'providers', label: t('settings.menu.providers', '模型提供商') },
     { id: 'plugins', label: t('settings.menu.plugins', '插件管理') },
     { id: 'logistics', label: t('settings.menu.logistics', '物流档案') },
   ];
   const items = allItems.filter(
     (item) =>
       isAdmin ||
-      !['staff', 'providers', 'plugins', 'logistics'].includes(item.id),
+      !['staff', 'plugins', 'logistics'].includes(item.id),
   );
 
   const iconMap: Record<string, React.ReactNode> = {
@@ -32,7 +31,6 @@ const SettingsLayout: React.FC = () => {
     notifications: <FiBell className="w-4 h-4" />,
     staff: <FiUsers className="w-4 h-4" />,
     billing: <FiSettings className="w-4 h-4" />,
-    providers: <FiCpu className="w-4 h-4" />,
     plugins: <Puzzle className="w-4 h-4" />,
     logistics: <Truck className="w-4 h-4" />,
   };

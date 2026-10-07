@@ -21,6 +21,7 @@ from app.schemas import (
 )
 from app.api.common_responses import LIST_RESPONSES
 from app.services.project_ai_config_sync import sync_config_with_retry_and_update
+from app.services.shared_models import shared_models_active
 
 logger = get_logger("endpoints.projects")
 router = APIRouter()
@@ -309,6 +310,8 @@ async def upsert_project_ai_config(
     - Validates provider IDs belong to the same project
     - Optionally validates model is in provider.available_models when both provided
     """
+    if shared_models_active(db):
+        raise HTTPException(403, "模型由平台统一配置，请联系平台管理员")
     if current_user.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
@@ -406,6 +409,8 @@ async def sync_project_ai_config_now(
     current_user: Staff = Depends(require_admin()),
 ) -> ProjectAIConfigResponse:
     """Manually trigger sync of a project's AI config to AI service."""
+    if shared_models_active(db):
+        raise HTTPException(403, "模型由平台统一配置，请联系平台管理员")
     if current_user.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 

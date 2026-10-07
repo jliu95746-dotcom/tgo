@@ -842,10 +842,13 @@ async def send_user_message_to_wukongim(
     content: str,
     msg_type: Optional[MessageType] = MessageType.TEXT,
     extra: Optional[Dict[str, Any]] = None,
+    require_delivery: bool = False,
 ) -> Optional[str]:
     """Send a copy of the user's message to WuKongIM (best-effort)."""
     if not content:
         return None
+    if require_delivery and not wukongim_client.enabled:
+        raise RuntimeError("WuKongIM delivery is unavailable for media")
     source_message_id = extra.get("message_id") if extra else None
     if isinstance(source_message_id, str) and source_message_id:
         correlation_source = f"{channel_id}:{from_uid}:{source_message_id}"
@@ -857,12 +860,14 @@ async def send_user_message_to_wukongim(
         client_msg_no = f"user_{uuid4().hex}"
     try:
         # Build payload based on msg_type
-        # 1=TEXT, 2=IMAGE, 3=FILE
+        # 1=TEXT, 2=IMAGE, 3=FILE, 4=VOICE
         payload: Dict[str, Any] = {
             "type": int(msg_type or MessageType.TEXT),
             "content": content,
         }
         if msg_type == MessageType.IMAGE:
+            payload["url"] = content
+        elif msg_type == MessageType.VOICE:
             payload["url"] = content
         elif msg_type == MessageType.FILE:
             payload["url"] = content
@@ -882,6 +887,8 @@ async def send_user_message_to_wukongim(
             client_msg_no=client_msg_no,
         )
     except Exception:
+        if require_delivery:
+            raise
         # Do not fail main flow on WuKongIM send failure
         return client_msg_no
     return client_msg_no

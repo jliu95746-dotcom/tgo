@@ -41,6 +41,10 @@ class CompanyAccount(Base):
     plan_id: Mapped[UUID | None] = mapped_column(ForeignKey("api_billing_plans.id"))
     billing_months: Mapped[int | None] = mapped_column(Integer)
     anchor_day: Mapped[int | None] = mapped_column(Integer)
+    operator_override_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        comment="Retain operator-issued plan and seat limits until this timestamp",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

@@ -5,10 +5,10 @@ import type { OperationsAudit, OperationsTask } from '../../types/operationsTask
 
 const button = 'rounded-lg border border-slate-300 px-4 py-2 text-sm disabled:opacity-40';
 
-export default function OperationsTasks() {
+export default function OperationsTasks({ tasksOnly = false }: { tasksOnly?: boolean }) {
   const { t, i18n } = useTranslation();
   const text = (key: string) => t(`billingSupport.${key}`);
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState(true);
   const [tab, setTab] = useState<'tasks' | 'audits'>('tasks');
   const [offset, setOffset] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -44,10 +44,10 @@ export default function OperationsTasks() {
   };
   const date = (value: string) => new Date(value).toLocaleString(i18n.language);
   const count = tab === 'tasks' ? tasks.length : audits.length;
-  return <section className="mt-8 space-y-4 border-t pt-8">
+  return <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">
     <h2 className="text-2xl font-semibold">{text('taskTitle')}</h2>
     {!opened ? <button className={button} onClick={() => setOpened(true)}>{text('open')}</button> : <>
-      <div className="flex flex-wrap gap-2">{(['tasks', 'audits'] as const).map(item => <button key={item} className={button} disabled={busy} aria-pressed={item === tab} onClick={() => { setTab(item); setOffset(0); }}>{text(item)}</button>)}<button className={button} disabled={busy} onClick={() => setRevision(value => value + 1)}>{text('refresh')}</button></div>
+      <div className="flex flex-wrap gap-2">{(tasksOnly ? ['tasks'] as const : ['tasks', 'audits'] as const).map(item => <button key={item} className={button} disabled={busy} aria-pressed={item === tab} onClick={() => { setTab(item); setOffset(0); }}>{text(item)}</button>)}<button className={button} disabled={busy} onClick={() => setRevision(value => value + 1)}>{text('refresh')}</button></div>
       {error && !selected && <p role="alert" className="text-red-700">{error}</p>}
       {tab === 'tasks' ? tasks.map(task => <article key={task.id} className="space-y-2 rounded-xl border p-4 text-sm">
         <p>{t(`billingSupport.taskKind.${task.kind}`, { defaultValue: task.kind })} · {t(`billingSupport.status.${task.status}`, { defaultValue: task.status })}</p>

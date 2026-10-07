@@ -9,6 +9,7 @@ from app.services.ai_reply_control import tracked_ai_request
 from app.services.reply_quality import (
     ANSWER_SCOPE_PROMPT,
     ReplyQualityError,
+    TEMPLATE_OPENING,
     assess_reply,
     audit_reply_facts,
 )
@@ -221,6 +222,20 @@ async def rewrite_assist_draft(
         issues = assess_reply(
             reply, factual_draft, customer_message, recent_messages=context
         )
+        if attempt == 1 and "template_opening" in issues:
+            # A fixed greeting adds no business fact. If the model repeats it
+            # after repair, remove that prefix and recheck the whole reply.
+            without_opening = TEMPLATE_OPENING.sub("", reply, count=1).strip()
+            if without_opening:
+                cleaned_issues = assess_reply(
+                    without_opening,
+                    factual_draft,
+                    customer_message,
+                    recent_messages=context,
+                )
+                if "template_opening" not in cleaned_issues:
+                    reply = without_opening
+                    issues = cleaned_issues
         if not issues:
             issues = await audit_reply_facts(
                 client,

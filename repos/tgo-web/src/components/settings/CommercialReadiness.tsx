@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { operationsApi } from '../../services/operationsApi';
@@ -9,6 +9,14 @@ export default function CommercialReadiness() {
   const [data, setData] = useState<Readiness | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    setBusy(true); setError('');
+    void operationsApi.commercialReadiness().then(value => { if (active) { setData(value); } })
+      .catch(caught => { if (active) setError(caught instanceof Error ? caught.message : t('billingSupport.error')); })
+      .finally(() => { if (active) setBusy(false); });
+    return () => { active = false; };
+  }, [t]);
   const text = (key: string) => t(`billingSupport.${key}`);
   const load = async () => {
     setBusy(true); setError('');

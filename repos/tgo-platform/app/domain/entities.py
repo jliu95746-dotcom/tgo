@@ -71,6 +71,8 @@ class ChatCompletionRequest(BaseModel):
     # Desired output format for the assistant response: e.g., "text", "markdown", "html"
     expected_output: str | None = None
     msg_type: int | None = 1
+    media_file_id: str | None = None
+    source_message_id: str | None = None
     extra: dict | None = None
     timeout_seconds: int | None = 120
 

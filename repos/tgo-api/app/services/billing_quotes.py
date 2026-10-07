@@ -54,6 +54,12 @@ def create_quote(
     account = lock_company(db, staff.project_id, staff)
     if account is None or account.status in {"pending", "suspended"}:
         raise conflict("企业尚未激活或已停用，请联系平台")
+    operator_override = (
+        account.operator_override_until is not None
+        and utc(account.operator_override_until) > now
+    )
+    if operator_override and request.kind in {"upgrade", "seats"}:
+        raise conflict("运营授权期间，请联系运营调整套餐或坐席")
     current = db.get(BillingPlan, account.plan_id) if account.plan_id else None
     active = (
         account.status == "active"
@@ -137,7 +143,8 @@ def create_quote(
         end = add_months(start, months, anchor_day=anchor)
         amount = definition.price(months) + extras * definition.seat_price(months)
     else:
-        if not active or current is None or not periods or account.expires_at is None:
+        if (not active or current is None or account.expires_at is None
+                or (not periods and not (operator_override and request.kind == "ai_pack"))):
             raise conflict("需要有效付费套餐才能加购或升级", "SUBSCRIPTION_REQUIRED")
         if account.billing_months != months:
             raise conflict("请使用当前套餐的付费周期")

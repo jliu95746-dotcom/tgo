@@ -14,6 +14,8 @@ from sqlalchemy import select
 
 from app.db.base import get_db
 from app.db.models import Platform
+from app.api.error_utils import error_response
+from app.api.schemas import ErrorResponse
 
 router = APIRouter()
 
@@ -32,6 +34,7 @@ EMAIL_CONFIG_EXAMPLE = {
 
 WECOM_CONFIG_EXAMPLE = {
     "corp_id": "your-corp-id",
+    "kf_secret": "replace-with-wechat-customer-service-secret",
     "agent_id": "your-agent-id",
     "app_secret": "replace-with-app-secret",
     "token": "replace-with-callback-token",
@@ -79,12 +82,6 @@ class PlatformResponse(BaseModel):
     updated_at: datetime
     deleted_at: datetime | None = None
     api_key: str | None = None
-
-
-
-# ---------- Standardized Error Helper ----------
-from app.api.error_utils import error_response
-from app.api.schemas import ErrorResponse
 
 
 

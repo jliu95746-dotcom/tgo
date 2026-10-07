@@ -153,6 +153,7 @@ def fulfill_order(
         account.anchor_day = anchor
         account.expires_at = end
         if not early:
+            account.operator_override_until = None
             account.plan_id = details.plan_id
             account.started_at = start
             account.seat_limit = details.resulting_seats

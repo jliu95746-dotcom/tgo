@@ -532,6 +532,7 @@ export interface PublicRegistrationRequest {
   password: string;
   nickname?: string;
   project_name?: string;
+  verification_code?: string;
 }
 
 export const authAPI = {

@@ -32,6 +32,7 @@ from app.domain.services.media.types import (
     StoredMediaObject,
 )
 from app.domain.services.media.wecom_downloader import WeComMediaDownloader
+from app.domain.services.wecom_credentials import resolve_wecom_kf_secret
 
 
 logger = logging.getLogger(__name__)
@@ -165,7 +166,9 @@ class WeComMediaListener:
                 platform.config if isinstance(platform.config, dict) else {}
             )
             corp_id = str(platform_config.get("corp_id") or "").strip()
-            app_secret = str(platform_config.get("app_secret") or "").strip()
+            app_secret = resolve_wecom_kf_secret(
+                platform_config.get("kf_secret"), platform_config.get("app_secret"),
+            )
             previous_staging_object_key = job.staging_object_key
             claim_token = uuid.uuid4().hex
             lease_seconds = max(

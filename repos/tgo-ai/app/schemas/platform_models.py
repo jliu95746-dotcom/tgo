@@ -12,5 +12,6 @@ class PlatformModelRuntime(BaseModel):
     vendor: str | None = None
     active: bool = True
     api_key: SecretStr
+    approved_media_models: dict[str, str] | None = None
     input_fen_per_million: Decimal | None = None
     output_fen_per_million: Decimal | None = None

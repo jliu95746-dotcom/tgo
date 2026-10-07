@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Settings as SettingsIcon, Puzzle, Truck } from 'lucide-react';
-import { FiSettings, FiCpu, FiInfo, FiLogOut, FiUsers, FiUser, FiBell } from 'react-icons/fi';
+import { FiSettings, FiInfo, FiLogOut, FiUsers, FiUser, FiBell } from 'react-icons/fi';
 import { useAuthStore } from '@/stores/authStore';
 import OnboardingSidebarPanel from '@/components/onboarding/OnboardingSidebarPanel';
 
@@ -21,15 +21,14 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ className = '' }) => 
     { id: 'notifications', label: t('settings.menu.notifications', '消息通知') },
     { id: 'staff', label: t('settings.menu.staff', '人工坐席') },
     { id: 'billing', label: t('billing.title') },
-    { id: 'providers', label: t('settings.menu.providers', '模型提供商') },
     { id: 'plugins', label: t('settings.menu.plugins', '插件管理') },
     { id: 'logistics', label: t('settings.menu.logistics', '物流档案') },
   ];
 
   // Filter settings items based on user role
-  // Non-admin users cannot see 'staff' (人工坐席), 'providers' (模型提供商) and 'plugins' (插件管理)
+  // Company users never manage model providers; other items follow staff roles.
   const items = allItems.filter(item => {
-    if (!isAdmin && (item.id === 'staff' || item.id === 'providers' || item.id === 'plugins' || item.id === 'logistics')) {
+    if (!isAdmin && (item.id === 'staff' || item.id === 'plugins' || item.id === 'logistics')) {
       return false;
     }
     return true;
@@ -41,7 +40,6 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ className = '' }) => 
     notifications: <FiBell className="w-4 h-4" />,
     staff: <FiUsers className="w-4 h-4" />,
     billing: <FiSettings className="w-4 h-4" />,
-    providers: <FiCpu className="w-4 h-4" />,
     plugins: <Puzzle className="w-4 h-4" />,
     logistics: <Truck className="w-4 h-4" />,
   };

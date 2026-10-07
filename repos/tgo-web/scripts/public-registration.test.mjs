@@ -93,7 +93,7 @@ test('an automatic login failure is distinguished from account creation failure'
   assert.notEqual(f.state.isAuthenticated, true);
 });
 
-test('the actual Chinese registration page explains project isolation and provides a project-name input', () => {
+test('registration is one form with code, passwords, login and recovery links', () => {
   const [source] = loadSource('../src/pages/RegisterPage.tsx');
   const translations = JSON.parse(readFileSync(new URL('../src/i18n/locales/zh.json', import.meta.url), 'utf8'));
   const translate = key => key.split('.').reduce((value, part) => value?.[part], translations) || key;
@@ -107,16 +107,19 @@ test('the actual Chinese registration page explains project isolation and provid
       if (name === 'react-i18next') return { useTranslation: () => ({ t: translate }) };
       if (name === '@/stores') return { useAuthStore: () => ({ register() {}, isLoading: false, isAuthenticated: false }) };
       if (name === '@/services/api') return { APIError: class extends Error {}, RegistrationLoginError: class extends Error {} };
+      if (name === '@/services/companyEmailApi') return { companyEmailApi: { requestRegistrationCode() {} } };
       throw new Error(`Unexpected dependency: ${name}`);
     },
   };
   compile(source, scope);
   const html = renderToStaticMarkup(React.createElement(scope.exports.default));
-  assert.match(html, /项目名称/);
-  assert.match(html, /name="workspaceName"/);
-  assert.match(html, /客户数据互相隔离/);
+  assert.doesNotMatch(html, /name="workspaceName"/);
+  assert.match(html, /name="verificationCode"/);
+  assert.match(html, /name="password"/);
+  assert.match(html, /name="passwordConfirmation"/);
   assert.match(html, /autoComplete="new-password"/);
   assert.match(html, /href="\/login"/);
+  assert.match(html, /href="\/auth\/reset-password"/);
 });
 
 test('login recovery displays and copies the same native command, never the old Docker command', async () => {

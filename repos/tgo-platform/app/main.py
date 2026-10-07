@@ -26,6 +26,7 @@ from app.domain.services.media.storage import (
     EncryptedLocalMediaStorage,
     LocalMediaObjectDeleter,
 )
+from app.domain.services.media.wecom_bridge import WeComMediaBridge
 from app.domain.services.media.observability import InMemoryMediaMetrics
 from app.domain.services.media.wecom_downloader import WeComMediaDownloader
 from app.domain.services.listeners.wukongim_listener import WuKongIMChannelListener
@@ -58,19 +59,14 @@ async def lifespan(app: FastAPI):
         tgo_api_client=app.state.tgo_api_client,
         sse_manager=app.state.sse_manager,
     )
-    # Start WeCom consumer (processes pending wecom_inbox messages)
-    app.state.wecom_listener = WeComChannelListener(
-        session_factory=SessionLocal,
-        normalizer=normalizer,
-        tgo_api_client=app.state.tgo_api_client,
-        sse_manager=app.state.sse_manager,
-    )
     app.state.wecom_media_listener = None
     app.state.media_cleanup_listener = None
     app.state.media_metrics = InMemoryMediaMetrics(
         concurrency_limit=settings.media_job_max_concurrency
     )
     media_storage_path = Path(settings.media_storage_path)
+    media_storage = None
+    media_bridge = None
     if settings.media_cleanup_enabled:
         app.state.media_cleanup_listener = MediaCleanupListener(
             session_factory=SessionLocal,
@@ -96,6 +92,7 @@ async def lifespan(app: FastAPI):
             encryption_key=encryption_key,
             key_id=settings.media_encryption_key_id,
         )
+        media_bridge = WeComMediaBridge(base_url=settings.api_base_url)
         media_downloader = WeComMediaDownloader(
             timeout_seconds=settings.media_download_timeout_seconds,
         )
@@ -106,6 +103,16 @@ async def lifespan(app: FastAPI):
             metrics=app.state.media_metrics,
             max_concurrency=settings.media_job_max_concurrency,
         )
+    # The inbox consumer starts after storage is configured so downloaded
+    # media can be transferred through the same tenant-scoped chat path.
+    app.state.wecom_listener = WeComChannelListener(
+        session_factory=SessionLocal,
+        normalizer=normalizer,
+        tgo_api_client=app.state.tgo_api_client,
+        sse_manager=app.state.sse_manager,
+        media_storage=media_storage,
+        media_bridge=media_bridge,
+    )
     # Start WuKongIM consumer (processes pending wukongim_inbox messages)
     app.state.wukongim_listener = WuKongIMChannelListener(
         session_factory=SessionLocal,

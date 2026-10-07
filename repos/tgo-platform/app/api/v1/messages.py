@@ -24,6 +24,7 @@ from app.domain.services.staff_reply_context import (
     StaffReplyContextError,
     build_staff_reply_message,
 )
+from app.domain.services.wecom_credentials import resolve_wecom_kf_secret
 from app.api.schemas import ErrorResponse
 
 router = APIRouter()
@@ -191,9 +192,11 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
 
         if platform_type == "wecom":
             corp_id = (cfg.get("corp_id") or "").strip()
-            app_secret = (cfg.get("app_secret") or "").strip()
-            if not (corp_id and app_secret):
-                return error_response(status.HTTP_400_BAD_REQUEST, code="PLATFORM_CONFIG_INVALID", message="WeCom requires corp_id and app_secret", request_id=request_id)
+            kf_secret = resolve_wecom_kf_secret(
+                cfg.get("kf_secret"), cfg.get("app_secret"),
+            )
+            if not (corp_id and kf_secret):
+                return error_response(status.HTTP_400_BAD_REQUEST, code="PLATFORM_CONFIG_INVALID", message="WeCom requires corp_id and kf_secret", request_id=request_id)
 
             try:
                 external_userid = await resolve_visitor_platform_open_id(visitor_id)
@@ -237,7 +240,7 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 logging.info("[SEND] client_msg_no=%s wecom text sent to %s", client_msg_no, external_userid)
                 return {"ok": True, "client_msg_no": client_msg_no, "message": "Message sent successfully"}
             elif msg_type == 2:
-                access_token = await wecom_get_access_token(corp_id, app_secret)
+                access_token = await wecom_get_access_token(corp_id, kf_secret)
                 # Image
                 url = str(payload.get("url") or "")
                 if not url:

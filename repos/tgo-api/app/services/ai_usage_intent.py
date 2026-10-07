@@ -39,4 +39,5 @@ async def route_reply_intent(
             visitor=visitor,
             source_message_id=run.source_message_id,
             user_text=message,
+            reuse_existing=True,
         )

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { operationsApi } from '../../services/operationsApi';
 import type { TrialPolicy } from '../../types/trialPolicy';
@@ -12,6 +12,14 @@ export default function OperationsTrialPolicy() {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    setBusy(true); setError('');
+    void operationsApi.trialPolicy().then(value => { if (active) { setPolicy(value); setReplies(String(value.ai_replies)); } })
+      .catch(caught => { if (active) setError(caught instanceof Error ? caught.message : t('billingSupport.error')); })
+      .finally(() => { if (active) setBusy(false); });
+    return () => { active = false; };
+  }, [t]);
   const apply = async (save: boolean) => {
     setBusy(true); setError('');
     try {

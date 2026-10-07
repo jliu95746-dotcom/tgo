@@ -13,12 +13,18 @@ class RecordingSession:
     def __init__(self) -> None:
         self.added: list[object] = []
         self.commits = 0
+        self.events: list[str] = []
 
     def add(self, value: object) -> None:
         self.added.append(value)
+        self.events.append(type(value).__name__)
+
+    async def flush(self) -> None:
+        self.events.append("flush")
 
     async def commit(self) -> None:
         self.commits += 1
+        self.events.append("commit")
 
     async def rollback(self) -> None:
         return None
@@ -83,6 +89,9 @@ async def test_supported_media_creates_inbox_media_and_job_atomically() -> None:
     inbox, media, job = session.added
     assert media.inbox_id == inbox.id
     assert job.media_id == media.id
+    assert session.events == [
+        "WeComInbox", "MessageMedia", "flush", "MediaProcessingJob", "commit",
+    ]
 
 
 @pytest.mark.asyncio

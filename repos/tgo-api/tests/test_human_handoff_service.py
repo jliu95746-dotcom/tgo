@@ -17,6 +17,7 @@ from app.models import (
     VisitorWaitingQueue,
 )
 from app.services import human_handoff_service
+from app.utils.manual_service_tag import MANUAL_SERVICE_TAG_ID, manual_service_tag_id
 
 
 def test_manual_service_request_uses_application_timestamp_defaults() -> None:
@@ -66,6 +67,31 @@ class _FakeDB:
         return None
 
 
+def test_first_handoff_creates_manual_service_tag() -> None:
+    visitor = SimpleNamespace(id=uuid4())
+    db = _FakeDB({Tag: None, VisitorTag: None})
+    project_id = uuid4()
+
+    human_handoff_service.ensure_manual_service_tag(db, project_id, visitor)
+
+    tag = next(value for value in db.added if isinstance(value, Tag))
+    visitor_tag = next(value for value in db.added if isinstance(value, VisitorTag))
+    assert tag.id == manual_service_tag_id(project_id)
+    assert visitor_tag.tag_id == tag.id
+
+
+def test_existing_legacy_manual_tag_is_reused() -> None:
+    project_id = uuid4()
+    tag = SimpleNamespace(id=MANUAL_SERVICE_TAG_ID, deleted_at=None)
+    visitor = SimpleNamespace(id=uuid4())
+    db = _FakeDB({Tag: tag, VisitorTag: None})
+
+    human_handoff_service.ensure_manual_service_tag(db, project_id, visitor)
+
+    visitor_tag = next(value for value in db.added if isinstance(value, VisitorTag))
+    assert visitor_tag.tag_id == MANUAL_SERVICE_TAG_ID
+
+
 @pytest.mark.asyncio
 async def test_existing_staff_handoff_is_persisted_and_notified() -> None:
     project_id = uuid4()
@@ -79,9 +105,10 @@ async def test_existing_staff_handoff_is_persisted_and_notified() -> None:
         service_status="active",
         is_unassigned=False,
         ai_disabled=None,
+        service_mode="auto",
     )
     project = SimpleNamespace(id=project_id)
-    tag = SimpleNamespace(deleted_at=None)
+    tag = SimpleNamespace(id=MANUAL_SERVICE_TAG_ID, deleted_at=None)
     visitor_tag = SimpleNamespace(deleted_at=None)
     session = SimpleNamespace(id=session_id, staff_id=staff_id)
     staff = SimpleNamespace(name="张客服", nickname=None, username="staff")
@@ -126,6 +153,7 @@ async def test_existing_staff_handoff_is_persisted_and_notified() -> None:
     assert persisted.routing_reason == "explicit_complaint"
     assert persisted.request_metadata["source_message_id"] == "msg-1"
     assert visitor.ai_disabled is True
+    assert visitor.service_mode == "manual"
     assert result["assigned_staff_id"] == str(staff_id)
     assert db.commits == 1
     notify_profile.assert_awaited_once_with(db, visitor)

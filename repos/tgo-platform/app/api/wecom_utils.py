@@ -550,6 +550,8 @@ async def try_store_wecom_inbox(
             )
             db.add(media)
             if media_job is not None:
+                # The job has a foreign key to media; persist the parent first.
+                await db.flush()
                 db.add(media_job)
         await db.commit()
         return InboxStoreResult.STORED

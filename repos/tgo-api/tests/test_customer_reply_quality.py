@@ -168,6 +168,31 @@ async def test_technical_answer_reaches_independent_fact_audit():
 
 
 @pytest.mark.asyncio
+async def test_template_greeting_is_removed_before_fact_audit() -> None:
+    client = SimpleNamespace(
+        run_supervisor_agent=AsyncMock(
+            side_effect=[
+                {"content": "您好，请问需要咨询什么具体问题？"},
+                {"content": "您好，请问需要咨询什么具体问题？"},
+                {"content": '{"valid":true,"issues":[]}'},
+            ]
+        )
+    )
+
+    reply = await rewrite_assist_draft(
+        client,
+        project_id="test-project",
+        agent_id=None,
+        customer_message="AI客服联调测试1006",
+        factual_draft="请问需要咨询什么具体问题？",
+    )
+
+    assert reply == "请问需要咨询什么具体问题？"
+    assert client.run_supervisor_agent.await_count == 3
+    assert reply in client.run_supervisor_agent.call_args_list[2].kwargs["message"]
+
+
+@pytest.mark.asyncio
 async def test_rewrite_never_releases_unchecked_factual_draft():
     client = SimpleNamespace(
         run_supervisor_agent=AsyncMock(

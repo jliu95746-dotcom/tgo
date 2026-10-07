@@ -2,15 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { operationsApi } from '../../services/operationsApi';
 import type { BillingPlan, PlanDefinition } from '../../types/billing';
-import OperationsSupport from './OperationsSupport';
-import OperationsCompanies from './OperationsCompanies';
-import OperationsTasks from './OperationsTasks';
-import OperationsHealth from './OperationsHealth';
-import CommercialReadiness from './CommercialReadiness';
-import OperationsModelUsage from './OperationsModelUsage';
-import OperationsTrialPolicy from './OperationsTrialPolicy';
-import OperationsTrialCodes from './OperationsTrialCodes';
-import OperationsModels from './OperationsModels';
 
 const numericFields = ['rank', 'monthly_price', 'annual_price', 'seats', 'monthly_ai', 'knowledge_bytes', 'channel_limit', 'seat_monthly_price', 'seat_annual_price', 'ai_pack_price', 'ai_pack_replies'] as const;
 const priceFields = new Set<string>(['monthly_price', 'annual_price', 'seat_monthly_price', 'seat_annual_price', 'ai_pack_price']);
@@ -18,13 +9,22 @@ const button = 'rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm di
 
 export default function OperationsBilling() {
   const { t, i18n } = useTranslation();
-  const [opened, setOpened] = useState(false);
+  const [opened] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [form, setForm] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<BillingPlan | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    let active = true;
+    setBusy(true); setError('');
+    void operationsApi.plans().then(value => { if (active) setPlans(value); })
+      .catch(caught => { if (active) setError(caught instanceof Error ? caught.message : t('operationsBilling.error')); })
+      .finally(() => { if (active) setBusy(false); });
+    return () => { active = false; };
+  }, [t]);
   const load = async () => { setPlans(await operationsApi.plans()); };
   const act = async (action: () => Promise<unknown>) => {
     setBusy(true); setError('');
@@ -46,28 +46,18 @@ export default function OperationsBilling() {
       values[field] = priceFields.has(field) ? Math.round(Number(input) * 100) : Number(input);
     }
     if (!values.name || !/^[a-z][a-z0-9_-]{1,39}$/.test(form.code ?? '')) { setError(t('operationsBilling.invalid')); return; }
-    void act(async () => { await operationsApi.createPlan(form.code, values as PlanDefinition); setForm({}); });
+    void act(async () => { await operationsApi.createPlan(form.code, values as PlanDefinition); setForm({}); setCreating(false); });
   };
-  return <section className="mt-10 border-t border-slate-200 pt-8">
+  return <section className="rounded-xl border border-slate-200 bg-white p-6">
     <h2 className="text-2xl font-semibold">{t('operationsBilling.title')}</h2>
     <p className="my-3 text-sm leading-6 text-slate-500">{t('operationsBilling.hint')}</p>
-    {!opened && <button className={button} disabled={busy} onClick={() => { setOpened(true); void act(async () => undefined); }}>{t('operationsBilling.open')}</button>}
     {error && <p role="alert" className="my-4 rounded-lg bg-red-50 p-4 text-sm text-red-800">{error}</p>}
-    <CommercialReadiness />
-    <OperationsSupport />
-    <OperationsCompanies />
-    <OperationsHealth />
-    <OperationsTasks />
-    <OperationsModelUsage />
-    <OperationsTrialPolicy />
-    <OperationsTrialCodes />
-    <OperationsModels />
-    {opened && <><button className={`${button} mb-4`} disabled={busy} onClick={() => void act(async () => undefined)}>{t('billing.refresh')}</button>
-      <form onSubmit={submit} className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-2 lg:grid-cols-3">
+    {opened && <><div className="mb-4 flex gap-3"><button className={button} disabled={busy} onClick={() => void act(async () => undefined)}>{t('billing.refresh')}</button><button className={button} disabled={busy} onClick={() => setCreating(value => !value)}>{t(creating ? 'opsWorkspace.cancel' : 'opsWorkspace.createPlan')}</button></div>
+      {creating && <form onSubmit={submit} className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-2 lg:grid-cols-3">
         {(['code', 'name', ...numericFields] as const).map(field => <label key={field} className="text-sm"><span className="mb-2 block">{t(`operationsBilling.${field}`)}</span>
           <input required value={form[field] ?? ''} onChange={event => setForm({ ...form, [field]: event.target.value })} maxLength={field === 'name' ? 100 : 40} inputMode={numericFields.includes(field as typeof numericFields[number]) ? 'decimal' : 'text'} className="w-full rounded-lg border border-slate-300 px-3 py-2" /></label>)}
         <div className="sm:col-span-2 lg:col-span-3"><button className={button} type="submit" disabled={busy}>{t('operationsBilling.save')}</button></div>
-      </form>
+      </form>}
       <div className="mt-5 grid gap-4 md:grid-cols-3">{plans.map(plan => <article key={plan.id} className="rounded-xl border border-slate-200 bg-white p-5">
         <h3 className="font-semibold">{plan.definition.name}</h3><p className="my-2 text-xs text-slate-500">{plan.code} · {t('operationsBilling.version', { version: plan.version })} · {t(`operationsBilling.${plan.status}`)}</p>
         <p className="mb-4">{new Intl.NumberFormat(i18n.language, { style: 'currency', currency: 'CNY' }).format(plan.definition.monthly_price / 100)} / {t('billing.month')}</p>

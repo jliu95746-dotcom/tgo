@@ -45,6 +45,11 @@ def save_model_policy(
     db: Session = Depends(get_db),
     operator: PlatformOperator = Depends(require_operator),
 ) -> PlatformModelPolicy:
+    from app.services.shared_models import shared_models_active
+    from fastapi import HTTPException
+
+    if shared_models_active(db):
+        raise HTTPException(409, "平台模型已由统一模型配置管理")
     result = update_model_policy(db, operator, payload)
     db.commit()
     return result

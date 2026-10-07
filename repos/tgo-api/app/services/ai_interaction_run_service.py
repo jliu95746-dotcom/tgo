@@ -102,12 +102,14 @@ def _reuse_or_retry(
     db: Session,
     run: AIInteractionRun,
     request_fingerprint: str,
+    response_client_msg_no: str,
 ) -> AIInteractionClaim:
     _validate_fingerprint(run, request_fingerprint)
     if run.status != AIInteractionRunStatus.FAILED.value:
         return AIInteractionClaim(run=run, is_duplicate=True)
 
     run.status = AIInteractionRunStatus.RUNNING.value
+    run.response_client_msg_no = response_client_msg_no
     run.error_message = None
     run.completed_at = None
     run.updated_at = datetime.now(timezone.utc)
@@ -126,7 +128,9 @@ def claim_ai_interaction(
 
     existing = _find_existing(db, identity, lock=True)
     if existing is not None:
-        return _reuse_or_retry(db, existing, request_fingerprint)
+        return _reuse_or_retry(
+            db, existing, request_fingerprint, response_client_msg_no
+        )
 
     run = AIInteractionRun(
         project_id=identity.project_id,
@@ -148,7 +152,9 @@ def claim_ai_interaction(
         existing = _find_existing(db, identity, lock=True)
         if existing is None:
             raise
-        return _reuse_or_retry(db, existing, request_fingerprint)
+        return _reuse_or_retry(
+            db, existing, request_fingerprint, response_client_msg_no
+        )
     return AIInteractionClaim(run=run, is_duplicate=False)
 
 

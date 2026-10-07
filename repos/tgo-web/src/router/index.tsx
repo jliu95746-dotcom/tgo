@@ -45,7 +45,6 @@ import StaffSettings from '../components/settings/CompanyStaffSettings';
 import BillingPage from '../pages/BillingPage';
 import ProductPage from '../pages/ProductPage';
 import NotificationSettings from '../components/settings/NotificationSettings';
-import ModelProvidersSettings from '../components/settings/ModelProvidersSettings';
 import PluginsSettings from '../components/settings/PluginsSettings';
 import LogisticsSettings from '../components/settings/LogisticsSettings';
 import AboutSettings from '../components/settings/AboutSettings';
@@ -59,10 +58,10 @@ import { saasRoutes, saasPublicRoutes } from 'saas-routes';
  * Router configuration for the application
  */
 export const router = createBrowserRouter([
-  { path: '/ops', element: <OperationsConsole /> },
+  { path: '/ops/*', element: <OperationsConsole /> },
   { path: '/launch-guide', element: <LaunchGuide /> },
   { path: '/product', element: <ProductPage /> },
-  { path: '/auth/verify-email', element: <CompanyEmailPage key="verify" /> },
+  { path: '/auth/verify-email', element: <Navigate to="/register" replace /> },
   { path: '/auth/reset-password', element: <CompanyEmailPage key="reset" reset /> },
   { path: '/auth/accept-invitation', element: <CompanyEmailPage key="invite" invite /> },
   {
@@ -109,7 +108,7 @@ export const router = createBrowserRouter([
           { path: 'notifications', element: <NotificationSettings /> },
           { path: 'staff', element: <StaffSettings /> },
           { path: 'billing', element: <BillingPage /> },
-          { path: 'providers', element: <ModelProvidersSettings /> },
+          { path: 'providers', element: <Navigate to="/settings/profile" replace /> },
           { path: 'plugins', element: <PluginsSettings /> },
           { path: 'logistics', element: <LogisticsSettings /> },
           { path: 'about', element: <AboutSettings /> },

@@ -52,9 +52,16 @@ class ConfiguredMultimodalService:
         from app.services.platform_models import current_model
         from app.services.quota_authorization import metered_execution
         platform = current_model()
+        shared_media_models = platform.approved_media_models if platform else None
+        shared_media = bool(shared_media_models)
         if metered_execution.get():
-            approved = [platform.model] if platform else settings.saas_approved_models
-            if model_name not in approved:
+            if shared_media_models:
+                approved = model_name == shared_media_models.get(capability.value)
+            elif platform:
+                approved = model_name == platform.model
+            else:
+                approved = model_name in settings.saas_approved_models
+            if not approved:
                 return None
         row = (
             await self._db.execute(
@@ -85,9 +92,16 @@ class ConfiguredMultimodalService:
                     and (model.capabilities or {}).get("vision") is True
                 )
             )
-        api_key = platform.api_key.get_secret_value() if platform else provider.api_key
-        api_base_url = platform.api_base_url if platform else provider.api_base_url
-        provider_kind = platform.provider_kind if platform else provider.provider_kind
+        if platform and not shared_media:
+            api_key = platform.api_key.get_secret_value()
+            api_base_url = platform.api_base_url
+            provider_kind = platform.provider_kind
+            organization = None
+        else:
+            api_key = provider.api_key
+            api_base_url = provider.api_base_url
+            provider_kind = provider.provider_kind
+            organization = provider.organization
         if provider_kind not in {"openai", "openai_compatible"}:
             return None
         if not supported or not api_key or not api_base_url:
@@ -101,7 +115,7 @@ class ConfiguredMultimodalService:
             api_base_url=api_base_url,
             api_key=api_key,
             timeout_seconds=timeout,
-            organization=None if platform else provider.organization,
+            organization=organization,
         )
 
     async def analyze(

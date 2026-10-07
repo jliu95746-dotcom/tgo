@@ -427,6 +427,7 @@ async def chat_completion(
             content=req.message,
             msg_type=req.msg_type,
             extra=forward_extra,
+            require_delivery=req.msg_type in {MessageType.IMAGE, MessageType.VOICE},
         )
         source_message_id = source_message_id or forwarded_message_id
 

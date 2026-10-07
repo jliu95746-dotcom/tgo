@@ -254,6 +254,8 @@ async def transfer_to_staff(
         # 6. Update visitor - set AI disabled status (only if explicitly provided)
         if ai_disabled is not None:
             visitor.ai_disabled = ai_disabled
+            if ai_disabled:
+                visitor.service_mode = "manual"
         if assigned_staff_id:
             # Staff assigned - set to ACTIVE
             visitor.set_status_active()

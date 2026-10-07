@@ -61,6 +61,7 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
     apt-get update \
     && apt-get install -y --no-install-recommends \
         libpq-dev \
+        ffmpeg \
         curl \
     && rm -rf /var/lib/apt/lists/*
 

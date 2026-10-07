@@ -1,6 +1,7 @@
 """Own one complete reply, including factual and expression-only phases."""
 
 import asyncio
+import traceback
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import aclosing, asynccontextmanager
 from contextvars import ContextVar
@@ -193,7 +194,16 @@ async def controlled_reply(
             )
         except Exception as exc:
             failure_reason = "generation_failed"
-            logger.warning("Reply producer failed: %s", type(exc).__name__)
+            frames = traceback.extract_tb(exc.__traceback__)
+            locations = [
+                f"{frame.filename.rsplit('/', 1)[-1]}:{frame.name}:{frame.lineno}"
+                for frame in frames[-5:]
+            ]
+            logger.warning(
+                "Reply producer failed: %s; locations=%s",
+                type(exc).__name__,
+                locations,
+            )
         finally:
             control.finishing = True
             try:

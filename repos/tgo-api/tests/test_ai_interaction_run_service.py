@@ -122,6 +122,7 @@ def test_claim_ai_interaction_retries_failed_record_once() -> None:
     assert result.is_duplicate is False
     assert result.run is existing
     assert existing.status == AIInteractionRunStatus.RUNNING.value
+    assert existing.response_client_msg_no == "ai_new"
     assert existing.error_message is None
     assert existing.completed_at is None
     db.commit.assert_called_once_with()

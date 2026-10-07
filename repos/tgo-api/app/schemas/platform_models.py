@@ -82,6 +82,7 @@ class PlatformModelRuntime(PlatformModelDefinition):
     """Only returned through authenticated private service APIs."""
 
     api_key: SecretStr
+    approved_media_models: dict[str, str] | None = None
 
     @field_serializer("api_key")
     def internal_key(self, value: SecretStr) -> str:

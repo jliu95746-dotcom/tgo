@@ -10,6 +10,14 @@ from app.models.company_account import CompanyAccount
 from app.services.company_entitlements import require_new_service
 
 
+def require_operator_model_management(db: Session = Depends(get_db)) -> None:
+    """Tenant credentials cannot manage models after the shared catalogue is active."""
+    from app.services.shared_models import shared_models_active
+
+    if shared_models_active(db):
+        raise HTTPException(403, "模型由平台统一配置，请联系平台管理员")
+
+
 def require_configuration_write(
     request: Request, db: Session = Depends(get_db)
 ) -> None:

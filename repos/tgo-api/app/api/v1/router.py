@@ -2,10 +2,12 @@
 
 from fastapi import APIRouter, Depends
 from app.api.company_knowledge_access import require_knowledge_write
-from app.api.company_configuration_access import require_configuration_write
+from app.api.company_configuration_access import require_configuration_write, require_operator_model_management
 from app.api.v1.endpoints import billing, operations_billing, wechat_payments
 from app.api.v1.endpoints import billing_support
 from app.api.v1.endpoints import operations_tasks
+from app.api.v1.endpoints import operations_shared_models
+from app.api.v1.endpoints import operations_management
 from app.api.v1.endpoints import trial_activation
 from app.api.v1.endpoints import billing_refunds
 
@@ -60,6 +62,8 @@ api_router = APIRouter()
 api_router.include_router(billing.router, prefix="/billing", tags=["Billing"])
 api_router.include_router(operations_billing.router, prefix="/ops", tags=["Operations billing"])
 api_router.include_router(operations_tasks.router, prefix="/ops", tags=["Operations tasks"])
+api_router.include_router(operations_shared_models.router, prefix="/ops", tags=["Operations models"])
+api_router.include_router(operations_management.router, prefix="/ops", tags=["Operations management"])
 api_router.include_router(trial_activation.ops_router, prefix="/ops", tags=["Trial activation"])
 api_router.include_router(trial_activation.company_router, prefix="/company", tags=["Trial activation"])
 api_router.include_router(wechat_payments.router, tags=["WeChat payments"])
@@ -138,7 +142,7 @@ api_router.include_router(
 
 api_router.include_router(
     ai_providers.router,
-    dependencies=[Depends(require_configuration_write)],
+    dependencies=[Depends(require_configuration_write), Depends(require_operator_model_management)],
     prefix="/ai/providers",
     tags=["AI Providers"]
 )

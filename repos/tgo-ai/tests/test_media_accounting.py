@@ -63,3 +63,31 @@ async def test_media_uses_platform_endpoint_and_key_when_model_is_approved(platf
     assert result.api_key == platform.api_key.get_secret_value()
     assert result.api_base_url == platform.api_base_url
     assert result.organization is None
+
+
+@pytest.mark.asyncio
+async def test_shared_media_model_uses_shared_provider_credentials(platform):
+    project = uuid4()
+    platform.approved_media_models = {"asr": "shared-speech", "ocr": "shared-ocr", "vlm": "shared-vision"}
+    config = ProjectAIConfig(
+        project_id=project, default_asr_provider_id=uuid4(),
+        default_asr_model="shared-speech",
+    )
+    provider = SimpleNamespace(
+        id=config.default_asr_provider_id, provider_kind="openai_compatible",
+        api_key="synthetic-shared-media-key",
+        api_base_url="https://shared-media.invalid/v1", timeout=None,
+        organization=None,
+    )
+    model = SimpleNamespace(model_type="asr")
+    db = AsyncMock()
+    db.execute.return_value = Mock(first=Mock(return_value=(provider, model)))
+    result = await ConfiguredMultimodalService(db)._model(
+        project, AnalysisCapability.ASR, config,
+    )
+    assert result.api_key == "synthetic-shared-media-key"
+    assert result.api_base_url == provider.api_base_url
+    config.default_asr_model = "customer-selected-model"
+    assert await ConfiguredMultimodalService(db)._model(
+        project, AnalysisCapability.ASR, config,
+    ) is None

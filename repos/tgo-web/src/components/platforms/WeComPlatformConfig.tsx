@@ -89,6 +89,7 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
     corpId: (platform.config as any)?.corp_id ?? '',
     agentId: (platform.config as any)?.agent_id ?? '',
     appSecret: (platform.config as any)?.app_secret ?? '',
+    kfSecret: (platform.config as any)?.kf_secret ?? '',
     token: (platform.config as any)?.token ?? '',
     encodingAESKey: (platform.config as any)?.encoding_aes_key ?? '',
     // Convert relative callback URL to absolute
@@ -100,6 +101,7 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
       corpId: (platform.config as any)?.corp_id ?? '',
       agentId: (platform.config as any)?.agent_id ?? '',
       appSecret: (platform.config as any)?.app_secret ?? '',
+      kfSecret: (platform.config as any)?.kf_secret ?? '',
       token: (platform.config as any)?.token ?? '',
       encodingAESKey: (platform.config as any)?.encoding_aes_key ?? '',
       // Convert relative callback URL to absolute
@@ -115,6 +117,7 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
       ...(rest.corpId !== undefined ? { corpId: rest.corpId } : {}),
       ...(rest.agentId !== undefined ? { agentId: rest.agentId } : {}),
       ...(rest.appSecret !== undefined ? { appSecret: rest.appSecret } : {}),
+      ...(rest.kfSecret !== undefined ? { kfSecret: rest.kfSecret } : {}),
       ...(rest.token !== undefined ? { token: rest.token } : {}),
       ...(rest.encodingAESKey !== undefined ? { encodingAESKey: rest.encodingAESKey } : {}),
     };
@@ -122,6 +125,7 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
   };
 
   const [showSecret, setShowSecret] = useState(false);
+  const [showKfSecret, setShowKfSecret] = useState(false);
 
   const handleSave = async () => {
     try {
@@ -133,6 +137,7 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
           corp_id: (formValues.corpId || '').trim(),
           agent_id: (formValues.agentId || '').trim(),
           app_secret: (formValues.appSecret || '').trim(),
+          kf_secret: (formValues.kfSecret || '').trim(),
           token: (formValues.token || '').trim(),
         };
         const aes = (formValues.encodingAESKey || '').trim();
@@ -260,7 +265,32 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('platforms.wecom.form.corpIdHint', '可在「我的企业」-「企业信息」中查看。')}</p>
           </div>
 
-          {/* 应用AgentId */}
+          {/* 微信客服专用 Secret */}
+          <div>
+            <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">{t('platforms.wecom.form.kfSecret', '微信客服 Secret')}</label>
+            <div className="flex items-center gap-2">
+              <input
+                type={showKfSecret ? 'text' : 'password'}
+                value={formValues.kfSecret}
+                onChange={(e) => handleChange({ kfSecret: e.target.value })}
+                placeholder={showKfSecret ? t('platforms.wecom.form.kfSecretPlaceholder', '请输入微信客服专用 Secret') : '********'}
+                className="flex-1 text-sm p-1.5 border border-gray-300/80 dark:border-gray-600/80 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 bg-white/90 dark:bg-gray-700/50 dark:text-gray-200"
+              />
+              <button
+                type="button"
+                onClick={() => setShowKfSecret(v => !v)}
+                className="px-2 py-1 text-xs rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200"
+              >
+                {showKfSecret ? t('platforms.wecom.buttons.hide', '隐藏') : t('platforms.wecom.buttons.show', '显示')}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('platforms.wecom.form.kfSecretHint', '在企业微信「微信客服 → 开发配置」获取，用于同步和回复顾客消息。')}</p>
+            {!formValues.kfSecret && formValues.appSecret && (
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">{t('platforms.wecom.form.kfSecretLegacyHint', '当前会暂用旧字段的 Secret 调用微信客服接口，请核对其是否为微信客服专用 Secret。')}</p>
+            )}
+          </div>
+
+          {/* 自建应用 AgentId（仅内部成员消息） */}
           <div>
             <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">{t('platforms.wecom.form.agentId', '应用 AgentId')}</label>
             <input
@@ -273,7 +303,7 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('platforms.wecom.form.agentIdHint', '在企业微信管理后台的应用详情页获取。')}</p>
           </div>
 
-          {/* 应用Secret（App Secret） */}
+          {/* 自建应用 Secret（仅内部成员消息） */}
           <div>
             <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">{t('platforms.wecom.form.appSecret', '应用 Secret')}</label>
             <div className="flex items-center gap-2">
@@ -370,7 +400,7 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
 
           <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-blue-800 dark:text-blue-200 text-sm rounded-md p-3">
             <p className="font-medium">{t('platforms.wecom.guide.overview', '快速概览')}</p>
-            <p className="mt-1">{t('platforms.wecom.guide.overviewText', '完成以下四步：①查找企业ID → ②获取应用 AgentId/Secret → ③配置服务器回调（URL/Token/EncodingAESKey）→ ④保存测试。')}</p>
+            <p className="mt-1">{t('platforms.wecom.guide.overviewText', '完成以下四步：①查找企业ID → ②获取微信客服 Secret → ③配置微信客服回调 → ④保存并用真实客服入口测试。')}</p>
           </div>
 
           <details className="rounded-md border border-gray-200 dark:border-gray-600 p-3 bg-white/70 dark:bg-gray-700/50">
@@ -388,12 +418,12 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
           </details>
 
           <details className="rounded-md border border-gray-200 dark:border-gray-600 p-3 bg-white/70 dark:bg-gray-700/50">
-            <summary className="cursor-pointer font-semibold text-gray-800 dark:text-gray-100">{t('platforms.wecom.guide.step2Title', '2️⃣ 获取应用 AgentId 与 App Secret')}</summary>
+            <summary className="cursor-pointer font-semibold text-gray-800 dark:text-gray-100">{t('platforms.wecom.guide.step2Title', '2️⃣ 获取微信客服 Secret')}</summary>
             <div className="text-sm text-gray-700 dark:text-gray-300 mt-2 space-y-2">
               <ol className="list-decimal pl-5 space-y-1">
-                <li>{t('platforms.wecom.guide.step2Item1', '在后台左侧选择「应用管理」，打开你的自建应用。')}</li>
-                <li>{t('platforms.wecom.guide.step2Item2', '在应用详情页可看到「AgentId」。')}</li>
-                <li>{t('platforms.wecom.guide.step2Item3', '点击「Secret」显示或重置，复制后填入左侧表单「应用 Secret」。')}</li>
+                <li>{t('platforms.wecom.guide.step2Item1', '在企业微信管理后台打开「微信客服 → 开发配置」。')}</li>
+                <li>{t('platforms.wecom.guide.step2Item2', '查看微信客服的 Secret，填入左侧「微信客服 Secret」。')}</li>
+                <li>{t('platforms.wecom.guide.step2Item3', '「应用 AgentId / 应用 Secret」仅用于自建应用给内部成员发消息；接待顾客无需填写。')}</li>
               </ol>
               <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 rounded p-2 text-xs text-yellow-800 dark:text-yellow-200">
                 <p className="font-semibold">{t('platforms.wecom.guide.step2SecurityTitle', '安全提示')}</p>
@@ -406,7 +436,7 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
             <summary className="cursor-pointer font-semibold text-gray-800 dark:text-gray-100">{t('platforms.wecom.guide.step3Title', '3️⃣ 配置服务器回调（URL / Token / EncodingAESKey）')}</summary>
             <div className="text-sm text-gray-700 dark:text-gray-300 mt-2 space-y-3">
               <ol className="list-decimal pl-5 space-y-1">
-                <li>{t('platforms.wecom.guide.step3Item1', '在「应用管理」→ 你的应用 → 「接收消息」中，点击「设置」进入「服务器配置」。')}</li>
+                <li>{t('platforms.wecom.guide.step3Item1', '在「微信客服 → 开发配置」中设置回调 URL、Token 和 EncodingAESKey。')}</li>
                 <li>{t('platforms.wecom.guide.step3Item2', '回调 URL：复制左侧表单中的回调 URL（只读）粘贴至后台；')}</li>
                 <li>{t('platforms.wecom.guide.step3Item3', 'Token：自定义任意字符串，并确保与左侧表单一致；')}</li>
                 <li>{t('platforms.wecom.guide.step3Item4', 'EncodingAESKey：点击生成 43 位密钥，并复制到左侧表单；')}</li>
@@ -415,7 +445,7 @@ const WeComPlatformConfig: React.FC<Props> = ({ platform }) => {
               <div>
                 <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t('platforms.wecom.guide.step3ExampleTitle', '示例占位（仅供参考）')}</h4>
                 <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded p-2 text-xs dark:text-gray-300">
-                  <pre className="font-mono overflow-x-auto">{`URL:    https://your-domain.com/api/wecom/callback/{platformId}
+                  <pre className="font-mono overflow-x-auto">{`URL:    https://your-domain.com/v1/platforms/callback/{platform_api_key}
 Token:  your_token_string
 AESKey: your_43_chars_encoding_aes_key`}</pre>
                 </div>
@@ -432,9 +462,9 @@ AESKey: your_43_chars_encoding_aes_key`}</pre>
               <ul className="list-disc pl-5 space-y-1">
                 <li>{t('platforms.wecom.guide.step4Item1', 'URL 校验失败：检查你的回调服务是否可公网访问，TLS 证书是否有效。')}</li>
                 <li>{t('platforms.wecom.guide.step4Item2', '消息解密失败：确认 EncodingAESKey 正确且未包含多余空格。')}</li>
-                <li>{t('platforms.wecom.guide.step4Item3', '403/权限问题：确认应用已启用并授予所需权限；必要时重新生成 Secret。')}</li>
+                <li>{t('platforms.wecom.guide.step4Item3', '48002/权限问题：确认填写的是微信客服专用 Secret，而非自建应用 Secret。')}</li>
               </ul>
-              <a className="text-blue-600 dark:text-blue-400 hover:underline" href="https://developer.work.weixin.qq.com/document/path/90968" target="_blank" rel="noreferrer">{t('platforms.wecom.guide.docsLink', '企业微信消息回调开发文档')}</a>
+              <a className="text-blue-600 dark:text-blue-400 hover:underline" href="https://kf.weixin.qq.com/api/doc/path/93304" target="_blank" rel="noreferrer">{t('platforms.wecom.guide.docsLink', '微信客服 API 文档')}</a>
             </div>
           </details>
 

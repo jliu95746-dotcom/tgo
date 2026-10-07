@@ -123,42 +123,67 @@ class MessageIntentOrchestrator:
         visitor: Visitor,
         source_message_id: str,
         user_text: str,
+        reuse_existing: bool = False,
     ) -> MessageIntentRoutingOutcome:
         """Classify one text message, persist it, then enforce a workflow route."""
         normalized_text = user_text.strip()
         if not normalized_text:
             raise ValueError("user_text must not be empty")
 
-        result_payload = await self._classify_or_fail_closed(
-            project=project,
-            user_text=normalized_text,
-        )
-        request = IntentResultUpsertRequest.model_validate(
-            {
+        persisted = None
+        if reuse_existing:
+            persisted = self._db.query(MessageIntentResult).filter(
+                MessageIntentResult.project_id == project.id,
+                MessageIntentResult.platform_id == platform.id,
+                MessageIntentResult.visitor_id == visitor.id,
+                MessageIntentResult.source_message_id == source_message_id,
+            ).first()
+        if persisted is not None:
+            request = IntentResultUpsertRequest.model_validate({
+                "visitor_id": persisted.visitor_id,
+                "media_analysis_result_id": persisted.media_analysis_result_id,
+                "intent": persisted.intent,
+                "confidence": persisted.confidence,
+                "entities": persisted.entities,
+                "risk_level": persisted.risk_level,
+                "recommended_route": persisted.recommended_route,
+                "need_human": persisted.need_human,
+                "taxonomy_version": persisted.taxonomy_version,
+                "routing_reason": persisted.routing_reason,
+                "classification_source": persisted.classification_source,
+                "classifier_version": persisted.classifier_version,
+                "policy_version": persisted.policy_version,
+                "request_id": persisted.request_id,
+            })
+        else:
+            result_payload = await self._classify_or_fail_closed(
+                project=project,
+                user_text=normalized_text,
+            )
+            request = IntentResultUpsertRequest.model_validate({
                 **result_payload,
                 "visitor_id": visitor.id,
                 "classifier_version": CLASSIFIER_VERSION,
                 "policy_version": POLICY_VERSION,
                 "request_id": source_message_id,
-            }
-        )
-        persisted = MessageAnalysisService(self._db).upsert_intent_result_for_platform(
-            platform=platform,
-            source_message_id=source_message_id,
-            request=request,
-        )
-        try:
-            self._intelligence_service.record_intent(persisted)
-        except Exception as exc:
-            self._db.rollback()
-            logger.warning(
-                "Customer intelligence projection failed without blocking chat",
-                extra={
-                    "visitor_id": str(visitor.id),
-                    "source_message_id": source_message_id,
-                    "error": str(exc),
-                },
+            })
+            persisted = MessageAnalysisService(self._db).upsert_intent_result_for_platform(
+                platform=platform,
+                source_message_id=source_message_id,
+                request=request,
             )
+            try:
+                self._intelligence_service.record_intent(persisted)
+            except Exception as exc:
+                self._db.rollback()
+                logger.warning(
+                    "Customer intelligence projection failed without blocking chat",
+                    extra={
+                        "visitor_id": str(visitor.id),
+                        "source_message_id": source_message_id,
+                        "error": str(exc),
+                    },
+                )
         route = await self._route_or_handoff(request)
         tool_context: str | None = None
         excluded_tool_ids: tuple[str, ...] = ()

@@ -16,6 +16,8 @@ import { operationsBillingEn, operationsBillingZh } from './operationsBilling';
 import { productEn, productZh } from './product';
 import { billingSupportEn, billingSupportZh } from './billingSupport';
 import { launchGuideZh } from './launchGuide';
+import { sharedModelsZh, sharedModelsEn } from './sharedModels';
+import { operationsWorkspaceZh, operationsWorkspaceEn } from './operationsWorkspace';
 
 
 /**
@@ -24,10 +26,10 @@ import { launchGuideZh } from './launchGuide';
  */
 const resources = {
   zh: {
-    translation: { ...zhTranslations, launchGuide: launchGuideZh, logisticsProvider: logisticsProviderZh, operations: operationsZh, companyAccount: companyAccountZh, trialActivation: trialActivationZh, companyMembers: companyMembersZh, billing: billingZh, operationsBilling: operationsBillingZh, product: productZh, billingSupport: billingSupportZh }
+    translation: { ...zhTranslations, launchGuide: launchGuideZh, logisticsProvider: logisticsProviderZh, operations: operationsZh, companyAccount: companyAccountZh, trialActivation: trialActivationZh, companyMembers: companyMembersZh, billing: billingZh, operationsBilling: operationsBillingZh, product: productZh, billingSupport: billingSupportZh, sharedModels: sharedModelsZh, opsWorkspace: operationsWorkspaceZh }
   },
   en: {
-    translation: { ...enTranslations, logisticsProvider: logisticsProviderEn, operations: operationsEn, companyAccount: companyAccountEn, trialActivation: trialActivationEn, companyMembers: companyMembersEn, billing: billingEn, operationsBilling: operationsBillingEn, product: productEn, billingSupport: billingSupportEn }
+    translation: { ...enTranslations, logisticsProvider: logisticsProviderEn, operations: operationsEn, companyAccount: companyAccountEn, trialActivation: trialActivationEn, companyMembers: companyMembersEn, billing: billingEn, operationsBilling: operationsBillingEn, product: productEn, billingSupport: billingSupportEn, sharedModels: sharedModelsEn, opsWorkspace: operationsWorkspaceEn }
   }
 };
 

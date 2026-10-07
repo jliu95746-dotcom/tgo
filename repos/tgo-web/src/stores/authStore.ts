@@ -118,7 +118,8 @@ export const useAuthStore = create<AuthState>()(
             username: userData.email, // Using email as username
             password: userData.password,
             nickname: userData.email.split('@')[0],
-            project_name: userData.workspaceName.trim(),
+            ...(userData.workspaceName.trim() ? { project_name: userData.workspaceName.trim() } : {}),
+            ...(userData.verificationCode ? { verification_code: userData.verificationCode } : {}),
           });
 
           // After successful registration, automatically log in

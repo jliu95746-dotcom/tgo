@@ -24,7 +24,7 @@ from app.models import (
     ChannelMemoryClearance,
     ClearanceUserType,
 )
-from app.utils.manual_service_tag import MANUAL_SERVICE_TAG_ID
+from app.utils.manual_service_tag import manual_service_tag_ids
 from app.schemas.base import PaginationMetadata
 from app.schemas.wukongim import (
     ChannelInfo,
@@ -305,7 +305,7 @@ async def sync_my_conversations(
                 allowed_visitor_ids: set[UUID] = set()
                 for v_id in visitor_ids_in_convs:
                     tags_set = visitor_to_tags.get(v_id, set())
-                    has_manual = MANUAL_SERVICE_TAG_ID in tags_set
+                    has_manual = bool(tags_set.intersection(manual_service_tag_ids(current_user.project_id)))
                     has_any = bool(tags_set.intersection(tag_ids_resolved)) if tag_ids_resolved else True
                     if (not manual_service_contain or has_manual) and has_any:
                         allowed_visitor_ids.add(v_id)
@@ -738,7 +738,7 @@ async def sync_recent_conversations_by_visitor_tags(
             (vt_manual.visitor_id == VisitorSession.visitor_id)
             & (vt_manual.project_id == current_user.project_id)
             & (vt_manual.deleted_at.is_(None))
-            & (vt_manual.tag_id == MANUAL_SERVICE_TAG_ID),
+            & (vt_manual.tag_id.in_(manual_service_tag_ids(current_user.project_id))),
         )
 
     if not is_admin:

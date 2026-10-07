@@ -25,6 +25,9 @@ def test_empty_wecom_is_not_configured():
     assert is_platform_configured('wecom', {
         'corp_id': 'test', 'app_secret': 'test', 'token': 'test', 'encoding_aes_key': 'test',
     })
+    assert is_platform_configured('wecom', {
+        'corp_id': 'test', 'kf_secret': 'test', 'token': 'test', 'encoding_aes_key': 'test',
+    })
 
 
 def test_website_needs_no_external_credentials():

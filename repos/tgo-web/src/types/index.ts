@@ -88,6 +88,7 @@ export interface PlatformConfig {
   embedCode?: string;
   appId?: string;
   appSecret?: string;
+  kfSecret?: string;
   token?: string;
   smtpHost?: string;
   smtpPort?: number;
@@ -758,6 +759,7 @@ export enum MessagePayloadType {
   TEXT = 1,
   IMAGE = 2,
   FILE = 3,
+  VOICE = 4,
   RICH_TEXT = 12,
   COMMAND = 99,
   STREAM = 100,  // 流消息类型（AI 流式输出开始）
@@ -833,6 +835,12 @@ export interface PayloadFile {
   size?: number;
 }
 
+export interface PayloadVoice {
+  type: MessagePayloadType.VOICE;
+  content?: string;
+  url: string;
+}
+
 export interface PayloadRichTextImage {
   url: string;
   width?: number;
@@ -866,6 +874,7 @@ export type MessagePayload =
   | PayloadText
   | PayloadImage
   | PayloadFile
+  | PayloadVoice
   | PayloadRichText
   | PayloadSystem
   | PayloadJSONRender
@@ -1416,10 +1425,12 @@ export interface RegisterFormData {
   password: string;
   passwordConfirmation: string;
   workspaceName: string;
+  verificationCode?: string;
 }
 
 export interface AuthValidationErrors {
   email?: string;
+  verificationCode?: string;
   password?: string;
   passwordConfirmation?: string;
   workspaceName?: string;

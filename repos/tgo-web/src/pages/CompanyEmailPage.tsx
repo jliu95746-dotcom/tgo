@@ -26,10 +26,28 @@ export default function CompanyEmailPage({ reset = false, invite = false }: { re
     if (token) window.history.replaceState(null, '', window.location.pathname);
   }, [token]);
 
+  function validateEmail(): boolean {
+    const normalized = email.trim();
+    if (!normalized) {
+      setError(t('companyAccount.emailRequired'));
+      return false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      setError(t('companyAccount.emailInvalid'));
+      return false;
+    }
+    return true;
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || completed) return;
-    setError('');
+    setError(''); setMessage('');
+    if (!token && !validateEmail()) return;
+    if (!token && !reset && !/^\d{6}$/.test(code)) {
+      setError(t('companyAccount.codeRequired'));
+      return;
+    }
     if ((reset || invite) && token) {
       if (password !== confirmation) { setError(t('companyAccount.mismatch')); return; }
       if (password.length < 8 || new TextEncoder().encode(password).length > 72) {
@@ -49,7 +67,8 @@ export default function CompanyEmailPage({ reset = false, invite = false }: { re
   }
 
   async function resendCode() {
-    if (busy || !email) return;
+    if (busy) return;
+    if (!validateEmail()) return;
     setBusy(true); setError(''); setMessage('');
     try {
       const result = await companyEmailApi.request(email, false);
@@ -65,9 +84,11 @@ export default function CompanyEmailPage({ reset = false, invite = false }: { re
       <img src="/yujian-logo.svg" alt={t('brand.name')} className="mb-5 h-10 w-10" />
       <h1 className="text-2xl font-semibold">{t(invite ? 'companyMembers.acceptTitle' : reset ? 'companyAccount.resetTitle' : 'companyAccount.verifyTitle')}</h1>
       <p className="my-4 text-sm text-gray-600 dark:text-gray-300">{t(invite ? (token ? 'companyMembers.acceptHint' : 'companyMembers.inviteLinkRequired') : token ? 'companyAccount.linkHint' : reset ? 'companyAccount.resetHint' : 'companyAccount.verifyHint')}</p>
-      {message && <p role="status" className="my-4 rounded-lg bg-green-50 p-3 text-green-800">{message}</p>}
-      {error && <p role="alert" className="my-4 text-red-600">{error}</p>}
-      {!completed && (!invite || token) && <form onSubmit={submit} className="space-y-4">
+      {!token && !reset && !invite && <p className="mb-4 text-sm text-gray-600 dark:text-gray-300">
+        {t('companyAccount.verifyPrerequisite')}{' '}
+        <Link to="/register" className="font-medium text-blue-600">{t('companyAccount.startRegistration')}</Link>
+      </p>}
+      {!completed && (!invite || token) && <form onSubmit={submit} noValidate className="space-y-4">
         {!token && <label className="block">{t('companyAccount.email')}
           <input type="email" required autoComplete="email" maxLength={50} value={email} onChange={e => setEmail(e.target.value)} className={fieldClass} />
         </label>}
@@ -87,11 +108,14 @@ export default function CompanyEmailPage({ reset = false, invite = false }: { re
         <button disabled={busy} className="w-full rounded-lg bg-blue-600 p-3 text-white disabled:opacity-50">
           {t(busy ? 'companyAccount.pending' : !token && reset ? 'companyAccount.send' : invite ? 'companyMembers.acceptButton' : reset ? 'companyAccount.reset' : 'companyAccount.verify')}
         </button>
-        {!token && !reset && <button type="button" onClick={resendCode} disabled={busy || !email}
+        {!token && !reset && <button type="button" onClick={resendCode} disabled={busy}
           className="w-full rounded-lg border border-blue-600 p-3 text-blue-600 disabled:opacity-50">
           {t('companyAccount.resendCode')}
         </button>}
+        {message && <p role="status" className="rounded-lg bg-green-50 p-3 text-green-800">{message}</p>}
+        {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>}
       </form>}
+      {completed && message && <p role="status" className="my-4 rounded-lg bg-green-50 p-3 text-green-800">{message}</p>}
       <Link to="/login" className="mt-6 block text-center text-blue-600">{t('companyAccount.login')}</Link>
     </section>
   </main>;

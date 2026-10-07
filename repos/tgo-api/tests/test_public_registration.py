@@ -62,20 +62,20 @@ def data(**changes):
 
 
 @pytest.mark.asyncio
-async def test_saas_signup_waits_for_email_and_encrypts_outbox(signup_app, monkeypatch):
-    import re
-    from app.api.v1.endpoints import company_email
+async def test_saas_signup_requires_code_before_creating_account(signup_app, monkeypatch):
+    from fastapi import HTTPException
     from app.models.trial_policy import TrialPolicy
-    from app.services.company_email import MailPayload
     from app.models.company_account import CompanyAccount, EmailAction, EmailOutbox, AICreditBatch
-    from app.utils.crypto import decrypt_str, encrypt_str
+    from app.utils.crypto import encrypt_str
     from app.schemas.platform_models import PlatformModelDefinition, StoredPlatformModel
     app, db = signup_app
     for model in (CompanyAccount, EmailAction, EmailOutbox, AICreditBatch):
         model.__table__.create(db.get_bind())
     TrialPolicy.__table__.create(db.get_bind())
-    app.include_router(company_email.router, prefix="/staff")
-    monkeypatch.setattr(company_email, "limit_registration", AsyncMock())
+    send = AsyncMock()
+    consume = AsyncMock()
+    monkeypatch.setattr(registration, "send_registration_code", send)
+    monkeypatch.setattr(registration, "consume_registration_code", consume)
     config = project_registration.settings
     monkeypatch.setattr(config, "SAAS_ENABLED", True)
     monkeypatch.setattr(config, "SAAS_REGISTRATION_ENABLED", True)
@@ -88,57 +88,32 @@ async def test_saas_signup_waits_for_email_and_encrypts_outbox(signup_app, monke
         encrypted_api_key=encrypt_str("synthetic-platform-key")).model_dump(mode="json")}
     db.commit()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post("/staff/register", json=data())
+        requested = await client.post("/staff/registration-code", json={"email": "OWNER@example.com"})
+        missing = await client.post("/staff/register", json=data())
+        consume.side_effect = HTTPException(400, "验证码无效或已过期")
+        invalid = await client.post("/staff/register", json=data(verification_code="000000"))
+        consume.side_effect = None
+        response = await client.post("/staff/register", json=data(verification_code="123456"))
+    assert requested.status_code == 202
+    send.assert_awaited_once_with(db, "OWNER@example.com")
+    assert missing.status_code == 422 and invalid.status_code == 400
     assert response.status_code == 201
-    assert response.json()["account_enabled"] is False
+    consume.assert_awaited_with("owner@example.com", "123456")
+    assert response.json()["account_enabled"] is True
     assert db.query(CompanyAccount).one().status == "pending"
     assert db.query(AICreditBatch).count() == 0
-    mail = db.query(EmailOutbox).one()
-    assert "owner@example.com" not in mail.encrypted_payload
-    assert "#token=" not in decrypt_str(mail.encrypted_payload)
-    assert "token" not in response.text
+    assert db.query(EmailAction).count() == db.query(EmailOutbox).count() == 0
     staff = db.query(Staff).one()
-    assert security.resolve_staff_token(db, security.create_access_token(staff.username, staff.project_id)) is None
-
-    # Exercise the code delivered by registration; only a successful code
-    # submission may grant a trial.
-    payload = MailPayload.model_validate_json(decrypt_str(mail.encrypted_payload))
-    code = re.search(r"(?<!\d)\d{6}(?!\d)", payload.body).group()
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        wrong = await client.post(
-            "/staff/verify-email-code",
-            json={
-                "email": "owner@example.com",
-                "code": "000000" if code != "000000" else "999999",
-            },
-        )
-        assert wrong.status_code == 400
-        verified = await client.post(
-            "/staff/verify-email-code",
-            json={"email": "OWNER@example.com", "code": code},
-        )
-        assert verified.status_code == 200
-        account = db.query(CompanyAccount).one()
-        assert account.status == "pending" and not account.trial_granted
-        assert account.expires_at is None
-        assert staff.account_enabled and staff.email_verified_at is not None
-        assert security.resolve_staff_token(
-            db, security.create_access_token(staff.username, staff.project_id)
-        ) is not None
-        replay = await client.post(
-            "/staff/verify-email-code",
-            json={"email": "owner@example.com", "code": code},
-        )
-        assert replay.status_code == 400 and code not in replay.text
-        assert account.expires_at is None
-        assert db.query(AICreditBatch).count() == 0
+    assert staff.account_enabled and staff.email_verified_at is not None
+    assert security.resolve_staff_token(
+        db, security.create_access_token(staff.username, staff.project_id)
+    ) is not None
 
 
 @pytest.mark.asyncio
 async def test_saas_signup_waits_for_usable_platform_model(signup_app, monkeypatch):
     app, db = signup_app
+    monkeypatch.setattr(registration, "consume_registration_code", AsyncMock())
     config = project_registration.settings
     for name in ("SAAS_ENABLED", "SAAS_REGISTRATION_ENABLED", "SAAS_BILLING_ENABLED"):
         monkeypatch.setattr(config, name, True)
@@ -146,7 +121,7 @@ async def test_saas_signup_waits_for_usable_platform_model(signup_app, monkeypat
     monkeypatch.setattr(config, "SAAS_SMTP_HOST", "smtp.example.com")
     monkeypatch.setattr(config, "SAAS_SMTP_FROM", "mail@example.com")
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-        result = await client.post("/staff/register", json=data())
+        result = await client.post("/staff/register", json=data(verification_code="123456"))
     assert result.status_code == 503
     assert db.query(Project).count() == 0
 

@@ -8,6 +8,7 @@ from app.db.models import Platform
 from app.domain.entities import NormalizedMessage, ChatCompletionRequest
 from app.domain.ports import TgoApiClient, SSEManager, PlatformAdapter
 from app.domain.services.adapters import SimpleStdoutAdapter, EmailAdapter, WeComAdapter, WeComBotAdapter, FeishuBotAdapter, DingTalkBotAdapter, TelegramAdapter, SlackAdapter, VisionAgentAdapter
+from app.domain.services.wecom_credentials import resolve_wecom_kf_secret
 
 
 def _expected_output_for(ptype: str) -> str | None:
@@ -92,14 +93,17 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
         cfg = platform.config or {}
         corp_id = cfg.get("corp_id")
         agent_id = cfg.get("agent_id")
-        app_secret = cfg.get("app_secret")
         to_user = msg.from_uid
         wc = ((msg.extra or {}).get("wecom") or {})
         is_from_colleague = bool(wc.get("is_from_colleague", True))
+        app_secret = (
+            cfg.get("app_secret") if is_from_colleague
+            else resolve_wecom_kf_secret(cfg.get("kf_secret"), cfg.get("app_secret"))
+        )
         open_kfid = wc.get("open_kfid")
         external_userid = wc.get("external_userid") or msg.from_uid
         if not (corp_id and app_secret and to_user):
-            raise RuntimeError("WeCom adapter requires corp_id, app_secret, and recipient")
+            raise RuntimeError("WeCom adapter requires corp_id, channel secret, and recipient")
         if is_from_colleague and not agent_id:
             raise RuntimeError("WeCom colleague reply requires agent_id")
         if not is_from_colleague and not (open_kfid and external_userid):
@@ -264,6 +268,8 @@ async def process_message(
         message=msg.content,
         from_uid=msg.from_uid or "",
         msg_type=_normalize_message_type((msg.extra or {}).get("msg_type")),
+        media_file_id=(msg.extra or {}).get("media_file_id"),
+        source_message_id=(msg.extra or {}).get("message_id"),
         system_message=system_message,
         expected_output=expected_output,
         extra=_upstream_extra(msg.extra),

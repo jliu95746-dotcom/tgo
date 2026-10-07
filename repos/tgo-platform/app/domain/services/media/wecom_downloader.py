@@ -90,7 +90,6 @@ class WeComMediaDownloader:
                         )
 
                 content = bytearray()
-                digest = hashlib.sha256()
                 async for chunk in response.aiter_bytes():
                     if not chunk:
                         continue
@@ -101,7 +100,6 @@ class WeComMediaDownloader:
                             retryable=False,
                         )
                     content.extend(chunk)
-                    digest.update(chunk)
         except MediaDownloadError:
             raise
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
@@ -126,6 +124,13 @@ class WeComMediaDownloader:
             )
         if raw.lstrip().startswith(b"{"):
             self._raise_api_error(raw)
+        if media_type == "image" and raw.startswith(b"\xff\xd8"):
+            end_marker = raw.rfind(b"\xff\xd9")
+            trailing_bytes = len(raw) - end_marker - 2
+            if 0 < trailing_bytes <= 128:
+                jpeg = raw[: end_marker + 2]
+                if _is_valid_jpeg(jpeg, max_image_pixels=max_image_pixels):
+                    raw = jpeg
         mime_type, extension = _detect_media_format(
             raw,
             media_type,
@@ -137,7 +142,7 @@ class WeComMediaDownloader:
             content=raw,
             mime_type=mime_type,
             extension=extension,
-            sha256=digest.hexdigest(),
+            sha256=hashlib.sha256(raw).hexdigest(),
         )
 
     @staticmethod

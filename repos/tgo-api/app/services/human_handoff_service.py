@@ -30,9 +30,9 @@ from app.services.wukongim_client import wukongim_client
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MessageType
 from app.utils.encoding import build_visitor_channel_id
 from app.utils.manual_service_tag import (
-    MANUAL_SERVICE_TAG_ID,
     MANUAL_SERVICE_TAG_NAME,
     MANUAL_SERVICE_TAG_NAME_ZH,
+    manual_service_tag_id,
 )
 
 OPEN_REQUEST_STATUSES = ("pending", "notified", "in_progress")
@@ -46,12 +46,15 @@ def ensure_manual_service_tag(
     """Ensure the visitor carries the shared manual-service tag."""
     tag = (
         db.query(Tag)
-        .filter(Tag.id == MANUAL_SERVICE_TAG_ID, Tag.project_id == project_id)
+        .filter(
+            Tag.project_id == project_id,
+            Tag.name == MANUAL_SERVICE_TAG_NAME,
+            Tag.category == TagCategory.VISITOR.value,
+        )
         .first()
     )
     if tag is None:
         tag = Tag(
-            id=MANUAL_SERVICE_TAG_ID,
             name=MANUAL_SERVICE_TAG_NAME,
             category=TagCategory.VISITOR,
             color="#3B82F6",
@@ -59,6 +62,7 @@ def ensure_manual_service_tag(
             name_zh=MANUAL_SERVICE_TAG_NAME_ZH,
             description="Flag visitors who requested human assistance",
         )
+        tag.id = manual_service_tag_id(project_id)
         db.add(tag)
     elif tag.deleted_at is not None:
         tag.deleted_at = None
@@ -68,7 +72,7 @@ def ensure_manual_service_tag(
         db.query(VisitorTag)
         .filter(
             VisitorTag.visitor_id == visitor.id,
-            VisitorTag.tag_id == MANUAL_SERVICE_TAG_ID,
+            VisitorTag.tag_id == tag.id,
         )
         .first()
     )
@@ -77,7 +81,7 @@ def ensure_manual_service_tag(
             VisitorTag(
                 project_id=project_id,
                 visitor_id=visitor.id,
-                tag_id=MANUAL_SERVICE_TAG_ID,
+                tag_id=tag.id,
             )
         )
     elif visitor_tag.deleted_at is not None:
@@ -226,6 +230,7 @@ async def request_human_handoff(
         routing_reason=routing_reason,
     )
     visitor.ai_disabled = True
+    visitor.service_mode = "manual"
     db.flush()
 
     existing_queue = (

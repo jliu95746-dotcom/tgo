@@ -272,10 +272,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
   // Prefer the new three-state visitor mode and fall back to legacy fields.
   const aiDisabledRaw = visitorExtra?.ai_disabled;
   const aiMode = visitorExtra?.ai_settings?.ai_mode ?? 'auto';
-  const serviceMode: VisitorServiceMode = visitorExtra?.service_mode
+  const configuredServiceMode: VisitorServiceMode = visitorExtra?.service_mode
     ?? ((aiDisabledRaw === null || aiDisabledRaw === undefined)
       ? (aiMode === 'assist' ? 'assist' : aiMode === 'auto' ? 'auto' : 'manual')
       : aiDisabledRaw ? 'manual' : 'auto');
+  const serviceMode: VisitorServiceMode = configuredServiceMode === 'auto' && aiDisabledRaw === true
+    ? 'manual' : configuredServiceMode;
   const isAssistMode = serviceMode === 'assist';
   
   // 获取分配坐席的频道信息（用于显示坐席名字）

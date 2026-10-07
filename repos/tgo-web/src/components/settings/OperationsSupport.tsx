@@ -8,11 +8,11 @@ import OperationsSupportDialog, { type SupportSelection } from './OperationsSupp
 const button = 'rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm disabled:opacity-40';
 type Tab = 'orders' | 'refunds' | 'invoices' | 'reconciliation' | 'quotaReview';
 
-export default function OperationsSupport() {
+export default function OperationsSupport({ initialTab = 'orders' }: { initialTab?: 'orders' | 'refunds' | 'invoices' | 'reconciliation' | 'quotaReview' }) {
   const { t, i18n } = useTranslation();
   const text = (key: string) => t(`billingSupport.${key}`);
-  const [tab, setTab] = useState<Tab>('orders');
-  const [opened, setOpened] = useState(false);
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [opened, setOpened] = useState(true);
   const [revision, setRevision] = useState(0);
   const [offset, setOffset] = useState(0);
   const [orders, setOrders] = useState<BillingOrder[]>([]);
@@ -48,7 +48,7 @@ export default function OperationsSupport() {
     finally { setBusy(false); }
   };
   const count = tab === 'orders' ? orders.length : tab === 'refunds' ? refunds.length : tab === 'invoices' ? invoices.length : tab === 'reconciliation' ? reports.length : reviews.length;
-  return <section className="mt-10 space-y-4 border-t border-slate-200 pt-8">
+  return <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">
     <h2 className="text-2xl font-semibold">{text('title')}</h2>
     {!opened ? <button className={button} onClick={() => setOpened(true)}>{text('open')}</button> : <>
       <div className="flex flex-wrap gap-2">{(['orders', 'refunds', 'invoices', 'reconciliation', 'quotaReview'] as const).map(item => <button className={button} key={item} disabled={busy} aria-pressed={tab === item} onClick={() => { setTab(item); setOffset(0); }}>{item === 'orders' ? t('billing.orders') : text(item)}</button>)}<button className={button} disabled={busy} onClick={() => setRevision(value => value + 1)}>{text('refresh')}</button></div>

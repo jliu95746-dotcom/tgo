@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import uuid
 from dataclasses import dataclass
@@ -12,10 +13,13 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
-from app.db.models import Platform, WeComInbox, WeComSyncJob
+from app.db.models import MessageMedia, Platform, WeComInbox, WeComSyncJob
 from app.domain.entities import NormalizedMessage
 from app.domain.ports import MessageNormalizer, TgoApiClient, SSEManager
 from app.domain.services.dispatcher import process_message
+from app.domain.services.wecom_credentials import resolve_wecom_kf_secret
+from app.domain.services.media.storage import MediaStorage
+from app.domain.services.media.wecom_bridge import WeComMediaBridge
 from app.infra.visitor_client import VisitorService
 from app.api.wecom_utils import (
     WeComSyncContinuation,
@@ -28,8 +32,9 @@ class WeComPlatformConfig(BaseModel):
     """Per-platform WeCom configuration stored in Platform.config when type='wecom'."""
 
     corp_id: str = ""     # 企业ID (required for wecom_kf, optional for wecom_bot)
-    agent_id: str = ""    # 应用ID (required for wecom_kf, optional for wecom_bot)
-    app_secret: str = ""  # 应用密钥 (required for wecom_kf, optional for wecom_bot)
+    agent_id: str = ""    # 自建应用消息使用
+    app_secret: str = ""  # 自建应用密钥；旧版微信客服配置的回退值
+    kf_secret: str = ""   # 微信客服「开发配置」中的专用密钥
     token: str = ""       # 回调签名 Token
     encoding_aes_key: str | None = None  # 消息加密密钥（可选）
 
@@ -62,11 +67,15 @@ class WeComChannelListener:
         normalizer: MessageNormalizer,
         tgo_api_client: TgoApiClient,
         sse_manager: SSEManager,
+        media_storage: MediaStorage | None = None,
+        media_bridge: WeComMediaBridge | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._normalizer = normalizer
         self._tgo_api_client = tgo_api_client
         self._sse_manager = sse_manager
+        self._media_storage = media_storage
+        self._media_bridge = media_bridge
         self._stop_event = asyncio.Event()
         self._consumer_task: asyncio.Task | None = None
         self._visitor_service = VisitorService(
@@ -101,6 +110,8 @@ class WeComChannelListener:
         if not self._visitor_service_closed:
             await self._visitor_service.aclose()
             self._visitor_service_closed = True
+        if self._media_bridge is not None:
+            await self._media_bridge.aclose()
 
     async def _load_active_wecom_platforms(self) -> list[_PlatformEntry]:
         """Load all active WeCom platforms (both wecom_kf and wecom_bot types)."""
@@ -155,6 +166,7 @@ class WeComChannelListener:
         now = datetime.now(timezone.utc)
         eligible = or_(
             WeComInbox.status == "pending",
+            *([WeComInbox.status == "media_downloaded"] if self._media_bridge else []),
             and_(
                 WeComInbox.status == "failed",
                 WeComInbox.retry_count <= max_retries,
@@ -174,7 +186,12 @@ class WeComChannelListener:
         try:
             record = await session.scalar(
                 select(WeComInbox)
-                .where(WeComInbox.platform_id == platform.id, eligible)
+                .where(
+                    WeComInbox.platform_id == platform.id,
+                    eligible,
+                    *([WeComInbox.msg_type.notin_(["image", "voice"])]
+                      if self._media_bridge is None else []),
+                )
                 .order_by(WeComInbox.fetched_at.asc())
                 .with_for_update(skip_locked=True)
                 .limit(1)
@@ -338,7 +355,9 @@ class WeComChannelListener:
             else:
                 profile = await get_wecom_visitor_profile(
                     corp_id=platform.cfg.corp_id,
-                    app_secret=platform.cfg.app_secret,
+                    app_secret=resolve_wecom_kf_secret(
+                        platform.cfg.kf_secret, platform.cfg.app_secret,
+                    ),
                     external_userid=external_user_id,
                 )
                 display_name = (profile or {}).get("nickname")
@@ -453,12 +472,15 @@ class WeComChannelListener:
 
         # Cache miss: try to fetch profile from WeCom to enrich registration
         # Only for wecom_kf (customer service) - wecom_bot doesn't have external contact APIs
-        if source_type == "wecom_kf" and platform.cfg.corp_id and platform.cfg.app_secret:
+        kf_secret = resolve_wecom_kf_secret(
+            platform.cfg.kf_secret, platform.cfg.app_secret,
+        )
+        if source_type == "wecom_kf" and platform.cfg.corp_id and kf_secret:
             external_user_id = self._extract_external_user_id(record)
             try:
                 profile = await get_wecom_visitor_profile(
                     corp_id=platform.cfg.corp_id,
-                    app_secret=platform.cfg.app_secret,
+                    app_secret=kf_secret,
                     external_userid=external_user_id,
                 )
                 display_name = (profile or {}).get("nickname")
@@ -489,6 +511,49 @@ class WeComChannelListener:
             except Exception as e:
                 print(f"[WECOM] Visitor registration failed for {platform.id}: {e}")
         return visitor, display_name, avatar_url
+
+    async def _prepare_media_message(
+        self,
+        db: AsyncSession,
+        platform: _PlatformEntry,
+        record: WeComInbox,
+        visitor_id: uuid.UUID,
+        mapped_raw: dict[str, Any],
+    ) -> None:
+        if self._media_storage is None or self._media_bridge is None:
+            raise RuntimeError("WeCom media bridge is disabled")
+        media = await db.scalar(
+            select(MessageMedia).where(
+                MessageMedia.inbox_id == record.id,
+                MessageMedia.platform_id == platform.id,
+                MessageMedia.status == "downloaded",
+            )
+        )
+        if media is None or not media.object_key or not media.sha256:
+            raise RuntimeError("Downloaded WeCom media is unavailable")
+        raw_payload = record.raw_payload or {}
+        cached_file_id = raw_payload.get("tgo_media_file_id")
+        if cached_file_id:
+            file_id = uuid.UUID(str(cached_file_id))
+        else:
+            content = await self._media_storage.get(object_key=media.object_key)
+            if hashlib.sha256(content).hexdigest() != media.sha256:
+                raise RuntimeError("Stored WeCom media failed its integrity check")
+            if not platform.api_key:
+                raise RuntimeError("WeCom platform is missing an API key")
+            file_id = await self._media_bridge.upload(
+                platform_api_key=platform.api_key,
+                visitor_id=visitor_id,
+                media_type=media.media_type,
+                mime_type=media.mime_type or "",
+                content=content,
+            )
+            record.raw_payload = {
+                **raw_payload, "tgo_media_file_id": str(file_id),
+            }
+            await db.commit()
+        mapped_raw["content"] = f"/v1/chat/files/{file_id}"
+        mapped_raw["extra"]["media_file_id"] = str(file_id)
 
 
     async def _finalize_sync_job(
@@ -546,8 +611,11 @@ class WeComChannelListener:
                 job_created_at = job.created_at
 
             try:
-                if not (platform.cfg.corp_id and platform.cfg.app_secret):
-                    raise RuntimeError("WeCom platform is missing corp_id or app_secret")
+                kf_secret = resolve_wecom_kf_secret(
+                    platform.cfg.kf_secret, platform.cfg.app_secret,
+                )
+                if not (platform.cfg.corp_id and kf_secret):
+                    raise RuntimeError("WeCom platform is missing corp_id or kf_secret")
                 if job_created_at.tzinfo is None:
                     job_created_at = job_created_at.replace(tzinfo=timezone.utc)
                 token_age_seconds = (
@@ -559,7 +627,7 @@ class WeComChannelListener:
                 async with self._session_factory() as sync_session:
                     await sync_kf_messages(
                         corp_id=platform.cfg.corp_id,
-                        app_secret=platform.cfg.app_secret,
+                        app_secret=kf_secret,
                         event_token=effective_event_token,
                         open_kf_id=open_kfid,
                         platform_id=platform.id,
@@ -602,11 +670,18 @@ class WeComChannelListener:
 
                 try:
                     mapped_raw: dict[str, Any] = self._build_mapped_message(platform, record)
-                    _, display_name, avatar_url = await self._get_or_register_visitor(
+                    visitor, display_name, avatar_url = await self._get_or_register_visitor(
                         platform,
                         record,
                     )
                     self._attach_profile_to_extra(mapped_raw, display_name, avatar_url)
+
+                    if record.msg_type in {"image", "voice"}:
+                        if visitor is None:
+                            raise RuntimeError("WeCom visitor registration is unavailable")
+                        await self._prepare_media_message(
+                            db, platform, record, uuid.UUID(str(visitor.id)), mapped_raw,
+                        )
 
                     message: NormalizedMessage = await self._normalizer.normalize(mapped_raw)
                     reply_text = await process_message(

@@ -17,12 +17,16 @@ from app.services.company_email import utc
 from app.services.company_membership import lock_company, seat_usage
 
 
-def companies(db: Session, offset: int, limit: int) -> list[OperationsCompany]:
+def companies(
+    db: Session, offset: int, limit: int, project_id: UUID | None = None
+) -> list[OperationsCompany]:
     now = datetime.now(timezone.utc)
     results: list[OperationsCompany] = []
+    query = select(Project).where(Project.deleted_at.is_(None))
+    if project_id is not None:
+        query = query.where(Project.id == project_id)
     for project in db.scalars(
-        select(Project)
-        .where(Project.deleted_at.is_(None))
+        query
         .order_by(Project.created_at.desc())
         .offset(offset)
         .limit(limit)

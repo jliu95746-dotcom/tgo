@@ -39,6 +39,7 @@ from app.db.models import (
     WeComSyncJob,
     WuKongIMInbox,
 )
+from app.domain.services.wecom_credentials import resolve_wecom_kf_secret
 
 
 def _pkcs7_unpad(data: bytes) -> bytes:
@@ -191,7 +192,9 @@ async def _handle_wecom_webhook(platform: Platform, request: Request, db: AsyncS
         open_kf_id_for_cursor = open_kf_id_for_cursor or (xml_root.findtext("ToUserName") or "")
         cfg = platform.config or {}
         corp_id = (cfg.get("corp_id") or "").strip()
-        app_secret = (cfg.get("app_secret") or "").strip()
+        kf_secret = resolve_wecom_kf_secret(
+            cfg.get("kf_secret"), cfg.get("app_secret"),
+        )
         if not (token_val and open_kf_id_for_cursor):
             return error_response(
                 status.HTTP_400_BAD_REQUEST,
@@ -199,11 +202,11 @@ async def _handle_wecom_webhook(platform: Platform, request: Request, db: AsyncS
                 message="WeCom KF event is missing token or open_kfid",
                 request_id=get_request_id(request),
             )
-        if not (corp_id and app_secret):
+        if not (corp_id and kf_secret):
             return error_response(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
                 code="PLATFORM_CONFIG_INVALID",
-                message="WeCom platform is missing corp_id or app_secret",
+                message="WeCom platform is missing corp_id or kf_secret",
                 request_id=get_request_id(request),
             )
 

@@ -1,5 +1,7 @@
 """Create an isolated project and its first administrator in one DB transaction."""
 
+from datetime import datetime, timezone
+
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -19,7 +21,7 @@ logger = get_logger("project_registration")
 
 
 async def register_project_account(
-    db: Session, data: RegistrationRequest
+    db: Session, data: RegistrationRequest, email_verified: bool = False
 ) -> StaffResponse:
     if not settings.PUBLIC_REGISTRATION_ENABLED:
         raise HTTPException(403, "Public registration is disabled")
@@ -49,6 +51,8 @@ async def register_project_account(
         )
         db.add(project)
         db.flush()
+        from app.services.shared_models import apply_shared_models_to_project
+        apply_shared_models_to_project(db, project.id)
         owner = Staff(
             project_id=project.id,
             username=data.username,
@@ -56,7 +60,8 @@ async def register_project_account(
             password_hash=get_password_hash(data.password),
             role="admin",
             status="offline",
-            account_enabled=not settings.SAAS_ENABLED,
+            account_enabled=email_verified or not settings.SAAS_ENABLED,
+            email_verified_at=datetime.now(timezone.utc) if email_verified else None,
         )
         db.add(owner)
         # No model keys, customers, skills or third-party channel settings are copied.
@@ -80,7 +85,8 @@ async def register_project_account(
             from app.models.company_account import CompanyAccount
             from app.services.company_email import enqueue_action
             db.add(CompanyAccount(project_id=project.id))
-            enqueue_action(db, owner, "verify")
+            if not email_verified:
+                enqueue_action(db, owner, "verify")
         result = StaffResponse.model_validate(owner)
         # Commit before external I/O: concurrent signup must not hold a unique-index
         # lock while waiting for IM. Login reconciles the project notification channel.

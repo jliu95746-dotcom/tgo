@@ -86,9 +86,13 @@ async def test_kf_event_is_durably_queued_without_waiting_for_remote_sync(
         <OpenKfId>wk-test</OpenKfId>
     </xml>"""
     session = FakeSession()
+    platform = make_platform()
+    platform.config = {
+        **platform.config, "kf_secret": "kf-secret", "app_secret": "",
+    }
 
     response = await asyncio.wait_for(
-        callbacks._handle_wecom_webhook(make_platform(), make_signed_request(xml), session),
+        callbacks._handle_wecom_webhook(platform, make_signed_request(xml), session),
         timeout=0.1,
     )
 

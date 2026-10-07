@@ -40,8 +40,7 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
       } else if (operationsApi.hasSession()) {
         const operator = await operationsApi.me();
         if (generation !== sessionGeneration) return;
-        const preview = await operationsApi.preview();
-        if (generation === sessionGeneration) set({ operator, preview });
+        if (generation === sessionGeneration) set({ operator });
       }
     } catch (error) {
       if (generation === sessionGeneration) set({ error: errorMessage(error) });
@@ -57,8 +56,6 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
       const operator = await operationsApi.login(data);
       if (generation !== sessionGeneration) return;
       set({ operator });
-      const preview = await operationsApi.preview();
-      if (generation === sessionGeneration) set({ preview });
     } catch (error) {
       if (generation === sessionGeneration) set({ error: errorMessage(error) });
     } finally {

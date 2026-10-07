@@ -17,6 +17,7 @@ import { ChatAvatar } from './ChatAvatar';
 
 import TextMessage from './messages/TextMessage';
 import ImageMessage from './messages/ImageMessage';
+import VoiceMessage from './messages/VoiceMessage';
 import FileMessage from './messages/FileMessage';
 import RichTextMessage from './messages/RichTextMessage';
 import JSONRenderMessage from './messages/JSONRenderMessage';
@@ -42,15 +43,17 @@ const MessageContent: React.FC<{
   isStreamLoading: boolean;
   isRichText: boolean;
   isImage: boolean;
+  isVoice: boolean;
   isFile: boolean;
   isJSONRender: boolean;
   onSendMessage?: (message: string) => void;
-}> = ({ message, isStaff, streamError, streamErrorText, isStreamLoading, isRichText, isImage, isFile, isJSONRender, onSendMessage }) => {
+}> = ({ message, isStaff, streamError, streamErrorText, isStreamLoading, isRichText, isVoice, isImage, isFile, isJSONRender, onSendMessage }) => {
   if (streamError) return <AIErrorMessage isStaff={isStaff} errorText={streamErrorText} />;
   if (isStreamLoading) return <LoadingMessage isStaff={isStaff} />;
   if (isJSONRender) return <JSONRenderMessage message={message} isStaff={isStaff} onSendMessage={onSendMessage} />;
   if (isRichText) return <RichTextMessage message={message} isStaff={isStaff} onSendMessage={onSendMessage} />;
   if (isImage) return <ImageMessage message={message} isStaff={isStaff} />;
+  if (isVoice) return <VoiceMessage message={message} />;
   if (isFile) return <FileMessage message={message} isStaff={isStaff} />;
   return <TextMessage message={message} isStaff={isStaff} onSendMessage={onSendMessage} />;
 };
@@ -132,6 +135,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
   // Message type detection
   const isRichText = typedPayload?.type === MessagePayloadType.RICH_TEXT || message.payloadType === MessagePayloadType.RICH_TEXT || Array.isArray(meta.images);
   const isImage = typedPayload?.type === MessagePayloadType.IMAGE || message.payloadType === MessagePayloadType.IMAGE || Boolean(meta.image_url || meta.image_preview_url);
+  const isVoice = typedPayload?.type === MessagePayloadType.VOICE || message.payloadType === MessagePayloadType.VOICE;
   const isFile = typedPayload?.type === MessagePayloadType.FILE || message.payloadType === MessagePayloadType.FILE || Boolean(meta.file_url || meta.file_name);
   const isJSONRender = Boolean(meta.ui_parts && Array.isArray(meta.ui_parts) && meta.ui_parts.length > 0);
   const isStreamType = typedPayload?.type === MessagePayloadType.STREAM || message.payloadType === MessagePayloadType.STREAM;
@@ -226,6 +230,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
             isStreamLoading={isStreamLoading}
             isRichText={isRichText}
             isImage={isImage}
+            isVoice={isVoice}
             isFile={isFile}
             isJSONRender={isJSONRender}
             onSendMessage={onSendMessage}
@@ -252,6 +257,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
           isStreamLoading={isStreamLoading}
           isRichText={isRichText}
           isImage={isImage}
+          isVoice={isVoice}
           isFile={isFile}
           isJSONRender={isJSONRender}
           onSendMessage={onSendMessage}

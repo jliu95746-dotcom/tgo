@@ -15,10 +15,14 @@ export default function OperationsModels() {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [sharedManaged, setSharedManaged] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const section = useRef<HTMLElement>(null);
   useEffect(() => {
     if (window.location.hash === '#platform-model') section.current?.scrollIntoView();
+  }, []);
+  useEffect(() => {
+    void operationsApi.sharedModels().then(value => setSharedManaged(value.enabled)).catch(() => {});
   }, []);
   const load = async () => {
     setBusy(true); setError(''); setKey('');
@@ -36,6 +40,7 @@ export default function OperationsModels() {
     } catch (caught) { setError(caught instanceof Error ? caught.message : t('billingSupport.error')); }
     finally { setKey(''); setBusy(false); dialog.current?.close(); }
   };
+  if (sharedManaged) return null;
   return <section ref={section} id="platform-model" className="my-6 scroll-mt-6 rounded-xl border border-slate-200 bg-white p-5">
     <h3 className="font-semibold">{t('billingSupport.platformModel')}</h3>
     <p className="my-3 text-sm leading-6 text-slate-500">{t('billingSupport.platformModelHint')}</p>

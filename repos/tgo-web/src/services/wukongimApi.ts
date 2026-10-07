@@ -506,6 +506,10 @@ export class WuKongIMUtils {
         file: fileAttachment
       };
       richImagesMeta = imgs;
+    } else if (payloadType === MessagePayloadType.VOICE) {
+      const url0 = payloadObj?.url || payloadObj?.content || content;
+      const url = url0 ? toAbsoluteApiUrl(url0) : '';
+      typedPayload = { type: MessagePayloadType.VOICE, content: '[语音]', url };
     } else if (payloadType === MessagePayloadType.FILE) {
       const url0 = payloadObj?.url || payloadObj?.file_url || payloadObj?.fileUrl;
       const url = url0 ? toAbsoluteApiUrl(url0) : undefined;

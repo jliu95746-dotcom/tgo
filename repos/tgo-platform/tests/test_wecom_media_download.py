@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import zlib
+
 import httpx
 import pytest
-import zlib
 
 from app.domain.services.media.types import MediaDownloadError
 from app.domain.services.media.wecom_downloader import WeComMediaDownloader
@@ -62,6 +64,38 @@ async def test_downloads_and_identifies_jpeg() -> None:
     assert media.mime_type == "image/jpeg"
     assert media.extension == "jpg"
     assert len(media.sha256) == 64
+
+
+@pytest.mark.asyncio
+async def test_wecom_jpeg_with_short_trailer_is_trimmed() -> None:
+    original = minimal_jpeg()
+    downloader = make_downloader(
+        httpx.Response(200, headers={"content-type": "image/jpeg"}, content=original + b"x" * 24)
+    )
+
+    media = await downloader.download(
+        access_token="secret-token", source_media_id="media-id",
+        media_type="image", max_bytes=1024,
+    )
+
+    assert media.content == original
+    assert media.mime_type == "image/jpeg"
+    assert media.sha256 == hashlib.sha256(original).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_jpeg_with_long_trailer_is_rejected() -> None:
+    downloader = make_downloader(
+        httpx.Response(200, headers={"content-type": "image/jpeg"}, content=minimal_jpeg() + b"x" * 129)
+    )
+
+    with pytest.raises(MediaDownloadError) as error:
+        await downloader.download(
+            access_token="secret-token", source_media_id="media-id",
+            media_type="image", max_bytes=1024,
+        )
+
+    assert error.value.code == "unsupported_media_format"
 
 
 @pytest.mark.asyncio

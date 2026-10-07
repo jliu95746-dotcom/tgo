@@ -111,6 +111,12 @@ def runtime_model(db: Session) -> PlatformModelRuntime | None:
         raise TGOAPIException(
             "平台模型凭据暂不可用", code="MODEL_KEY_UNAVAILABLE", status_code=503
         )
+    from app.services.shared_models import stored_shared_models
+
+    shared = stored_shared_models(db)
+    media = ({purpose: shared.defaults[purpose].model_id
+              for purpose in ("asr", "ocr", "vlm")} if shared else None)
     return PlatformModelRuntime(
-        **stored.definition.model_dump(), api_key=SecretStr(key)
+        **stored.definition.model_dump(), api_key=SecretStr(key),
+        approved_media_models=media,
     )

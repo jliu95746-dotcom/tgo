@@ -138,6 +138,51 @@ class _AutoReplyWorkflowClient:
         return {"target": "auto_reply", "reason": "high_confidence_faq"}
 
 
+@pytest.mark.asyncio
+async def test_retry_reuses_persisted_intent_without_reclassifying() -> None:
+    project = Project(id=uuid4(), name="test", api_key="ak_test")
+    platform = Platform(
+        id=uuid4(), project_id=project.id, name="wecom", type="wecom",
+        api_key="platform-key", is_active=True,
+    )
+    visitor = Visitor(
+        id=uuid4(), project_id=project.id, platform_id=platform.id,
+        platform_open_id="visitor-open-id",
+    )
+    config = ProjectAIConfig(
+        project_id=project.id, default_chat_provider_id=uuid4(),
+        default_chat_model="deepseek-v4-flash",
+    )
+    session = _Session(config, visitor)
+    saved = MessageIntentResult(
+        id=uuid4(), project_id=project.id, platform_id=platform.id,
+        visitor_id=visitor.id, source_message_id="wecom-message-1",
+        intent="order_query", confidence=0.92, entities={}, risk_level="low",
+        recommended_route="auto_reply", need_human=False,
+        taxonomy_version="v1", routing_reason="high_confidence_faq",
+        classification_source="model", classifier_version="tgo-ai-intent-v1",
+        policy_version="customer-service-routing-v1", input_fingerprint="stored",
+        request_id="wecom-message-1",
+    )
+    session.intent = saved
+    ai_client = _UnexpectedAIClient()
+    orchestrator = MessageIntentOrchestrator(
+        session,  # type: ignore[arg-type]
+        ai_client=ai_client,  # type: ignore[arg-type]
+        workflow_client=_AutoReplyWorkflowClient(),  # type: ignore[arg-type]
+    )
+
+    outcome = await orchestrator.analyze_text_message(
+        project=project, platform=platform, visitor=visitor,
+        source_message_id="wecom-message-1", user_text="订单情况怎么样？",
+        reuse_existing=True,
+    )
+
+    assert ai_client.called is False
+    assert outcome.intent_result is saved
+    assert outcome.routing_target == "auto_reply"
+
+
 class _LogisticsAIClient:
     async def classify_intent(self, **_kwargs: object) -> dict[str, object]:
         return {

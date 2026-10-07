@@ -13,6 +13,7 @@ from app.services.billing_orders import record_verified_payment
 from app.services.company_email import utc
 from app.services.company_membership import lock_company
 from app.services.wechat_pay_client import WeChatPayClient
+from app.services.operations_authorization import operator_authorization_active
 
 
 def maintain_subscriptions() -> None:
@@ -35,6 +36,9 @@ def maintain_subscriptions() -> None:
                 # Expiry itself does not change quote basis: a previously paid order
                 # remains fulfillable after an outage. API gates use actual timestamps.
             elif account.status == "active":
+                operator_override = operator_authorization_active(account, now)
+                if account.operator_override_until is not None and not operator_override:
+                    account.operator_override_until = None
                 period = db.scalar(
                     select(SubscriptionPeriod).where(
                         SubscriptionPeriod.project_id == project_id,
@@ -56,7 +60,7 @@ def maintain_subscriptions() -> None:
                         )
                         or 0
                     )
-                    if (
+                    if not operator_override and (
                         account.plan_id != period.plan_id
                         or account.seat_limit != definition.seats + extras
                     ):
