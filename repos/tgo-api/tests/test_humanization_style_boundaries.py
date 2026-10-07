@@ -150,10 +150,27 @@ async def test_selected_style_cannot_remove_an_approval_condition() -> None:
         )
 
 
-def test_list_markers_do_not_allow_a_changed_price() -> None:
+@pytest.mark.parametrize("marker", ["1. ", "1.", "1、", "1)"])
+def test_list_markers_do_not_allow_a_changed_price(marker: str) -> None:
     assert "new_numbers" in assess_reply(
-        "1. 售价299元。\n2. 等待审核。",
+        f"{marker}售价299元。\n2.等待审核。",
         "售价399元，申请后需要审核。",
         "多少钱？",
         include_style=False,
+    )
+
+
+@pytest.mark.parametrize("marker", ["1. ", "1.", "1、", "1)"])
+def test_numbered_steps_without_spaces_preserve_prices(marker: str) -> None:
+    assert "new_numbers" not in assess_reply(
+        f"{marker}售价399元。\n2.等待审核。",
+        "售价399元，申请后需要审核。",
+        "多少钱？",
+        include_style=False,
+    )
+
+
+def test_decimal_amounts_at_line_start_remain_business_numbers() -> None:
+    assert "new_numbers" in assess_reply(
+        "299.50元。", "399.50元。", "多少钱？", include_style=False
     )

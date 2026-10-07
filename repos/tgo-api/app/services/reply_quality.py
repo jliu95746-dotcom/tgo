@@ -76,7 +76,7 @@ def wants_alternatives(customer_turns: Sequence[str]) -> bool:
 def numeric_values(text: str) -> set[Decimal]:
     """Compare amounts despite thousands separators or decimal formatting."""
     # Numbered list markers are formatting, not business quantities.
-    text = re.sub(r"(?m)^\s*\d+[.)、]\s+", "", text)
+    text = re.sub(r"(?m)^\s*\d+[.)、](?!\d)[ \t]*", "", text)
     return {Decimal(value.replace(",", "")) for value in NUMBERS.findall(text)}
 
 
