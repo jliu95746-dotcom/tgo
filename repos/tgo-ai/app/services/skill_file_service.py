@@ -41,6 +41,7 @@ from app.schemas.skill import (
     SkillUpdateRequest,
 )
 from app.services.humanization_skill_training import HumanizationTrainingStore
+from app.services.service_skill_defaults import humanization_instructions
 from app.services.humanization_library import HumanizationLibrary, _RELEASE_LOCK
 from app.schemas.humanization import ConversationTurn, HumanizationContext, TrainingPublishRequest, TrainingReview
 
@@ -315,17 +316,7 @@ class SkillFileService:
     ) -> SkillDetail:
         """Create a trainable skill that stays outside global skill loading."""
         skill_name = data.name or f"humanization-{uuid4().hex[:8]}"
-        instructions = f"""# {data.display_name}
-
-将客户回复改写得自然、简洁，像真实客服在聊天。
-
-## 规则
-
-- 直接回应客户，不描述分析、查询、工具调用或内部工作过程。
-- 保留订单、价格、政策、时效等业务事实，不根据表达样本发明事实。
-- 优先使用短句和口语化表达，避免模板化标题、总结和重复复述。
-- `references/approved-examples.md` 存在时，参考其中人工确认的最终表达，但不要照搬其中的客户信息。
-"""
+        instructions = humanization_instructions(data.display_name)
         detail = await self.create_skill(
             project_id,
             SkillCreateRequest(

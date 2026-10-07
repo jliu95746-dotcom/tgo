@@ -28,7 +28,8 @@ PROCESS = re.compile(
     re.IGNORECASE,
 )
 UNCERTAIN = re.compile(
-    r"(?:未|没)(?:有)?(?:找到|查到|确认)|不确定|无法确认|尚未确认|待核实" r"|不能确定|不能确认|确认不了|确定不了|不清楚|说不准"
+    r"(?:未|没)(?:有)?(?:找到|查到|确认)|不确定|无法确认|尚未确认|待核实"
+    r"|不能确定|不能确认|确认不了|确定不了|不清楚|说不准"
 )
 DEFINITE_ABSENCE = re.compile(r"(?:没有|不提供|不支持|不存在|无货|没货|售罄)")
 NUMBERS = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
@@ -48,20 +49,22 @@ REDUNDANT_LOOKUP_UNCERTAINTY = re.compile(
     r"(?:目前|现在|暂时|还|也|仍|尚|暂){0,3}"
     r"(?:无法确认|不能确认|确认不了|不能确定|不确定)"
 )
-GREETING_ONLY = re.compile(r"\s*(?:你好|您好|嗨|哈喽|hello|hi)[，,。.!！~～\s]*", re.IGNORECASE)
+GREETING_ONLY = re.compile(
+    r"\s*(?:你好|您好|嗨|哈喽|hello|hi)[，,。.!！~～\s]*", re.IGNORECASE
+)
 GREETING_SALES_PITCH = re.compile(
-    r"预算|场景|场合|推荐|挑选|选购|选包|款式|材质|颜色|价格|订单|物流|售后|退换|保养"
-    r"|无论是|不管是|业务|服务范围"
+    r"预算|场景|场合|推荐|挑选|选购|选包|款式|材质|颜色|价格|订单|物流|售后|退换|保养" r"|无论是|不管是|业务|服务范围"
 )
 TEMPLATE_OPENING = re.compile(r"^\s*(?:您好|你好|亲亲|亲|尊敬的客户)[，,！!：:~～\s]")
 CEREMONIAL_CAVEAT = re.compile(
-    r"(?:^|[。！？\n，,])\s*(?:(?:不过|另外)[，,]?)?" r"(?:温馨(?:提示|提醒)|(?:要|需要|还要|也要)提醒您)[：:,，]"
+    r"(?:^|[。！？\n，,])\s*(?:(?:不过|另外)[，,]?)?"
+    r"(?:温馨(?:提示|提醒)|(?:要|需要|还要|也要)提醒您)[：:,，]"
 )
 FRIENDLY_PARTICLE = re.compile(r"[哦哟啦哈](?=[，,。.!！?？~～\s]|$)")
 
 
 def wants_alternatives(customer_turns: Sequence[str]) -> bool:
-    """Use customer intent only; a newer refusal overrides an earlier request."""
+    """A newer customer refusal overrides an earlier alternative request."""
     for turn in reversed(customer_turns):
         if ALTERNATIVE_REFUSAL.search(turn):
             return False
@@ -71,7 +74,9 @@ def wants_alternatives(customer_turns: Sequence[str]) -> bool:
 
 
 def numeric_values(text: str) -> set[Decimal]:
-    """Compare amounts independently of thousands separators/decimal formatting."""
+    """Compare amounts despite thousands separators or decimal formatting."""
+    # Numbered list markers are formatting, not business quantities.
+    text = re.sub(r"(?m)^\s*\d+[.)、]\s+", "", text)
     return {Decimal(value.replace(",", "")) for value in NUMBERS.findall(text)}
 
 
@@ -80,7 +85,10 @@ def assess_reply(
     factual_draft: str,
     customer_message: str,
     recent_messages: Sequence[dict[str, str]] = (),
+    *,
+    include_style: bool = True,
 ) -> list[str]:
+    """Check facts and scope, with optional default tone checks."""
     issues: list[str] = []
     if not reply.strip():
         return ["empty_reply"]
@@ -88,17 +96,22 @@ def assess_reply(
         issues.append("process_language")
     if REDUNDANT_LOOKUP_UNCERTAINTY.search(reply):
         issues.append("redundant_lookup_uncertainty")
-    if TEMPLATE_OPENING.search(reply) and not GREETING_ONLY.fullmatch(customer_message):
+    if (
+        include_style
+        and TEMPLATE_OPENING.search(reply)
+        and not GREETING_ONLY.fullmatch(customer_message)
+    ):
         issues.append("template_opening")
     if GREETING_ONLY.fullmatch(customer_message) and (
-        len(re.sub(r"\s", "", reply)) > 40 or GREETING_SALES_PITCH.search(reply)
+        (include_style and len(re.sub(r"\s", "", reply)) > 40)
+        or GREETING_SALES_PITCH.search(reply)
     ):
         # A greeting is a new social turn, not renewed shopping intent merely
         # because older customer messages mentioned products or a budget.
         issues.append("greeting_overreach")
-    if CEREMONIAL_CAVEAT.search(reply):
+    if include_style and CEREMONIAL_CAVEAT.search(reply):
         issues.append("ceremonial_caveat")
-    if len(FRIENDLY_PARTICLE.findall(reply)) >= 2:
+    if include_style and len(FRIENDLY_PARTICLE.findall(reply)) >= 2:
         issues.append("forced_friendly_particles")
     if (
         UNCERTAIN.search(factual_draft)
@@ -106,11 +119,15 @@ def assess_reply(
         and not UNCERTAIN.search(reply)
     ):
         issues.append("certainty_changed")
-    if numeric_values(reply) - numeric_values(factual_draft + "\n" + customer_message):
+    if numeric_values(reply) - numeric_values(
+        factual_draft + "\n" + customer_message
+    ):
         issues.append("new_numbers")
-    if re.search(r"还有.{0,8}(?:帮助|帮您|帮你)|感谢.{0,5}(?:理解|支持|咨询)", reply):
+    if include_style and re.search(
+        r"还有.{0,8}(?:帮助|帮您|帮你)|感谢.{0,5}(?:理解|支持|咨询)", reply
+    ):
         issues.append("template_closing")
-    if reply.count("？") + reply.count("?") > 1:
+    if include_style and reply.count("？") + reply.count("?") > 1:
         issues.append("multiple_questions")
     customer_turns = [
         *(
@@ -130,9 +147,11 @@ def assess_reply(
         customer_context,
     ):
         issues.append("unnecessary_question")
-    if ALTERNATIVE_SUGGESTION.search(reply) and not wants_alternatives(customer_turns):
+    if ALTERNATIVE_SUGGESTION.search(reply) and not wants_alternatives(
+        customer_turns
+    ):
         issues.append("unsolicited_alternative")
-    if "**" in reply or re.search(r"(?m)^#{1,6}\s", reply):
+    if include_style and ("**" in reply or re.search(r"(?m)^#{1,6}\s", reply)):
         issues.append("report_format")
     return issues
 
@@ -172,6 +191,8 @@ FACT_AUDIT_PROMPT = (
     "不得新增未执行的核实、通知、转人工、优惠或处理时效承诺。"
     "允许删去内部查询过程、资料标题、无关推荐和客套；允许自然改换说法和数字格式，"
     "不要求照搬原句。只需完整回答客户当前问题，但不能删掉影响答案的条件或不确定性。"
+    "称呼、语气词、感谢、结束语、标题、分点和问号数量属于表达风格，不据此判定事实错误。"
+    "允许一次问清本轮确实缺少的多个必要条件，不允许无关追问或重复询问已给条件。"
     "若回复增加无关预算/用途追问、重复询问近期已提供条件，或明显答非所问也不通过。"
     "客户本轮只有‘你好’等问候时，只需简短回应，不延续旧的选购话题，"
     "不列业务清单、不主动推荐或追问预算用途；删去这些多余内容不算遗漏事实。"
@@ -214,7 +235,9 @@ async def audit_reply_facts(
         context.pop(0)
         message = encode()
     if len(message) > 10000:
-        raise ReplyQualityError("Fact audit input is too long; no facts were truncated")
+        raise ReplyQualityError(
+            "Fact audit input is too long; no facts were truncated"
+        )
     async with tracked_ai_request() as phase:
         result = await client.run_supervisor_agent(
             project_id=project_id,
@@ -237,7 +260,9 @@ async def audit_reply_facts(
         clean = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
         verdict = FactAudit.model_validate_json(clean)
     except ValueError as exc:
-        raise ReplyQualityError("Fact audit returned an invalid verdict") from exc
+        raise ReplyQualityError(
+            "Fact audit returned an invalid verdict"
+        ) from exc
     if verdict.valid and not verdict.issues:
         return []
     return verdict.issues or ["semantic_fact_change"]
