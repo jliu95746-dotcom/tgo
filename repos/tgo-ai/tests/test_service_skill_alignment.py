@@ -21,7 +21,9 @@ def test_alignment_retains_restricted_file_ownership(
     source = tmp_path / "skills/project/wecom-cn-service-style/SKILL.md"
     source.parent.mkdir(parents=True)
     body = "原来的渠道默认指令"
-    source.write_text(f"---\nname: wecom-cn-service-style\n---\n\n{body}\n")
+    source.write_text(
+        f"---\nname: wecom-cn-service-style\n---\n\n{body}\n"
+    )
     os.chown(source, 1000, 1000)
     source.chmod(0o640)
     monkeypatch.setitem(
@@ -31,7 +33,8 @@ def test_alignment_retains_restricted_file_ownership(
     )
     assert alignment.align_skills(tmp_path / "skills", tmp_path / "backup")
     info = source.stat()
-    assert (info.st_uid, info.st_gid, info.st_mode & 0o777) == (1000, 1000, 0o640)
+    assert (info.st_uid, info.st_gid) == (1000, 1000)
+    assert info.st_mode & 0o777 == 0o640
     assert "只整理企业微信消息的渠道格式" in source.read_text()
 
 
