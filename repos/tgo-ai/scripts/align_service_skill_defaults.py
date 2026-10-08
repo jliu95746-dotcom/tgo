@@ -79,10 +79,13 @@ def align_skills(base_dir: Path, backup_dir: Path | None = None) -> list[Path]:
                 "A prior skill backup must not be overwritten"
             )
         shutil.copy2(source, target)
+        original_stat = source.stat()
         temporary = source.with_name(f".{uuid4().hex}.tmp")
         try:
             temporary.write_text(replacement, encoding="utf-8", newline="\n")
             shutil.copymode(source, temporary)
+            if hasattr(os, "chown"):
+                os.chown(temporary, original_stat.st_uid, original_stat.st_gid)
             if source.read_text(encoding="utf-8") != original:
                 raise ValueError(
                     "Skill changed concurrently; original was preserved"

@@ -1,12 +1,38 @@
 """Default prompt alignment backs up originals and preserves custom skills."""
 
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
 
 from scripts import align_service_skill_defaults as alignment
 from app.services.service_skill_defaults import humanization_instructions
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or getattr(os, "geteuid", lambda: -1)() != 0,
+    reason="Requires POSIX root to simulate an app-owned restricted file",
+)
+def test_alignment_retains_restricted_file_ownership(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "skills/project/wecom-cn-service-style/SKILL.md"
+    source.parent.mkdir(parents=True)
+    body = "原来的渠道默认指令"
+    source.write_text(f"---\nname: wecom-cn-service-style\n---\n\n{body}\n")
+    os.chown(source, 1000, 1000)
+    source.chmod(0o640)
+    monkeypatch.setitem(
+        alignment.OLD_HASHES,
+        "wecom-cn-service-style",
+        hashlib.sha256(body.encode()).hexdigest(),
+    )
+    assert alignment.align_skills(tmp_path / "skills", tmp_path / "backup")
+    info = source.stat()
+    assert (info.st_uid, info.st_gid, info.st_mode & 0o777) == (1000, 1000, 0o640)
+    assert "只整理企业微信消息的渠道格式" in source.read_text()
 
 
 def test_alignment_preserves_custom_prompts_and_backs_up_original(
