@@ -17,6 +17,10 @@ from app.services.rag_service import rag_service_client
 from app.services.workflow_service import workflow_service_client
 from app.services.device_control_client import device_control_client
 from app.services.agent_humanization import validate_humanization_binding
+from app.services.agent_activation import (
+    deactivate_account_peers,
+    lock_account_agents,
+)
 
 
 class AgentService:
@@ -51,7 +55,10 @@ class AgentService:
             tool_ids = [tool.tool_id for tool in agent_data.tools]
             await self._validate_tools_belong_to_project(tool_ids, project_id)
 
-        if agent_data.is_default:
+        await lock_account_agents(self.db, project_id)
+        if agent_data.is_active:
+            await deactivate_account_peers(self.db, project_id)
+        elif agent_data.is_default:
             await self._clear_project_default_agents(project_id)
 
         # Create agent
@@ -61,7 +68,7 @@ class AgentService:
             name=agent_data.name,
             instruction=agent_data.instruction,
             model=agent_data.model,
-            is_default=agent_data.is_default,
+            is_default=agent_data.is_active or agent_data.is_default,
             is_active=agent_data.is_active,
             is_remote_store_agent=agent_data.is_remote_store_agent,
             remote_agent_url=agent_data.remote_agent_url,
@@ -256,6 +263,7 @@ class AgentService:
         Raises:
             NotFoundError: If agent not found
         """
+        await lock_account_agents(self.db, project_id)
         # Get existing agent
         agent = await self.get_agent(project_id, agent_id)
 
@@ -292,14 +300,17 @@ class AgentService:
         update_data = agent_data.model_dump(
             exclude_unset=True, exclude={"tools", "collections", "workflows"}
         )
+        # Retire peers before mutating this agent: ORM autoflush must never
+        # expose two active employees to the account's unique index.
+        if agent_data.is_active is True:
+            await deactivate_account_peers(self.db, project_id, agent.id)
+            update_data["is_default"] = True
+        elif agent_data.is_default is True:
+            await self._clear_project_default_agents(
+                project_id, exclude_agent_id=agent.id,
+            )
         for field, value in update_data.items():
             setattr(agent, field, value)
-
-        if agent_data.is_default is True:
-            await self._clear_project_default_agents(
-                project_id,
-                exclude_agent_id=agent.id,
-            )
 
         # Update tools if provided
         if agent_data.tools is not None:

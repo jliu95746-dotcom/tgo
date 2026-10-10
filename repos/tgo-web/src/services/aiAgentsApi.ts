@@ -200,6 +200,7 @@ export class AIAgentsTransformUtils {
       ai_provider_id: providerId,
       model: modelName, // pure model name (no provider prefix)
       is_default: false, // Default to false
+      is_active: false,
       config: configObj,
       tools,
       collections,
@@ -384,7 +385,9 @@ export class AIAgentsTransformUtils {
     if (Object.keys(updates).length === 1 && updates.status !== undefined) {
       return { is_active: updates.status === 'active' };
     }
-    return this.transformAgentToUpdateRequest({ ...current, ...updates }, availableTools);
+    const request = this.transformAgentToUpdateRequest({ ...current, ...updates }, availableTools);
+    if (updates.status === undefined) delete request.is_active;
+    return request;
   }
 
   /**

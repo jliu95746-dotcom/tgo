@@ -53,7 +53,7 @@ async def test_creation_persists_requested_activation() -> None:
 @pytest.mark.asyncio
 async def test_status_only_update_keeps_all_existing_resources() -> None:
     agent, tool = bound_agent()
-    database = Mock(commit=AsyncMock(), refresh=AsyncMock())
+    database = Mock(commit=AsyncMock(), refresh=AsyncMock(), execute=AsyncMock())
     service = AgentService(cast(AsyncSession, database))
     service.get_agent = AsyncMock(return_value=agent)
     for enabled in (False, True):

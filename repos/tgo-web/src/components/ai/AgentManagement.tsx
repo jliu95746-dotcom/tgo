@@ -72,23 +72,35 @@ const AgentManagement: React.FC = () => {
 
   // Track if agents have been loaded to prevent multiple API calls
   const hasLoadedAgents = useRef(false);
-  const hasLoadedDefaultAgent = useRef(false);
+  const defaultAgentRequest = useRef({ version: 0 });
+  const activeAgentName = agents.find((agent: Agent) => agent.status === 'active')?.name
+    ?? (defaultAgentEnabled ? defaultAgent?.name : undefined);
 
   // Load default agent info
   const loadDefaultAgent = useCallback(async () => {
-    if (hasLoadedDefaultAgent.current) return;
+    if (!projectId) return;
+    const version = ++defaultAgentRequest.current.version;
     setIsLoadingDefaultAgent(true);
     try {
-      hasLoadedDefaultAgent.current = true;
       const response = await AIAgentsApiService.getDefaultAgents({ limit: 1, offset: 0 });
-      setDefaultAgent(response.data[0] ?? null);
+      if (version === defaultAgentRequest.current.version
+        && useAuthStore.getState().user?.project_id === projectId) {
+        setDefaultAgent(response.data[0] ?? null);
+      }
     } catch (error) {
-      hasLoadedDefaultAgent.current = false;
       console.error('Failed to load default agent:', error);
+      if (version === defaultAgentRequest.current.version
+        && useAuthStore.getState().user?.project_id === projectId) setDefaultAgent(null);
     } finally {
-      setIsLoadingDefaultAgent(false);
+      if (version === defaultAgentRequest.current.version) setIsLoadingDefaultAgent(false);
     }
-  }, []);
+  }, [projectId]);
+
+  useEffect(() => {
+    const request = defaultAgentRequest.current;
+    void loadDefaultAgent();
+    return () => { request.version++; };
+  }, [agents, loadDefaultAgent]);
 
   // Load agents and default agent on component mount
   useEffect(() => {
@@ -111,8 +123,7 @@ const AgentManagement: React.FC = () => {
     };
 
     void loadInitialAgents();
-    void loadDefaultAgent();
-  }, [loadAgents, loadDefaultAgent, showError, t]);
+  }, [loadAgents, showError, t]);
 
   const handleRefresh = async (silent = false) => {
     setIsRefreshing(true);
@@ -302,8 +313,15 @@ const AgentManagement: React.FC = () => {
             {t('agents.title', 'AI员工管理')}
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {t('agents.subtitle', '为不同品牌或产品，配置各自的专职客服')}
+            {t('agents.subtitle', '配置多位客服，按需要切换当前启用的一位')}
           </p>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+            {agentsError ? t('agents.activation.unverified')
+              : isLoadingDefaultAgent ? t('knowledge.availability.loading')
+              : activeAgentName ? t('agents.activation.current', { name: activeAgentName })
+                : t('agents.activation.none')}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('agents.activation.rule')}</p>
         </div>
         
         <div className="flex flex-wrap items-center gap-3">

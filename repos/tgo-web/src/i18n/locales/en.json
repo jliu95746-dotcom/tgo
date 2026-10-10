@@ -841,8 +841,16 @@
     "links": "Links"
   },
   "agents": {
+    "activation": {
+      "rule": "Only one AI agent may be active per account. Enabling an agent disables the others and makes it the default. New agents start inactive.",
+      "current": "Current active agent: {{name}}",
+      "none": "No AI agent is active",
+      "unverified": "Agent state is unverified. Refresh the list.",
+      "switchPending": "An agent switch is in progress. Please retry shortly.",
+      "refreshFailed": "Agent activation changed, but the list could not be refreshed. Refresh to verify the current state."
+    },
     "title": "Agent Team Management",
-    "subtitle": "Manage your AI agents",
+    "subtitle": "Configure several agents and choose the one to activate",
     "config": {
       "advanced": "Advanced Configuration"
     },

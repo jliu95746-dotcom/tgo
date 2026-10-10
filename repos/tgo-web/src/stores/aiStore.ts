@@ -4,6 +4,7 @@ import type { Agent, AiTool, CreateAgentFormData, FormValidationErrors, AgentQue
 import { AIAgentsApiService, AIAgentsTransformUtils } from '@/services/aiAgentsApi';
 import { useOnboardingStore } from './onboardingStore';
 import i18n from '@/i18n';
+import { useAuthStore } from './authStore';
 
 interface AIState {
   // AI员工相关
@@ -24,6 +25,7 @@ interface AIState {
   
   // 加载状态
   isLoadingAgents: boolean;
+  isChangingAgentActivation: boolean;
   isLoadingTools: boolean;
 
   // 错误状态
@@ -99,6 +101,7 @@ export const useAIStore = create<AIState>()(
         toolPageSize: 9,
         
         isLoadingAgents: false,
+        isChangingAgentActivation: false,
         isLoadingTools: false,
 
         agentsError: null,
@@ -206,6 +209,8 @@ export const useAIStore = create<AIState>()(
         },
         
         updateAgent: async (agentId, updates, availableTools) => {
+          let ownsActivationChange = false;
+          const projectId = useAuthStore.getState().user?.project_id;
           try {
             // Find the current agent
             const currentAgent = get().agents.find(agent => agent.id === agentId);
@@ -215,9 +220,37 @@ export const useAIStore = create<AIState>()(
 
             // Transform to API request format
             const updateRequest = AIAgentsTransformUtils.transformAgentPatch(currentAgent, updates, availableTools);
+            if (updateRequest.is_active !== undefined) {
+              if (get().isChangingAgentActivation) {
+                throw new Error(i18n.t('agents.activation.switchPending'));
+              }
+              set({ isChangingAgentActivation: true }, false, 'activation:start');
+              ownsActivationChange = true;
+            }
 
             // Call the real API
             const apiResponse = await AIAgentsApiService.updateAgent(agentId, updateRequest);
+            if (useAuthStore.getState().user?.project_id !== projectId) return;
+
+            if (ownsActivationChange) {
+              // The backend also changes other employees. Read the resulting
+              // list rather than updating only the clicked card.
+              try {
+                const refreshed = await AIAgentsApiService.getAgents();
+                if (useAuthStore.getState().user?.project_id !== projectId) return;
+                const agents = refreshed.data.map(AIAgentsTransformUtils.transformApiAgentToAgent);
+                set(state => ({
+                  agents, agentsError: null,
+                  selectedAgent: agents.find(agent => agent.id === state.selectedAgent?.id) ?? null,
+                }), false, 'activation:refreshed');
+              } catch (error) {
+                if (useAuthStore.getState().user?.project_id === projectId) {
+                  set({ agentsError: i18n.t('agents.activation.refreshFailed') }, false, 'activation:refreshFailed');
+                }
+                throw error;
+              }
+              return;
+            }
 
             // Enrich tools with title from availableTools when missing
             let enrichedResponse: any = apiResponse as any;
@@ -255,6 +288,10 @@ export const useAIStore = create<AIState>()(
           } catch (error) {
             console.error('Failed to update agent:', error);
             throw error;
+          } finally {
+            if (ownsActivationChange) {
+              set({ isChangingAgentActivation: false }, false, 'activation:finished');
+            }
           }
         },
         

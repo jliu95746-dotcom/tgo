@@ -63,6 +63,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
 
   // Get store functions and toast
   const { updateAgent } = useAIStore();
+  const isChangingAgentActivation = useAIStore(state => state.isChangingAgentActivation);
   const { showToast } = useToast();
 
   // Navigate to chat with this agent
@@ -211,7 +212,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
                 <button onClick={() => handleAction('copy')} className="w-full flex items-center px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                   <Copy className="w-4 h-4 mr-2" /> {t('agents.actions.copy', '复制')}
                 </button>
-                <button onClick={handleToggleStatus} className="w-full flex items-center px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                <button onClick={handleToggleStatus} disabled={isChangingAgentActivation} title={t('agents.activation.rule')} className="w-full flex items-center px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors disabled:opacity-50 disabled:cursor-wait">
                   <Power className={`w-4 h-4 mr-2 ${agent.status === 'active' ? 'text-orange-500' : 'text-green-500'}`} /> 
                   {agent.status === 'active' ? t('agents.actions.disable', '停止') : t('agents.actions.enable', '启用')}
                 </button>

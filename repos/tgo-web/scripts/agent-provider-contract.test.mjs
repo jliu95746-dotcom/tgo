@@ -65,3 +65,14 @@ test('status-only patch never rewrites resources or model configuration', () => 
   assert.equal(JSON.stringify(transform.transformAgentPatch(loaded, { status: 'inactive' })), '{"is_active":false}');
   assert.equal(JSON.stringify(transform.transformAgentPatch(loaded, { status: 'active' })), '{"is_active":true}');
 });
+
+test('creating an employee never switches the current active employee', () => {
+  const request = transform.transformFormDataToCreateRequest({ name: '新客服', llmModel: '__system_default__', tools: [], knowledgeBases: [], toolConfigs: {} });
+  assert.equal(request.is_active, false);
+});
+
+test('ordinary configuration edits do not resend a stale activation state', () => {
+  const loaded = transform.transformApiAgentToAgent({ ...agent, is_active: true });
+  const request = transform.transformAgentPatch(loaded, { description: '修改说明' });
+  assert.equal(Object.hasOwn(request, 'is_active'), false);
+});
