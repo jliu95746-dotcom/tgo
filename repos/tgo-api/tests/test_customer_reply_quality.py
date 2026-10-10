@@ -71,6 +71,34 @@ def test_unrelated_followup_is_checked_against_recent_customer_context():
     )
 
 
+def test_product_scenes_do_not_turn_a_product_question_into_a_budget_question():
+    reply = "通勤包适合上班场景，小方包适合休闲场合。您想先了解哪款？"
+    assert "unnecessary_question" not in assess_reply(
+        reply, "通勤包适合上班场景，小方包适合休闲场合。",
+        "你能介绍一下你们的产品吗？", include_style=False,
+    )
+    assert "unnecessary_question" in assess_reply(
+        reply + "您的预算是多少？", reply, "介绍一下产品。",
+        include_style=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_unnecessary_budget_question_receives_actionable_repair():
+    client = SimpleNamespace(run_supervisor_agent=AsyncMock(side_effect=[
+        {"content": "我们有通勤女包。您的预算是多少？"},
+        {"content": "我们有通勤女包。"},
+        {"content": '{"valid":true,"issues":[]}'},
+    ]))
+    reply = await rewrite_assist_draft(
+        client, project_id="p", agent_id=None,
+        customer_message="介绍一下产品。", factual_draft="我们有通勤女包。",
+    )
+    assert reply == "我们有通勤女包。"
+    repair = client.run_supervisor_agent.call_args_list[1].kwargs["system_message"]
+    assert "删除与本轮问题无关的预算、使用场合或场景追问" in repair
+
+
 @pytest.mark.parametrize(
     "reply",
     [

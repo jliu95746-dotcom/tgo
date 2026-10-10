@@ -61,6 +61,10 @@ DEFAULT_EXPRESSION_STYLE = (
 TONE_REPAIR_GUIDANCE = {
     "process_language": "删除查找过程和后续核实承诺，保留事实与不确定性，直接回答",
     "multiple_questions": "合并重复追问，只问确实缺少的必要条件，可以一次问清",
+    "unnecessary_question": (
+        "删除与本轮问题无关的预算、使用场合或场景追问，保留已确认的产品介绍；"
+        "客户明确要求推荐且缺少必要条件时才追问"
+    ),
     "template_opening": "删去业务答复前的固定问候，直接回答客户问题",
     "greeting_overreach": "本轮只打招呼，只保留简短回应，删除业务清单、推荐和预算用途追问",
     "ceremonial_caveat": "去掉提醒的套话，直接说明限制，保留全部业务条件",

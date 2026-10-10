@@ -138,9 +138,12 @@ def assess_reply(
         customer_message,
     ]
     customer_context = "\n".join(customer_turns)
-    asks_for_preferences = re.search(r"场合|场景|预算", reply) and re.search(
-        r"[？?]|告诉|请问|多少|什么|说一下|说下",
-        reply,
+    # A product's usage scene and a later product question are independent.
+    # Match the preference topic and request within the same sentence.
+    asks_for_preferences = any(
+        re.search(r"场合|场景|预算", sentence)
+        and re.search(r"[？?]|告诉|请问|多少|什么|说一下|说下", sentence)
+        for sentence in re.findall(r"[^。！？?\n]+[。！？?\n]?", reply)
     )
     if asks_for_preferences and not re.search(
         r"推荐|选.{0,3}包|预算|场合|场景|哪个好|怎么选",
