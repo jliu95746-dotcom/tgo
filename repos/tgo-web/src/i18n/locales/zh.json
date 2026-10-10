@@ -3308,7 +3308,8 @@
       "connecting": "连接中...",
       "connected": "已连接",
       "disconnected": "已断开",
-      "ai_typing": "AI 正在输入..."
+      "ai_typing": "AI 正在输入...",
+      "humanHandoffRequested": "客户申请人工接待"
     },
     "actions": {
       "refresh": "刷新",

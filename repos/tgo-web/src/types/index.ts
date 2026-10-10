@@ -770,6 +770,7 @@ export enum MessagePayloadType {
   SYSTEM_SESSION_CLOSED = 1001,  // 会话关闭
   SESSION_TRANSFERRED = 1002,  // 会话转接
   MEMORY_CLEARED = 1003, // 清除记忆
+  HUMAN_HANDOFF_REQUESTED = 1004, // 客户申请人工接待
   QUEUE_TIMEOUT = 1005, // 排队超时
   SYSTEM_MAX = 2000,
 }
@@ -782,6 +783,7 @@ export enum MessagePayloadType {
 export function isChannelRefreshSystemMessage(type: number): boolean {
   return type === MessagePayloadType.SYSTEM_STAFF_ASSIGNED
     || type === MessagePayloadType.SYSTEM_SESSION_CLOSED
+    || type === MessagePayloadType.HUMAN_HANDOFF_REQUESTED
     || type === MessagePayloadType.QUEUE_TIMEOUT;
 }
 

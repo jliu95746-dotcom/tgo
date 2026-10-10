@@ -28,7 +28,7 @@ async function run(payloadType, { denied = false, syncFails = false } = {}) {
   };
   vm.runInNewContext(compiled, {
     payloadType, channelId: 'new-visitor-vtr', channelType: 251,
-    isChannelRefreshSystemMessage: type => [1000, 1001].includes(type),
+    isChannelRefreshSystemMessage: type => [1000, 1001, 1004].includes(type),
     console: { log() {}, warn: () => calls.push('handled-error') },
     get: () => state,
     channelStore: { refreshChannel: async () => {
@@ -41,7 +41,7 @@ async function run(payloadType, { denied = false, syncFails = false } = {}) {
   return calls;
 }
 
-for (const type of [1000, 1001]) {
+for (const type of [1000, 1001, 1004]) {
   test(`system message ${type} refreshes server list even without a profile event`, async () => {
     assert.deepEqual(await run(type), ['authorize', 'apply', 'sync']);
   });

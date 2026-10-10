@@ -18,6 +18,7 @@ test('queue timeout preserves its text and refreshes the actual channel status',
   const types = loadSource('types/index.ts');
   assert.equal(types.isChannelRefreshSystemMessage(1005), true);
   assert.equal(types.isSystemMessageType(1005), true);
+  assert.equal(types.isChannelRefreshSystemMessage(1004), true);
   const { default: SystemMessage } = loadSource('components/chat/messages/SystemMessage.tsx', {
     '@/types': types,
     'react-i18next': { useTranslation: () => ({ t: key => key }) },
@@ -60,6 +61,7 @@ function makeService(permission = 'granted') {
   const { notificationService: service, DEFAULT_NOTIFICATION_PREFERENCES: preferences } = loadSource(
     'services/notificationService.ts', {
       '@/constants': { MESSAGE_SENDER_TYPE: { SYSTEM: 'system' } },
+      '@/types': { MessagePayloadType: { HUMAN_HANDOFF_REQUESTED: 1004 } },
       '@/stores/authStore': { useAuthStore: { getState: () => auth } },
       '@/i18n': { __esModule: true, default: { t: translate } },
     }, {
@@ -87,6 +89,26 @@ test('queue events produce an actionable Chinese alert without inventing a visit
   fixture.notifications[0].onclick();
   assert.equal(clicked, true);
   assert.equal(fixture.notifications[0].closed, true);
+});
+
+test('human handoff alerts staff even while viewing that conversation', () => {
+  const fixture = makeService();
+  const message = { type: 'system', payloadType: 1004, fromUid: 'system',
+    channelId: 'visitor-vtr', channelType: 251, content: '客户申请人工客服' };
+  const active = { channelId: 'visitor-vtr', channelType: 251 };
+  assert.equal(fixture.service.shouldNotify(message, active, fixture.preferences), true);
+  assert.equal(fixture.service.shouldPlaySound(message, active, fixture.preferences), true);
+  assert.equal(fixture.service.shouldNotify({ ...message, payloadType: 1001 }, active, fixture.preferences), false);
+});
+
+test('human handoff provides an in-app alert when desktop permission is unavailable', () => {
+  const fixture = makeService('denied');
+  const message = { type: 'system', payloadType: 1004, fromUid: 'system',
+    channelId: 'visitor-vtr', channelType: 251, content: '客户申请人工客服' };
+  fixture.service.checkAndNotify(message, null, fixture.preferences, undefined,
+    (title, body) => fixture.inApp.push({ title, body }));
+  assert.equal(fixture.inApp.length, 1);
+  assert.equal(fixture.sounds(), 1);
 });
 
 test('malformed, empty and foreign-project queue events do not alert', () => {

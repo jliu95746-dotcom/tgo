@@ -344,6 +344,11 @@ async def request_human_handoff(
         handoff_request.notification_type = "wukongim_red_dot"
         db.commit()
         await notify_visitor_profile_updated(db, visitor)
+        await _notify_handoff(
+            content="已收到您的人工客服请求，人工客服将接手处理。",
+            channel_id=resolved_channel_id,
+            channel_type=channel_type,
+        )
         return {
             "request_id": str(handoff_request.id),
             "assigned_staff_id": str(transfer_result.assigned_staff_id),

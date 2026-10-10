@@ -386,6 +386,8 @@ export const useChatStore = create<ChatState>()(
               messages: updatedMsgState.messages,
               historicalMessages: updatedMsgState.historicalMessages,
               chats: useConversationStore.getState().chats,
+              isStreamingInProgress: updatedMsgState.isStreamingInProgress,
+              streamingClientMsgNo: updatedMsgState.streamingClientMsgNo,
             }, false, 'markStreamMessageFinish');
           },
           cancelStreamingMessage: async (clientMsgNo) => {

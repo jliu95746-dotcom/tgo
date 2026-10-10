@@ -381,7 +381,7 @@ export class WuKongIMUtils {
       }
       // Special-case stream messages (type: 100) with no textual content
       if (payload.type === MessagePayloadType.STREAM) {
-        return payload.content || 'AI 正在输入...';
+        return payload.content || '';
       }
       // 处理系统消息 (type: 1000-2000) 的模板替换
       if (typeof payload.type === 'number' && isSystemMessageType(payload.type)) {
@@ -398,7 +398,7 @@ export class WuKongIMUtils {
           return WuKongIMUtils.formatSystemMessageContent(parsed.content, parsed.extra);
         }
         if (parsed.type === MessagePayloadType.STREAM) {
-          return parsed.content || 'AI 正在输入...';
+          return parsed.content || '';
         }
         return parsed.content || (parsed.type === MessagePayloadType.IMAGE ? '[图片]' : '');
       }
@@ -542,7 +542,8 @@ export class WuKongIMUtils {
 
     // Determine if this is a streaming message that's still in progress
     const hasStreamData = !!wkMessage.event_meta?.has_events;
-    const isStreamingInProgress = hasStreamData && (wkMessage.event_meta?.open_event_count ?? 0) > 0;
+    const streamCompleted = wkMessage.end === 1 || wkMessage.event_meta?.completed === true;
+    const isStreamingInProgress = payloadType === MessagePayloadType.STREAM && !streamCompleted;
 
     // Parse mixed content (text + json-render spec fences) from historical snapshot
     let uiParts: Array<{ type: string; text?: string; data?: unknown }> | undefined;
@@ -597,7 +598,7 @@ export class WuKongIMUtils {
     }
 
     // Extract end and end_reason for error state detection
-    const streamEnd = wkMessage.end;
+    const streamEnd = streamCompleted ? 1 : wkMessage.end;
     const streamEndReason = wkMessage.end_reason;
 
     // Extract error message from WuKongIMMessage.error field first, then fallback to payload.error
@@ -750,15 +751,20 @@ export class WuKongIMUtils {
    * @returns Deduplicated messages
    */
   static deduplicateMessages(messages: WuKongIMMessage[]): WuKongIMMessage[] {
-    const seen = new Set<string>();
-    return messages.filter(message => {
-      const key = (message as any).message_id_str || (typeof (message as any).message_id === 'string' ? (message as any).message_id : String((message as any).message_id));
-      if (seen.has(key)) {
-        return false;
+    const latest = new Map<string, WuKongIMMessage>();
+    for (const message of messages) {
+      const key = message.message_id_str || message.client_msg_no;
+      const previous = latest.get(key);
+      if (previous) {
+        const wasCompleted = previous.end === 1 || previous.event_meta?.completed === true;
+        const isCompleted = message.end === 1 || message.event_meta?.completed === true;
+        const previousVersion = previous.event_meta?.event_version ?? 0;
+        const incomingVersion = message.event_meta?.event_version ?? 0;
+        if ((wasCompleted && !isCompleted) || incomingVersion < previousVersion) continue;
       }
-      seen.add(key);
-      return true;
-    });
+      latest.set(key, message);
+    }
+    return [...latest.values()];
   }
 
   /**

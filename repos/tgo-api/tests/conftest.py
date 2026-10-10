@@ -75,6 +75,17 @@ def isolated_reply_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ai_reply_control, "run_registry", InMemoryRunRegistry())
 
 
+@pytest.fixture(autouse=True)
+def isolated_reply_service_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pipeline fixtures use synthetic identities rather than the live DB."""
+    from unittest.mock import AsyncMock
+    from app.services import chat_service
+
+    monkeypatch.setattr(
+        chat_service, "ensure_customer_auto_reply", AsyncMock(), raising=False
+    )
+
+
 @dataclass
 class DBOverride:
     """Mutable holder for per-test DB session overrides."""

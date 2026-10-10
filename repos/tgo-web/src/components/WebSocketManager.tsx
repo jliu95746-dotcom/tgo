@@ -15,6 +15,7 @@ import { WuKongIMApiService } from '../services/wukongimApi';
 import { notificationService, type NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../services/notificationService';
 import { Message } from '../types';
 import { isWebSocketAutoConnectDisabled } from '@/utils/config';
+import { useToast } from '@/hooks/useToast';
 
 /**
  * Ensure ```spec fence markers are on their own lines.
@@ -39,6 +40,7 @@ export const WebSocketManager: React.FC = () => {
   const markStreamMessageEnd = useChatStore(state => state.markStreamMessageEnd);
   const markStreamMessageFinish = useChatStore(state => state.markStreamMessageFinish);
   const activeChat = useChatStore(state => state.activeChat);
+  const { showWarning } = useToast();
 
   // Per-clientMsgNo MixedStreamParser instances
   const parsersRef = React.useRef<Map<string, MixedStreamParser>>(new Map());
@@ -97,7 +99,8 @@ export const WebSocketManager: React.FC = () => {
         message,
         activeChat,
         notificationPreferences,
-        handleNotificationClick
+        handleNotificationClick,
+        showWarning,
       );
     } catch (error) {
       console.error('🔌 WebSocket Manager: Error in handleRealtimeMessage:', error);
@@ -106,7 +109,8 @@ export const WebSocketManager: React.FC = () => {
     activeChat,
     handleRealtimeMessage,
     uiPreferences,
-    handleNotificationClick
+    handleNotificationClick,
+    showWarning,
   ]);
 
   // Track if this is a reconnection (not the initial connection)
@@ -215,6 +219,11 @@ export const WebSocketManager: React.FC = () => {
    */
   const handleStreamFinish = React.useCallback((clientMsgNo: string) => {
     try {
+      const parser = parsersRef.current.get(clientMsgNo);
+      if (parser) {
+        parser.flush();
+        parsersRef.current.delete(clientMsgNo);
+      }
       markStreamMessageFinish(clientMsgNo);
       const currentActiveChat = useChatStore.getState().activeChat;
       if (currentActiveChat?.channelId && currentActiveChat.channelType != null) {

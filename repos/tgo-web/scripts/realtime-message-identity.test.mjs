@@ -19,6 +19,7 @@ const scope = {
   MessagePayloadType: { TEXT: 1, IMAGE: 2, FILE: 3, COMMAND: 99, STREAM: 100, RICH_TEXT: 12 },
   isSystemMessageType: type => type >= 1000 && type < 2000,
   toAbsoluteApiUrl: url => url,
+  createMixedStreamParser: () => ({ push() {}, flush() {} }),
 };
 vm.runInNewContext(ts.transpileModule(utilityClass.getText(ast), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
@@ -78,4 +79,34 @@ test('SDK system notices do not hide the latest unanswered customer question', (
   const question = WuKongIMUtils.convertToMessage(realtime('visitor', 1, { type: 1, content: 'question' }));
   const notice = WuKongIMUtils.convertToMessage(realtime('system', 2, { type: 1000, content: 'assigned' }));
   assert.equal(getAssistDraftSource([question, notice]), question);
+});
+
+function snapshot(completed, text, version) {
+  return { from_uid: 'operator-staff', message_id_str: 'same-message', client_msg_no: 'reply-1',
+    message_seq: 3, channel_id: 'test-vtr', channel_type: 251, timestamp: 3,
+    payload: { type: 100, content: '' }, end: completed ? 1 : 0,
+    event_meta: { has_events: true, completed, event_version: version, last_msg_event_seq: version,
+      events: [{ event_key: 'main', status: completed ? 'closed' : 'open',
+        snapshot: { kind: 'text', text } }] } };
+}
+
+test('completed history replaces the same cached typing anchor', () => {
+  const merged = WuKongIMUtils.mergeMessages([snapshot(false, '', 0)], [snapshot(true, '已确认的回答', 3)]);
+  assert.equal(merged.length, 1);
+  assert.equal(WuKongIMUtils.convertToMessage(merged[0]).content, '已确认的回答');
+  assert.equal(merged[0].end, 1);
+});
+
+test('a delayed older snapshot cannot overwrite completed history', () => {
+  const merged = WuKongIMUtils.mergeMessages([snapshot(true, '完整回答', 3)], [snapshot(false, '完', 1)]);
+  assert.equal(WuKongIMUtils.convertToMessage(merged[0]).content, '完整回答');
+  assert.equal(merged[0].end, 1);
+});
+
+test('history completion uses event metadata even without a legacy end field', () => {
+  const message = snapshot(true, '完整回答', 3);
+  delete message.end;
+  const converted = WuKongIMUtils.convertToMessage(message);
+  assert.equal(converted.metadata.stream_end, 1);
+  assert.equal(converted.metadata.is_streaming, false);
 });

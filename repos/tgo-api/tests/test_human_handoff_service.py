@@ -158,3 +158,43 @@ async def test_existing_staff_handoff_is_persisted_and_notified() -> None:
     assert db.commits == 1
     notify_profile.assert_awaited_once_with(db, visitor)
     notify_handoff.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("available_staff", [True, False])
+async def test_new_handoff_notifies_after_assignment_or_queue(available_staff):
+    project_id = uuid4()
+    visitor = SimpleNamespace(
+        id=uuid4(), project_id=project_id, platform_id=uuid4(),
+        service_status="new", is_unassigned=True, ai_disabled=False,
+        service_mode="auto",
+    )
+    db = _FakeDB({
+        Tag: SimpleNamespace(id=MANUAL_SERVICE_TAG_ID, deleted_at=None),
+        VisitorTag: SimpleNamespace(deleted_at=None),
+    })
+    queue = SimpleNamespace(id=uuid4(), status="waiting", position=1,
+                            priority=0, channel_id=None, channel_type=None)
+    assignment = SimpleNamespace(
+        success=True, assigned_staff_id=uuid4() if available_staff else None,
+        session=SimpleNamespace(id=uuid4()), message="assigned or queued",
+        waiting_queue=None if available_staff else queue,
+    )
+    with (
+        patch.object(human_handoff_service, "transfer_to_staff",
+                     new=AsyncMock(return_value=assignment)) as transfer,
+        patch.object(human_handoff_service, "notify_visitor_profile_updated",
+                     new=AsyncMock()),
+        patch.object(human_handoff_service, "_notify_handoff",
+                     new=AsyncMock()) as notify,
+    ):
+        result = await human_handoff_service.request_human_handoff(
+            db=db, project=SimpleNamespace(id=project_id), visitor=visitor,
+            reason="转人工", source_message_id="new-handoff", channel="wecom",
+        )
+    assert visitor.ai_disabled is True
+    assert visitor.service_mode == "manual"
+    assert transfer.await_args.kwargs["ai_disabled"] is True
+    assert transfer.await_args.kwargs["add_to_queue_if_no_staff"] is True
+    assert result["status"] == ("active" if available_staff else "waiting")
+    notify.assert_awaited_once()

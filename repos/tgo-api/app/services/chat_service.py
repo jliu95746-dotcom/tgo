@@ -34,6 +34,7 @@ from app.schemas.chat_media import ChatMediaInput, MediaModelOptions
 from app.services.chat_media_analysis import prepare_chat_media
 from app.services.chat_media_service import MediaInputError
 from app.services.wukongim_client import wukongim_client
+from app.services.reply_service_mode import ensure_customer_auto_reply
 from app.utils.const import MessageType
 
 logger = get_logger("services.chat")
@@ -439,6 +440,7 @@ async def _process_ai_reply_to_wukongim(
             raise RuntimeError("AI stream ended without a complete answer")
         reply = provider_final or full_content
         if customer_facing:
+            await ensure_customer_auto_reply(project_id, user_id)
             history = await recent_customer_messages(channel_id, channel_type, f"{user_id}-vtr")
             style = await get_humanization_skill_prompt(
                 project_id, humanization_skill_name, message, reply, history) if humanization_skill_name else ""
@@ -446,6 +448,7 @@ async def _process_ai_reply_to_wukongim(
                 ai_client, project_id=project_id, agent_id=agent_id,
                 customer_message=message, factual_draft=reply,
                 humanization_prompt=style, recent_messages=history)
+            await ensure_customer_auto_reply(project_id, user_id)
         # Only this result crosses the publication boundary. No original chunks
         # or original completion payload are sent to any customer consumer.
         final_data: ReplyEvent = {"success": True, "final_content": reply, "total_chunks": 0}

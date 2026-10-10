@@ -2419,7 +2419,8 @@
       "connecting": "Connecting...",
       "connected": "Connected",
       "disconnected": "Disconnected",
-      "ai_typing": "AI typing..."
+      "ai_typing": "AI typing...",
+      "humanHandoffRequested": "Customer requested human support"
     },
     "actions": {
       "refresh": "Refresh",

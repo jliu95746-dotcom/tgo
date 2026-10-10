@@ -8,7 +8,7 @@
  * - 点击通知跳转到对应会话
  */
 
-import type { Message, Chat } from '@/types';
+import { MessagePayloadType, type Message, type Chat } from '@/types';
 import { MESSAGE_SENDER_TYPE } from '@/constants';
 import { useAuthStore } from '@/stores/authStore';
 import i18n from '@/i18n';
@@ -221,6 +221,11 @@ class NotificationService {
     return message.type === MESSAGE_SENDER_TYPE.SYSTEM;
   }
 
+  private isHumanHandoff(message: Message): boolean {
+    return this.isSystemMessage(message)
+      && (message.payloadType ?? message.payload?.type) === MessagePayloadType.HUMAN_HANDOFF_REQUESTED;
+  }
+
   /**
    * 检查是否应该发送通知
    * 
@@ -246,7 +251,7 @@ class NotificationService {
     }
 
     // 3. 系统消息默认不通知
-    if (this.isSystemMessage(message)) {
+    if (this.isSystemMessage(message) && !this.isHumanHandoff(message)) {
       return false;
     }
 
@@ -257,6 +262,8 @@ class NotificationService {
 
     const pageVisible = this.isPageVisible();
     const isFromActive = this.isFromActiveChat(message, activeChat);
+
+    if (pageVisible && this.isHumanHandoff(message)) return true;
 
     // 5. 页面不可见时
     if (!pageVisible && preferences.notifyOnBackground) {
@@ -290,12 +297,14 @@ class NotificationService {
     }
 
     // 系统消息不播放声音
-    if (this.isSystemMessage(message)) {
+    if (this.isSystemMessage(message) && !this.isHumanHandoff(message)) {
       return false;
     }
 
     const pageVisible = this.isPageVisible();
     const isFromActive = this.isFromActiveChat(message, activeChat);
+
+    if (pageVisible && this.isHumanHandoff(message)) return true;
 
     // 页面不可见时播放声音
     if (!pageVisible && preferences.notifyOnBackground) {
@@ -331,7 +340,8 @@ class NotificationService {
 
     try {
       // 构建通知内容
-      const senderName = message.fromInfo?.name || '访客';
+      const senderName = this.isHumanHandoff(message)
+        ? i18n.t('chat.status.humanHandoffRequested') : message.fromInfo?.name || '访客';
       const content = this.truncateContent(message.content, 50);
       
       const notification = new Notification(senderName, {
@@ -395,8 +405,12 @@ class NotificationService {
     message: Message,
     activeChat: Chat | null,
     preferences: NotificationPreferences,
-    onNotificationClick?: (channelId: string, channelType: number) => void
+    onNotificationClick?: (channelId: string, channelType: number) => void,
+    onInApp?: (title: string, body: string) => void,
   ): void {
+    if (this.isHumanHandoff(message) && preferences.notificationEnabled && this.isPageVisible()) {
+      onInApp?.(i18n.t('chat.status.humanHandoffRequested'), message.content);
+    }
     // 检查是否应该发送桌面通知
     if (this.shouldNotify(message, activeChat, preferences)) {
       this.sendDesktopNotification(message, onNotificationClick);

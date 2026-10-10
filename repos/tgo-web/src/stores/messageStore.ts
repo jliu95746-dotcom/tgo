@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { Message, WuKongIMMessage, ChannelInfo } from '@/types';
+import { MessagePayloadType, type Message, type WuKongIMMessage, type ChannelInfo } from '@/types';
 import { WuKongIMApiService, WuKongIMUtils } from '@/services/wukongimApi';
 import { getChannelKey } from '@/utils/channelUtils';
 import { MESSAGE_SENDER_TYPE, STORAGE_KEYS } from '@/constants';
@@ -267,19 +267,26 @@ export const useMessageStore = create<MessageState>()(
         const key = getChannelKey(channelId, channelType);
         const current = state.historicalMessages[key] || [];
         const currentMaxSeq = current.length > 0 ? current[current.length - 1].message_seq : 0;
+        // An anchor can be older than the newest visitor message. Re-fetch
+        // its snapshot as well, so a missed delta/finish can be reconciled.
+        const pendingSequences = current.filter(message =>
+          WuKongIMUtils.extractMessageType(message.payload) === MessagePayloadType.STREAM
+          && message.event_meta?.completed !== true && !message.error,
+        ).map(message => message.message_seq);
+        const startSeq = Math.min(currentMaxSeq, ...pendingSequences);
 
         // 无更多较新历史且已到最新
         try {
           const resp = await WuKongIMApiService.syncChannelMessages({
             channel_id: channelId,
             channel_type: channelType,
-            start_message_seq: currentMaxSeq,
+            start_message_seq: startSeq,
             end_message_seq: 0,
             pull_mode: 1, // 向上/较新
             limit: 50,
           } as any);
 
-          const merged = WuKongIMUtils.mergeMessages(current, resp?.messages || [], 'asc');
+          const merged = WuKongIMUtils.mergeMessages(get().historicalMessages[key] || [], resp?.messages || [], 'asc');
 
           set(
             (s) => ({
@@ -674,6 +681,7 @@ export const useMessageStore = create<MessageState>()(
         // stream.finish indicates the entire stream message is completed (all channels done).
         // In single-channel mode this is mostly a confirmation after stream.close.
         // We mark the message metadata as completed.
+        get().markStreamMessageEnd(clientMsgNo);
         const state = get();
 
         // Try realtime messages (Message[] with clientMsgNo and metadata)
@@ -685,6 +693,7 @@ export const useMessageStore = create<MessageState>()(
             metadata: {
               ...updated[realtimeIdx].metadata,
               is_streaming: false,
+              stream_end: 1,
               stream_completed: true,
             },
           };
