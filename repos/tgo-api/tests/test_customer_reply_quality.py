@@ -99,6 +99,44 @@ async def test_unnecessary_budget_question_receives_actionable_repair():
     assert "删除与本轮问题无关的预算、使用场合或场景追问" in repair
 
 
+@pytest.mark.asyncio
+async def test_repeated_optional_questions_do_not_block_checked_introduction():
+    draft = "我们有通勤女包，售价399元。"
+    reply = draft + "想帮你挑得更准，平时主要什么场合用？预算大概什么范围？"
+    client = SimpleNamespace(run_supervisor_agent=AsyncMock(side_effect=[
+        {"content": reply}, {"content": reply},
+        {"content": '{"valid":true,"issues":[]}'},
+    ]))
+    result = await rewrite_assist_draft(
+        client, project_id="p", agent_id=None,
+        customer_message="介绍一下产品。", factual_draft=draft,
+        humanization_prompt="自然介绍，可引导选购。",
+    )
+    assert result == draft
+    assert client.run_supervisor_agent.await_count == 3
+    repair = client.run_supervisor_agent.call_args_list[1].kwargs["system_message"]
+    assert "自然介绍，可引导选购。" not in repair
+    assert "默认表达风格" in repair
+    assert '"待审核回复": "我们有通勤女包，售价399元。"' in (
+        client.run_supervisor_agent.call_args_list[-1].kwargs["message"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_optional_question_cleanup_cannot_bypass_fact_audit():
+    reply = "我们有通勤女包，提交退货申请就能退款。预算多少？"
+    client = SimpleNamespace(run_supervisor_agent=AsyncMock(side_effect=[
+        {"content": reply}, {"content": reply},
+        {"content": '{"valid":false,"issues":["approval_condition_removed"]}'},
+    ]))
+    with pytest.raises(ReplyQualityError, match="approval_condition_removed"):
+        await rewrite_assist_draft(
+            client, project_id="p", agent_id=None,
+            customer_message="介绍一下产品和售后。",
+            factual_draft="我们有通勤女包，退货申请需要审核。",
+        )
+
+
 @pytest.mark.parametrize(
     "reply",
     [

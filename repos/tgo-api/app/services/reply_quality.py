@@ -80,6 +80,30 @@ def numeric_values(text: str) -> set[Decimal]:
     return {Decimal(value.replace(",", "")) for value in NUMBERS.findall(text)}
 
 
+def _asks_for_preferences(sentence: str) -> bool:
+    return bool(
+        re.search(r"场合|场景|预算", sentence)
+        and re.search(r"[？?]|告诉|请问|多少|什么|说一下|说下", sentence)
+    )
+
+
+def trim_trailing_preference_questions(reply: str) -> str:
+    """Remove optional closing questions after the scope check rejects them."""
+    end = len(reply.rstrip())
+    sentences = list(re.finditer(r"[^。！？?\n]+[。！？?\n]?", reply))
+    for match in reversed(sentences):
+        sentence = match.group().strip()
+        if not sentence:
+            continue
+        if (
+            not sentence.endswith(("？", "?"))
+            or not _asks_for_preferences(sentence)
+        ):
+            break
+        end = match.start()
+    return reply[:end].rstrip()
+
+
 def assess_reply(
     reply: str,
     factual_draft: str,
@@ -141,8 +165,7 @@ def assess_reply(
     # A product's usage scene and a later product question are independent.
     # Match the preference topic and request within the same sentence.
     asks_for_preferences = any(
-        re.search(r"场合|场景|预算", sentence)
-        and re.search(r"[？?]|告诉|请问|多少|什么|说一下|说下", sentence)
+        _asks_for_preferences(sentence)
         for sentence in re.findall(r"[^。！？?\n]+[。！？?\n]?", reply)
     )
     if asks_for_preferences and not re.search(

@@ -13,6 +13,7 @@ from app.services.reply_quality import (
     TEMPLATE_OPENING,
     assess_reply,
     audit_reply_facts,
+    trim_trailing_preference_questions,
 )
 
 ASSIST_FACT_GATHERING_PROMPT = (
@@ -226,13 +227,21 @@ async def rewrite_assist_draft(
             if not issues
             else "\n上一版未通过检查：" + ", ".join(feedback) + "。请修正，勿添加事实。"
         )
+        effective_prompt = prompt
+        if (
+            attempt == 1 and humanization_prompt
+            and "unnecessary_question" in issues
+        ):
+            # A selected style may contain sales questions that conflict with
+            # this turn. Repair without those examples, keeping fact checks.
+            effective_prompt = ASSIST_REWRITE_PROMPT + DEFAULT_EXPRESSION_STYLE
         async with tracked_ai_request() as phase:
             result = await client.run_supervisor_agent(
                 message=message,
                 project_id=project_id,
                 agent_id=agent_id,
                 session_id=None,
-                system_message=prompt + repair,
+                system_message=effective_prompt + repair,
                 enable_memory=False,
                 disable_tools=True,
                 response_purpose="expression",
@@ -254,6 +263,14 @@ async def rewrite_assist_draft(
             recent_messages=context,
             include_style=not humanization_prompt and attempt == 0,
         )
+        if attempt == 1 and "unnecessary_question" in issues:
+            trimmed = trim_trailing_preference_questions(reply)
+            if trimmed:
+                reply = trimmed
+                issues = assess_reply(
+                    reply, factual_draft, customer_message,
+                    recent_messages=context, include_style=False,
+                )
         if (
             attempt == 1
             and not humanization_prompt
