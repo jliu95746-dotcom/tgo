@@ -163,7 +163,9 @@ class Agent(BaseModel):
             "uq_ai_agents_enabled_per_project",
             "project_id",
             unique=True,
-            postgresql_where=sa.text("is_active = true AND deleted_at IS NULL"),
+            postgresql_where=sa.text(
+                "is_active = true AND deleted_at IS NULL"
+            ),
             sqlite_where=sa.text("is_active = 1 AND deleted_at IS NULL"),
         ),
         Index(
