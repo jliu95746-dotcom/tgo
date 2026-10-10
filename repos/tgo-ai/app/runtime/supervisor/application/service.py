@@ -16,6 +16,7 @@ from starlette.responses import StreamingResponse
 from app.core.logging import get_logger
 from app.exceptions import NotFoundError
 from app.models.internal import AgentExecutionContext
+from app.services.default_knowledge import resolve_agent_knowledge
 from app.runtime.supervisor.agents.builder import AgnoAgentBuilder
 from app.runtime.supervisor.agents.runner import AgnoAgentRunner
 from app.runtime.supervisor.infrastructure.services import AIServiceClient
@@ -343,6 +344,15 @@ class SupervisorRuntimeService:
             excluded_tool_ids=payload.excluded_tool_ids,
             ui_mode=payload.ui_mode,
         )
+        if (
+            context.response_purpose != "expression"
+            and not context.disable_tools
+            and context.rag_url
+            and context.knowledge_channel is not None
+        ):
+            context.agent = await resolve_agent_knowledge(
+                context.agent, context.knowledge_channel
+            )
         return context, agent_id
 
     @asynccontextmanager

@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db_session_dependency
+from ..schemas.knowledge_availability import (
+    ChannelUpdateDecision,
+    KnowledgeAvailability,
+)
 from ..schemas.knowledge_governance import (
+    KnowledgeChannel,
     KnowledgeGovernanceBackfillRequest,
     KnowledgeGovernanceBackfillResponse,
     KnowledgeGovernanceDraftRequest,
@@ -15,6 +20,10 @@ from ..schemas.knowledge_governance import (
     KnowledgeReviewDecision,
     KnowledgeReviewStatus,
 )
+from ..services.knowledge_availability import (
+    knowledge_availability,
+    update_channels,
+)
 from ..services.knowledge_governance import (
     InvalidReviewTransitionError,
     KnowledgeGovernanceNotFoundError,
@@ -22,6 +31,34 @@ from ..services.knowledge_governance import (
 )
 
 router = APIRouter()
+
+
+@router.get("/availability", response_model=KnowledgeAvailability)
+async def get_knowledge_availability(
+    project_id: UUID = Query(...),
+    channel: KnowledgeChannel = Query(...),
+    db: AsyncSession = Depends(get_db_session_dependency),
+) -> KnowledgeAvailability:
+    return await knowledge_availability(db, project_id, channel)
+
+
+@router.patch(
+    "/{record_id}/channels", response_model=KnowledgeGovernanceRecordResponse
+)
+async def change_knowledge_channels(
+    record_id: UUID,
+    request: ChannelUpdateDecision,
+    project_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db_session_dependency),
+) -> KnowledgeGovernanceRecordResponse:
+    try:
+        return await update_channels(
+            db, project_id, record_id, request, request.reviewer
+        )
+    except KnowledgeGovernanceNotFoundError as error:
+        raise _not_found(error) from error
+    except InvalidReviewTransitionError as error:
+        raise _invalid_transition(error) from error
 
 
 def _not_found(error: KnowledgeGovernanceNotFoundError) -> HTTPException:

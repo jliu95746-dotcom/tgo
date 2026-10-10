@@ -29,6 +29,10 @@ from app.schemas.base import PaginationMetadata
 from app.api.responses import build_error_responses
 from app.runtime.supervisor.application.service import SupervisorRuntimeService
 from app.services.agent_service import AgentService
+from app.schemas.knowledge import KnowledgeChannel
+from app.schemas.knowledge_availability import AgentKnowledgeAvailability
+from app.services.default_knowledge import agent_knowledge_availability
+from app.runtime.supervisor.infrastructure.services import _convert_agent
 
 from app.schemas.agent_run import SupervisorRunRequest, SupervisorRunResponse
 
@@ -39,6 +43,24 @@ class CancelRunRequest(BaseModel):
     reason: Optional[str] = Field(default=None, description="Optional reason for cancellation (for auditing/logs)")
 
 router = APIRouter()
+
+
+@router.get("/knowledge-availability", response_model=AgentKnowledgeAvailability)
+async def get_agent_knowledge_availability(
+    project_id: uuid.UUID = Query(...),
+    channel: KnowledgeChannel = Query(...),
+    agent_id: uuid.UUID | None = Query(None),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> AgentKnowledgeAvailability:
+    if agent_id:
+        agent = await agent_service.get_agent(
+            project_id, agent_id, enrich_resources=False
+        )
+    else:
+        agent = await agent_service.get_default_agent(
+            project_id, enrich_resources=False
+        )
+    return await agent_knowledge_availability(_convert_agent(agent), channel)
 
 
 _STREAMING_EXAMPLE = (

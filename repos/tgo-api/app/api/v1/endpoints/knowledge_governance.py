@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.security import get_current_active_user
 from app.models.staff import Staff
+from app.schemas.knowledge_availability import ChannelUpdateRequest
 from app.schemas.knowledge_governance import (
     KnowledgeGovernanceBackfillRequest,
     KnowledgeGovernanceBackfillResponse,
@@ -19,6 +20,27 @@ from app.schemas.knowledge_governance import (
 from app.services.rag_client import rag_client
 
 router = APIRouter()
+
+
+@router.patch(
+    "/{record_id}/channels", response_model=KnowledgeGovernanceRecordResponse
+)
+async def update_knowledge_channels(
+    record_id: UUID,
+    request: ChannelUpdateRequest,
+    current_user: Staff = Depends(get_current_active_user),
+) -> KnowledgeGovernanceRecordResponse:
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin permission required for knowledge review")
+    result = await rag_client.update_knowledge_channels(
+        project_id=str(current_user.project_id),
+        record_id=str(record_id),
+        data={
+            **request.model_dump(mode="json"),
+            "reviewer": current_user.username,
+        },
+    )
+    return KnowledgeGovernanceRecordResponse.model_validate(result)
 
 
 @router.get("", response_model=KnowledgeGovernanceListResponse)

@@ -2811,6 +2811,40 @@
     }
   },
   "knowledge": {
+    "availability": {
+      "loading": "正在检查知识库可用状态…",
+      "loadFailed": "知识库状态检查失败，请稍后重试。",
+      "ready": "当前渠道可使用 {{count}} 个知识库",
+      "empty": "本账号尚无可用知识库",
+      "blocked": "已有知识库，但当前渠道没有可用于自动回复的资料",
+      "unbound": "当前客服没有绑定知识库",
+      "mode": {
+        "project_default": "默认客服未单独绑定知识库，自动使用本账号已审核且允许当前渠道的资料。",
+        "explicit": "当前客服按已启用的绑定范围使用知识库。",
+        "unbound": "非默认客服需要单独绑定知识库。"
+      },
+      "blockedReason": "资料暂不可用",
+      "noReadyDocuments": "尚无审核通过且已完成处理的可用资料",
+      "manage": "管理知识库和资料审核",
+      "editChannels": "调整适用渠道",
+      "channelsHint": "管理员可调整已审核资料的适用渠道；内容和审核状态保持不变。",
+      "saveChannels": "保存渠道授权",
+      "saveFailed": "保存失败，请刷新后重试。",
+      "issues": {
+        "disabled_binding": "客服存在已停用的知识库绑定，请在 AI 客服设置中检查。",
+        "missing_collection": "已绑定的知识库不存在或不可访问，请检查绑定。"
+      },
+      "reasons": {
+        "not_approved": "资料尚未审核通过",
+        "not_yet_effective": "资料尚未生效",
+        "expired": "资料已过期",
+        "automatic_reply_disabled": "未允许自动回复",
+        "customer_content": "客户提交的内容不能用于自动回复",
+        "channel_not_allowed": "资料未授权给当前渠道",
+        "deleted": "资料已删除",
+        "invalid_time_context": "无法确认资料有效期"
+      }
+    },
     "title": "知识库",
     "subtitle": "管理可供AI员工使用的知识来源。",
     "create": "创建知识库",

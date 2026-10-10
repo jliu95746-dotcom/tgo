@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.exceptions import NotFoundError, ValidationError
 from app.schemas.knowledge import KnowledgeChannel
+from app.schemas.knowledge_availability import KnowledgeAvailability
 
 
 class CollectionData(BaseModel):
@@ -44,6 +45,19 @@ class RAGServiceClient:
         """Initialize the RAG service client."""
         self.base_url = settings.rag_service_url
         self.timeout = 30.0
+
+    async def knowledge_availability(
+        self, project_id: str, channel: KnowledgeChannel
+    ) -> KnowledgeAvailability:
+        async with httpx.AsyncClient(
+            timeout=self.timeout, headers=rag_service_headers()
+        ) as client:
+            response = await client.get(
+                f"{self.base_url}/v1/knowledge-governance/availability",
+                params={"project_id": project_id, "channel": channel.value},
+            )
+            response.raise_for_status()
+            return KnowledgeAvailability.model_validate(response.json())
 
     async def get_collections_batch(
         self,

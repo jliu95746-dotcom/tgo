@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAIStore } from '@/stores/aiStore';
 import type { Platform, PlatformAIMode } from '@/types';
 import { FiChevronDown, FiChevronRight, FiX } from 'react-icons/fi';
+import KnowledgeAvailabilitySummary from './KnowledgeAvailabilitySummary';
 
 interface PlatformAISettingsProps {
   platform: Platform;
@@ -118,6 +119,7 @@ const PlatformAISettings: React.FC<PlatformAISettingsProps> = ({
           </span>
         </span>
       </button>
+      {aiMode !== 'off' && <KnowledgeAvailabilitySummary platformId={platform.id} agentId={agentIds[0]} />}
 
       {/* Collapsible Content */}
       {expanded && (

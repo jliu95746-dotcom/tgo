@@ -255,6 +255,17 @@ class RAGServiceClient:
         return await self._handle_response(response)
 
     # Knowledge governance endpoints
+    async def update_knowledge_channels(
+        self, *, project_id: str, record_id: str, data: dict[str, object]
+    ) -> object:
+        response = await self._make_request(
+            "PATCH",
+            f"/v1/knowledge-governance/{record_id}/channels",
+            params={"project_id": project_id},
+            json_data=data,
+        )
+        return await self._handle_response(response)
+
     async def list_knowledge_governance(
         self,
         *,

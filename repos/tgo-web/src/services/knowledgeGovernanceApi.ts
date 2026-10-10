@@ -7,11 +7,16 @@ import type {
   KnowledgeGovernanceRecord,
   KnowledgeGovernanceReviewRequest,
   KnowledgeReviewStatus,
+  KnowledgeChannelUpdateRequest,
 } from '@/types';
 
 const BASE_ENDPOINT = '/v1/rag/knowledge-governance';
 
 export class KnowledgeGovernanceApiService extends BaseApiService {
+  static async updateChannels(recordId: string, request: KnowledgeChannelUpdateRequest): Promise<KnowledgeGovernanceRecord> {
+    const service = new KnowledgeGovernanceApiService();
+    return service.patch<KnowledgeGovernanceRecord>(`${BASE_ENDPOINT}/${recordId}/channels`, request);
+  }
   protected readonly apiVersion = 'v1';
   protected readonly endpoints = {
     LIST: BASE_ENDPOINT,

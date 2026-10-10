@@ -9,7 +9,7 @@ import time
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header, UploadFile, File, Query
 from sqlalchemy.orm import Session, joinedload, contains_eager
 from sqlalchemy import func
 
@@ -20,6 +20,8 @@ from app.models import Platform, PlatformTypeDefinition, Project, Staff
 from app.schemas.public_platform import PublicPlatformResponse
 from app.services.public_platform import public_platform_response
 from app.services.platform_agent_binding import require_platform_agent
+from app.services.platform_knowledge import platform_knowledge_availability
+from app.schemas.knowledge_availability import AgentKnowledgeAvailability
 from app.models.platform import PlatformType
 from app.services.platform_configuration import is_platform_configured
 from app.schemas import (
@@ -39,6 +41,32 @@ from app.utils.wecom_crypto import decrypt_wecom_echostr
 
 logger = get_logger("endpoints.platforms")
 router = APIRouter()
+
+
+@router.get(
+    "/{platform_id}/knowledge-availability",
+    response_model=AgentKnowledgeAvailability,
+)
+async def get_platform_knowledge_availability(
+    platform_id: UUID,
+    agent_id: UUID | None = Query(None),
+    use_default: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(require_permission("platforms:read")),
+) -> AgentKnowledgeAvailability:
+    platform = (
+        db.query(Platform)
+        .filter(
+            Platform.id == platform_id,
+            Platform.project_id == current_user.project_id,
+            Platform.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if platform is None:
+        raise HTTPException(404, "Platform not found")
+    selected = None if use_default else agent_id or platform.agent_id
+    return await platform_knowledge_availability(platform, selected)
 
 
 def _sanitize_filename(name: str, limit: int = 100) -> str:

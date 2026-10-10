@@ -12,6 +12,7 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas.reply_phase import ReplyPhaseIdentity
+from app.schemas.knowledge_availability import AgentKnowledgeAvailability
 from app.schemas.media_probe import MediaProbeResult
 from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse
 from app.schemas.humanization import (
@@ -496,6 +497,19 @@ class AIServiceClient:
             "GET", f"/api/v1/agents/{agent_id}", params=params
         )
         return await self._handle_response(response)
+
+    async def knowledge_availability(
+        self, project_id: str, channel: str, agent_id: UUID | None = None
+    ) -> AgentKnowledgeAvailability:
+        params = {"project_id": project_id, "channel": channel}
+        if agent_id is not None:
+            params["agent_id"] = str(agent_id)
+        response = await self._make_request(
+            "GET", "/api/v1/agents/knowledge-availability", params=params
+        )
+        return AgentKnowledgeAvailability.model_validate(
+            await self._handle_response(response)
+        )
 
     async def update_agent(
         self,

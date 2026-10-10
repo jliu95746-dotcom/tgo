@@ -1603,6 +1603,40 @@
     }
   },
   "knowledge": {
+    "availability": {
+      "loading": "Checking knowledge availability…",
+      "loadFailed": "Unable to check knowledge availability. Please retry.",
+      "ready": "{{count}} knowledge bases available for this channel",
+      "empty": "No available knowledge bases in this account",
+      "blocked": "Knowledge bases exist but no documents are eligible for this channel",
+      "unbound": "No knowledge bases bound to this agent",
+      "mode": {
+        "project_default": "The unbound default agent uses this account's approved documents authorized for the current channel.",
+        "explicit": "This agent uses its enabled knowledge base bindings.",
+        "unbound": "Non-default agents require explicit knowledge base bindings."
+      },
+      "blockedReason": "Document unavailable",
+      "noReadyDocuments": "No approved, processed documents available",
+      "manage": "Manage knowledge bases and document reviews",
+      "editChannels": "Edit authorized channels",
+      "channelsHint": "Administrators may change channels for approved documents without changing content or review status.",
+      "saveChannels": "Save channel authorization",
+      "saveFailed": "Save failed. Refresh and retry.",
+      "issues": {
+        "disabled_binding": "Some knowledge base bindings are disabled. Check the agent settings.",
+        "missing_collection": "A bound knowledge base is missing or inaccessible. Check its binding."
+      },
+      "reasons": {
+        "not_approved": "Document not approved",
+        "not_yet_effective": "Document not effective yet",
+        "expired": "Document expired",
+        "automatic_reply_disabled": "Automatic replies disabled",
+        "customer_content": "Customer content cannot be used for automatic replies",
+        "channel_not_allowed": "Document not authorized for this channel",
+        "deleted": "Document deleted",
+        "invalid_time_context": "Unable to confirm document validity"
+      }
+    },
     "title": "Knowledge Base",
     "subtitle": "Manage knowledge sources available to agents.",
     "create": "Create Knowledge Base",

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import { KnowledgeGovernanceApiService } from '@/services/knowledgeGovernanceApi';
+import KnowledgeChannelEditor from './KnowledgeChannelEditor';
 import { useAuthStore } from '@/stores/authStore';
 import type {
   KnowledgeChannel,
@@ -401,6 +402,7 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
                 <div><span className={`rounded-full px-2 py-1 text-xs font-medium ${statusClasses[record.review_status]}`}>{t(`knowledge.governance.status.${record.review_status}`)}</span></div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">{record.allow_automatic_reply ? t('knowledge.governance.autoReplyEnabled') : t('knowledge.governance.autoReplyDisabled')}</div>
                 <div className="flex flex-wrap justify-end gap-1">
+                  {currentUser?.role === 'admin' && record.review_status === 'approved' && <KnowledgeChannelEditor record={record} onSaved={loadRecords} />}
                   {(['draft', 'rejected'] as KnowledgeReviewStatus[]).includes(record.review_status) && <button title={t('knowledge.governance.edit')} onClick={() => openExistingDraft(record)} className="rounded p-2 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"><Pencil className="h-4 w-4" /></button>}
                   {(['draft', 'rejected'] as KnowledgeReviewStatus[]).includes(record.review_status) && <button title={t('knowledge.governance.submit')} onClick={() => void runRecordAction(record, 'submit')} className="rounded p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30"><Send className="h-4 w-4" /></button>}
                   {currentUser?.role === 'admin' && record.review_status === 'pending_review' && <button title={t('knowledge.governance.approve')} onClick={() => void runRecordAction(record, 'approved')} className="rounded p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30"><CheckCircle2 className="h-4 w-4" /></button>}
