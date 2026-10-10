@@ -34,6 +34,13 @@ UNCERTAIN = re.compile(
 )
 DEFINITE_ABSENCE = re.compile(r"(?:没有|不提供|不支持|不存在|无货|没货|售罄)")
 NUMBERS = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
+CHINESE_QUANTITY = re.compile(
+    r"[零〇一二两三四五六七八九十][零〇一二两三四五六七八九十百千万亿]*"
+    r"(?:点[零〇一二两三四五六七八九]+)?"
+    r"(?=元|块|天|日|周|月|年|小时|分钟|秒|个|件|次|倍|岁|[%％])"
+)
+CHINESE_DIGITS = dict(zip("零〇一二两三四五六七八九", "001223456789"))
+CHINESE_UNITS = {"十": 10, "百": 100, "千": 1000, "万": 10000, "亿": 100000000}
 ALTERNATIVE_SUGGESTION = re.compile(
     r"(?:建议|可以|不妨|要不|推荐)[^。！？\n]{0,20}"
     r"(?:其他|其它|别的|另外|替代)[^。！？\n]{0,10}(?:款|色|材质|商品|产品)"
@@ -74,11 +81,40 @@ def wants_alternatives(customer_turns: Sequence[str]) -> bool:
     return False
 
 
+def _chinese_quantity(value: str) -> Decimal:
+    integer, _, fraction = value.partition("点")
+    total, section, digit = 0, 0, 0
+    for character in integer:
+        if character in CHINESE_DIGITS:
+            digit = digit * 10 + int(CHINESE_DIGITS[character])
+        else:
+            unit = CHINESE_UNITS[character]
+            if unit < 10000:
+                section += (digit or 1) * unit
+            else:
+                group = (section + digit) * unit
+                total = (
+                    total + group if unit == 10000 else total * unit + group
+                )
+                section = 0
+            digit = 0
+    amount = str(total + section + digit)
+    if fraction:
+        amount += "." + "".join(CHINESE_DIGITS[item] for item in fraction)
+    return Decimal(amount)
+
+
 def numeric_values(text: str) -> set[Decimal]:
-    """Compare amounts despite thousands separators or decimal formatting."""
+    """Compare quantities despite separators or Chinese numeric formatting."""
     # Numbered list markers are formatting, not business quantities.
     text = re.sub(r"(?m)^\s*\d+[.)、](?!\d)[ \t]*", "", text)
-    return {Decimal(value.replace(",", "")) for value in NUMBERS.findall(text)}
+    values = {
+        Decimal(value.replace(",", "")) for value in NUMBERS.findall(text)
+    }
+    values.update(
+        _chinese_quantity(value) for value in CHINESE_QUANTITY.findall(text)
+    )
+    return values
 
 
 def _asks_for_preferences(sentence: str) -> bool:

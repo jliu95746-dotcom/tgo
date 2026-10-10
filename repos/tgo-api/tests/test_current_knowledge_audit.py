@@ -10,7 +10,9 @@ from app.schemas.knowledge_evidence import (
     KnowledgeDocument,
     KnowledgeEvidence,
 )
-from app.services.reply_quality import assess_reply, audit_reply_facts
+from app.services.reply_quality import (
+    assess_reply, audit_reply_facts, numeric_values,
+)
 from app.services.humanization_service import rewrite_assist_draft
 from app.services.current_knowledge import (
     UNCONFIRMED_REPLY,
@@ -51,6 +53,30 @@ def test_old_price_in_draft_and_memory_is_not_numeric_authority():
         knowledge_evidence=evidence(),
         include_style=False,
     )
+
+
+@pytest.mark.parametrize(
+    ("written", "value"),
+    [("十五天", "15"), ("三十天", "30"), ("两个月", "2"),
+     ("二百九十九元", "299"), ("一万两千元", "12000"),
+     ("一亿两千万件", "120000000"),
+     ("二百九十九点五元", "299.5")],
+)
+def test_current_evidence_accepts_equivalent_chinese_numeric_format(written, value):
+    assert numeric_values(written) == numeric_values(value)
+
+
+def test_new_policy_in_arabic_digits_passes_but_old_policy_does_not():
+    current = evidence("晨光包299元，十五天退换，未使用且吊牌完好。")
+    kwargs = dict(
+        factual_draft="晨光包199元，七天退换。",
+        customer_message="多少钱，退换期限？",
+        knowledge_evidence=current, include_style=False,
+    )
+    assert "new_numbers" not in assess_reply(
+        "晨光包299元，15天退换，未使用且吊牌完好。", **kwargs,
+    )
+    assert "new_numbers" in assess_reply("晨光包199元，7天退换。", **kwargs)
 
 
 @pytest.mark.asyncio
