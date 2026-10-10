@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChatStore } from '@/stores';
-import type { WuKongIMMessage, Message } from '@/types';
+import { MessagePayloadType, type WuKongIMMessage, type Message } from '@/types';
+import { useMessageStore } from '@/stores/messageStore';
 import { getChannelKey } from '@/utils/channelUtils';
 import { WuKongIMUtils } from '@/services/wukongimApi';
 
@@ -66,6 +67,17 @@ export const useHistoricalMessages = ({
   const loadHistoricalMessagesAction = useChatStore((state) => state.loadHistoricalMessages);
   const loadMoreHistoryAction = useChatStore((state) => state.loadMoreHistory);
   const setHistoryError = useChatStore((state) => state.setHistoryError);
+  const loadNewerHistory = useChatStore((state) => state.loadNewerHistory);
+  const hasPendingStream = useMessageStore(state => {
+    if (!channelId || channelType == null) return false;
+    const key = getChannelKey(channelId, channelType);
+    return Object.values(state.activeStreamingChannels).some(
+      entry => entry.channelId === channelId && entry.channelType === channelType,
+    ) || (state.historicalMessages[key] || []).some(message =>
+      WuKongIMUtils.extractMessageType(message.payload) === MessagePayloadType.STREAM
+      && message.end !== 1 && message.event_meta?.completed !== true && !message.error,
+    );
+  });
 
   // Use unified conversion from WuKongIMUtils (stable reference)
   const convertWuKongIMToMessage = WuKongIMUtils.convertToMessage;
@@ -90,6 +102,29 @@ export const useHistoricalMessages = ({
       console.error('Failed to load initial history:', error);
     });
   }, [channelId, channelType, historicalMessages.length, isLoadingHistory, loadHistoricalMessagesAction]);
+
+  // Reconcile pending replies even if the connection never reconnects.
+  // Stop polling once the server reports a terminal state.
+  useEffect(() => {
+    if (!channelId || channelType == null || !hasPendingStream) return;
+    let cancelled = false;
+    let inFlight = false;
+    const refresh = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        await loadNewerHistory(channelId, channelType);
+      } finally {
+        inFlight = false;
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => { void refresh(); }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [channelId, channelType, hasPendingStream, loadNewerHistory]);
 
   // Memoized load more function
   const loadMoreHistory = useCallback(async (): Promise<void> => {

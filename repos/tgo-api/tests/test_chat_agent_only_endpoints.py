@@ -21,7 +21,7 @@ from app.services.ai_client import ai_client
 @pytest.fixture(autouse=True)
 def isolate_employee_settings(monkeypatch):
     monkeypatch.setattr(chat_endpoints, "resolve_employee_style", AsyncMock(
-        side_effect=lambda _project, agent_id, *_args: EmployeeStyle(agent_id=agent_id)))
+        side_effect=lambda _project, agent_id, *_args, **_kwargs: EmployeeStyle(agent_id=agent_id)))
 
 
 class _NoOpDB:
@@ -56,6 +56,59 @@ class _PlatformDB:
 
     def refresh(self, _obj: object, attribute_names=None) -> None:
         return None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("background", [False, True])
+async def test_paused_employee_acknowledges_without_starting_reply(
+    monkeypatch, stream, background,
+):
+    from app.services.employee_style import InactiveEmployeeError
+
+    project_id = uuid4()
+    platform = SimpleNamespace(
+        id=uuid4(), agent_id=None, ai_mode="auto", type="wecom",
+    )
+    visitor = SimpleNamespace(
+        id=uuid4(), project_id=project_id, is_unassigned=True,
+        ai_disabled=None, is_last_message_from_ai=False,
+        is_last_message_from_visitor=True, last_client_msg_no=None,
+        humanization_skill_name=None, humanization_skill_enabled=False,
+    )
+    monkeypatch.setattr(
+        chat_endpoints.chat_service, "validate_platform_and_project",
+        lambda *_args: (platform, SimpleNamespace(id=project_id)),
+    )
+    monkeypatch.setattr(chat_endpoints, "get_or_create_visitor", AsyncMock(
+        return_value=(visitor, False),
+    ))
+    monkeypatch.setattr(chat_endpoints.chat_service,
+                        "send_user_message_to_wukongim", AsyncMock())
+    monkeypatch.setattr(chat_endpoints, "transfer_to_staff", AsyncMock(
+        return_value=SimpleNamespace(success=True, assigned_staff_id=uuid4()),
+    ))
+    monkeypatch.setattr(chat_endpoints.wukongim_client,
+                        "send_visitor_profile_updated", AsyncMock())
+    monkeypatch.setattr(chat_endpoints.chat_service, "is_ai_disabled",
+                        lambda *_args: False)
+    resolver = AsyncMock(side_effect=InactiveEmployeeError("AI 客服已停用"))
+    monkeypatch.setattr(chat_endpoints, "resolve_employee_style", resolver)
+    claim = MagicMock()
+    monkeypatch.setattr(chat_endpoints, "claim_ai_interaction", claim)
+    result = await chat_endpoints.chat_completion(
+        ChatCompletionRequest(
+            api_key="fixture", message="产品介绍", from_uid="fixture-visitor",
+            stream=stream, wukongim_only=background,
+        ), db=_NoOpDB(),
+    )
+    claim.assert_not_called()
+    assert resolver.await_args.kwargs["require_active"] is True
+    if stream:
+        chunks = [chunk async for chunk in result.body_iterator]
+        assert len(chunks) == 1 and '"event_type": "ai_disabled"' in chunks[0]
+    else:
+        assert result["event_type"] == "ai_disabled" and not result["success"]
 
 
 @pytest.mark.asyncio

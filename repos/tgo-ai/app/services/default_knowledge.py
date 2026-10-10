@@ -33,7 +33,9 @@ async def agent_knowledge_availability(
             issues.append("disabled_binding")
         if enabled - {str(c.id) for c in collections}:
             issues.append("missing_collection")
-    elif agent.is_default:
+    elif agent.is_default or (
+        isinstance(agent, StoredAgent) and agent.is_active
+    ):
         mode, collections = "project_default", data.collections
     else:
         mode, collections = "unbound", []

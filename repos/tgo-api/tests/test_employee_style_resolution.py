@@ -53,3 +53,50 @@ async def test_customer_routing_pins_resolved_default_employee_for_both_phases(m
     assert result["agent_id"] == "default-employee"
     assert result["humanization_skill_name"] == "brand-style"
     assert result["knowledge_channel"] == "web"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("agent_id", [None, "paused"])
+@pytest.mark.parametrize("override", [None, "conversation-style"])
+async def test_automatic_reply_rejects_inactive_employee(
+    monkeypatch, agent_id, override,
+):
+    from app.services.employee_style import InactiveEmployeeError
+
+    inactive = {"id": "paused", "is_active": False}
+    client = SimpleNamespace(
+        get_agent=AsyncMock(return_value=inactive),
+        list_agents=AsyncMock(return_value={"data": [inactive]}),
+    )
+    monkeypatch.setattr("app.services.employee_style.ai_client", client)
+    with pytest.raises(InactiveEmployeeError):
+        await resolve_employee_style(
+            "project", agent_id, override, True, require_active=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_automatic_reply_requires_an_employee(monkeypatch):
+    from app.services.employee_style import InactiveEmployeeError
+
+    monkeypatch.setattr("app.services.employee_style.ai_client", SimpleNamespace(
+        list_agents=AsyncMock(return_value={"data": []}),
+    ))
+    with pytest.raises(InactiveEmployeeError):
+        await resolve_employee_style("project", None, require_active=True)
+
+
+@pytest.mark.asyncio
+async def test_active_employee_keeps_conversation_style_and_resolved_id(monkeypatch):
+    monkeypatch.setattr("app.services.employee_style.ai_client", SimpleNamespace(
+        list_agents=AsyncMock(return_value={"data": [{
+            "id": "enabled", "name": "女包客服", "is_active": True,
+        }]}),
+    ))
+    setting = await resolve_employee_style(
+        "project", None, "conversation-style", False, require_active=True,
+    )
+    assert setting.agent_id == "enabled"
+    assert setting.agent_name == "女包客服"
+    assert setting.source == "conversation" and not setting.enabled
+    assert setting.skill_name == "conversation-style"

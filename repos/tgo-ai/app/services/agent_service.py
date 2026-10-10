@@ -3,7 +3,7 @@
 import uuid
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, func, select, text, update
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -207,7 +207,21 @@ class AgentService:
         if model is not None:
             conditions.append(Agent.model == model)
         if is_default is not None:
-            conditions.append(Agent.is_default == is_default)
+            # One enabled employee serves the account. Older accounts can
+            # still have a paused employee marked as their stored default.
+            # Keep that fallback visible only when every employee is paused.
+            enabled_exists = select(Agent.id).where(
+                Agent.project_id == project_id,
+                Agent.deleted_at.is_(None),
+                Agent.is_active.is_(True),
+            ).correlate(None).exists()
+            effective_default = or_(
+                Agent.is_active.is_(True),
+                and_(Agent.is_default.is_(True), ~enabled_exists),
+            )
+            conditions.append(
+                effective_default if is_default else ~effective_default
+            )
 
         # Get total count
         count_stmt = select(func.count(Agent.id)).where(and_(*conditions))

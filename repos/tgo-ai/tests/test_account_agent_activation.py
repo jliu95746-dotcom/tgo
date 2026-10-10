@@ -156,3 +156,61 @@ async def test_database_rejects_a_second_active_employee(account_database):
     with pytest.raises(IntegrityError):
         await db.flush()
     await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_routing_prefers_enabled_employee_over_legacy_default(
+    account_database,
+):
+    db, service, project = account_database
+    old = await service.create_agent(
+        project,
+        AgentCreate(name="paused", model="fixture", is_active=False,
+                    is_default=True),
+    )
+    active = await service.create_agent(
+        project,
+        AgentCreate(name="enabled", model="fixture", is_active=False),
+    )
+    # Reproduce a pre-migration account without rewriting its preferences.
+    active.is_active = True
+    await db.commit()
+    foreign = await service.create_agent(
+        uuid4(), AgentCreate(name="foreign", model="fixture"),
+    )
+    selected = await service.get_default_agent(
+        project, enrich_resources=False,
+    )
+    defaults, count = await service.list_agents(
+        project, is_default=True, enrich_resources=False,
+    )
+    others, _ = await service.list_agents(
+        project, is_default=False, enrich_resources=False,
+    )
+    assert selected.id == active.id
+    assert count == 1 and [a.id for a in defaults] == [active.id]
+    assert [a.id for a in others] == [old.id]
+    await db.refresh(old)
+    await db.refresh(active)
+    await db.refresh(foreign)
+    assert old.is_default and not old.is_active
+    assert active.is_active and not active.is_default
+    assert foreign.is_active
+    assert (await service.get_agent(project, old.id)).id == old.id
+    from app.runtime.supervisor.infrastructure.services import _convert_agent
+
+    assert _convert_agent(selected).is_default
+
+
+@pytest.mark.asyncio
+async def test_all_paused_retains_default_for_readiness(account_database):
+    _, service, project = account_database
+    paused = await service.create_agent(
+        project,
+        AgentCreate(name="paused", model="fixture", is_active=False,
+                    is_default=True),
+    )
+    selected = await service.get_default_agent(
+        project, enrich_resources=False,
+    )
+    assert selected.id == paused.id and not selected.is_active

@@ -271,7 +271,7 @@ export const useMessageStore = create<MessageState>()(
         // its snapshot as well, so a missed delta/finish can be reconciled.
         const pendingSequences = current.filter(message =>
           WuKongIMUtils.extractMessageType(message.payload) === MessagePayloadType.STREAM
-          && message.event_meta?.completed !== true && !message.error,
+          && message.end !== 1 && message.event_meta?.completed !== true && !message.error,
         ).map(message => message.message_seq);
         const startSeq = Math.min(currentMaxSeq, ...pendingSequences);
 
@@ -306,6 +306,16 @@ export const useMessageStore = create<MessageState>()(
             false,
             'loadNewerHistorySuccess'
           );
+          // History is authoritative when close/finish was missed in real time.
+          // Clear the matching tracked reply as well as updating its bubble.
+          for (const message of merged) {
+            if (message.client_msg_no
+              && get().activeStreamingChannels[message.client_msg_no]
+              && WuKongIMUtils.extractMessageType(message.payload) === MessagePayloadType.STREAM
+              && (message.end === 1 || message.event_meta?.completed === true || message.error)) {
+              get().markStreamMessageEnd(message.client_msg_no, message.error || undefined);
+            }
+          }
         } catch (error) {
           console.error('Failed to load newer messages:', error);
           set({ historyError: error instanceof Error ? error.message : '加载更新消息失败' }, false, 'loadNewerHistoryError');

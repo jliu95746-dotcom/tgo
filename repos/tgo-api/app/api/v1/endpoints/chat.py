@@ -72,7 +72,10 @@ from app.services import chat_service
 from app.services import staff_delivery
 from app.services.platform_message_client import forward_staff_platform_message
 from app.services.staff_message_target import resolve_staff_message_target
-from app.services.employee_style import resolve_employee_style
+from app.services.employee_style import (
+    InactiveEmployeeError,
+    resolve_employee_style,
+)
 from app.services.knowledge_channel import resolve_platform_knowledge_channel
 from app.schemas.chat_file_access import ChatFileAccessResponse
 from app.services.chat_file_access import (
@@ -140,11 +143,14 @@ def _build_platform_agent_kwargs(platform: Platform, visitor: Visitor | None = N
     return runtime_kwargs
 
 
-async def _resolve_platform_agent_kwargs(platform: Platform, visitor: Visitor) -> PlatformAgentKwargs:
+async def _resolve_platform_agent_kwargs(
+    platform: Platform, visitor: Visitor, *, require_active: bool = False,
+) -> PlatformAgentKwargs:
     result = _build_platform_agent_kwargs(platform)
     style = await resolve_employee_style(
         str(visitor.project_id), result.get("agent_id"),
         visitor.humanization_skill_name, visitor.humanization_skill_enabled,
+        require_active=require_active,
     )
     if style.agent_id:
         result["agent_id"] = style.agent_id
@@ -597,7 +603,25 @@ async def chat_completion(
         return StreamingResponse(disabled_gen(), media_type="text/event-stream")
 
     # 7) AI is enabled: directly call AI service and stream response
-    agent_runtime_kwargs = await _resolve_platform_agent_kwargs(platform, visitor)
+    try:
+        agent_runtime_kwargs = await _resolve_platform_agent_kwargs(
+            platform, visitor, require_active=True,
+        )
+    except InactiveEmployeeError as exc:
+        disabled_data = {
+            "success": False, "event_type": "ai_disabled", "message": str(exc),
+        }
+        if req.stream is False:
+            return disabled_data
+
+        async def inactive_employee_gen() -> AsyncIterator[str]:
+            yield chat_service.sse_format(
+                {"event_type": "ai_disabled", "data": disabled_data}
+            )
+
+        return StreamingResponse(
+            inactive_employee_gen(), media_type="text/event-stream",
+        )
     excluded_tool_ids = (
         intent_outcome.excluded_tool_ids if intent_outcome is not None else ()
     )

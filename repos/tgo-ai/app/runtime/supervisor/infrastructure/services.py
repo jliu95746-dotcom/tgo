@@ -237,7 +237,7 @@ def _convert_agent(
             tools=tools,
             collections=collections,
             workflows=workflows,
-            is_default=agent.is_default,
+            is_default=agent.is_active or agent.is_default,
             is_remote_store_agent=getattr(agent, "is_remote_store_agent", False),
             remote_agent_url=getattr(agent, "remote_agent_url", None),
             store_agent_id=getattr(agent, "store_agent_id", None),

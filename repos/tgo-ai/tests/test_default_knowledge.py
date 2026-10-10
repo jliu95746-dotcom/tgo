@@ -127,6 +127,24 @@ async def test_default_employee_inherits_only_eligible_own_collections(
 
 
 @pytest.mark.asyncio
+async def test_enabled_legacy_employee_has_account_knowledge_scope(monkeypatch):
+    from app.services.default_knowledge import agent_knowledge_availability
+
+    agent = StoredAgent(
+        id=uuid4(), project_id=uuid4(), name="current", model="test",
+        is_active=True, is_default=False, collections=[],
+    )
+    data = availability(agent.project_id)
+    monkeypatch.setattr(
+        rag_service_client, "knowledge_availability", AsyncMock(return_value=data),
+    )
+    report = await agent_knowledge_availability(agent, KnowledgeChannel.WECOM_KF)
+    assert report.binding_mode == "project_default" and not report.issues
+    assert report.collections == data.collections
+    assert not agent.is_default
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("default", [True, False])
 async def test_explicit_disabled_binding_never_inherits_other_knowledge(
     monkeypatch, default
