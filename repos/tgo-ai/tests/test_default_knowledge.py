@@ -9,6 +9,8 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.models.internal import Agent, AgentCollection
+from app.models.agent import Agent as StoredAgent
+from app.models.collection import AgentCollection as StoredBinding
 from app.schemas.knowledge_availability import KnowledgeAvailability
 from app.schemas.knowledge import KnowledgeChannel
 from app.services.default_knowledge import resolve_agent_knowledge
@@ -51,7 +53,63 @@ def availability(project, channel="wecom_kf"):
 
 
 @pytest.mark.asyncio
-async def test_default_employee_inherits_only_eligible_own_collections(monkeypatch):
+@pytest.mark.parametrize("explicit", [False, True])
+async def test_inactive_employee_readiness_does_not_require_executable_agent(
+    monkeypatch, explicit
+):
+    from app.api.v1.agents import get_agent_knowledge_availability
+
+    agent = StoredAgent(
+        id=uuid4(),
+        project_id=uuid4(),
+        name="停用客服",
+        is_default=True,
+        is_active=False,
+        model="unconfigured",
+        collections=[],
+    )
+    data = availability(agent.project_id)
+    if explicit:
+        agent.collections = [
+            StoredBinding(
+                id=uuid4(),
+                collection_id=str(data.collections[0].id),
+                enabled=False,
+            )
+        ]
+    lookup = AsyncMock(return_value=data)
+    monkeypatch.setattr(rag_service_client, "knowledge_availability", lookup)
+    service = Mock(get_default_agent=AsyncMock(return_value=agent))
+    report = await get_agent_knowledge_availability(
+        project_id=agent.project_id,
+        channel=KnowledgeChannel.WECOM_KF,
+        agent_id=None,
+        agent_service=service,
+    )
+    assert report.agent_id == agent.id
+    assert "inactive_agent" in report.issues
+    assert report.binding_mode == (
+        "explicit" if explicit else "project_default"
+    )
+    if explicit:
+        assert report.collections == []
+        assert "disabled_binding" in report.issues
+    else:
+        assert report.collections == data.collections
+    assert agent.is_active is False
+    lookup.assert_awaited_once_with(
+        str(agent.project_id), KnowledgeChannel.WECOM_KF
+    )
+    service.get_default_agent.assert_awaited_once_with(
+        agent.project_id,
+        enrich_resources=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_default_employee_inherits_only_eligible_own_collections(
+    monkeypatch,
+):
     agent = employee()
     data = availability(agent.project_id)
     lookup = AsyncMock(return_value=data)
@@ -63,7 +121,9 @@ async def test_default_employee_inherits_only_eligible_own_collections(monkeypat
     assert (
         agent.collections == []
     )  # Runtime inheritance never writes permanent bindings.
-    lookup.assert_awaited_once_with(agent.project_id, KnowledgeChannel.WECOM_KF)
+    lookup.assert_awaited_once_with(
+        agent.project_id, KnowledgeChannel.WECOM_KF
+    )
 
 
 @pytest.mark.asyncio
@@ -73,12 +133,18 @@ async def test_explicit_disabled_binding_never_inherits_other_knowledge(
 ):
     agent = employee(default)
     binding = AgentCollection(
-        id=uuid4(), collection_id=str(uuid4()), enabled=False, display_name="explicit"
+        id=uuid4(),
+        collection_id=str(uuid4()),
+        enabled=False,
+        display_name="explicit",
     )
     agent.collections = [binding]
     lookup = AsyncMock()
     monkeypatch.setattr(rag_service_client, "knowledge_availability", lookup)
-    assert await resolve_agent_knowledge(agent, KnowledgeChannel.WECOM_KF) is agent
+    assert (
+        await resolve_agent_knowledge(agent, KnowledgeChannel.WECOM_KF)
+        is agent
+    )
     lookup.assert_not_awaited()
 
 
@@ -146,7 +212,9 @@ async def test_stream_and_nonstream_prepare_same_knowledge_but_expression_skips_
     monkeypatch, stream, skip
 ):
     from app.runtime.supervisor.application import service as runtime_module
-    from app.runtime.supervisor.application.service import SupervisorRuntimeService
+    from app.runtime.supervisor.application.service import (
+        SupervisorRuntimeService,
+    )
     from app.runtime.supervisor.infrastructure.services import AIServiceClient
     from app.schemas.agent_run import SupervisorRunRequest
     from app.streaming.event_emitter import StreamingEventEmitter
@@ -184,11 +252,15 @@ async def test_stream_and_nonstream_prepare_same_knowledge_but_expression_skips_
     )
     if stream:
         emitter = StreamingEventEmitter(str(uuid4()), str(uuid4()))
-        monkeypatch.setattr(runtime_module, "get_event_emitter", lambda *args: emitter)
+        monkeypatch.setattr(
+            runtime_module, "get_event_emitter", lambda *args: emitter
+        )
         response = await runtime.stream(
             request,
             UUID(agent.project_id),
-            http_request=SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+            http_request=SimpleNamespace(
+                is_disconnected=AsyncMock(return_value=False)
+            ),
         )
         events = await domain_events(response)
         assert any(e["event_type"] == "workflow_failed" for e in events)

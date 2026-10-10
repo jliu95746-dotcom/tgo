@@ -4,24 +4,26 @@ from uuid import UUID
 from typing import Literal
 
 from app.models.internal import Agent, AgentCollection
+from app.models.agent import Agent as StoredAgent
 from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.knowledge_availability import AgentKnowledgeAvailability
 from app.services.rag_service import rag_service_client
 
 
 async def agent_knowledge_availability(
-    agent: Agent, channel: KnowledgeChannel
+    agent: Agent | StoredAgent, channel: KnowledgeChannel
 ) -> AgentKnowledgeAvailability:
     if not agent.project_id:
         raise ValueError("无法确认知识库归属")
-    data = await rag_service_client.knowledge_availability(
-        agent.project_id, channel
-    )
-    if data.project_id != UUID(agent.project_id):
+    project_id = str(agent.project_id)
+    data = await rag_service_client.knowledge_availability(project_id, channel)
+    if data.project_id != UUID(project_id):
         raise ValueError("知识库归属不一致")
     if data.channel != channel:
         raise ValueError("知识库渠道不一致")
     issues: list[str] = []
+    if isinstance(agent, StoredAgent) and not agent.is_active:
+        issues.append("inactive_agent")
     mode: Literal["project_default", "explicit", "unbound"]
     if agent.collections:
         mode = "explicit"

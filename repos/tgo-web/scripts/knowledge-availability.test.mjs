@@ -34,5 +34,14 @@ test('all admission reasons and binding modes have Chinese and English explanati
       assert.ok(translations.knowledge.availability.reasons[reason]);
     }
     for (const mode of ['project_default', 'explicit', 'unbound']) assert.ok(translations.knowledge.availability.mode[mode]);
+    assert.ok(translations.knowledge.availability.inactive);
+    assert.ok(translations.knowledge.availability.issues.inactive_agent);
   }
+});
+
+test('inactive employees stay unavailable even when knowledge is eligible', () => {
+  const report = { binding_mode: 'project_default', collections: [{ eligible_chunk_count: 7 }], issues: ['inactive_agent'] };
+  assert.equal(scope.status(report), 'inactive');
+  report.collections = [];
+  assert.equal(scope.status(report), 'inactive');
 });

@@ -32,7 +32,6 @@ from app.services.agent_service import AgentService
 from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.knowledge_availability import AgentKnowledgeAvailability
 from app.services.default_knowledge import agent_knowledge_availability
-from app.runtime.supervisor.infrastructure.services import _convert_agent
 
 from app.schemas.agent_run import SupervisorRunRequest, SupervisorRunResponse
 
@@ -60,7 +59,7 @@ async def get_agent_knowledge_availability(
         agent = await agent_service.get_default_agent(
             project_id, enrich_resources=False
         )
-    return await agent_knowledge_availability(_convert_agent(agent), channel)
+    return await agent_knowledge_availability(agent, channel)
 
 
 _STREAMING_EXAMPLE = (

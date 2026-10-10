@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom';
 import { KnowledgeAvailabilityApiService } from '@/services/knowledgeAvailabilityApi';
 import type { AgentKnowledgeAvailability } from '@/types';
 
-export function knowledgeAvailabilityStatus(report: AgentKnowledgeAvailability): 'ready' | 'empty' | 'blocked' | 'unbound' {
+export function knowledgeAvailabilityStatus(report: AgentKnowledgeAvailability): 'ready' | 'empty' | 'blocked' | 'unbound' | 'inactive' {
+  if (report.issues.includes('inactive_agent')) return 'inactive';
   if (report.collections.some(c => c.eligible_chunk_count > 0)) return 'ready';
   if (report.binding_mode === 'unbound') return 'unbound';
   return report.collections.length || report.issues.length ? 'blocked' : 'empty';

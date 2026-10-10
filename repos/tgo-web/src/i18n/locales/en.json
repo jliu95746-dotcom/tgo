@@ -1610,6 +1610,7 @@
       "empty": "No available knowledge bases in this account",
       "blocked": "Knowledge bases exist but no documents are eligible for this channel",
       "unbound": "No knowledge bases bound to this agent",
+      "inactive": "This AI agent is inactive and will not generate replies",
       "mode": {
         "project_default": "The unbound default agent uses this account's approved documents authorized for the current channel.",
         "explicit": "This agent uses its enabled knowledge base bindings.",
@@ -1623,6 +1624,7 @@
       "saveChannels": "Save channel authorization",
       "saveFailed": "Save failed. Refresh and retry.",
       "issues": {
+        "inactive_agent": "Knowledge availability remains visible while the agent stays inactive.",
         "disabled_binding": "Some knowledge base bindings are disabled. Check the agent settings.",
         "missing_collection": "A bound knowledge base is missing or inaccessible. Check its binding."
       },
