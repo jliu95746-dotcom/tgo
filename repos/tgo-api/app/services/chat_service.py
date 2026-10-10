@@ -30,6 +30,10 @@ from app.services.humanization_service import (
     ASSIST_FACT_GATHERING_PROMPT, get_humanization_skill_prompt,
     recent_customer_messages, rewrite_assist_draft,
 )
+from app.schemas.knowledge_evidence import (
+    BusinessToolEvidence, KnowledgeEvidence,
+)
+from app.services.current_knowledge import read_knowledge_evidence
 from app.schemas.chat_media import ChatMediaInput, MediaModelOptions
 from app.services.chat_media_analysis import prepare_chat_media
 from app.services.chat_media_service import MediaInputError
@@ -327,6 +331,7 @@ async def process_ai_stream_to_wukongim(
                 from app.services.ai_usage_intent import route_reply_intent
                 routed_system = system_message
                 routed_excluded = excluded_tool_ids
+                routed_evidence: tuple[BusinessToolEvidence, ...] = ()
                 if channel_type == 251 and media_input is None:
                     outcome = await route_reply_intent(project_id, client_msg_no, message)
                     if outcome is not None:
@@ -336,6 +341,10 @@ async def process_ai_stream_to_wukongim(
                         context = "本轮只询问一个必要的澄清问题，不得猜测订单号或客户意图。" if outcome.routing_target == "clarify" else outcome.tool_context
                         if context:
                             routed_system = (system_message or "") + "\n" + context
+                            routed_evidence = (BusinessToolEvidence(
+                                name=outcome.routing_target, content=context,
+                                success=True,
+                            ),)
                         routed_excluded = tuple(set(excluded_tool_ids) | set(outcome.excluded_tool_ids))
                 async for event in _process_ai_reply_to_wukongim(
             project_id=project_id, user_id=user_id, message=message,
@@ -345,6 +354,7 @@ async def process_ai_stream_to_wukongim(
             expected_output=expected_output, agent_id=agent_id,
             knowledge_channel=knowledge_channel, excluded_tool_ids=routed_excluded,
                     humanization_skill_name=humanization_skill_name, media_input=media_input,
+                    trusted_tool_evidence=routed_evidence,
                 ):
                     yield event
         except TGOAPIException as exc:
@@ -362,6 +372,7 @@ async def _process_ai_reply_to_wukongim(
     knowledge_channel: Optional[str] = None, excluded_tool_ids: tuple[str, ...] = (),
     humanization_skill_name: str | None = None,
     media_input: ChatMediaInput | None = None,
+    trusted_tool_evidence: tuple[BusinessToolEvidence, ...] = (),
 ) -> AsyncGenerator[ReplyEvent, None]:
     """Release one checked result to both SSE consumers and persisted IM history."""
     customer_facing = channel_type == 251
@@ -395,6 +406,13 @@ async def _process_ai_reply_to_wukongim(
             media_options["disable_tools"] = prepared.disable_tools
         if customer_facing:
             system_message = (system_message or "") + "\n" + ASSIST_FACT_GATHERING_PROMPT
+        history = (
+            await recent_customer_messages(
+                channel_id, channel_type, f"{user_id}-vtr",
+            )
+            if customer_facing else []
+        )
+        knowledge_evidence: KnowledgeEvidence | None = None
         async for stream_event_type, data in tracked_ai_stream(lambda phase: ai_client.run_supervisor_agent_stream(
             project_id=project_id, agent_id=agent_id, user_id=user_id, message=message,
             session_id=session_id, enable_memory=True, system_message=system_message,
@@ -402,6 +420,10 @@ async def _process_ai_reply_to_wukongim(
             excluded_tool_ids=list(excluded_tool_ids),
             cancel_on_disconnect=True,
             reply_phase=phase,
+            require_current_knowledge=customer_facing,
+            knowledge_context=[
+                turn.content[:800] for turn in history
+            ][-4:],
             **media_options,
         )):
             event_type = data.get("event_type") or stream_event_type
@@ -427,6 +449,11 @@ async def _process_ai_reply_to_wukongim(
                     raise RuntimeError("Invalid AI final content")
                 provider_final = final_content or full_content
                 completed = True
+                if customer_facing:
+                    knowledge_evidence = read_knowledge_evidence(
+                        event_data.get("knowledge_evidence"),
+                        project_id=project_id, channel=knowledge_channel,
+                    )
             elif event_type == "workflow_completed":
                 if event_data.get("success") is False:
                     raise RuntimeError("AI workflow failed")
@@ -441,13 +468,18 @@ async def _process_ai_reply_to_wukongim(
         reply = provider_final or full_content
         if customer_facing:
             await ensure_customer_auto_reply(project_id, user_id)
-            history = await recent_customer_messages(channel_id, channel_type, f"{user_id}-vtr")
+            if knowledge_evidence is None:
+                knowledge_evidence = read_knowledge_evidence(
+                    None, project_id=project_id, channel=knowledge_channel,
+                )
+            knowledge_evidence.tool_results.extend(trusted_tool_evidence)
             style = await get_humanization_skill_prompt(
                 project_id, humanization_skill_name, message, reply, history) if humanization_skill_name else ""
             reply = await rewrite_assist_draft(
                 ai_client, project_id=project_id, agent_id=agent_id,
                 customer_message=message, factual_draft=reply,
-                humanization_prompt=style, recent_messages=history)
+                humanization_prompt=style, recent_messages=history,
+                knowledge_evidence=knowledge_evidence)
             await ensure_customer_auto_reply(project_id, user_id)
         # Only this result crosses the publication boundary. No original chunks
         # or original completion payload are sent to any customer consumer.

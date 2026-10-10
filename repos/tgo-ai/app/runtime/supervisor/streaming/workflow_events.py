@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from app.models.internal import AgentExecutionContext
+from app.schemas.knowledge_evidence import KnowledgeEvidence
 from app.models.streaming import (
     AgentContentChunkData,
     AgentExecutionData,
@@ -198,6 +199,7 @@ class WorkflowEventEmitter:
         success: bool,
         total_chunks: int,
         tool_calls_count: int = 0,
+        knowledge_evidence: KnowledgeEvidence | None = None,
     ) -> None:
         """Emit final agent response event."""
         data = AgentResponseCompleteData(
@@ -209,6 +211,7 @@ class WorkflowEventEmitter:
             total_chunks=total_chunks,
             tool_calls_count=tool_calls_count,
             response_length=len(final_content),
+            knowledge_evidence=knowledge_evidence,
         )
         severity = EventSeverity.SUCCESS if success else EventSeverity.ERROR
         self.emitter.emit(

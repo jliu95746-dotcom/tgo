@@ -317,7 +317,12 @@ async def test_expression_request_disconnect_is_not_a_termination_receipt(
     async def events(**kwargs):
         assert kwargs["cancel_on_disconnect"] is True
         yield "agent_response_complete", {
-            "data": {"success": True, "final_content": "这款没有绿色。"}
+            "data": {"success": True, "final_content": "这款没有绿色。",
+                     "knowledge_evidence": {
+                         "status": "matched", "retrieved_at": "2026-10-10T00:00:00Z",
+                         "project_id": kwargs["project_id"], "channel": kwargs.get("knowledge_channel"),
+                         "documents": [{"collection_id": "c", "document_id": "d", "content": "这款没有绿色。"}],
+                     }}
         }
         yield "workflow_completed", {"data": {}}
 

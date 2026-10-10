@@ -40,8 +40,10 @@ async def make_execution(
         request_id="fixture",
         disable_tools=False,
         response_purpose="standard",
+        knowledge_evidence=None,
         agent=SimpleNamespace(
-            id=uuid4(), name="测试", bound_device_id=str(device) if bound else None
+            id=uuid4(), name="测试", model="openai:fixture",
+            bound_device_id=str(device) if bound else None,
         ),
     )
     started, finish_started, release_finish = (

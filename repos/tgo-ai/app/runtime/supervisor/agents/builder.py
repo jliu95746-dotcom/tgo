@@ -13,6 +13,9 @@ from app.models.internal import AgentExecutionContext
 from app.runtime.tools.builder.agent_builder import AgentBuilder
 from app.runtime.tools.config import ToolsRuntimeSettings
 from app.runtime.tools.models import AgentConfig, AgentRunRequest, MCPConfig, RagConfig, WorkflowConfig
+from app.services.current_knowledge import (
+    evidence_prompt, retrieve_current_knowledge,
+)
 
 
 @dataclass
@@ -32,6 +35,18 @@ class AgnoAgentBuilder:
 
     async def build_agent(self, context: AgentExecutionContext) -> BuiltAgent:
         """Build the direct agent for one execution request."""
+        if (
+            context.require_current_knowledge
+            and context.response_purpose != "expression"
+        ):
+            context.knowledge_evidence = (
+                context.knowledge_evidence
+                or await retrieve_current_knowledge(context)
+            )
+            context.system_message = (
+                (context.system_message or "") + "\n"
+                + evidence_prompt(context.knowledge_evidence)
+            )
         if context.response_purpose == "expression":
             context = context.model_copy(update={
                 "disable_tools": True, "enable_memory": False,
@@ -52,6 +67,9 @@ class AgnoAgentBuilder:
             excluded_tool_ids=context.excluded_tool_ids,
         )
         agno_agent = await self._agent_builder.build_agent(request, internal_agent=context.agent)
+        if context.require_current_knowledge and isinstance(agno_agent, Agent):
+            # Do not put documents or business receipts in debug logs.
+            agno_agent.debug_mode = False
 
         # Keep runtime ids stable so downstream events and cancellations use the persisted agent id.
         agno_agent.id = str(context.agent.id)
@@ -84,7 +102,10 @@ class AgnoAgentBuilder:
             )
 
         rag_config = None
-        if context.rag_url and context.agent.collections:
+        if (
+            context.rag_url and context.agent.collections
+            and not context.require_current_knowledge
+        ):
             rag_config = RagConfig(
                 rag_url=context.rag_url,
                 collections=[binding.collection_id for binding in context.agent.collections if binding.enabled],

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
 from pydantic import ConfigDict, Field, model_validator
 
 from app.schemas.base import BaseSchema
 from app.schemas.knowledge import KnowledgeChannel
+from app.schemas.knowledge_evidence import KnowledgeEvidence
 from app.schemas.reply_phase import ReplyPhaseIdentity
 
 
@@ -91,6 +92,10 @@ class SupervisorRunRequest(BaseSchema):
         description="Disable every RAG, workflow, MCP, and skill tool for this run",
     )
     response_purpose: Literal["standard", "expression"] = "standard"
+    require_current_knowledge: bool = False
+    knowledge_context: list[Annotated[str, Field(max_length=800)]] = Field(
+        default_factory=list, max_length=4,
+    )
     markdown: Optional[bool] = Field(
         default=None,
         description="Optional per-run Markdown output override",
@@ -190,3 +195,4 @@ class SupervisorRunResponse(BaseSchema):
     )
 
     model_config = ConfigDict(extra="allow")
+    knowledge_evidence: KnowledgeEvidence | None = None

@@ -78,7 +78,12 @@ async def test_public_stop_waits_for_private_end_receipt_without_execution_id(
         if stage == "lookup":
             await held_model(kwargs["reply_phase"])
         yield "agent_response_complete", {
-            "data": {"success": True, "final_content": "这款没有绿色。"}
+            "data": {"success": True, "final_content": "这款没有绿色。",
+                     "knowledge_evidence": {
+                         "status": "matched", "retrieved_at": "2026-10-10T00:00:00Z",
+                         "project_id": kwargs["project_id"], "channel": kwargs.get("knowledge_channel"),
+                         "documents": [{"collection_id": "c", "document_id": "d", "content": "这款没有绿色。"}],
+                     }}
         }
         yield "workflow_completed", {"data": {}}
 

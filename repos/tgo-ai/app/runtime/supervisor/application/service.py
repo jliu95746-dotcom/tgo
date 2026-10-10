@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncIterator, Dict, Optional, Tuple
@@ -17,6 +18,8 @@ from app.core.logging import get_logger
 from app.exceptions import NotFoundError
 from app.models.internal import AgentExecutionContext
 from app.services.default_knowledge import resolve_agent_knowledge
+from app.schemas.knowledge_evidence import KnowledgeEvidence
+from app.services.current_knowledge import SOCIAL_ONLY
 from app.runtime.supervisor.agents.builder import AgnoAgentBuilder
 from app.runtime.supervisor.agents.runner import AgnoAgentRunner
 from app.runtime.supervisor.infrastructure.services import AIServiceClient
@@ -339,6 +342,8 @@ class SupervisorRuntimeService:
             enable_memory=payload.enable_memory,
             disable_tools=payload.disable_tools,
             response_purpose=payload.response_purpose,
+            require_current_knowledge=payload.require_current_knowledge,
+            knowledge_context=payload.knowledge_context,
             markdown=payload.markdown,
             temperature=payload.temperature,
             excluded_tool_ids=payload.excluded_tool_ids,
@@ -349,10 +354,28 @@ class SupervisorRuntimeService:
             and not context.disable_tools
             and context.rag_url
             and context.knowledge_channel is not None
-        ):
-            context.agent = await resolve_agent_knowledge(
-                context.agent, context.knowledge_channel
+            and not (
+                context.require_current_knowledge
+                and SOCIAL_ONLY.fullmatch(context.message)
             )
+        ):
+            try:
+                context.agent = await resolve_agent_knowledge(
+                    context.agent, context.knowledge_channel
+                )
+            except Exception as exc:
+                if not context.require_current_knowledge:
+                    raise
+                self._logger.warning(
+                    "Current knowledge scope unavailable",
+                    error_type=type(exc).__name__,
+                )
+                context.knowledge_evidence = KnowledgeEvidence(
+                    status="unavailable",
+                    retrieved_at=datetime.now(timezone.utc),
+                    project_id=context.project_id,
+                    channel=context.knowledge_channel.value,
+                )
         return context, agent_id
 
     @asynccontextmanager

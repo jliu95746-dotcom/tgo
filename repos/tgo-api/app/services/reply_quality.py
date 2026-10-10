@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Sequence
 
 from pydantic import BaseModel, Field, StrictBool
+from app.schemas.knowledge_evidence import KnowledgeEvidence
 
 from app.services.ai_reply_control import tracked_ai_request
 
@@ -111,6 +112,7 @@ def assess_reply(
     recent_messages: Sequence[dict[str, str]] = (),
     *,
     include_style: bool = True,
+    knowledge_evidence: KnowledgeEvidence | None = None,
 ) -> list[str]:
     """Check facts and scope, with optional default tone checks."""
     issues: list[str] = []
@@ -143,8 +145,12 @@ def assess_reply(
         and not UNCERTAIN.search(reply)
     ):
         issues.append("certainty_changed")
+    numeric_authority = (
+        knowledge_evidence.factual_text()
+        if knowledge_evidence is not None else factual_draft
+    )
     if numeric_values(reply) - numeric_values(
-        factual_draft + "\n" + customer_message
+        numeric_authority + "\n" + customer_message
     ):
         issues.append("new_numbers")
     if include_style and re.search(
@@ -235,6 +241,20 @@ FACT_AUDIT_PROMPT = (
     + "若回复仍附带与本轮答案无关的兜底说明，valid=false，issues 包含 irrelevant_caveat。"
 )
 
+CURRENT_EVIDENCE_AUDIT_PROMPT = (
+    "输入包含本轮检索证据时，覆盖以初稿为事实的规则：商品、产品属性、价格和政策"
+    "必须逐项得到本轮 matched documents 支持，初稿、旧聊天、长期记忆、客户主张和"
+    "表达案例都不能独立证明事实。新资料与旧初稿不同也必须以新资料为准。"
+    "订单事实和操作完成必须由本轮成功的 tool_results 支持，旧工具回执无效；"
+    "非业务工具（例如技能案例、记忆）不能证明业务事实。"
+    "历史订单按本轮记录与明确的适用条件判断，不把新版政策无条件套到旧订单。"
+    "检索无匹配、不可用、过长或资料相互冲突时，不得凭旧信息确认当前事实，"
+    "只允许无法确认、必要的澄清或已执行业务工具支持的回复；"
+    "不能把未查到改为产品不存在、无货、不支持，也不能宣称已提交转人工。"
+    "冲突只在同一产品、同一适用条件、同一时间范围下判断；不同产品价格不同不算冲突。"
+    "status=skipped 只允许社交回复。valid=false 时以简短错误代码说明问题。"
+)
+
 
 async def audit_reply_facts(
     client: "AIServiceClient",
@@ -245,6 +265,7 @@ async def audit_reply_facts(
     factual_draft: str,
     customer_message: str,
     recent_messages: list[dict[str, str]],
+    knowledge_evidence: KnowledgeEvidence | None = None,
 ) -> list[str]:
     context = list(recent_messages)
 
@@ -255,6 +276,8 @@ async def audit_reply_facts(
                 "近期对话": context,
                 "本轮业务事实": factual_draft,
                 "待审核回复": reply,
+                **({"本轮检索证据": knowledge_evidence.model_dump(mode="json")}
+                   if knowledge_evidence is not None else {}),
             },
             ensure_ascii=False,
         )
@@ -272,7 +295,10 @@ async def audit_reply_facts(
             project_id=project_id,
             agent_id=agent_id,
             message=message,
-            system_message=FACT_AUDIT_PROMPT,
+            system_message=FACT_AUDIT_PROMPT + (
+                CURRENT_EVIDENCE_AUDIT_PROMPT
+                if knowledge_evidence is not None else ""
+            ),
             response_purpose="expression",
             session_id=None,
             disable_tools=True,

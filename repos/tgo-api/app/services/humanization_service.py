@@ -2,8 +2,11 @@
 
 import json
 from typing import Literal, Optional, Sequence
+from app.core.logging import get_logger
 
 from app.schemas.humanization import ConversationTurn, HumanizationContext
+from app.schemas.knowledge_evidence import KnowledgeEvidence
+from app.services.current_knowledge import UNCONFIRMED_REPLY
 from app.services.ai_client import AIServiceClient, ai_client
 from app.services.ai_reply_control import tracked_ai_request
 from app.services.reply_quality import (
@@ -16,8 +19,12 @@ from app.services.reply_quality import (
     trim_trailing_preference_questions,
 )
 
+logger = get_logger(__name__)
+
 ASSIST_FACT_GATHERING_PROMPT = (
-    "你是客服业务答复助手。依据本轮客户消息、近期对话和工具结果确认事实。"
+    "你是客服业务答复助手。近期对话与长期记忆用于理解指代、偏好和已给条件；"
+    "当前产品和政策事实必须依据本轮系统检索证据，历史回答不能证明当前事实。"
+    "操作完成和历史订单依据本轮业务工具结果，不能复用旧工具回执。"
     "需要查询时直接调用工具，不播报查询、思考、工具或内部工作过程。"
     "资料标题和检索依据保留在内部，不写入客户正文，除非客户明确要出处。"
     "明确区分：已确认有、已确认没有、仅未找到、信息不确定、查询失败。"
@@ -186,7 +193,18 @@ async def rewrite_assist_draft(
     factual_draft: str,
     humanization_prompt: str = "",
     recent_messages: Sequence[ConversationTurn | dict[str, str]] | None = None,
+    knowledge_evidence: KnowledgeEvidence | None = None,
 ) -> str:
+    if (
+        knowledge_evidence is not None
+        and knowledge_evidence.status not in {"matched", "skipped"}
+        and not any(tool.success for tool in knowledge_evidence.tool_results)
+    ):
+        logger.info(
+            "Grounded reply unconfirmed",
+            extra={"reason": knowledge_evidence.status},
+        )
+        return UNCONFIRMED_REPLY
     prompt = ASSIST_REWRITE_PROMPT
     if humanization_prompt:
         prompt = append_humanization_prompt(prompt, humanization_prompt)
@@ -196,21 +214,31 @@ async def rewrite_assist_draft(
         turn.model_dump() if isinstance(turn, ConversationTurn) else turn
         for turn in (recent_messages or [])
     ][-8:]
-    message = json.dumps(
-        {"客户原话": customer_message, "近期对话": context, "本轮业务答复": factual_draft},
-        ensure_ascii=False,
-    )
+
+    def encode() -> str:
+        return json.dumps({
+            "客户原话": customer_message, "近期对话": context, "本轮业务答复": factual_draft,
+            **({"本轮检索证据": knowledge_evidence.model_dump(mode="json")}
+               if knowledge_evidence is not None else {}),
+        }, ensure_ascii=False)
+
+    if knowledge_evidence is not None:
+        evidence_rules = (
+            "本轮检索证据优先于业务初稿。当前商品、价格和政策只能来自 matched documents，"
+            "操作和历史订单只能来自本轮成功业务 tool_results。旧事实需要改为有依据的新事实。"
+            "资料冲突或无依据时只说当前无法确认，不能猜测或宣称已转人工。"
+        )
+        prompt += evidence_rules
+    message = encode()
     while len(message) > 10000 and context:
         context.pop(0)
-        message = json.dumps(
-            {
-                "客户原话": customer_message,
-                "近期对话": context,
-                "本轮业务答复": factual_draft,
-            },
-            ensure_ascii=False,
-        )
+        message = encode()
     if len(message) > 10000:
+        if knowledge_evidence is not None:
+            logger.info(
+                "Grounded reply unconfirmed", extra={"reason": "input_budget"},
+            )
+            return UNCONFIRMED_REPLY
         raise ReplyQualityError(
             "Factual answer is too long; no facts were truncated"
         )
@@ -235,6 +263,8 @@ async def rewrite_assist_draft(
             # A selected style may contain sales questions that conflict with
             # this turn. Repair without those examples, keeping fact checks.
             effective_prompt = ASSIST_REWRITE_PROMPT + DEFAULT_EXPRESSION_STYLE
+            if knowledge_evidence is not None:
+                effective_prompt += evidence_rules
         async with tracked_ai_request() as phase:
             result = await client.run_supervisor_agent(
                 message=message,
@@ -262,6 +292,7 @@ async def rewrite_assist_draft(
             customer_message,
             recent_messages=context,
             include_style=not humanization_prompt and attempt == 0,
+            knowledge_evidence=knowledge_evidence,
         )
         if attempt == 1 and "unnecessary_question" in issues:
             trimmed = trim_trailing_preference_questions(reply)
@@ -270,6 +301,7 @@ async def rewrite_assist_draft(
                 issues = assess_reply(
                     reply, factual_draft, customer_message,
                     recent_messages=context, include_style=False,
+                    knowledge_evidence=knowledge_evidence,
                 )
         if (
             attempt == 1
@@ -287,20 +319,33 @@ async def rewrite_assist_draft(
                     customer_message,
                     recent_messages=context,
                     include_style=False,
+                    knowledge_evidence=knowledge_evidence,
                 )
                 if "template_opening" not in cleaned_issues:
                     reply = without_opening
                     issues = cleaned_issues
         if not issues:
-            issues = await audit_reply_facts(
-                client,
-                project_id=project_id,
-                agent_id=agent_id,
-                reply=reply,
-                factual_draft=factual_draft,
-                customer_message=customer_message,
-                recent_messages=context,
-            )
+            try:
+                issues = await audit_reply_facts(
+                    client, project_id=project_id, agent_id=agent_id,
+                    reply=reply, factual_draft=factual_draft,
+                    customer_message=customer_message, recent_messages=context,
+                    knowledge_evidence=knowledge_evidence,
+                )
+            except ReplyQualityError:
+                if knowledge_evidence is not None:
+                    logger.info(
+                        "Grounded reply unconfirmed",
+                        extra={"reason": "invalid_or_over_budget_audit"},
+                    )
+                    return UNCONFIRMED_REPLY
+                raise
         if not issues:
             return reply
+    if knowledge_evidence is not None:
+        logger.info(
+            "Grounded reply unconfirmed",
+            extra={"reason": "quality_rejected"},
+        )
+        return UNCONFIRMED_REPLY
     raise ReplyQualityError("Reply quality check failed: " + ", ".join(issues))

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+from app.schemas.knowledge_evidence import KnowledgeEvidence
 
 
 class EventType(str, Enum):
@@ -117,6 +118,7 @@ class AgentResponseCompleteData(BaseEventData):
     total_chunks: int
     tool_calls_count: int = 0
     response_length: int
+    knowledge_evidence: "KnowledgeEvidence | None" = None
 
 
 class JsonRenderUpdateData(BaseEventData):

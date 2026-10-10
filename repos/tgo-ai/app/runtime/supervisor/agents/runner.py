@@ -25,6 +25,7 @@ from app.schemas.agent_run import (
     AgentRunMetadata,
     SupervisorRunResponse,
 )
+from app.schemas.knowledge_evidence import BusinessToolEvidence
 
 from .builder import BuiltAgent
 
@@ -71,6 +72,9 @@ class AgnoAgentRunner:
                 )
         total_time = time.time() - start_time
         tools_used = self._extract_tool_names(getattr(output, "tools", None))
+        if context.knowledge_evidence is not None:
+            for tool in getattr(output, "tools", None) or []:
+                self._capture_tool_evidence(context, tool)
 
         result = AgentExecutionResult(
             agent_id=context.agent.id,
@@ -91,6 +95,8 @@ class AgnoAgentRunner:
         return SupervisorRunResponse(
             success=True,
             message="Agent run completed",
+            **({"knowledge_evidence": context.knowledge_evidence}
+               if context.knowledge_evidence is not None else {}),
             result=result,
             content=final_content,
             metadata=metadata,
@@ -154,6 +160,7 @@ class AgnoAgentRunner:
                     continue
 
                 if isinstance(event, ToolCallCompletedEvent) and event.tool:
+                    self._capture_tool_evidence(context, event.tool)
                     workflow_events.emit_agent_tool_call_completed(
                         agent_id=str(context.agent.id),
                         agent_name=context.agent.name,
@@ -213,6 +220,8 @@ class AgnoAgentRunner:
             success=success,
             total_chunks=chunk_index,
             tool_calls_count=tool_calls,
+            **({"knowledge_evidence": context.knowledge_evidence}
+               if context.knowledge_evidence is not None else {}),
         )
         return AgentRunResult(
             content=final_content,
@@ -220,6 +229,25 @@ class AgnoAgentRunner:
             success=success,
             error=error,
         )
+
+    @staticmethod
+    def _capture_tool_evidence(
+        context: AgentExecutionContext, tool: object,
+    ) -> None:
+        if context.knowledge_evidence is None:
+            return
+        name = str(getattr(tool, "tool_name", "unknown_tool"))
+        # Memory is context, never an authoritative business tool receipt.
+        if (
+            name.startswith(("rag_search_", "get_skill", "read_skill"))
+            or "memory" in name.lower()
+        ):
+            return
+        content = AgnoAgentRunner._ensure_text(getattr(tool, "result", None))
+        context.knowledge_evidence.tool_results.append(BusinessToolEvidence(
+            name=name, content=content,
+            success=not bool(getattr(tool, "tool_call_error", False)),
+        ))
 
     @staticmethod
     def _ensure_text(value: Optional[Any]) -> str:

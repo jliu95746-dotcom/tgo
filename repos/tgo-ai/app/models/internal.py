@@ -12,6 +12,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.schemas.knowledge import KnowledgeChannel
+from app.schemas.knowledge_evidence import KnowledgeEvidence
 from app.runtime.tools.models import LLMProviderCredentials
 
 
@@ -174,6 +175,9 @@ class AgentExecutionContext(BaseModel):
 
     agent: Agent = Field(..., description="Resolved agent for this run")
     response_purpose: Literal["standard", "expression"] = "standard"
+    require_current_knowledge: bool = False
+    knowledge_context: list[str] = Field(default_factory=list, max_length=4)
+    knowledge_evidence: KnowledgeEvidence | None = None
     project_id: str = Field(..., description="Owning project ID")
     message: str = Field(..., description="User message")
     system_message: Optional[str] = Field(

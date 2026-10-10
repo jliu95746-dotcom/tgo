@@ -193,6 +193,8 @@ class AIServiceClient:
         enable_memory: Optional[bool] = None,
         disable_tools: Optional[bool] = None,
         response_purpose: str = "standard",
+        require_current_knowledge: bool = False,
+        knowledge_context: list[str] | None = None,
         markdown: Optional[bool] = None,
         temperature: Optional[float] = None,
         cancel_on_disconnect: bool = False,
@@ -222,6 +224,9 @@ class AIServiceClient:
         if disable_tools is not None:
             payload["disable_tools"] = disable_tools
         payload["response_purpose"] = response_purpose
+        if require_current_knowledge:
+            payload["require_current_knowledge"] = True
+            payload["knowledge_context"] = (knowledge_context or [])[-4:]
         if response_purpose == "expression":
             payload["ui_mode"] = "text"
         if markdown is not None:
@@ -266,6 +271,8 @@ class AIServiceClient:
         excluded_tool_ids: Optional[List[str]] = None,
         disable_tools: bool | None = None,
         expected_device_id: str | None = None,
+        require_current_knowledge: bool = False,
+        knowledge_context: list[str] | None = None,
         cancel_on_disconnect: bool = False,
         reply_phase: ReplyPhaseIdentity | None = None,
     ) -> AsyncGenerator[Tuple[str, Any], None]:
@@ -277,6 +284,9 @@ class AIServiceClient:
         }
         if disable_tools is not None:
             payload["disable_tools"] = disable_tools
+        if require_current_knowledge:
+            payload["require_current_knowledge"] = True
+            payload["knowledge_context"] = (knowledge_context or [])[-4:]
         if agent_id:
             payload["agent_id"] = agent_id
         if session_id:
