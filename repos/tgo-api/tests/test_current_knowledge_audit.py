@@ -105,6 +105,8 @@ async def test_semantic_audit_receives_current_evidence_separately_from_draft():
         client.run_supervisor_agent.call_args.kwargs["message"]
     )
     assert payload["本轮检索证据"]["documents"][0]["content"].endswith("十五天退换。")
+    assert payload["待校正的业务初稿"] == "七天退换。"
+    assert "本轮业务事实" not in payload
 
 
 @pytest.mark.asyncio
@@ -128,6 +130,9 @@ async def test_rewrite_corrects_stale_draft_and_ignores_old_style_example():
     )
     assert "299" in reply and "十五天" in reply
     assert client.run_supervisor_agent.await_count == 2
+    generation = client.run_supervisor_agent.await_args_list[0].kwargs
+    assert "只能来自本轮业务答复" not in generation["system_message"]
+    assert "待校正的业务初稿" in generation["message"]
 
 
 @pytest.mark.asyncio
