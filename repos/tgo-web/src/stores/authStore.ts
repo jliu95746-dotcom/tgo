@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { STORAGE_KEYS } from '@/constants';
 
-import { authAPI, APIError, RegistrationLoginError, RegistrationVerificationRequired } from '@/services/api';
+import { apiClient, authAPI, APIError, RegistrationLoginError, RegistrationVerificationRequired, setSessionRequestHandler } from '@/services/api';
+import { tokenNeedsRefresh } from '@/services/staffSession';
 import { wukongimWebSocketService } from '@/services/wukongimWebSocket';
 import { useChatStore } from './chatStore';
 import type { LoginFormData, RegisterFormData } from '@/types';
@@ -28,14 +29,20 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  isSessionReady: boolean;
 
   // Actions
   login: (credentials: LoginFormData) => Promise<void>;
   register: (userData: RegisterFormData) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: (revokeSession?: boolean) => Promise<void>;
   clearError: () => void;
   setLoading: (loading: boolean) => void;
+  refreshSession: (active?: boolean) => Promise<void>;
+  setSessionReady: () => void;
 }
+
+let pendingRefresh: Promise<void> | null = null;
+let pendingActive = false;
 
 /**
  * Authentication Store
@@ -43,13 +50,40 @@ interface AuthState {
  */
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       // Initial state
       user: null,
       token: null,
       isAuthenticated: false,
       isLoading: false,
       error: null,
+      isSessionReady: false,
+
+      setSessionReady: () => set({ isSessionReady: true }),
+
+      refreshSession: async (active = false) => {
+        if (!get().isAuthenticated) return;
+        if (pendingRefresh) {
+          const wasActive = pendingActive;
+          await pendingRefresh;
+          if (active && !wasActive) await get().refreshSession(true);
+          return;
+        }
+        const previousToken = get().token;
+        pendingActive = active;
+        const request = authAPI.refreshSession(active).then(response => {
+          // Logout or another login can complete while this request is in flight.
+          if (!get().isAuthenticated || get().token !== previousToken) return;
+          apiClient.setToken(response.access_token);
+          set({ token: response.access_token, user: response.staff });
+        });
+        pendingRefresh = request;
+        try {
+          await request;
+        } finally {
+          if (pendingRefresh === request) pendingRefresh = null;
+        }
+      },
 
       // Login action
       login: async (credentials: LoginFormData) => {
@@ -179,10 +213,16 @@ export const useAuthStore = create<AuthState>()(
       },
 
       // Logout action
-      logout: async () => {
+      logout: async (revokeSession = true) => {
         console.log('🔐 Auth Store: Starting logout process');
 
         try {
+          // Clear state immediately so a late renewal cannot restore this login.
+          const revocation = (revokeSession ? authAPI.logout() : Promise.resolve()).catch(error => {
+            console.warn('Failed to revoke browser session:', error);
+          });
+          apiClient.setToken(null);
+          set({ user: null, token: null, isAuthenticated: false, error: null });
           // 1. Disconnect WebSocket connection
           console.log('🔐 Auth Store: Disconnecting WebSocket');
           wukongimWebSocketService.safeDisconnect();
@@ -198,7 +238,6 @@ export const useAuthStore = create<AuthState>()(
 
           // 3. Clear API token
           console.log('🔐 Auth Store: Clearing API token');
-          authAPI.logout();
 
           // 4. Clear auth state
           set({
@@ -236,6 +275,7 @@ export const useAuthStore = create<AuthState>()(
 
           // 6. Navigate to login page
           // Use window.location to ensure complete page refresh and prevent back navigation
+          await revocation;
           window.location.href = '/login';
 
         } catch (error) {
@@ -288,6 +328,7 @@ export const useAuthStore = create<AuthState>()(
           if (error) {
             console.error('🔐 Auth Store: Rehydration failed', error);
           } else {
+            apiClient.setToken(state?.token ?? null);
             console.log('🔐 Auth Store: Rehydration successful', {
               hasUser: !!state?.user,
               hasToken: !!state?.token,
@@ -300,3 +341,10 @@ export const useAuthStore = create<AuthState>()(
     }
   )
 );
+
+setSessionRequestHandler(async () => {
+  const state = useAuthStore.getState();
+  if (state.isAuthenticated && tokenNeedsRefresh(state.token)) {
+    await state.refreshSession(false);
+  }
+});

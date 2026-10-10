@@ -4,7 +4,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter, Depends, Form, HTTPException, Request, Response, status,
+)
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -43,6 +45,12 @@ from app.services.wukongim_client import wukongim_client
 from app.services.transfer_service import is_within_service_hours
 from app.services.project_registration import ensure_project_staff_channel
 from app.api.common_responses import AUTH_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES
+from app.services.staff_browser_session import (
+    IDLE_SECONDS,
+    end_browser_session,
+    refresh_browser_session,
+    start_browser_session,
+)
 
 logger = get_logger("endpoints.staff")
 router = APIRouter()
@@ -78,8 +86,11 @@ def _build_staff_response(staff: Staff, is_working: bool = None) -> StaffRespons
     responses=AUTH_RESPONSES
 )
 async def login_staff(
+    request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
+    remember_session: bool = Form(False),
 ) -> StaffLoginResponse:
     """
     Staff login.
@@ -98,7 +109,13 @@ async def login_staff(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    if remember_session:
+        await start_browser_session(request, response, user)
+
+    access_seconds = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    if remember_session:
+        access_seconds = min(access_seconds, IDLE_SECONDS)
+    access_token_expires = timedelta(seconds=access_seconds)
     access_token = create_access_token(
         subject=user.username,
         project_id=user.project_id,
@@ -135,9 +152,24 @@ async def login_staff(
     return StaffLoginResponse(
         access_token=access_token,
         token_type="bearer",
-        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        expires_in=access_seconds,
         staff=StaffResponse.model_validate(user)
     )
+
+
+@router.post("/session/refresh", response_model=StaffLoginResponse)
+async def refresh_staff_session(
+    request: Request,
+    response: Response,
+    active: bool = False,
+    db: Session = Depends(get_db),
+) -> StaffLoginResponse:
+    return await refresh_browser_session(request, response, db, active)
+
+
+@router.post("/session/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_staff_session(request: Request, response: Response) -> None:
+    await end_browser_session(request, response)
 
 
 @router.get(

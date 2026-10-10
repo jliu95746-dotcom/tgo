@@ -107,6 +107,8 @@ export interface APIErrorDetail {
 // Unauthorized handler hook
 let onUnauthorized: (() => void) | null = null;
 export const setUnauthorizedHandler = (handler: () => void) => { onUnauthorized = handler; };
+let onSessionRequest: (() => Promise<void>) | null = null;
+export const setSessionRequestHandler = (handler: () => Promise<void>) => { onSessionRequest = handler; };
 
 // HTTP Client Class
 class APIClient {
@@ -138,11 +140,18 @@ class APIClient {
     return this.token;
   }
 
+  private async prepareSession(endpoint: string): Promise<void> {
+    if (this.storageKey !== 'tgo-auth-token' || !this.token) return;
+    if (/^\/v1\/staff\/(login|register)(?:[/?]|$)/.test(endpoint) || endpoint.startsWith('/v1/staff/session/')) return;
+    await onSessionRequest?.();
+  }
+
   // Generic request method
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
+    await this.prepareSession(endpoint);
     const url = `${this.baseURL}${endpoint}`;
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
@@ -158,6 +167,7 @@ class APIClient {
     (headers as Record<string, string>)['X-User-Language'] = getCurrentLanguage();
 
     const config: RequestInit = {
+      credentials: 'include',
       ...options,
       headers,
     };
@@ -252,6 +262,12 @@ class APIClient {
     });
   }
 
+  async postSession<T>(endpoint: string): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'POST', headers: { 'X-TGO-Session': '1' },
+    });
+  }
+
   /**
    * Streaming POST request using Fetch API and ReadableStream
    * Specifically designed for text/event-stream (SSE)
@@ -266,6 +282,7 @@ class APIClient {
       signal?: AbortSignal;
     }
   ): Promise<void> {
+    await this.prepareSession(endpoint);
     const url = `${this.baseURL}${endpoint}`;
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
@@ -278,6 +295,7 @@ class APIClient {
 
     try {
       const response = await fetch(url, {
+        credentials: 'include',
         method: 'POST',
         headers,
         body: data ? JSON.stringify(data) : undefined,
@@ -354,6 +372,7 @@ class APIClient {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        ...(endpoint === '/v1/staff/login' ? { 'X-TGO-Session': '1' } : {}),
       },
       body: formData.toString(),
     });
@@ -361,6 +380,7 @@ class APIClient {
 
   // POST multipart/form-data (FormData)
   async postFormData<T>(endpoint: string, formData: FormData, extraHeaders?: HeadersInit): Promise<T> {
+    await this.prepareSession(endpoint);
     const url = `${this.baseURL}${endpoint}`;
     const headers: HeadersInit = {
       ...(extraHeaders || {}),
@@ -371,6 +391,7 @@ class APIClient {
     // Add user language header
     (headers as Record<string, string>)['X-User-Language'] = getCurrentLanguage();
     const config: RequestInit = {
+      credentials: 'include',
       method: 'POST',
       headers,
       body: formData,
@@ -423,6 +444,7 @@ class APIClient {
 
   // GET raw response (e.g., for binary downloads)
   async getResponse(endpoint: string, extraHeaders?: HeadersInit): Promise<Response> {
+    await this.prepareSession(endpoint);
     const url = `${this.baseURL}${endpoint}`;
     const headers: HeadersInit = { ...(extraHeaders || {}) };
     if (this.token) {
@@ -430,7 +452,7 @@ class APIClient {
     }
     // Add user language header
     (headers as Record<string, string>)['X-User-Language'] = getCurrentLanguage();
-    const config: RequestInit = { method: 'GET', headers };
+    const config: RequestInit = { method: 'GET', headers, credentials: 'include' };
     const response = await fetch(url, config);
     if (!response.ok) {
       // Trigger global unauthorized handler on 401 when token exists
@@ -542,6 +564,7 @@ export const authAPI = {
       username: credentials.username,
       password: credentials.password,
       grant_type: 'password',
+      remember_session: 'true',
     };
 
     const response = await apiClient.postForm<StaffLoginResponse>('/v1/staff/login', loginData);
@@ -557,9 +580,15 @@ export const authAPI = {
     return apiClient.post<StaffResponse>('/v1/staff/register', userData);
   },
 
-  // Logout (clear token)
-  logout(): void {
+  async refreshSession(active = false): Promise<StaffLoginResponse> {
+    return apiClient.postSession<StaffLoginResponse>(`/v1/staff/session/refresh?active=${active}`);
+  },
+
+  // Revoke the browser cookie as well as clearing the access token.
+  async logout(): Promise<void> {
+    const request = apiClient.postSession<void>('/v1/staff/session/logout');
     apiClient.setToken(null);
+    await request;
   },
 
   // Get current user info

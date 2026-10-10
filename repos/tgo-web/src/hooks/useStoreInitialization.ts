@@ -12,12 +12,13 @@ import mockDataHelper from '@/utils/mockDataHelper';
  * Hook to initialize all stores with appropriate data
  * Call this in your main App component or root layout
  */
-export const useStoreInitialization = () => {
+export const useStoreInitialization = (ready = true) => {
   // Get initialization methods from stores
   const initializeChatStore = useChatStore(state => state.initializeStore);
 
 
   useEffect(() => {
+    if (!ready) return;
     const initializeStores = async () => {
       try {
         // Initialize all stores concurrently
@@ -35,7 +36,7 @@ export const useStoreInitialization = () => {
 
     initializeStores();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty deps - only run once on mount (store functions are stable)
+  }, [ready]); // Store functions are stable; wait for browser-session restoration.
 };
 
 export default useStoreInitialization;

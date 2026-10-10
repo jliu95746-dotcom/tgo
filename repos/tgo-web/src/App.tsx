@@ -9,13 +9,15 @@ import { useStoreInitialization } from './hooks/useStoreInitialization';
 import { setUnauthorizedHandler } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { useAppSettingsStore } from '@/stores/appSettingsStore';
+import { useStaffSession } from '@/hooks/useStaffSession';
 
 /**
  * Main App component with React Router and centralized WebSocket management
  */
 const App: React.FC = () => {
   // Initialize stores (platforms, chats, etc.) once at app start
-  useStoreInitialization();
+  const sessionReady = useStaffSession();
+  useStoreInitialization(sessionReady);
   const toast = useContext(ToastContext);
   const { t } = useTranslation();
   const { themeMode } = useAppSettingsStore();
@@ -75,6 +77,8 @@ const App: React.FC = () => {
       }
     });
   }, [toast, t]);
+
+  if (!sessionReady) return <div role="status">{t('common.loading', '加载中…')}</div>;
 
   return (
     <ToastContainer>
