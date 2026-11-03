@@ -128,11 +128,19 @@ async def test_v2_scope_lease_blocks_other_and_revoked_visitors(bridge, monkeypa
         async def mget(self, *keys):
             return [data.get(key) for key in keys]
 
-    monkeypatch.setattr(service.settings, "WECHAT_LOCAL_SCOPED_ENABLED", True)
+    monkeypatch.setattr(service.settings, "WECHAT_LOCAL_SCOPED_ENABLED", False)
+    monkeypatch.setattr(service.settings, "WECHAT_LOCAL_SCOPED_PLATFORM_IDS", {platform.id})
     monkeypatch.setattr(service.settings, "REDIS_URL", "redis://scope-test.invalid")
     monkeypatch.setattr(service.Redis, "from_url", lambda *_args, **_kwargs: RedisFixture())
     with pytest.raises(HTTPException, match="未授权"):
         await authorize_bridge_visitor(db, platform, f"{visitor.id}-vtr", 251, token)
+    other = Platform(id=uuid4(), api_key="other-fixture-key", is_active=True)
+    assert (await bridge_status(platform)).scoped_enabled is True
+    assert (await bridge_status(other)).scoped_enabled is False
+    with pytest.raises(HTTPException, match="仍在验收"):
+        await service.issue_pairing_code(other, "a" * 64)
+    with pytest.raises(HTTPException, match="仍在验收"):
+        await publish_bridge_scope(other, WeChatLocalScope(account_tag=tag, targets=[]))
     scope = WeChatLocalScope(account_tag=tag, targets=[
         {"identity": visitor.platform_open_id, "keywords": ["售后"]},
     ])
@@ -199,7 +207,8 @@ async def test_pairing_code_requires_exact_channel_and_proof_and_is_single_use(b
         async def getdel(self, key):
             return data.pop(key, None)
 
-    monkeypatch.setattr(service.settings, "WECHAT_LOCAL_SCOPED_ENABLED", True)
+    monkeypatch.setattr(service.settings, "WECHAT_LOCAL_SCOPED_ENABLED", False)
+    monkeypatch.setattr(service.settings, "WECHAT_LOCAL_SCOPED_PLATFORM_IDS", {platform.id, other.id})
     monkeypatch.setattr(service.settings, "REDIS_URL", "redis://pair-test.invalid")
     monkeypatch.setattr(service.Redis, "from_url", lambda *_args, **_kwargs: RedisFixture())
     verifier = "v" * 43

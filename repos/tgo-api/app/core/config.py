@@ -1,6 +1,7 @@
 """Application configuration using Pydantic Settings."""
 
 from typing import List, Optional
+from uuid import UUID
 
 from pydantic import Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -59,6 +60,7 @@ class Settings(BaseSettings):
     # Commercial rollout is opt-in; existing companies are not enrolled here.
     SAAS_ENABLED: bool = Field(default=False)
     WECHAT_LOCAL_SCOPED_ENABLED: bool = Field(default=False)
+    WECHAT_LOCAL_SCOPED_PLATFORM_IDS: set[UUID] = Field(default_factory=set)
     SAAS_NEW_PURCHASES_ENABLED: bool = Field(default=False)
     SAAS_BILLING_ENABLED: bool = Field(default=False)
     SAAS_INTERNAL_TOKEN: Optional[SecretStr] = Field(default=None)

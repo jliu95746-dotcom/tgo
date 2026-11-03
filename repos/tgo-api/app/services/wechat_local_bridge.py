@@ -132,8 +132,15 @@ def _redis_key(platform: Platform) -> str:
     return f"tgo:wechat-local:{platform.id}:{digest}"
 
 
+def _scoped_enabled(platform: Platform) -> bool:
+    return (
+        settings.WECHAT_LOCAL_SCOPED_ENABLED
+        or platform.id in settings.WECHAT_LOCAL_SCOPED_PLATFORM_IDS
+    )
+
+
 def _pairing_key(platform: Platform, code: str, challenge: str) -> str:
-    if not settings.WECHAT_LOCAL_SCOPED_ENABLED:
+    if not _scoped_enabled(platform):
         raise HTTPException(403, "个人微信接待范围功能仍在验收")
     if not platform.is_active or not platform.api_key:
         raise HTTPException(404, "个人微信渠道不可用")
@@ -170,7 +177,7 @@ async def exchange_pairing_code(platform: Platform, code: str, verifier: str) ->
 
 
 async def publish_bridge_scope(platform: Platform, scope: WeChatLocalScope) -> None:
-    if not settings.WECHAT_LOCAL_SCOPED_ENABLED:
+    if not _scoped_enabled(platform):
         raise HTTPException(403, "个人微信接待范围功能仍在验收")
     if not settings.REDIS_URL:
         raise HTTPException(503, "个人微信授权范围暂不可用")
@@ -186,7 +193,7 @@ async def publish_bridge_scope(platform: Platform, scope: WeChatLocalScope) -> N
 
 
 async def require_scoped_target(platform: Platform, identity: str) -> ScopedWechatTarget:
-    if not settings.WECHAT_LOCAL_SCOPED_ENABLED:
+    if not _scoped_enabled(platform):
         raise HTTPException(403, "个人微信接待范围功能仍在验收")
     if not is_scoped_identity(identity):
         raise HTTPException(403, "个人微信会话范围不匹配")
@@ -225,7 +232,7 @@ async def bridge_status(platform: Platform, *, heartbeat: bool = False) -> WeCha
     if not settings.REDIS_URL:
         raise HTTPException(503, "个人微信连接状态暂不可用")
     key = _redis_key(platform)
-    scoped = settings.WECHAT_LOCAL_SCOPED_ENABLED
+    scoped = _scoped_enabled(platform)
     try:
         async with Redis.from_url(settings.REDIS_URL, socket_timeout=2) as redis:
             if heartbeat:
