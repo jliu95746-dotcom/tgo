@@ -1666,6 +1666,8 @@
     "tagsPlaceholder": "Enter tags and press Enter to add",
     "tagsHelper": "Adding tags helps you organize and find knowledge bases",
     "filesCount": "{{count}} files",
+    "expandContent": "Expand content",
+    "collapseContent": "Collapse content",
     "manage": "Manage Knowledge Base",
     "basicInfo": "Basic Information",
     "selectType": "Select Type",

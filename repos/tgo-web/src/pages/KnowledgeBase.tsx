@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Plus, Search, ArrowUpDown, FolderOpen, Clock, Eye, Pencil, Trash2, FileText, Globe, MessageSquare, Loader2, AlertCircle, Settings } from 'lucide-react';
+import { RefreshCw, Plus, Search, ArrowUpDown, FolderOpen, Clock, Eye, Pencil, Trash2, FileText, Globe, MessageSquare, Loader2, AlertCircle, Settings, ChevronRight } from 'lucide-react';
 import { useKnowledgeStore, knowledgeSelectors } from '@/stores';
 import { useToast } from '@/hooks/useToast';
 import { showKnowledgeBaseSuccess, showKnowledgeBaseError } from '@/utils/toastHelpers';
@@ -390,14 +390,11 @@ const KnowledgeBase: React.FC = () => {
                 return (
                   <div
                     key={kb.id}
-                    className={`grid grid-cols-[minmax(0,_3fr)_80px_1fr_1fr_auto] gap-4 px-4 py-3 items-center hover:bg-gray-50/30 dark:hover:bg-gray-700/30 transition-colors ${
+                    className={`grid grid-cols-[minmax(0,_3fr)_80px_1fr_1fr_auto] gap-4 px-4 py-3 items-start hover:bg-gray-50/30 dark:hover:bg-gray-700/30 transition-colors ${
                       index < filteredKnowledgeBases.length - 1 ? 'border-b border-gray-200/60 dark:border-gray-700/60' : ''
                     }`}
                   >
-                    <div
-                      className="flex items-start space-x-3 cursor-pointer hover:bg-blue-50/50 dark:hover:bg-blue-900/30 -mx-2 px-2 py-1 rounded transition-all duration-200 group"
-                      onClick={() => handleKnowledgeBaseClick(kb)}
-                    >
+                    <div className="flex min-w-0 items-start space-x-3">
                       {(() => {
                         const IconComponent = getIconComponent(kb.icon);
                         const iconColor = getIconColor(kb.icon);
@@ -407,9 +404,24 @@ const KnowledgeBase: React.FC = () => {
                           />
                         );
                       })()}
-                      <div>
-                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200">{kb.title}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug">{kb.content}</p>
+                      <div className="min-w-0">
+                        <button
+                          type="button"
+                          className="block text-left text-sm font-medium text-gray-800 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400 [overflow-wrap:anywhere]"
+                          onClick={() => handleKnowledgeBaseClick(kb)}
+                        >
+                          {kb.title}
+                        </button>
+                        {kb.content.trim() && (
+                          <details className="group/content mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded hover:text-blue-600 dark:hover:text-blue-400 [&::-webkit-details-marker]:hidden">
+                              <ChevronRight aria-hidden="true" className="h-3.5 w-3.5 group-open/content:rotate-90" />
+                              <span className="group-open/content:hidden">{t('knowledge.expandContent')}</span>
+                              <span className="hidden group-open/content:inline">{t('knowledge.collapseContent')}</span>
+                            </summary>
+                            <p className="mt-1 whitespace-pre-wrap leading-snug [overflow-wrap:anywhere]">{kb.content}</p>
+                          </details>
+                        )}
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {kb.tags.map((tag: any, tagIndex: number) => {
                             const tagName = typeof tag === 'string' ? tag : tag.name;

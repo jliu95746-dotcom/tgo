@@ -2875,6 +2875,8 @@
     "tagsPlaceholder": "输入标签并按回车键添加",
     "tagsHelper": "添加标签可以帮助您更好地组织和查找知识库",
     "filesCount": "{{count}} 文件",
+    "expandContent": "展开正文",
+    "collapseContent": "收起正文",
     "manage": "管理知识库",
     "basicInfo": "基本信息",
     "selectType": "选择类型",

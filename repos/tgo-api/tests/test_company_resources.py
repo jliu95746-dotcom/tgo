@@ -44,6 +44,28 @@ def test_expired_company_cannot_authorize_knowledge_tasks(commercial_company):
     assert error.value.code == "SUBSCRIPTION_EXPIRED"
 
 
+def test_operator_plan_authorizes_channels_without_paid_order(commercial_company, monkeypatch):
+    db, staff, plan, account, _ = commercial_company
+    now = datetime.now(timezone.utc)
+    account.status = "active"
+    account.plan_id = plan.id
+    account.expires_at = now + timedelta(days=1)
+    account.operator_override_until = account.expires_at
+    plan.definition = {**plan.definition, "channel_limit": None}
+    db.commit()
+    monkeypatch.setattr(settings, "SAAS_ENABLED", True)
+    monkeypatch.setattr(settings, "SAAS_BILLING_ENABLED", True)
+
+    assert resources(db, staff.project_id).knowledge_bytes == plan.definition["knowledge_bytes"]
+    reserve_channel_creation(db, staff.project_id)
+
+    account.operator_override_until = now - timedelta(seconds=1)
+    db.commit()
+    with pytest.raises(TGOAPIException) as error:
+        reserve_channel_creation(db, staff.project_id)
+    assert error.value.code == "SUBSCRIPTION_INCONSISTENT"
+
+
 def test_unlimited_paid_channels_keep_legacy_snapshot_compatible(commercial_company, monkeypatch):
     db, staff, plan, account, _ = commercial_company
     now = datetime.now(timezone.utc)
