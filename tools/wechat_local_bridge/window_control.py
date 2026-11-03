@@ -133,6 +133,22 @@ class WindowControl:
             raise RpaNotReady("无法读取微信窗口边界")
         return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
 
+    def display_bounds(self, screen_width: int, screen_height: int) -> tuple[int, int, int, int]:
+        left, top, width, height = self.bounds()
+        if 0 <= left < left + width <= screen_width and 0 <= top < top + height <= screen_height:
+            return left, top, width, height
+        # A snapped window can have invisible resize borders outside the screen.
+        frame = wt.RECT()
+        status = ctypes.windll.dwmapi.DwmGetWindowAttribute(
+            wt.HWND(self.hwnd), 9, ctypes.byref(frame), ctypes.sizeof(frame),
+        )
+        if status == 0 and (
+            0 <= frame.left < frame.right <= screen_width
+            and 0 <= frame.top < frame.bottom <= screen_height
+        ):
+            return frame.left, frame.top, frame.right - frame.left, frame.bottom - frame.top
+        raise RpaNotReady("请将微信窗口完整放到主屏后重试")
+
     def require_point(
         self, x: int, y: int, *, focus: bool = False, search_result: bool = False
     ) -> None:

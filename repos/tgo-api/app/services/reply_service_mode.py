@@ -3,12 +3,16 @@
 import asyncio
 from uuid import UUID
 
+from fastapi import HTTPException
+
 from app.core.database import SessionLocal
 from app.models import Platform, Visitor
 from app.services.ai_reply_control import ReplyStopped
+from app.services.wechat_local_bridge import require_scoped_target
+from app.utils.wechat_local import is_scoped_identity
 
 
-def _require_auto_mode(project_id: str, visitor_id: str) -> None:
+def _require_auto_mode(project_id: str, visitor_id: str) -> tuple[Platform, str] | None:
     from app.services.chat_service import is_ai_disabled
 
     with SessionLocal() as db:
@@ -27,6 +31,12 @@ def _require_auto_mode(project_id: str, visitor_id: str) -> None:
             or is_ai_disabled(platform, visitor)
         ):
             raise ReplyStopped("会话已切换至人工接待，AI 自动回复已停止。")
+        identity = getattr(visitor, "platform_open_id", None)
+        if getattr(platform, "type", None) == "wechat_local" and isinstance(identity, str) and is_scoped_identity(identity):
+            if not platform.is_active:
+                raise ReplyStopped("个人微信渠道已停用，AI 自动回复已停止。")
+            return platform, identity
+        return None
 
 
 async def ensure_customer_auto_reply(
@@ -34,4 +44,9 @@ async def ensure_customer_auto_reply(
     visitor_id: str,
 ) -> None:
     """Use a fresh DB session; a model request may have changed the mode."""
-    await asyncio.to_thread(_require_auto_mode, project_id, visitor_id)
+    scoped = await asyncio.to_thread(_require_auto_mode, project_id, visitor_id)
+    if scoped is not None:
+        try:
+            await require_scoped_target(*scoped)
+        except HTTPException as exc:
+            raise ReplyStopped("个人微信会话授权已失效，AI 自动回复已停止。") from exc

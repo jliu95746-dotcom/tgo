@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Protocol
 
@@ -30,18 +31,22 @@ class TgoBridge(Watcher):
         runtime: Path,
         prefix: str,
         client: TgoClient,
-        backend: SendBackend,
+        backend: SendBackend | None,
         allow_send: bool,
         max_sends: int,
         max_seconds: float,
+        *,
+        scoped: bool = False,
+        active: Callable[[], bool] | None = None,
     ):
         super().__init__(reader, store, runtime, prefix, backend, max_seconds)
         self.ledger, self.client, self.backend = store, client, backend
         self.allow_send, self.max_sends = allow_send, max_sends
+        self.scoped, self.active = scoped, active or (lambda: True)
         self.sent_this_run = 0
         self.next_delivery_at = 0.0
         self.next_heartbeat_at = 0.0
-        self.rpa_status = "等待文件传输助手新消息"
+        self.rpa_status = "等待授权会话新消息" if scoped else "等待文件传输助手新消息"
 
     def initialize(self) -> None:
         self.client.connect()
@@ -70,13 +75,22 @@ class TgoBridge(Watcher):
         return [object_map(row) for row in rows]
 
     def _read_wechat(self) -> int:
+        return self.observe(self.reader.new_messages(self.ledger.cursors()))
+
+    def observe(self, messages: Iterable[Message]) -> int:
         count = 0
-        for message in self.reader.new_messages(self.ledger.cursors()):
+        for message in messages:
+            if not self.active():
+                break
             eligible = (
                 message.message_type == 1
                 and bool(message.text.strip())
                 and len(message.text) <= 8000
                 and message.text.startswith(self.prefix)
+                and (not self.scoped or (
+                    not message.is_self and bool(message.sender_id)
+                    and (message.chat_id.endswith("@chatroom") or message.sender_id == message.chat_id)
+                ))
             )
             count += self.ledger.observe(message, eligible=eligible)
         return count
@@ -111,7 +125,8 @@ class TgoBridge(Watcher):
             matches = [
                 message
                 for message in self.reader.history(30)
-                if message.is_self
+                if message.chat_id == self.ledger.chat_id
+                and message.is_self
                 and message.message_type == 1
                 and message.text == text
                 and message.local_id > baseline.get(message.shard, 0)
@@ -124,10 +139,16 @@ class TgoBridge(Watcher):
         return None
 
     def _deliver(self) -> None:
-        if self.stop.is_set() or time.monotonic() < self.next_delivery_at:
+        if self.stop.is_set() or not self.active() or time.monotonic() < self.next_delivery_at:
             return
         delivery = self.ledger.next_delivery()
         if not delivery:
+            return
+        if self.backend is None:
+            self.rpa_status = (
+                "微信窗口暂不可用，回复待人工处理" if self.scoped
+                else "回复待人工核对：请先校准并打开当前会话"
+            )
             return
         try:
             if delivery.state == "pending":
@@ -142,15 +163,15 @@ class TgoBridge(Watcher):
                     ) from None
                 self.ledger.filled(delivery.key)
                 self.rpa_status = "已填写并回读客服回复"
-            if not self.allow_send or self.stop.is_set():
+            if not self.allow_send or self.stop.is_set() or not self.active():
                 return
             baseline = self.reader.baseline()
             point = self.backend.send_point(delivery.text)
-            if self.stop.is_set():
+            if self.stop.is_set() or not self.active():
                 return
         except RpaNotReady as error:
             self.rpa_status = str(error)
-            self.next_delivery_at = time.monotonic() + 8
+            self.next_delivery_at = time.monotonic() + (25 if self.scoped else 8)
             return
         self.ledger.begin_send(delivery.key, baseline)
         receipt = None
@@ -166,7 +187,7 @@ class TgoBridge(Watcher):
         (self.runtime / "tgo-delivery-proof.json").write_text(
             json.dumps(
                 {
-                    "chat_id": "filehelper",
+                    "chat_id": self.ledger.chat_id,
                     "tgo_reply_id": delivery.key,
                     "wechat_event_id": receipt.event_id,
                     "sent": True,
@@ -182,15 +203,32 @@ class TgoBridge(Watcher):
             self.stop.set()
             self.rpa_status = "已达到本轮试发上限"
 
-    def poll(self) -> int:
+    def poll(self, *, read_local: bool = True) -> int:
         with self.lock:
+            if not self.active():
+                return 0
             self.polls += 1
-            count = self._read_wechat()
+            count = self._read_wechat() if read_local else 0
             message = self.ledger.next_inbound()
-            if message and not self.stop.is_set():
+            if message and not self.stop.is_set() and self.active():
                 self.ledger.begin_submission(message.event_id)
+                if not self.active():
+                    self.ledger.submission_uncertain(message.event_id)
+                    return count
                 try:
-                    receipt = self.client.submit(message.event_id, message.text)
+                    if self.scoped:
+                        receipt = self.client.submit(
+                            message.event_id, message.text,
+                            mentioned=message.mentions_verified and self.reader.self_username in message.mentioned_ids,
+                            mention_ambiguous=(
+                                message.chat_id.endswith("@chatroom")
+                                and ("@" in message.text or "＠" in message.text)
+                                and (not message.mentions_verified or not message.mentioned_ids)
+                            ),
+                            author=hashlib.sha256(f"{self.client.account_tag}:{message.sender_id}".encode()).hexdigest(),
+                        )
+                    else:
+                        receipt = self.client.submit(message.event_id, message.text)
                 except TgoUnavailable:
                     self.ledger.submission_uncertain(message.event_id)
                     self.rpa_status = "客服提交结果待查，保留消息并核对回执"
@@ -202,13 +240,13 @@ class TgoBridge(Watcher):
                     self.rpa_status = (
                         "客服系统已接收，等待人工回复"
                         if receipt
-                        in ("human_handoff", "ai_disabled", "assist_mode", "queued")
+                        in ("human_handoff", "ai_disabled", "assist_mode", "queued", "received")
                         else "客服系统已接收，等待回复"
                     )
-            if not self.stop.is_set():
+            if not self.stop.is_set() and self.active():
                 self._read_tgo()
                 now = time.monotonic()
-                if now >= self.next_heartbeat_at:
+                if not self.scoped and now >= self.next_heartbeat_at:
                     self.client.heartbeat()
                     self.next_heartbeat_at = now + 12
                 self._deliver()

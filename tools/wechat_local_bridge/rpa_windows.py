@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 
 from .filehelper_navigation import FilehelperNavigation
@@ -14,36 +16,35 @@ from .window_control import WindowControl
 
 
 class NativeRpa:
-    def __init__(self, binding_file: Path, runtime: Path):
-        import pyautogui
-        import pyperclip
+    def __init__(
+        self, binding_file: Path, runtime: Path, *,
+        chat_id: str = "filehelper", authorize: Callable[[], None] | None = None,
+        scope_lock: AbstractContextManager | None = None,
+    ):
         from PIL import Image
 
-        self.gui, self.clipboard = pyautogui, pyperclip
         self.binding = json.loads(binding_file.read_text(encoding="utf-8"))
-        if self.binding.get("chat_id") != "filehelper":
-            raise ValueError("本轮 RPA 仅授权文件传输助手")
+        if self.binding.get("chat_id") != chat_id or (chat_id != "filehelper" and authorize is None):
+            raise ValueError("微信窗口校准与授权会话不一致")
         self.reference = Image.open(self.binding["reference_image"]).convert("RGB")
         if (
             "title_anchor_box" not in self.binding
             or "toolbar_anchor_box" not in self.binding
         ):
-            raise ValueError("需要文件传输助手标题与输入工具栏的视觉锚点校准")
+            raise ValueError("需要微信会话标题与输入工具栏的视觉锚点校准")
         self.locator = VisualLocator(
             self.reference,
             tuple(self.binding["title_anchor_box"]),
             tuple(self.binding["toolbar_anchor_box"]),
         )
-        self.window = WindowControl(
-            int(self.binding["window_id"]), int(self.binding["pid"])
+        self._configure_desktop(
+            WindowControl(int(self.binding["window_id"]), int(self.binding["pid"])),
+            runtime, chat_id, authorize or (lambda: None), scope_lock,
         )
-        self.runtime = runtime
-        self.bounds = (0, 0, 0, 0)
-        self.target: VisualTarget | None = None
         search_reference = self.binding.get("search_reference_image")
         self.navigation = (
             FilehelperNavigation(self.reference, Path(search_reference))
-            if search_reference
+            if search_reference and chat_id == "filehelper"
             else None
         )
         self.send_template = None
@@ -54,6 +55,19 @@ class NativeRpa:
                 self.send_template = np.asarray(
                     reference.crop(tuple(self.binding["send_anchor_box"])).convert("L")
                 )
+
+    def _configure_desktop(
+        self, window: WindowControl, runtime: Path, chat_id: str,
+        authorize: Callable[[], None], scope_lock: AbstractContextManager | None,
+    ) -> None:
+        import pyautogui
+        import pyperclip
+
+        self.gui, self.clipboard = pyautogui, pyperclip
+        self.window, self.runtime = window, runtime
+        self.chat_id, self.authorize, self.scope_lock = chat_id, authorize, scope_lock
+        self.bounds = (0, 0, 0, 0)
+        self.target: VisualTarget | None = None
 
     def _visible_bounds(self) -> tuple[int, int, int, int]:
         bounds = self.window.bounds()
@@ -68,6 +82,7 @@ class NativeRpa:
         return bounds
 
     def check_target(self) -> None:
+        self.authorize()
         bounds = self._visible_bounds()
         image = self.gui.screenshot(region=bounds).convert("RGB")
         target = self.locator.locate(image)
@@ -78,6 +93,7 @@ class NativeRpa:
         self.bounds, self.target = bounds, target
 
     def ensure_conversation(self) -> None:
+        self.authorize()
         self.window.recover()
         try:
             self.check_target()
@@ -148,7 +164,8 @@ class NativeRpa:
         return self.bounds[0] + x, self.bounds[1] + y
 
     def _guard_input(self) -> None:
-        if self.window.bounds() != self.bounds:
+        self.authorize()
+        if self._visible_bounds() != self.bounds:
             raise RpaNotReady("输入期间窗口位置变化")
         self.window.require_point(*self._point(), focus=True)
 
@@ -175,10 +192,11 @@ class NativeRpa:
         self.clipboard.copy(text)
 
     def paste(self, text: str) -> None:
-        self._focus_input()
-        self.clipboard.copy(text)
-        self._guard_input()
-        self.gui.hotkey("ctrl", "v")
+        with self.scope_lock or nullcontext():
+            self._focus_input()
+            self.clipboard.copy(text)
+            self._guard_input()
+            self.gui.hotkey("ctrl", "v")
         time.sleep(0.3)
 
     def read_input(self) -> str:
@@ -202,9 +220,10 @@ class NativeRpa:
 
     def save_proof(self) -> None:
         self.check_target()
-        self.gui.screenshot(region=self.bounds).save(
-            self.runtime / "wechat-rpa-verified.png"
-        )
+        if self.chat_id == "filehelper":
+            self.gui.screenshot(region=self.bounds).save(
+                self.runtime / "wechat-rpa-verified.png"
+            )
 
     def send_point(self, expected: str) -> tuple[int, int]:
         """Verify the exact draft and identify the enabled Send button."""
@@ -245,8 +264,9 @@ class NativeRpa:
         return point
 
     def click_send(self, point: tuple[int, int], expected: str) -> None:
-        if self.send_point(expected) != point:
-            raise RpaNotReady("发送前按钮位置变化，停止点击")
-        self._guard_input()
-        self.window.require_point(*point, focus=True)
-        self.gui.click(*point)
+        with self.scope_lock or nullcontext():
+            if self.send_point(expected) != point:
+                raise RpaNotReady("发送前按钮位置变化，停止点击")
+            self._guard_input()
+            self.window.require_point(*point, focus=True)
+            self.gui.click(*point)

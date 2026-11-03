@@ -27,7 +27,7 @@ from app.services.wukongim_client import wukongim_client
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.services.im_access import issue_visitor_im_token
-from app.services.wechat_local_bridge import require_bridge_visitor
+from app.services.wechat_local_bridge import authorize_bridge_visitor, require_scoped_target
 from app.utils.wechat_local import is_filehelper_identity
 from app.services.reply_history import reconcile_reply_history
 from app.schemas.employee_style import EmployeeStyle
@@ -385,13 +385,15 @@ async def register_visitor(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform API key")
 
     if platform.type == PlatformType.WECHAT_LOCAL.value:
-        if not is_filehelper_identity(req.platform_open_id):
-            raise HTTPException(403, "个人微信仅接入文件传输助手")
-        # The bridge registers only a fixed synthetic profile.
+        if is_filehelper_identity(req.platform_open_id):
+            nickname = "文件传输助手（个人微信）"
+        else:
+            target = await require_scoped_target(platform, req.platform_open_id or "")
+            nickname = (req.nickname or ("微信群聊" if target.is_group else "微信联系人"))[:80]
         req = VisitorRegisterRequest(
             platform_api_key=req.platform_api_key,
             platform_open_id=req.platform_open_id,
-            nickname="文件传输助手（个人微信）",
+            nickname=nickname,
             language="zh-CN",
             source="wechat-local-bridge",
         )
@@ -1447,7 +1449,7 @@ async def sync_visitor_channel_messages(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform_api_key")
 
     if platform.type == PlatformType.WECHAT_LOCAL.value:
-        require_bridge_visitor(db, platform, req.channel_id, req.channel_type, credentials)
+        await authorize_bridge_visitor(db, platform, req.channel_id, req.channel_type, credentials)
 
     # 2) Authorize access to the channel and determine login_uid (visitor UID)
     login_uid: Optional[str] = None

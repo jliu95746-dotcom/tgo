@@ -79,7 +79,10 @@ def visitor_token_expired(value: object) -> bool:
 
 
 class TgoClient:
-    def __init__(self, config_file: Path, runtime: Path, account_tag: str):
+    def __init__(
+        self, config_file: Path, runtime: Path, account_tag: str, *,
+        scoped: bool = False, identity: str | None = None, nickname: str | None = None,
+    ):
         self.config_file, self.runtime = config_file, runtime
         config_bytes = config_file.read_bytes()
         self.config_hash = hashlib.sha256(config_bytes).digest()
@@ -87,13 +90,17 @@ class TgoClient:
         self.platform_type = str(config.get("platform_type", "website"))
         self.base = bridge_base_url(str(config.get("base_url", "")), self.platform_type)
         if (
-            config.get("chat_id") != "filehelper"
+            config.get("chat_id") != ("scoped" if scoped else "filehelper")
             or config.get("account_tag") != account_tag
+            or (scoped and self.platform_type != "wechat_local")
         ):
             raise ValueError("客服配置未绑定当前微信账号及文件传输助手")
         self.api_key = str(config.get("platform_api_key", ""))
         self.platform_id = str(config.get("platform_id", ""))
         self.account_tag = account_tag
+        self.scoped = scoped
+        self.identity = identity or (None if scoped else f"wechat-local:{account_tag}:filehelper")
+        self.nickname = nickname or "文件传输助手（微信本机测试）"
         if not self.api_key or not self.platform_id:
             raise ValueError("缺少专用测试渠道配置")
         self.opener = build_opener(ProxyHandler({}), NoRedirect())
@@ -139,7 +146,9 @@ class TgoClient:
         return result
 
     def connect(self) -> None:
-        identity = f"wechat-local:{self.account_tag}:filehelper"
+        identity = self.identity
+        if identity is None:
+            raise TgoError("未指定授权会话")
         if self.session_file.exists():
             session = object_map(
                 json.loads(self.session_file.read_text(encoding="utf-8"))
@@ -169,11 +178,11 @@ class TgoClient:
                 {
                     "platform_api_key": self.api_key,
                     "platform_open_id": identity,
-                    "name": "文件传输助手（微信本机测试）",
-                    "nickname": "文件传输助手（微信本机测试）",
+                    "name": self.nickname,
+                    "nickname": self.nickname,
                     "source": "wechat-local-bridge",
                     "language": "zh-CN",
-                    "custom_attributes": {
+                    "custom_attributes": {} if self.scoped else {
                         "wechat_chat_id": "filehelper",
                         "integration_mode": "local-test",
                     },
@@ -212,7 +221,19 @@ class TgoClient:
     def channel_id(self) -> str:
         return str(self.session["channel_id"])
 
-    def submit(self, event_id: str, text: str) -> str:
+    def submit(
+        self, event_id: str, text: str, *, mentioned: bool = False,
+        mention_ambiguous: bool = False, author: str = "",
+    ) -> str:
+        extra = {
+            "message_id": "wxlocal:" + event_id,
+            "source": "wechat-local-bridge",
+        }
+        if self.scoped:
+            extra.update(wechat_local_mentioned=mentioned, wechat_local_author=author,
+                         wechat_local_mention_ambiguous=mention_ambiguous)
+        else:
+            extra["chat_id"] = "filehelper"
         result = self._post(
             "/v1/chat/completion",
             {
@@ -222,11 +243,7 @@ class TgoClient:
                 "channel_type": 251,
                 "message": text,
                 "source_message_id": "wxlocal:" + event_id,
-                "extra": {
-                    "message_id": "wxlocal:" + event_id,
-                    "source": "wechat-local-bridge",
-                    "chat_id": "filehelper",
-                },
+                "extra": extra,
                 "stream": False,
                 "wukongim_only": True,
                 "expected_output": "text",
@@ -237,9 +254,23 @@ class TgoClient:
         event = result.get("event_type")
         if event == "accepted" and result.get("success") is True:
             return str(result.get("client_msg_no") or event)
+        if self.scoped and event == "received" and result.get("success") is True:
+            return "received"
         if event in ("human_handoff", "ai_disabled", "assist_mode", "queued"):
             return str(event)
         raise TgoError("客服接口未返回可识别的接收回执")
+
+    def publish_scope(self, targets: list[Mapping[str, object]]) -> None:
+        if not self.scoped:
+            raise TgoError("当前桥接不是授权接待模式")
+        response = self._post(
+            f"/v1/platforms/{self.platform_id}/wechat-local/scope",
+            {"account_tag": self.account_tag, "targets": targets},
+            authenticated=False,
+            include_platform_key=True,
+        )
+        if response.get("accepted") is not True:
+            raise TgoError("客服系统未确认接待范围")
 
     def history(self, after: int) -> Mapping[str, object]:
         return self._post(

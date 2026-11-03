@@ -26,6 +26,7 @@ export interface PlatformCreateRequest {
 export interface WeChatLocalStatus {
   connected: boolean;
   last_seen_at: string | null;
+  scoped_enabled?: boolean;
 }
 
 // OpenAPI: PlatformResponse

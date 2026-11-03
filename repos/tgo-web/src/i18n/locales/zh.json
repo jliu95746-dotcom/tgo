@@ -1945,6 +1945,9 @@
     "noMatch.description": "尝试调整搜索条件"
   },
   "platforms": {
+    "wechatLocal": {
+      "v2Preview": "好友和群聊接待正在验收，目前可以预览配置步骤。"
+    },
     "list": {
       "title": "接入平台",
       "addPlatform": "添加平台",

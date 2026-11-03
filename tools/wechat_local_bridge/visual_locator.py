@@ -24,12 +24,12 @@ class VisualLocator:
     def __init__(
         self,
         reference: Image.Image,
-        title_box: tuple[int, int, int, int],
+        title_box: tuple[int, int, int, int] | None,
         toolbar_box: tuple[int, int, int, int],
     ):
-        self.title = np.asarray(reference.crop(title_box).convert("L"))
+        self.title = np.asarray(reference.crop(title_box).convert("L")) if title_box else None
         self.toolbar = np.asarray(reference.crop(toolbar_box).convert("L"))
-        if min(float(self.title.std()), float(self.toolbar.std())) < 8:
+        if float(self.toolbar.std()) < 8 or (self.title is not None and float(self.title.std()) < 8):
             raise ValueError("校准锚点必须包含有辨识度的标题文字和工具栏")
 
     @staticmethod
@@ -75,25 +75,31 @@ class VisualLocator:
         return (x, y, width, height), score, scale
 
     def locate(self, image: Image.Image) -> VisualTarget:
+        if self.title is None:
+            raise ValueError("需要会话标题验证")
         pixels = np.asarray(image.convert("L"))
         height, width = pixels.shape
         header, title_score, scale = self._match(
             pixels,
             self.title,
             (width // 5, 20, width - 15, height // 4),
-            "文件传输助手标题",
+            "已校准的微信会话标题",
         )
-        toolbar, toolbar_score, toolbar_scale = self._match(
+        target, toolbar_scale = self.locate_composer(image)
+        if abs(scale - toolbar_scale) > 0.11 or abs(header[0] - target.toolbar[0]) > 80 * scale:
+            raise RpaNotReady("标题与输入工具栏布局不一致")
+        return VisualTarget(header, target.toolbar, target.input_box, target.input_point,
+                            min(title_score, target.confidence))
+
+    def locate_composer(self, image: Image.Image) -> tuple[VisualTarget, float]:
+        pixels = np.asarray(image.convert("L"))
+        height, width = pixels.shape
+        toolbar, toolbar_score, scale = self._match(
             pixels,
             self.toolbar,
             (width // 5, height * 3 // 5, width - 15, height - 10),
             "输入工具栏",
         )
-        if (
-            abs(scale - toolbar_scale) > 0.11
-            or abs(header[0] - toolbar[0]) > 80 * scale
-        ):
-            raise RpaNotReady("标题与输入工具栏布局不一致")
         left, right = max(0, toolbar[0] - round(16 * scale)), width - round(25 * scale)
         top = None
         for y in range(
@@ -110,12 +116,12 @@ class VisualLocator:
             raise RpaNotReady("未确认输入框边界，停止输入")
         point = (left + round(35 * scale), top + round(12 * scale))
         return VisualTarget(
-            header,
+            (0, 0, 0, 0),
             toolbar,
             (left, top, right, bottom),
             point,
-            min(title_score, toolbar_score),
-        )
+            toolbar_score,
+        ), scale
 
     @staticmethod
     def is_blank(image: Image.Image, target: VisualTarget) -> bool:

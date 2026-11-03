@@ -20,8 +20,9 @@ class Delivery:
 
 
 class TgoStore(InboxStore):
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, chat_id: str = "filehelper"):
         super().__init__(path)
+        self.chat_id = chat_id
         self.connection.execute("""
             CREATE TABLE IF NOT EXISTS outbox (
                 key TEXT PRIMARY KEY, sequence INTEGER NOT NULL, text TEXT NOT NULL,
@@ -54,8 +55,8 @@ class TgoStore(InboxStore):
         return int(self.value("tgo_sequence") or 0)
 
     def observe(self, message: Message, *, eligible: bool) -> bool:
-        if message.chat_id != "filehelper":
-            raise ValueError("仅处理文件传输助手")
+        if message.chat_id != self.chat_id:
+            raise ValueError("消息不属于当前授权会话")
         echo = self.is_echo(message)
         state = "echo" if echo else "observed" if eligible else "ignored"
         with self.connection:
@@ -170,7 +171,7 @@ class TgoStore(InboxStore):
 
     def is_echo(self, message: Message) -> bool:
         if (
-            message.chat_id != "filehelper"
+            message.chat_id != self.chat_id
             or not message.is_self
             or message.message_type != 1
         ):

@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -44,11 +45,34 @@ class Message:
     sender_id: str
     is_self: bool
     text: str
+    mentioned_ids: tuple[str, ...] = ()
+    mentions_verified: bool = False
 
     @property
     def event_id(self) -> str:
         identity = f"{self.shard}:{self.chat_id}:{self.local_id}:{self.server_id}"
         return hashlib.sha256(identity.encode()).hexdigest()
+
+
+def structured_mentions(value: bytes | str | None) -> tuple[tuple[str, ...], bool]:
+    if value is None or value == b"" or value == "":
+        return (), True
+    try:
+        text = decode_content(value)
+        if len(text) > 16384 or re.search(r"<!\s*(?:DOCTYPE|ENTITY)\b", text, re.IGNORECASE):
+            return (), False
+        root = ET.fromstring(text)
+        if root.tag != "msgsource":
+            return (), False
+        lists = list(root.iter("atuserlist"))
+        if len(lists) > 1:
+            return (), False
+        values = tuple(item.strip() for item in (lists[0].text or "").split(",") if item.strip()) if lists else ()
+        if any(not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", item) for item in values):
+            return (), False
+        return values, True
+    except (ET.ParseError, ValueError, zstandard.ZstdError):
+        return (), False
 
 
 def read_messages(
@@ -82,6 +106,14 @@ def read_messages(
         text = decode_content(row["message_content"]) or decode_content(
             row["compress_content"]
         )
+        mentions, verified = (), False
+        if chat_id.endswith("@chatroom"):
+            if "source" in row.keys():
+                mentions, verified = structured_mentions(row["source"])
+            if names[sender_number]:
+                prefix = names[sender_number] + ":\n"
+                if text.startswith(prefix):
+                    text = text[len(prefix):]
         result.append(
             Message(
                 shard,
@@ -94,6 +126,8 @@ def read_messages(
                 names[sender_number],
                 names[sender_number] == self_username,
                 text,
+                mentions,
+                verified,
             )
         )
     return result
@@ -106,8 +140,8 @@ class DatabaseKey:
 
 
 class WeChatReader:
-    def __init__(self, key_file: Path, chat_id: str = "filehelper"):
-        if chat_id != "filehelper":
+    def __init__(self, key_file: Path, chat_id: str = "filehelper", *, scoped: bool = False):
+        if chat_id != "filehelper" and not scoped:
             raise ValueError("本轮仅授权文件传输助手")
         data = json.loads(key_file.read_text(encoding="utf-8"))
         self.databases = [

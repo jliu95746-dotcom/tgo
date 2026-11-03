@@ -26,7 +26,8 @@ from app.schemas.knowledge_availability import AgentKnowledgeAvailability
 from app.models.platform import PlatformType
 from app.services.platform_configuration import is_platform_configured
 from app.services.wechat_local_bridge import (
-    WeChatLocalHeartbeat, WeChatLocalStatus, bridge_status, require_bridge_visitor,
+    WeChatLocalHeartbeat, WeChatLocalScope, WeChatLocalScopeReceipt, WeChatLocalStatus, authorize_bridge_visitor,
+    bridge_status, publish_bridge_scope,
 )
 from app.schemas import (
     PlatformAPIKeyResponse,
@@ -429,8 +430,28 @@ async def wechat_local_heartbeat(
     ).first()
     if platform is None:
         raise HTTPException(401, "Invalid platform API key")
-    require_bridge_visitor(db, platform, payload.channel_id, 251, credentials)
+    await authorize_bridge_visitor(db, platform, payload.channel_id, 251, credentials)
     return await bridge_status(platform, heartbeat=True)
+
+
+@router.post("/{platform_id}/wechat-local/scope", response_model=WeChatLocalScopeReceipt)
+async def update_wechat_local_scope(
+    platform_id: UUID,
+    scope: WeChatLocalScope,
+    db: Session = Depends(get_db),
+    api_key: str = Header("", alias="X-Platform-API-Key"),
+) -> WeChatLocalScopeReceipt:
+    platform = db.query(Platform).filter(
+        Platform.id == platform_id,
+        Platform.api_key == api_key,
+        Platform.type == PlatformType.WECHAT_LOCAL.value,
+        Platform.is_active.is_(True),
+        Platform.deleted_at.is_(None),
+    ).first()
+    if not api_key or platform is None:
+        raise HTTPException(401, "Invalid platform API key")
+    await publish_bridge_scope(platform, scope)
+    return WeChatLocalScopeReceipt()
 
 
 @router.patch("/{platform_id}", response_model=PlatformResponse)

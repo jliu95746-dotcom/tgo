@@ -3226,6 +3226,9 @@
     }
   },
   "platforms": {
+    "wechatLocal": {
+      "v2Preview": "Contact and group reception is being verified. You can preview the setup steps."
+    },
     "list": {
       "title": "Platforms",
       "addPlatform": "Add Platform",

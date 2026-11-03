@@ -9,14 +9,10 @@ from .rpa import RpaNotReady
 from .visual_locator import VisualLocator
 
 
-class FilehelperNavigation:
-    def __init__(self, normal: Image.Image, search_result: Path):
-        self.search_icon = np.asarray(normal.crop((104, 57, 127, 85)).convert("L"))
-        with Image.open(search_result) as result:
-            self.active_search = np.asarray(result.crop((17, 14, 52, 49)).convert("L"))
-            self.category = np.asarray(result.crop((31, 62, 69, 84)).convert("L"))
-            self.icon = np.asarray(result.crop((33, 108, 80, 155)).convert("L"))
-            self.label = np.asarray(result.crop((87, 119, 197, 146)).convert("L"))
+class SearchNavigation:
+    def __init__(self, idle: Image.Image, active: Image.Image):
+        self.search_icon = np.asarray(idle.convert("L"))
+        self.active_search = np.asarray(active.convert("L"))
 
     def search_point(self, image: Image.Image) -> tuple[int, int]:
         try:
@@ -43,6 +39,15 @@ class FilehelperNavigation:
         if int(green.sum()) < 12:
             raise RpaNotReady("微信全局搜索框尚未获得焦点")
         return x, y, scale
+
+
+class FilehelperNavigation(SearchNavigation):
+    def __init__(self, normal: Image.Image, search_result: Path):
+        with Image.open(search_result) as result:
+            super().__init__(normal.crop((104, 57, 127, 85)), result.crop((17, 14, 52, 49)))
+            self.category = np.asarray(result.crop((31, 62, 69, 84)).convert("L"))
+            self.icon = np.asarray(result.crop((33, 108, 80, 155)).convert("L"))
+            self.label = np.asarray(result.crop((87, 119, 197, 146)).convert("L"))
 
     def result_point(self, image: Image.Image) -> tuple[int, int]:
         x, y, scale = self.focused_search(image)

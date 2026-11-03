@@ -93,8 +93,8 @@ from app.services.ai_interaction_run_service import (
     mark_ai_interaction_finished,
 )
 from app.models.platform import PlatformType
-from app.services.wechat_local_bridge import require_bridge_visitor
-from app.utils.wechat_local import is_filehelper_identity, is_wechat_local_source
+from app.services.wechat_local_bridge import authorize_bridge_visitor
+from app.utils.wechat_local import is_wechat_local_source
 from app.services.chat_service import get_or_create_visitor
 from app.services.humanization_service import (
     ASSIST_FACT_GATHERING_PROMPT,
@@ -387,17 +387,31 @@ async def chat_completion(
     """流式聊天完成接口 - 详细说明请查看接口描述。"""
     # 1) Validate Platform API key and get project
     platform, project = chat_service.validate_platform_and_project(req.api_key, db)
+    scoped_target = None
+    wechat_manual_only = False
     if platform.type == PlatformType.WECHAT_LOCAL.value:
         if (
             req.msg_type != MessageType.TEXT
-            or not is_filehelper_identity(req.from_uid)
             or not is_wechat_local_source(req.source_message_id)
             or not req.forward_user_message_to_wukongim
         ):
-            raise HTTPException(403, "个人微信仅接入文件传输助手的文字消息")
-        actor = require_bridge_visitor(db, platform, req.channel_id, req.channel_type, credentials)
+            raise HTTPException(403, "个人微信仅接入授权会话的文字消息")
+        actor, scoped_target = await authorize_bridge_visitor(
+            db, platform, req.channel_id, req.channel_type, credentials
+        )
         if actor.platform_open_id != req.from_uid:
             raise HTTPException(403, "个人微信访客身份不匹配")
+        if scoped_target is not None:
+            extra = req.extra or {}
+            wechat_manual_only = scoped_target.is_group and (
+                extra.get("wechat_local_mention_ambiguous") is True
+                or not scoped_target.allows_ai(req.message, extra.get("wechat_local_mentioned") is True)
+            )
+            req.system_message = None
+            author = extra.get("wechat_local_author")
+            req.extra = {"source": "wechat-local-bridge", "wechat_local_group": scoped_target.is_group}
+            if scoped_target.is_group and isinstance(author, str) and re.fullmatch(r"[a-f0-9]{64}", author):
+                req.extra["wechat_local_author"] = author
 
     # 2) Get or create visitor (handles status reset if CLOSED)
     visitor, visitor_changed = await get_or_create_visitor(
@@ -449,12 +463,12 @@ async def chat_completion(
             content=req.message,
             msg_type=req.msg_type,
             extra=forward_extra,
-            require_delivery=req.msg_type in {MessageType.IMAGE, MessageType.VOICE},
+            require_delivery=scoped_target is not None or req.msg_type in {MessageType.IMAGE, MessageType.VOICE},
         )
         source_message_id = source_message_id or forwarded_message_id
 
     intent_outcome: MessageIntentRoutingOutcome | None = None
-    if req.msg_type == MessageType.TEXT and not (settings.SAAS_ENABLED and settings.SAAS_BILLING_ENABLED):
+    if not wechat_manual_only and req.msg_type == MessageType.TEXT and not (settings.SAAS_ENABLED and settings.SAAS_BILLING_ENABLED):
         source_message_id = source_message_id or f"direct_{uuid4().hex}"
         try:
             intent_outcome = await MessageIntentOrchestrator(
@@ -526,6 +540,16 @@ async def chat_completion(
             channel_id=channel_id_enc,
             channel_type=channel_type,
         )
+
+    if wechat_manual_only:
+        result = {"success": True, "event_type": "received", "visitor_id": str(visitor.id)}
+        if req.stream is False:
+            return result
+
+        async def received_gen() -> AsyncIterator[str]:
+            yield chat_service.sse_format({"event_type": "received", "data": result})
+
+        return StreamingResponse(received_gen(), media_type="text/event-stream")
 
     # 4) Prepare from_uid for WuKongIM forwarding (must have assigned staff)
     if assigned_staff_id:

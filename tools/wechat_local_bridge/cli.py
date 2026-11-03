@@ -37,6 +37,8 @@ def bind_tgo(
     platform_id: UUID,
     platform_type: str = "website",
     calibration_runtime: Path | None = None,
+    *,
+    scoped: bool = False,
 ) -> None:
     path = runtime / "tgo.private.json"
     if path.exists():
@@ -55,7 +57,7 @@ def bind_tgo(
                 with destination.open("xb") as target:
                     target.write(data)
     reader = WeChatReader(runtime / "keys.private.json")
-    key = getpass.getpass("输入专用客服测试渠道 API Key（不回显）：").strip()
+    key = getpass.getpass("粘贴当前渠道密钥并按回车（不回显）：").strip()
     if not key:
         raise ValueError("缺少测试渠道 API Key")
     with path.open("x", encoding="utf-8") as target:
@@ -65,7 +67,7 @@ def bind_tgo(
                 "platform_id": str(platform_id),
                 "platform_type": platform_type,
                 "platform_api_key": key,
-                "chat_id": "filehelper",
+                "chat_id": "scoped" if scoped else "filehelper",
                 "account_tag": account_tag(reader),
             },
             target,
@@ -324,6 +326,10 @@ def main() -> None:
     bind.add_argument(
         "--platform-id", type=UUID, required=True, help="客服测试渠道 UUID"
     )
+    setup = sub.add_parser("setup-scoped", help="连接当前个人微信渠道并打开本机接待范围")
+    setup.add_argument("--base-url", required=True)
+    setup.add_argument("--platform-id", type=UUID, required=True)
+    setup.add_argument("--account-root", type=Path)
     server = sub.add_parser("serve", help="启动仅本机可访问的控制页与新增消息监听")
     server.add_argument(
         "--port", type=int, default=0, help="监听端口，0 表示自动选择空闲端口"
@@ -370,6 +376,11 @@ def main() -> None:
             args.runtime, args.base_url, args.platform_id,
             args.platform_type, args.calibration_runtime,
         )
+    elif args.command == "setup-scoped":
+        from .scoped_setup import setup_scoped
+
+        with integration_lock(args.runtime):
+            setup_scoped(args.runtime, args.base_url, args.platform_id, args.account_root)
     elif args.command == "probe-uia":
         from .uia_probe import probe_uia
 

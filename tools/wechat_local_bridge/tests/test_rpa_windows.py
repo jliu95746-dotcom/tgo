@@ -54,6 +54,7 @@ class WindowGuardTests(unittest.TestCase):
 
     def test_existing_draft_is_preserved_after_recovery(self):
         backend = NativeRpa.__new__(NativeRpa)
+        backend.authorize = Mock()
         backend.window = Mock()
         backend.clipboard = Mock()
         backend.clipboard.paste.return_value = "原剪贴板"
@@ -68,6 +69,7 @@ class WindowGuardTests(unittest.TestCase):
 
     def test_focus_loss_before_paste_never_issues_paste_shortcut(self):
         backend = NativeRpa.__new__(NativeRpa)
+        backend.scope_lock = None
         backend.gui, backend.clipboard = Mock(), Mock()
         backend.runtime = Path("unused")
         with (

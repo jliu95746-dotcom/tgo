@@ -58,6 +58,7 @@ class Settings(BaseSettings):
 
     # Commercial rollout is opt-in; existing companies are not enrolled here.
     SAAS_ENABLED: bool = Field(default=False)
+    WECHAT_LOCAL_SCOPED_ENABLED: bool = Field(default=False)
     SAAS_NEW_PURCHASES_ENABLED: bool = Field(default=False)
     SAAS_BILLING_ENABLED: bool = Field(default=False)
     SAAS_INTERNAL_TOKEN: Optional[SecretStr] = Field(default=None)
