@@ -6,6 +6,7 @@ import ctypes
 import ctypes.wintypes as wt
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import TypedDict
@@ -129,23 +130,38 @@ def save_keys(runtime: Path, pid: int, databases: list[CapturedDatabase]) -> Non
 
 
 def capture(pid: int, account_root: Path, runtime: Path) -> dict[str, int]:
-    root = (account_root / "db_storage").resolve()
-    if not root.is_dir() or runtime.resolve().is_relative_to(account_root.resolve()):
-        raise ValueError("账号目录无效，或运行目录位于微信源目录内")
+    return _capture(pid, (account_root,), runtime, scoped=False)
+
+
+def capture_scoped_account(
+    pid: int, account_roots: tuple[Path, ...], runtime: Path
+) -> dict[str, int]:
+    return _capture(pid, account_roots, runtime, scoped=True)
+
+
+def _capture(
+    pid: int, account_roots: tuple[Path, ...], runtime: Path, *, scoped: bool
+) -> dict[str, int]:
     files = []
+    roots_by_file: dict[str, Path] = {}
     salts: dict[str, list[str]] = {}
-    for candidate in root.rglob("*.db"):
-        path = candidate.resolve()
-        if not path.is_relative_to(root):
-            continue
-        with path.open("rb") as stream:
-            page = stream.read(4096)
-        if len(page) != 4096 or page.startswith(b"SQLite format 3"):
-            continue
-        salt = page[:16].hex()
-        name = path.relative_to(root).as_posix()
-        files.append((name, str(path), path.stat().st_size, salt, page))
-        salts.setdefault(salt, []).append(name)
+    for account_root in account_roots:
+        root = (account_root / "db_storage").resolve()
+        if not root.is_dir() or runtime.resolve().is_relative_to(account_root.resolve()):
+            raise ValueError("账号目录无效，或运行目录位于微信源目录内")
+        for candidate in root.rglob("*.db"):
+            path = candidate.resolve()
+            if not path.is_relative_to(root) or str(path) in roots_by_file:
+                continue
+            with path.open("rb") as stream:
+                page = stream.read(4096)
+            if len(page) != 4096 or page.startswith(b"SQLite format 3"):
+                continue
+            salt = page[:16].hex()
+            name = path.relative_to(root).as_posix()
+            files.append((name, str(path), path.stat().st_size, salt, page))
+            roots_by_file[str(path)] = root
+            salts.setdefault(salt, []).append(name)
     if not files:
         raise ValueError("账号目录内未找到可验证的加密数据库")
     memory = ReadOnlyMemory(pid)
@@ -164,9 +180,25 @@ def capture(pid: int, account_root: Path, runtime: Path) -> dict[str, int]:
         )
         captured: list[CapturedDatabase] = [
             {"path": path, "relative_path": name, "key": keys[salt]}
-            for name, path, _size, salt, _page in files
-            if salt in keys
+            for name, path, _size, salt, page in files
+            if salt in keys and scanner.verify_enc_key(bytes.fromhex(keys[salt]), page)
         ]
+        if scoped:
+            matched_roots = {
+                roots_by_file[item["path"]]
+                for item in captured
+                if Path(item["relative_path"]).name in {"contact.db", "session.db"}
+            }
+            if len(matched_roots) > 1:
+                raise ValueError("检测到多个微信账号仍有本机会话，请退出并重新登录要接待的微信，再重试")
+            captured = [
+                item for item in captured if roots_by_file[item["path"]] in matched_roots
+            ]
+            names = [Path(item["relative_path"]).name for item in captured]
+            if names.count("contact.db") != 1 or names.count("session.db") != 1 or not any(
+                re.fullmatch(r"message_\d+\.db", name) for name in names
+            ):
+                raise ValueError("暂时无法验证当前微信账号。请在微信中打开任意会话，再重新运行工具")
         save_keys(runtime, pid, captured)
         report = {
             "pid": pid,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import subprocess
 import threading
@@ -14,7 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from .cli import account_tag, bind_tgo
-from .memory import capture
+from .memory import capture_scoped_account
 from .reader import WeChatReader
 from .reception_scope import Scope, ScopeSettings
 from .rpa import RpaNotReady
@@ -41,24 +42,33 @@ def discover_window() -> tuple[int, int, Path]:
     return pid, hwnd, Path(data["documents"])
 
 
-def choose_account(documents: Path) -> Path:
-    root = documents / "xwechat_files"
-    candidates = [path for path in root.glob("*") if (path / "db_storage").is_dir()]
-    if len(candidates) == 1:
-        return candidates[0]
-    import tkinter as tk
-    from tkinter.filedialog import askdirectory
+def find_accounts(documents: Path) -> tuple[Path, ...]:
+    roots = {documents / "xwechat_files"}
+    if appdata := os.environ.get("APPDATA"):
+        config = Path(appdata) / "Tencent" / "xwechat" / "config"
+        for file in config.glob("*.ini"):
+            try:
+                with file.open("rb") as stream:
+                    data = stream.read(4097)
+            except OSError:
+                continue
+            if len(data) > 4096:
+                continue
+            encoding = "utf-16" if data.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+            try:
+                value = data.decode(encoding).strip().strip("\0")
+            except UnicodeError:
+                continue
+            hint = Path(value)
+            if "\0" not in value and hint.is_absolute() and not hint.drive.startswith("\\"):
+                roots.add(hint if hint.name.casefold() == "xwechat_files" else hint / "xwechat_files")
 
-    window = tk.Tk()
-    window.withdraw()
-    try:
-        selected = askdirectory(parent=window, title="选择含 db_storage 的当前微信账号目录",
-                                initialdir=str(root if root.is_dir() else documents), mustexist=True)
-    finally:
-        window.destroy()
-    if not selected or not (Path(selected) / "db_storage").is_dir():
-        raise ValueError("请选择含 db_storage 的当前微信账号目录")
-    return Path(selected)
+    return tuple(sorted({
+        path.resolve()
+        for root in roots
+        for path in root.glob("*")
+        if (path / "db_storage").is_dir()
+    }))
 
 
 def setup_scoped(runtime: Path, base: str, platform_id: UUID, account_root: Path | None) -> None:
@@ -74,7 +84,10 @@ def setup_scoped(runtime: Path, base: str, platform_id: UUID, account_root: Path
         if account_root and account_root.resolve() != bound_account:
             raise ValueError("当前渠道已绑定另一个本机微信账号")
         account_root = bound_account
-    capture(pid, account_root or choose_account(documents), runtime)
+    accounts = (account_root,) if account_root else find_accounts(documents)
+    if not accounts:
+        raise ValueError("未找到微信数据。请在已登录的微信中打开任意会话，再重新运行工具")
+    capture_scoped_account(pid, accounts, runtime)
     new_binding = not binding.exists()
     if new_binding:
         bind_tgo(runtime, base, platform_id, "wechat_local", scoped=True)

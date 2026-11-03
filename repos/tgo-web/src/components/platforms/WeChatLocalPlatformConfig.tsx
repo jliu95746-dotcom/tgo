@@ -53,10 +53,10 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
   const backendUrl = new URL('/platforms', window.location.origin).href;
   const downloadUrl = new URL('/downloads/wechat-local-bridge-v2.zip', window.location.origin).href;
   const startCommand = `.\\start-wechat-bridge.cmd "${apiBase}" "${platform.id}"`;
-  const prompt = t('platforms.wechatLocal.v2Prompt',
-    '请在这台 Windows 电脑上配置域见客服的个人微信桥接。后台 {{backendUrl}}，工具下载 {{downloadUrl}}，客服 API {{apiBase}}。请直接绑定当前渠道 {{channelId}}。\n\n请下载并解压，完成环境检查并从解压目录运行 {{startCommand}}。需要我登录微信、在本机终端粘贴渠道密钥或选择账号目录时，请告诉我具体操作。工具会自动检查微信窗口。绑定后打开「接待范围」，由我勾选联系人、分组和群聊，决定何时启用。哪一步做不到，请告诉我从下面哪一步继续。请只汇报进度和状态。', {
-      backendUrl, downloadUrl, apiBase, channelId: platform.id, startCommand,
-    });
+  const setupInstruction = t(scopedEnabled ? 'platforms.wechatLocal.v2SetupBind' : 'platforms.wechatLocal.v2SetupPreview');
+  const prompt = t('platforms.wechatLocal.v2Prompt', {
+    backendUrl, downloadUrl, apiBase, channelId: platform.id, startCommand, setupInstruction,
+  });
 
   const copy = async (value: string) => {
     try {
@@ -127,9 +127,9 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
                 {t('platforms.wechatLocal.v2CopyStart', '复制启动命令')}
               </button>
             </li>
-            <li>{t('platforms.wechatLocal.v2Login', '登录 Windows 微信，工具会自动检查窗口。')}</li>
+            <li>{t('platforms.wechatLocal.v2Login')}</li>
             <li>
-              {t('platforms.wechatLocal.v2Bind', '绑定当前渠道。在本机终端粘贴渠道密钥，打开「接待范围」，勾选联系人、分组或群聊，再启用。')}
+              {scopedEnabled ? t('platforms.wechatLocal.v2SetupBind') : t('platforms.wechatLocal.v2ManualPreview')}
               <button type="button" className="ml-2 rounded-md border px-2 py-1" disabled={!platform.config.apiKey}
                 onClick={() => void copy(platform.config.apiKey ?? '')}>
                 {t('platforms.wechatLocal.copyKey', '复制渠道密钥')}
