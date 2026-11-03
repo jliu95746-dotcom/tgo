@@ -58,22 +58,40 @@ class ResidentBridgeTests(unittest.TestCase):
         with (
             patch.object(resident, "integration_lock", lock),
             patch.object(resident, "prepare_scoped", return_value=object()),
-            patch.object(resident, "register_task", return_value="bridge") as register,
-            patch.object(resident, "scheduler", side_effect=lambda *args: actions.append(args)),
+            patch.object(resident, "register_autostart", return_value=lambda: actions.append("start")) as register,
             patch.object(resident, "wait_for_scope", return_value=scope_url),
             patch.object(resident, "open_scope") as open_scope,
             patch("builtins.print"),
         ):
             resident.configure_scoped(runtime, base, channel, None, preview=False)
         register.assert_called_once_with(runtime, base, channel)
-        self.assertEqual(actions, ["lock", "unlock", ("/Run", "/TN", "bridge")])
+        self.assertEqual(actions, ["lock", "unlock", "start"])
         open_scope.assert_called_once_with(scope_url)
+
+    def test_denied_task_registration_falls_back_to_current_users_startup_folder(self):
+        channel = uuid4()
+        runtime = Path("runtime")
+        base = "https://customer.example/api"
+        shortcut = Path("Startup") / f"Yujian-WeChatBridge-{channel}.lnk"
+        with (
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(resident, "register_task", side_effect=PermissionError),
+            patch.object(resident, "register_startup_shortcut", return_value=shortcut) as register,
+            patch.object(resident.os, "startfile", create=True) as launch,
+        ):
+            start = resident.register_autostart(runtime, base, channel)
+            launch.assert_not_called()
+            start()
+        program, *arguments = register.call_args.args
+        self.assertEqual(program.name, "pythonw.exe")
+        self.assertEqual(arguments, [runtime, base, channel])
+        launch.assert_called_once_with(str(shortcut))
 
     def test_preview_never_registers_a_task(self):
         with (
             patch.object(resident, "integration_lock"),
             patch.object(resident, "prepare_scoped", return_value=None),
-            patch.object(resident, "register_task") as register,
+            patch.object(resident, "register_autostart") as register,
         ):
             resident.configure_scoped(Path("runtime"), "https://customer.example/api", uuid4(), None, preview=True)
         register.assert_not_called()
@@ -91,7 +109,7 @@ class ResidentBridgeTests(unittest.TestCase):
                 patch.object(resident, "integration_lock", side_effect=resident.BridgeAlreadyRunning),
                 patch.object(resident, "active_scope_url", return_value=url),
                 patch.object(resident, "open_scope") as open_scope,
-                patch.object(resident, "register_task") as register,
+                patch.object(resident, "register_autostart") as register,
             ):
                 resident.configure_scoped(runtime, base, channel, None, preview=False)
                 with self.assertRaises(resident.BridgeAlreadyRunning):

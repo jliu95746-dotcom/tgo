@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import subprocess
 import sys
 import time
 import webbrowser
+from collections.abc import Callable
+from functools import partial
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -21,6 +24,13 @@ from .private_runtime import BridgeAlreadyRunning, current_user_sid, integration
 from .rpa import RpaNotReady
 from .scoped_setup import prepare_scoped, serve_scoped
 from .tgo_client import TgoError, bridge_base_url
+
+
+def bridge_arguments(runtime: Path, base: str, channel: UUID) -> str:
+    return subprocess.list2cmdline([
+        "-m", "tools.wechat_local_bridge.cli", "--runtime", str(runtime.resolve()),
+        "setup-scoped", "--base-url", base, "--platform-id", str(channel), "--resident",
+    ])
 
 
 def task_definition(sid: str, program: Path, runtime: Path, base: str, channel: UUID) -> bytes:
@@ -48,10 +58,7 @@ def task_definition(sid: str, program: Path, runtime: Path, base: str, channel: 
 
     action = ET.SubElement(ET.SubElement(task, "Actions", Context="BridgeUser"), "Exec")
     ET.SubElement(action, "Command").text = str(program)
-    ET.SubElement(action, "Arguments").text = subprocess.list2cmdline([
-        "-m", "tools.wechat_local_bridge.cli", "--runtime", str(runtime.resolve()),
-        "setup-scoped", "--base-url", base, "--platform-id", str(channel), "--resident",
-    ])
+    ET.SubElement(action, "Arguments").text = bridge_arguments(runtime, base, channel)
     ET.SubElement(action, "WorkingDirectory").text = str(Path(__file__).resolve().parents[2])
     return ET.tostring(task, encoding="utf-16", xml_declaration=True)
 
@@ -63,10 +70,7 @@ def scheduler(*arguments: str) -> None:
     )
 
 
-def register_task(runtime: Path, base: str, channel: UUID) -> str:
-    program = Path(sys.executable).with_name("pythonw.exe")
-    if not program.is_file():
-        raise FileNotFoundError("当前 Python 环境缺少 pythonw.exe")
+def register_task(program: Path, runtime: Path, base: str, channel: UUID) -> str:
     sid = current_user_sid()
     name = f"Yujian-WeChatBridge-{sid}-{channel}"
     with TemporaryDirectory() as temporary:
@@ -74,6 +78,39 @@ def register_task(runtime: Path, base: str, channel: UUID) -> str:
         definition.write_bytes(task_definition(sid, program, runtime, base, channel))
         scheduler("/Create", "/TN", name, "/XML", str(definition), "/F")
     return name
+
+
+def register_startup_shortcut(program: Path, runtime: Path, base: str, channel: UUID) -> Path:
+    from comtypes import COMError
+    from comtypes.client import CreateObject
+
+    try:
+        shell = CreateObject("WScript.Shell", dynamic=True)
+        startup = Path(shell.SpecialFolders.Item("Startup"))
+        path = startup / f"Yujian-WeChatBridge-{channel}.lnk"
+        shortcut = shell.CreateShortcut(str(path))
+        shortcut.TargetPath = str(program)
+        shortcut.Arguments = bridge_arguments(runtime, base, channel)
+        shortcut.WorkingDirectory = str(Path(__file__).resolve().parents[2])
+        shortcut.Description = "域见客服个人微信桥接"
+        shortcut.Save()
+    except COMError as error:
+        raise OSError("Windows 无法保存个人微信桥接启动快捷方式") from error
+    if not path.is_file():
+        raise OSError("Windows 启动快捷方式未保存")
+    return path
+
+
+def register_autostart(runtime: Path, base: str, channel: UUID) -> Callable[[], None]:
+    program = Path(sys.executable).with_name("pythonw.exe")
+    if not program.is_file():
+        raise FileNotFoundError("当前 Python 环境缺少 pythonw.exe")
+    try:
+        task = register_task(program, runtime, base, channel)
+    except (OSError, subprocess.SubprocessError):
+        shortcut = register_startup_shortcut(program, runtime, base, channel)
+        return partial(os.startfile, str(shortcut))
+    return partial(scheduler, "/Run", "/TN", task)
 
 
 class LocalOnlyRedirect(HTTPRedirectHandler):
@@ -129,7 +166,7 @@ def configure_scoped(
             if bridge is None:
                 return
             try:
-                task = register_task(runtime, base, channel)
+                start = register_autostart(runtime, base, channel)
             except (OSError, subprocess.SubprocessError):
                 print("Windows 自动启动设置失败，本次将通过当前窗口运行。", flush=True)
                 serve_scoped(bridge)
@@ -147,7 +184,7 @@ def configure_scoped(
         raise
 
     try:
-        scheduler("/Run", "/TN", task)
+        start()
     except (OSError, subprocess.SubprocessError):
         print("已设置 Windows 登录后自动启动，本次通过当前窗口运行。", flush=True)
         with integration_lock(runtime):
