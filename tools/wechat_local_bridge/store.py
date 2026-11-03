@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from dataclasses import asdict
 from pathlib import Path
@@ -19,6 +20,16 @@ class PendingDraft(TypedDict):
 
 class InboxStore:
     def __init__(self, path: Path):
+        if os.name == "nt":
+            filename = os.path.abspath(path)
+            if not filename.startswith("\\\\?\\"):
+                # SQLite appends a journal suffix that can exceed MAX_PATH.
+                filename = (
+                    "\\\\?\\UNC\\" + filename[2:]
+                    if filename.startswith("\\\\")
+                    else "\\\\?\\" + filename
+                )
+            path = Path(filename)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path, check_same_thread=False)
         self.connection.executescript("""
