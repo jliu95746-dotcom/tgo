@@ -11,10 +11,12 @@ import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
-from .cli import account_tag, bind_tgo
+from .cli import account_tag, save_tgo_binding
+from .pairing import pair_current_channel
 from .memory import capture_scoped_account
 from .reader import WeChatReader
 from .reception_scope import Scope, ScopeSettings
@@ -71,12 +73,14 @@ def find_accounts(documents: Path) -> tuple[Path, ...]:
     }))
 
 
-def setup_scoped(runtime: Path, base: str, platform_id: UUID, account_root: Path | None) -> None:
+def setup_scoped(
+    runtime: Path, base: str, platform_id: UUID, account_root: Path | None, *, preview: bool = False
+) -> None:
     base = bridge_base_url(base, "wechat_local")
     pid, hwnd, documents = discover_window()
     binding = runtime / "tgo.private.json"
     key_file = runtime / "keys.private.json"
-    if binding.exists():
+    if not preview and binding.exists():
         existing = json.loads(binding.read_text(encoding="utf-8"))
         if existing.get("platform_id") != str(platform_id) or existing.get("base_url") != base or existing.get("chat_id") != "scoped":
             raise ValueError("运行目录已绑定其他渠道，请使用后台提供的当前渠道命令")
@@ -87,11 +91,18 @@ def setup_scoped(runtime: Path, base: str, platform_id: UUID, account_root: Path
     accounts = (account_root,) if account_root else find_accounts(documents)
     if not accounts:
         raise ValueError("未找到微信数据。请在已登录的微信中打开任意会话，再重新运行工具")
+    if preview:
+        with TemporaryDirectory(dir=runtime, prefix="preview-") as temporary:
+            capture_scoped_account(pid, accounts, Path(temporary))
+        print("试跑通过。已自动识别并核验当前登录的微信账号。", flush=True)
+        return
+
     capture_scoped_account(pid, accounts, runtime)
+    reader = WeChatReader(key_file)
     new_binding = not binding.exists()
     if new_binding:
-        bind_tgo(runtime, base, platform_id, "wechat_local", scoped=True)
-    reader = WeChatReader(key_file)
+        key = pair_current_channel(base, platform_id)
+        save_tgo_binding(runtime, base, platform_id, "wechat_local", reader, key, scoped=True)
     scope = Scope(reader, runtime / "reception-scope.private.json")
     client = TgoClient(binding, runtime, account_tag(reader), scoped=True)
     if new_binding:

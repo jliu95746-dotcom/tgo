@@ -1,5 +1,6 @@
 """Personal WeChat authorization is tied to the signed, canonical visitor."""
 from datetime import timedelta
+from hashlib import sha256
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -175,3 +176,57 @@ async def test_group_unverified_mention_is_forwarded_without_ai(bridge, monkeypa
     assert result["event_type"] == "received"
     assert forwarded.await_args.kwargs["content"] == "@店主 售后"
     assert forwarded.await_args.kwargs["require_delivery"] is True
+
+
+@pytest.mark.asyncio
+async def test_pairing_code_requires_exact_channel_and_proof_and_is_single_use(bridge, monkeypatch):
+    _, platform, _ = bridge
+    other = Platform(id=uuid4(), api_key=platform.api_key, is_active=True)
+    data = {}
+
+    class RedisFixture:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def set(self, key, value, *, ex, nx):
+            assert ex == 120 and nx
+            data[key] = value
+            return True
+
+        async def getdel(self, key):
+            return data.pop(key, None)
+
+    monkeypatch.setattr(service.settings, "WECHAT_LOCAL_SCOPED_ENABLED", True)
+    monkeypatch.setattr(service.settings, "REDIS_URL", "redis://pair-test.invalid")
+    monkeypatch.setattr(service.Redis, "from_url", lambda *_args, **_kwargs: RedisFixture())
+    verifier = "v" * 43
+    challenge = sha256(verifier.encode("ascii")).hexdigest()
+    code = await service.issue_pairing_code(platform, challenge)
+    assert code not in str(data)
+    for target, proof in ((other, verifier), (platform, "w" * 43)):
+        with pytest.raises(HTTPException) as error:
+            await service.exchange_pairing_code(target, code, proof)
+        assert error.value.status_code == 400
+    assert await service.exchange_pairing_code(platform, code, verifier) == platform.api_key
+    with pytest.raises(HTTPException) as replay:
+        await service.exchange_pairing_code(platform, code, verifier)
+    assert replay.value.status_code == 400
+
+    code = await service.issue_pairing_code(platform, challenge)
+    platform.api_key = "rotated-fixture-key"
+    with pytest.raises(HTTPException):
+        await service.exchange_pairing_code(platform, code, verifier)
+
+
+@pytest.mark.asyncio
+async def test_pairing_remains_unavailable_in_preview(bridge, monkeypatch):
+    _, platform, _ = bridge
+    monkeypatch.setattr(service.settings, "WECHAT_LOCAL_SCOPED_ENABLED", False)
+    with pytest.raises(HTTPException) as issue:
+        await service.issue_pairing_code(platform, "a" * 64)
+    with pytest.raises(HTTPException) as exchange:
+        await service.exchange_pairing_code(platform, "a" * 43, "b" * 43)
+    assert issue.value.status_code == exchange.value.status_code == 403

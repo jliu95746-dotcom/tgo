@@ -7,6 +7,7 @@ import getpass
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import threading
 from contextlib import contextmanager, nullcontext
@@ -20,7 +21,7 @@ from .private_runtime import ensure_private_runtime
 from .reader import WeChatReader
 from .store import InboxStore
 from .tgo_bridge import TgoBridge
-from .tgo_client import TgoClient, bridge_base_url
+from .tgo_client import TgoClient, TgoError, bridge_base_url
 from .tgo_store import TgoStore
 from .watch import Watcher
 
@@ -60,6 +61,14 @@ def bind_tgo(
     key = getpass.getpass("粘贴当前渠道密钥并按回车（不回显）：").strip()
     if not key:
         raise ValueError("缺少测试渠道 API Key")
+    save_tgo_binding(runtime, base_url, platform_id, platform_type, reader, key, scoped=scoped)
+
+
+def save_tgo_binding(
+    runtime: Path, base_url: str, platform_id: UUID, platform_type: str,
+    reader: WeChatReader, key: str, *, scoped: bool,
+) -> None:
+    path = runtime / "tgo.private.json"
     with path.open("x", encoding="utf-8") as target:
         json.dump(
             {
@@ -330,6 +339,7 @@ def main() -> None:
     setup.add_argument("--base-url", required=True)
     setup.add_argument("--platform-id", type=UUID, required=True)
     setup.add_argument("--account-root", type=Path)
+    setup.add_argument("--preview", action="store_true", help="仅验证当前微信账号并退出")
     server = sub.add_parser("serve", help="启动仅本机可访问的控制页与新增消息监听")
     server.add_argument(
         "--port", type=int, default=0, help="监听端口，0 表示自动选择空闲端口"
@@ -379,8 +389,16 @@ def main() -> None:
     elif args.command == "setup-scoped":
         from .scoped_setup import setup_scoped
 
-        with integration_lock(args.runtime):
-            setup_scoped(args.runtime, args.base_url, args.platform_id, args.account_root)
+        try:
+            with integration_lock(args.runtime):
+                setup_scoped(
+                    args.runtime, args.base_url, args.platform_id, args.account_root,
+                    preview=args.preview,
+                )
+        except KeyboardInterrupt:
+            raise SystemExit("已结束个人微信配置") from None
+        except (ValueError, OSError, TgoError, subprocess.SubprocessError) as error:
+            raise SystemExit(str(error)) from None
     elif args.command == "probe-uia":
         from .uia_probe import probe_uia
 

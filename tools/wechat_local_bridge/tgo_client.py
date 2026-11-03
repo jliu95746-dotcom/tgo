@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, OpenerDirector, ProxyHandler, Request, build_opener
 
 from .tgo_protocol import object_map
 
@@ -78,6 +78,34 @@ def visitor_token_expired(value: object) -> bool:
         return True
 
 
+def post_json(
+    opener: OpenerDirector, url: str, body: Mapping[str, object], headers: Mapping[str, str]
+) -> Mapping[str, object]:
+    request = Request(
+        url,
+        data=json.dumps(body, ensure_ascii=False).encode(),
+        headers=dict(headers),
+        method="POST",
+    )
+    try:
+        with opener.open(request, timeout=15) as response:
+            raw = response.read(2 * 1024**2 + 1)
+    except HTTPError as error:
+        if error.code >= 500:
+            raise TgoUnavailable(f"客服 API HTTP {error.code}") from None
+        raise TgoError(
+            f"客服 API HTTP {error.code}，已停止该请求，不输出凭据或响应正文"
+        ) from None
+    except (URLError, TimeoutError, ConnectionError) as error:
+        raise TgoUnavailable(f"客服连接暂不可用：{type(error).__name__}") from None
+    if len(raw) > 2 * 1024**2:
+        raise TgoError("客服响应超过本轮大小限制")
+    result = object_map(json.loads(raw))
+    if not result:
+        raise TgoError("客服响应格式无效")
+    return result
+
+
 class TgoClient:
     def __init__(
         self, config_file: Path, runtime: Path, account_tag: str, *,
@@ -121,29 +149,7 @@ class TgoClient:
             if not isinstance(token, str) or not token:
                 raise TgoError("缺少当前访客凭据")
             headers["Authorization"] = "Bearer " + token
-        request = Request(
-            self.base + endpoint,
-            data=json.dumps(body, ensure_ascii=False).encode(),
-            headers=headers,
-            method="POST",
-        )
-        try:
-            with self.opener.open(request, timeout=15) as response:
-                raw = response.read(2 * 1024**2 + 1)
-        except HTTPError as error:
-            if error.code >= 500:
-                raise TgoUnavailable(f"客服 API HTTP {error.code}") from None
-            raise TgoError(
-                f"客服 API HTTP {error.code}，已停止该请求，不输出凭据或响应正文"
-            ) from None
-        except (URLError, TimeoutError, ConnectionError) as error:
-            raise TgoUnavailable(f"客服连接暂不可用：{type(error).__name__}") from None
-        if len(raw) > 2 * 1024**2:
-            raise TgoError("客服响应超过本轮大小限制")
-        result = object_map(json.loads(raw))
-        if not result:
-            raise TgoError("客服响应格式无效")
-        return result
+        return post_json(self.opener, self.base + endpoint, body, headers)
 
     def connect(self) -> None:
         identity = self.identity

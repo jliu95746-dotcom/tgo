@@ -26,8 +26,9 @@ from app.schemas.knowledge_availability import AgentKnowledgeAvailability
 from app.models.platform import PlatformType
 from app.services.platform_configuration import is_platform_configured
 from app.services.wechat_local_bridge import (
-    WeChatLocalHeartbeat, WeChatLocalScope, WeChatLocalScopeReceipt, WeChatLocalStatus, authorize_bridge_visitor,
-    bridge_status, publish_bridge_scope,
+    WeChatLocalHeartbeat, WeChatLocalPairCode, WeChatLocalPairCredential, WeChatLocalPairExchange,
+    WeChatLocalPairRequest, WeChatLocalScope, WeChatLocalScopeReceipt, WeChatLocalStatus,
+    authorize_bridge_visitor, bridge_status, exchange_pairing_code, issue_pairing_code, publish_bridge_scope,
 )
 from app.schemas import (
     PlatformAPIKeyResponse,
@@ -411,6 +412,47 @@ async def get_wechat_local_status(
         raise HTTPException(404, "Platform not found")
     response.headers["Cache-Control"] = "no-store"
     return await bridge_status(platform)
+
+
+def _pairing_platform(db: Session, platform_id: UUID, project_id: UUID | None = None) -> Platform:
+    query = db.query(Platform).filter(
+        Platform.id == platform_id,
+        Platform.type == PlatformType.WECHAT_LOCAL.value,
+        Platform.is_active.is_(True),
+        Platform.deleted_at.is_(None),
+    )
+    if project_id is not None:
+        query = query.filter(Platform.project_id == project_id)
+    platform = query.first()
+    if platform is None:
+        raise HTTPException(404, "个人微信渠道不可用")
+    return platform
+
+
+@router.post("/{platform_id}/wechat-local/pair/authorize", response_model=WeChatLocalPairCode)
+async def authorize_wechat_local_pair(
+    platform_id: UUID,
+    payload: WeChatLocalPairRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(require_permission("platforms:update")),
+) -> WeChatLocalPairCode:
+    platform = _pairing_platform(db, platform_id, current_user.project_id)
+    response.headers["Cache-Control"] = "no-store"
+    return WeChatLocalPairCode(code=await issue_pairing_code(platform, payload.challenge))
+
+
+@router.post("/{platform_id}/wechat-local/pair/exchange", response_model=WeChatLocalPairCredential)
+async def exchange_wechat_local_pair(
+    platform_id: UUID,
+    payload: WeChatLocalPairExchange,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> WeChatLocalPairCredential:
+    platform = _pairing_platform(db, platform_id)
+    response.headers["Cache-Control"] = "no-store"
+    key = await exchange_pairing_code(platform, payload.code, payload.verifier)
+    return WeChatLocalPairCredential(platform_api_key=key)
 
 
 @router.post("/{platform_id}/wechat-local/heartbeat", response_model=WeChatLocalStatus)

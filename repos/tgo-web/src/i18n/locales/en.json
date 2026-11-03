@@ -3227,12 +3227,14 @@
   },
   "platforms": {
     "wechatLocal": {
-      "v2Prompt": "Help me set up the Yujian customer service bridge for personal WeChat on this Windows PC. Dashboard {{backendUrl}}, bridge download {{downloadUrl}}, API {{apiBase}}. Use the current channel {{channelId}}.\n\n1. Download and extract the tool. Keep the actual extraction path. Check for 64-bit Python 3.11 or newer and reuse existing working dependencies. Install missing requirements if permitted.\n2. Check whether Windows WeChat is signed in. Open it if permitted and ask me to sign in if needed. Continue once I am signed in.\n3. In the extracted folder, run {{startCommand}}. The tool automatically finds and verifies the data folder for the signed-in account. {{setupInstruction}}\n4. If your environment blocks launching Windows programs, give me a single command I can paste into Windows PowerShell. Use Set-Location -LiteralPath with the actual extraction path, followed by the launch command above. Tell me only what is complete, where you are blocked, and the next action I need to take.",
-      "v2SetupPreview": "This feature is in preview. Verify local startup and account detection, then stop at the channel key prompt.",
-      "v2SetupBind": "When prompted, I will copy the key for the current channel into the local terminal. Once the reception page opens, I will choose contacts, lists, or group chats and decide when to enable it.",
+      "v2Prompt": "Help me set up the Yujian customer service bridge for personal WeChat on this Windows PC. Dashboard {{backendUrl}}, bridge download {{downloadUrl}}, API {{apiBase}}. Use the current channel {{channelId}}.\n\n1. Download and extract the tool. Keep the actual extraction path. Check for 64-bit Python 3.11 or newer and reuse existing working dependencies. Install missing requirements if permitted.\n2. Check whether Windows WeChat is signed in. Open it if permitted and ask me to sign in if needed. Continue once I am signed in.\n3. If you can start programs in the user's Windows desktop session, run in the extracted folder {{startCommand}}. The tool automatically finds and verifies the data folder for the signed-in account. {{setupInstruction}}\n4. If your environment blocks launching Windows programs, give me a single command I can paste into Windows PowerShell. Use Set-Location -LiteralPath with the actual extraction path, followed by the launch command above. Tell me only what is complete, where you are blocked, and the next action I need to take.",
+      "v2SetupPreview": "This feature is in preview. When the tool reports that the check passed, it exits automatically.",
+      "v2SetupBind": "The tool opens this channel page. Ask me to click Connect this computer on this PC. I will then choose who to serve and enable reception.",
       "v2Login": "Sign in to Windows WeChat. The tool will verify the data folder for the current account.",
-      "v2ManualPreview": "The channel key prompt marks the end of this preview test.",
-      "v2Preview": "Contact and group reception is being verified. You can preview the setup steps."
+      "v2ManualPreview": "The tool exits automatically when the preview check passes.",
+      "v2Preview": "Contact and group reception is being verified. You can preview the setup steps.",
+      "v2PairConfirm": "Confirm connecting the WeChat account signed in on this computer to the current channel.",
+      "v2PairButton": "Connect this computer"
     },
     "list": {
       "title": "Platforms",

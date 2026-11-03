@@ -140,6 +140,10 @@ class PlatformsApiService extends BaseApiService {
   async getWeChatLocalStatus(id: string): Promise<WeChatLocalStatus> {
     return this.get<WeChatLocalStatus>(`${this.endpoints.PLATFORM_BY_ID(id)}/wechat-local/status`);
   }
+  async authorizeWeChatLocalPair(id: string, challenge: string): Promise<{ code: string }> {
+    return this.post<{ code: string }>(`${this.endpoints.PLATFORM_BY_ID(id)}/wechat-local/pair/authorize`, { challenge });
+  }
+
   /**
    * Upload or replace platform logo (multipart/form-data: field 'file')
    */

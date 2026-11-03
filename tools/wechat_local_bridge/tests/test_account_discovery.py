@@ -3,11 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 from test_crypto import KEY, SALT, encrypted_page
 
 from tools.wechat_local_bridge import memory
-from tools.wechat_local_bridge.scoped_setup import find_accounts
+from tools.wechat_local_bridge import scoped_setup
 
 
 class AccountDiscoveryTests(unittest.TestCase):
@@ -23,7 +24,7 @@ class AccountDiscoveryTests(unittest.TestCase):
             (config / "duplicate.ini").write_text(str(custom / "xwechat_files"), encoding="utf-16")
             (config / "unrelated.ini").write_text("[section]\npath=unknown", encoding="utf-8")
             with patch.dict(os.environ, {"APPDATA": str(home / "appdata")}):
-                self.assertEqual(find_accounts(home / "Documents"), (account.resolve(),))
+                self.assertEqual(scoped_setup.find_accounts(home / "Documents"), (account.resolve(),))
 
     def test_current_process_keys_select_only_one_account(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -60,6 +61,29 @@ class AccountDiscoveryTests(unittest.TestCase):
                     memory.capture_scoped_account(123, (inactive, active), runtime)
                 self.assertEqual((runtime / "keys.private.json").read_bytes(), previous_keys)
                 self.assertEqual(save.call_count, 1)
+
+
+    def test_preview_verifies_account_and_exits_without_pairing_or_saved_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            account = runtime.parent / "fixture_account"
+
+            def capture(_pid, accounts, destination):
+                self.assertEqual(accounts, (account,))
+                (destination / "keys.private.json").write_text("fixture", encoding="utf-8")
+
+            with (
+                patch.object(scoped_setup, "discover_window", return_value=(123, 456, runtime)),
+                patch.object(scoped_setup, "find_accounts", return_value=(account,)),
+                patch.object(scoped_setup, "capture_scoped_account", side_effect=capture) as verify,
+                patch.object(scoped_setup, "serve_scoped") as serve,
+                patch("builtins.print") as output,
+            ):
+                scoped_setup.setup_scoped(runtime, "http://localhost", uuid4(), None, preview=True)
+            verify.assert_called_once()
+            serve.assert_not_called()
+            self.assertIn("试跑通过", output.call_args.args[0])
+            self.assertEqual(list(runtime.iterdir()), [])
 
 
 if __name__ == "__main__":
