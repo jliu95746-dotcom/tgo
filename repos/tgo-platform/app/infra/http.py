@@ -4,6 +4,7 @@ from typing import AsyncIterator
 
 from app.domain.entities import ChatCompletionRequest
 from app.domain.ports import TgoApiClient
+from app.infra.visitor_client import channel_registration_headers
 
 
 class HttpxTgoApiClient(TgoApiClient):
@@ -12,7 +13,7 @@ class HttpxTgoApiClient(TgoApiClient):
 
     async def chat_completion(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
         url = "/v1/chat/completion"
-        async with self._client.stream("POST", url, json=req.model_dump()) as r:
+        async with self._client.stream("POST", url, json=req.model_dump(), headers=channel_registration_headers()) as r:
             if r.status_code == 402:
                 await r.aread()
                 try:

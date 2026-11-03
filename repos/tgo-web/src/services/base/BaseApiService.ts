@@ -17,6 +17,7 @@ export interface BaseQueryParams {
   // Agent-specific parameters (allowing null for API compatibility)
   model?: string | null;
   is_default?: boolean | null;
+  include_workflows?: boolean;
   // Model-specific parameters (allowing null for API compatibility)
   provider?: string | null;
   type?: string | null;
@@ -118,6 +119,9 @@ export abstract class BaseApiService {
     }
     if (params.is_default !== undefined && params.is_default !== null) {
       queryParams.append('is_default', params.is_default.toString());
+    }
+    if (params.include_workflows !== undefined) {
+      queryParams.append('include_workflows', params.include_workflows.toString());
     }
 
     // Model-specific parameters

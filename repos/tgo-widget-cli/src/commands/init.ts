@@ -1,7 +1,8 @@
 import { Command } from 'commander';
 import { hostname, platform, release, type, arch, userInfo } from 'node:os';
 import { TgoWidgetClient } from '../client.js';
-import { resolveOutput, resolveServer, resolveApiKey, updateConfig } from '../config.js';
+import { resolveOutput, resolveServer, resolveApiKey } from '../config.js';
+import { beginVisitorInitialization, cancelVisitorInitialization, finishVisitorInitialization } from '../sessionLifecycle.js';
 import { printError, printResult } from '../output.js';
 
 interface RegisterResponse {
@@ -10,6 +11,10 @@ interface RegisterResponse {
   channel_id: string;
   channel_type: number;
   im_token: string;
+  visitor_access_token: string;
+  visitor_end_token?: string;
+  business_protected?: boolean;
+  business_access_expires_at?: string | null;
   platform_id: string;
   project_id?: string;
   created_at?: string;
@@ -57,6 +62,7 @@ export async function initVisitor(params: {
   if (!server) throw new Error('No server specified. Use --server <url> or set TGO_WIDGET_SERVER');
 
   const client = new TgoWidgetClient({ server, apiKey: params.apiKey });
+  const requestId = beginVisitorInitialization();
 
   const body: Record<string, unknown> = {
     platform_api_key: params.apiKey,
@@ -76,27 +82,45 @@ export async function initVisitor(params: {
   body.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   body.language = Intl.DateTimeFormat().resolvedOptions().locale || process.env.LANG?.split('.')[0];
 
-  const data = await client.postPublic<RegisterResponse>('/v1/visitors/register', body);
+  try {
+    const data = await client.postPublic<RegisterResponse>('/v1/visitors/register', body);
+    if (!data.id || !data.channel_id || !data.im_token || typeof data.visitor_access_token !== 'string'
+        || !data.visitor_access_token || data.visitor_access_token.length > 256) {
+      throw new Error('访客注册响应缺少访问凭据，请更新服务器后重新初始化');
+    }
+    if (data.visitor_end_token !== undefined && (typeof data.visitor_end_token !== 'string' || !data.visitor_end_token || data.visitor_end_token.length > 8192)) {
+      throw new Error('访客注册响应中的退出凭据无效');
+    }
 
-  // Save to config
-  updateConfig({
-    server,
-    api_key: params.apiKey,
-    visitor_id: data.id,
-    platform_open_id: data.platform_open_id,
-    channel_id: data.channel_id,
-    channel_type: data.channel_type,
-    im_token: data.im_token,
-    platform_id: data.platform_id,
-  });
+    // Commit only if no newer init or reset superseded this network request.
+    const lifecycle = await finishVisitorInitialization(requestId, {
+      server,
+      api_key: params.apiKey,
+      visitor_id: data.id,
+      platform_open_id: data.platform_open_id,
+      channel_id: data.channel_id,
+      channel_type: data.channel_type,
+      im_token: data.im_token,
+      visitor_access_token: data.visitor_access_token,
+      visitor_end_token: data.visitor_end_token,
+      business_protected: data.business_protected,
+      business_access_expires_at: data.business_access_expires_at,
+      project_id: data.project_id,
+      platform_id: data.platform_id,
+    });
 
-  return {
-    status: 'initialized',
-    visitor_id: data.id,
-    platform_open_id: data.platform_open_id,
-    channel_id: data.channel_id,
-    channel_type: data.channel_type,
-    platform_id: data.platform_id,
-    server,
-  };
+    return {
+      status: 'initialized',
+      visitor_id: data.id,
+      platform_open_id: data.platform_open_id,
+      channel_id: data.channel_id,
+      channel_type: data.channel_type,
+      platform_id: data.platform_id,
+      server,
+      ...lifecycle,
+    };
+  } catch (error) {
+    cancelVisitorInitialization(requestId);
+    throw error;
+  }
 }

@@ -350,8 +350,6 @@ class _MessageListState extends State<MessageList> {
         isUser: false,
         isStreaming: true,
         onSendMessage: widget.provider.sendMessage,
-        onAction: (action, payload) => debugPrint('Action: $action, payload: $payload'),
-        onCopySuccess: (text) => debugPrint('Copied: $text'),
       );
     }
 
@@ -388,8 +386,6 @@ class _MessageListState extends State<MessageList> {
         content: payload.content,
         isUser: isUser,
         onSendMessage: widget.provider.sendMessage,
-        onAction: (action, payload) => debugPrint('Action: $action, payload: $payload'),
-        onCopySuccess: (text) => debugPrint('Copied: $text'),
       );
     }
 
@@ -422,9 +418,6 @@ class _MessageListState extends State<MessageList> {
               content: payload.content,
               isUser: isUser,
               onSendMessage: widget.provider.sendMessage,
-              onAction: (action, payload) =>
-                  debugPrint('Action: $action, payload: $payload'),
-              onCopySuccess: (text) => debugPrint('Copied: $text'),
             ),
           if (payload.images.isNotEmpty)
             Padding(

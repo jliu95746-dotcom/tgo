@@ -12,6 +12,7 @@ from app.schemas.execution import WorkflowExecuteRequest
 from celery_app import tasks
 from app.services import execution_lifecycle, workflow_dispatch
 from app.integrations.http_client import HttpClient
+from app.services.workflow_service import WorkflowService
 
 
 def setup_dispatch(monkeypatch, failure=None):
@@ -21,7 +22,15 @@ def setup_dispatch(monkeypatch, failure=None):
     )
     monkeypatch.setattr(
         executions.WorkflowService, "get_by_id",
-        AsyncMock(return_value=SimpleNamespace(definition={})),
+        AsyncMock(return_value=SimpleNamespace(version=1, definition={
+            "nodes": [
+                {"id": "input", "type": "input", "data": {"reference_key": "input"}},
+                {"id": "answer", "type": "answer", "data": {
+                    "reference_key": "answer", "output_type": "template", "output_template": "result",
+                }},
+            ],
+            "edges": [{"source": "input", "target": "answer"}],
+        })),
     )
     monkeypatch.setattr(
         executions, "_create_execution_record", AsyncMock(return_value=row),
@@ -33,7 +42,9 @@ def setup_dispatch(monkeypatch, failure=None):
     db.execute.return_value = Mock(
         scalar_one=Mock(return_value=row),
         scalar_one_or_none=Mock(return_value="execution-owned"),
+        one_or_none=Mock(return_value=("failed", datetime.now(timezone.utc))),
     )
+    db.scalars = AsyncMock(return_value=[])
     return db, publisher
 
 
@@ -133,7 +144,7 @@ async def test_worker_does_not_run_an_unclaimable_execution(monkeypatch):
     ))
     monkeypatch.setattr(tasks, "workflow_task_session", session)
     monkeypatch.setattr(
-        tasks.WorkflowService, "get_by_id",
+        WorkflowService, "get_by_id",
         AsyncMock(return_value=SimpleNamespace(definition={})),
     )
     executor = Mock(return_value=SimpleNamespace(run=AsyncMock()))
@@ -154,12 +165,13 @@ async def test_task_closes_http_connections_before_its_event_loop_ends(
     monkeypatch, close_error,
 ):
     db = AsyncMock()
+    db.execute.return_value = Mock(scalar_one_or_none=Mock(return_value=None))
     session = Mock(return_value=AsyncMock(
         __aenter__=AsyncMock(return_value=db),
     ))
     monkeypatch.setattr(tasks, "workflow_task_session", session)
     monkeypatch.setattr(
-        tasks.WorkflowService, "get_by_id", AsyncMock(return_value=None),
+        WorkflowService, "get_by_id", AsyncMock(return_value=None),
     )
     client = SimpleNamespace(
         is_closed=False, aclose=AsyncMock(side_effect=close_error),
@@ -185,7 +197,9 @@ async def test_cancel_is_durable_even_if_broker_is_unavailable(
     db = AsyncMock()
     db.execute.return_value = Mock(
         scalar_one_or_none=Mock(return_value=row),
+        one_or_none=Mock(return_value=(row.status, row.completed_at)),
     )
+    db.scalars = AsyncMock(return_value=[])
     revoke = Mock(side_effect=OSError("private-broker-uri"))
     monkeypatch.setattr(workflow_dispatch.celery_app.control, "revoke", revoke)
     result = await executions.cancel_execution(

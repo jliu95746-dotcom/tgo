@@ -40,6 +40,7 @@ const TimerNode: React.FC<NodeProps<TimerNodeData>> = ({ id, data, selected }) =
           <Clock className="w-2.5 h-2.5" />
           {data.cron_expression || t('workflow.node_display.scheduled', 'Scheduled')}
         </div>
+        <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">{data.timezone || 'UTC'}</p>
       </div>
       
       <Handle

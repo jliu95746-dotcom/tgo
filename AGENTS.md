@@ -4,6 +4,10 @@
 
 ## Policies & Mandatory Skills
 
+### Project documentation updates
+
+The user has given standing authorization to update this project's development plans and progress documents without asking for confirmation each time. Announce the target project file and a brief content summary before writing. This authorization applies only to project documentation; it does not authorize updates to global memory or rules, other projects, deployment, or publication.
+
 ### `$local-services`
 
 Before any runtime verification or manual testing, ensure local services are running. Use `$local-services` to start the minimum set (infrastructure + tgo-api + tgo-ai) or check current status.

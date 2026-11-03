@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 
 /// Configuration for the TGO platform
@@ -88,10 +87,8 @@ class PlatformService {
       return PlatformInfo.fromJson(response.data!);
     } on DioException catch (e) {
       final errorMessage = _extractDioErrorMessage(e);
-      debugPrint('[PlatformService] DioException: $errorMessage');
       throw Exception('Failed to fetch platform info: $errorMessage');
     } catch (e) {
-      debugPrint('[PlatformService] Error: $e');
       throw Exception('Failed to fetch platform info: $e');
     }
   }

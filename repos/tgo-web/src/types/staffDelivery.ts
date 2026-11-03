@@ -15,6 +15,8 @@ export interface StaffDeliveryRequest {
   channel_id: string;
   channel_type: 251;
   client_msg_no: string;
+  source_message_id?: string | null;
+  assist_draft_id?: string | null;
   payload: StaffDeliveryPayload;
   retry_failed?: boolean;
   training?: AssistTrainingIntent | null;

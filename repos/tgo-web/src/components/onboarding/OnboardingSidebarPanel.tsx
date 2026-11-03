@@ -149,8 +149,10 @@ const OnboardingSidebarPanel: React.FC = () => {
     setShowWelcomeModal,
   } = useOnboardingStore();
 
-  // Don't render if completed or not initialized yet
-  if (isCompleted || !hasInitialized || steps.length === 0) {
+  const incompleteSteps = steps.filter(step => !step.is_completed);
+
+  // Completed setup stays in the progress count, without occupying the task list.
+  if (isCompleted || !hasInitialized || incompleteSteps.length === 0) {
     return null;
   }
 
@@ -245,7 +247,7 @@ const OnboardingSidebarPanel: React.FC = () => {
 
           {/* Step list */}
           <div className="space-y-1">
-            {steps.map((step) => (
+            {incompleteSteps.map((step) => (
               <StepItem
                 key={step.step_number}
                 step={step}

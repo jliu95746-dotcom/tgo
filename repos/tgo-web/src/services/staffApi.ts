@@ -11,6 +11,10 @@ export type StaffRole = 'user' | 'admin' | 'agent';
 // Staff status type
 export type StaffStatus = 'online' | 'offline' | 'busy';
 
+export interface StaffProfileUpdateRequest {
+  nickname: string;
+}
+
 // Staff update request type
 export interface StaffUpdateRequest {
   nickname?: string | null;
@@ -87,6 +91,14 @@ export const staffApi = {
    */
   async getMe(): Promise<StaffResponse> {
     return apiClient.get<StaffResponse>('/v1/staff/me');
+  },
+
+  async saveMyProfile(data: StaffProfileUpdateRequest, avatar?: File): Promise<StaffResponse> {
+    if (!avatar) return apiClient.patch<StaffResponse>('/v1/staff/me', data);
+    const form = new FormData();
+    form.append('nickname', data.nickname);
+    form.append('file', avatar);
+    return apiClient.postFormData<StaffResponse>('/v1/staff/me/avatar', form);
   },
 
   /**

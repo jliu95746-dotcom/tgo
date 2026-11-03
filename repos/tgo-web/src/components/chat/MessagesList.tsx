@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useLayoutEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ChatMessage from './ChatMessage';
 import LoadingStates from './LoadingStates';
@@ -10,6 +10,10 @@ import {
   useMessageAnalysisStore,
 } from '@/stores/messageAnalysisStore';
 import type { StaffMessageAnalysisLookup } from '@/types/messageAnalysis';
+import { aiRunsApiService } from '@/services/aiRunsApi';
+import { isVerifiedAIReply, originKey, type AIOriginVerification } from '@/utils/aiReplyOrigin';
+
+type AIOriginCandidate = { channel_id: string; client_msg_no: string };
 
 // Constants
 const SCROLL_THRESHOLD = 100; // Load more when within 100px of top
@@ -194,6 +198,61 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
     return [...historical, ...realtime];
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historicalMessages, realtimeMessages]);
+
+  const aiOriginCandidateSignature = useMemo(() => JSON.stringify(
+    combinedMessages.flatMap(({ message }): AIOriginCandidate[] => (
+      message.type === 'staff' && message.senderKind === 'ai'
+      && message.channelId && message.channelType === 251 && message.clientMsgNo
+        ? [{ channel_id: message.channelId, client_msg_no: message.clientMsgNo }]
+        : []
+    )).sort((left, right) => originKey(left.channel_id, left.client_msg_no)
+      .localeCompare(originKey(right.channel_id, right.client_msg_no))),
+  ), [combinedMessages]);
+  const aiOriginCandidates = useMemo(
+    () => JSON.parse(aiOriginCandidateSignature) as AIOriginCandidate[],
+    [aiOriginCandidateSignature],
+  );
+  const [originVerification, setOriginVerification] = useState<AIOriginVerification>(
+    { projectId: null, verified: new Set() },
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    if (!projectId || aiOriginCandidates.length === 0) {
+      setOriginVerification({ projectId, verified: new Set() });
+      return () => controller.abort();
+    }
+    const groups = new Map<string, string[]>();
+    for (const candidate of aiOriginCandidates) {
+      const values = groups.get(candidate.channel_id) ?? [];
+      if (!values.includes(candidate.client_msg_no)) values.push(candidate.client_msg_no);
+      groups.set(candidate.channel_id, values);
+    }
+    const verify = async () => {
+      const verified = new Set<string>();
+      try {
+        for (const [channelId, clientNos] of groups) {
+          for (let start = 0; start < clientNos.length; start += 50) {
+            const evidence = await aiRunsApiService.verifyReplyOrigins({
+              channel_id: channelId, client_msg_nos: clientNos.slice(start, start + 50),
+            }, controller.signal);
+            for (const item of evidence) {
+              if (item.status === 'verified' && clientNos.includes(item.client_msg_no)) {
+                verified.add(originKey(channelId, item.client_msg_no));
+              }
+            }
+          }
+        }
+      } catch {
+        // A missing permission or IM outage cannot establish AI origin.
+      }
+      if (!controller.signal.aborted) {
+        setOriginVerification({ projectId, verified });
+      }
+    };
+    void verify();
+    return () => controller.abort();
+  }, [aiOriginCandidates, projectId]);
 
   const analysisLookups = useMemo(() => {
     const lookups: StaffMessageAnalysisLookup[] = [];
@@ -488,9 +547,12 @@ const MessagesListComponent: React.FC<MessagesListProps> = ({
                     })
                   ]
                 : undefined;
-              const displayMessage = analysisInsights === undefined
-                ? message
-                : { ...message, analysisInsights };
+              const verifiedAI = isVerifiedAIReply(message, projectId, originVerification);
+              const displayMessage: Message = {
+                ...message,
+                senderKind: message.senderKind === 'ai' && verifiedAI ? 'ai' : undefined,
+                ...(analysisInsights === undefined ? {} : { analysisInsights }),
+              };
               // 获取当前消息的时间戳（秒）
               const currentTimestamp = message.timestamp 
                 ? (typeof message.timestamp === 'string' ? new Date(message.timestamp).getTime() / 1000 : message.timestamp)

@@ -66,9 +66,9 @@ export class FileManagementService {
   }
 
   // Load files for the collection
-  async loadFiles(): Promise<void> {
+  async loadFiles(silent = false): Promise<void> {
     this.setState({
-      isLoading: true,
+      isLoading: !silent,
       error: null,
       hasError: false
     });

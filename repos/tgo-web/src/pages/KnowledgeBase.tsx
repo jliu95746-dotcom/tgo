@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { createKnowledgeTextFile } from '@/utils/knowledgeOnboarding';
+import { uploadFileWithProgress } from '@/services/fileUploadService';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Plus, Search, ArrowUpDown, FolderOpen, Clock, Eye, Pencil, Trash2, FileText, Globe, MessageSquare, Loader2, AlertCircle, Settings } from 'lucide-react';
 import { useKnowledgeStore, knowledgeSelectors } from '@/stores';
@@ -108,7 +110,7 @@ const KnowledgeBase: React.FC = () => {
 
   const handleCreateKnowledgeBase = async (data: CreateKnowledgeBaseData): Promise<void> => {
     try {
-      await createKnowledgeBase({
+      const created = await createKnowledgeBase({
         title: data.name,
         content: data.description,
         category: 'general',
@@ -117,7 +119,23 @@ const KnowledgeBase: React.FC = () => {
         type: data.type,
         crawlConfig: data.crawlConfig
       });
-      showKnowledgeBaseSuccess(showToast, 'create', data.name);
+      if (!created) throw new Error(t('knowledgeOnboarding.createFailed'));
+      if (data.type !== 'file') showKnowledgeBaseSuccess(showToast, 'create', data.name);
+      if (data.type === 'file') {
+        if (data.file || data.body?.trim()) {
+          try {
+            await uploadFileWithProgress(data.file || createKnowledgeTextFile(data.name, data.body || ''), { collection_id: created.id });
+            showToast('info', t('knowledgeOnboarding.uploaded'), t('knowledgeOnboarding.afterUpload'));
+            navigate(`/knowledge/${created.id}`);
+          } catch (uploadError) {
+            // Creation succeeded. Continue in that collection; never create it a second time on retry.
+            showToast('error', t('knowledgeOnboarding.importFailed'), t('knowledgeOnboarding.createdButNotImported'));
+            navigate(`/knowledge/${created.id}`, { state: { knowledgeTextDraft: { title: data.name, body: data.body || '' }, importError: uploadError instanceof Error ? uploadError.message : t('knowledgeOnboarding.importFailed') } });
+          }
+        } else {
+          navigate(`/knowledge/${created.id}`);
+        }
+      }
 
       // For website type, the backend will automatically start crawling based on crawl_config
       if (data.type === 'website' && data.crawlConfig) {
@@ -312,7 +330,7 @@ const KnowledgeBase: React.FC = () => {
       <div className="flex-grow overflow-y-auto p-6" style={{ height: 0 }}>
         <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md rounded-lg shadow-sm border border-gray-200/60 dark:border-gray-700/60 overflow-hidden">
           {/* Table Header */}
-          <div className="grid grid-cols-[minmax(0,_3fr)_80px_1fr_1fr_auto] gap-4 px-4 py-2 border-b border-gray-200/60 dark:border-gray-700/60 bg-gray-50/50 dark:bg-gray-900/50">
+          <div className="knowledge-list-heading grid grid-cols-[minmax(0,_3fr)_80px_1fr_1fr_auto] gap-4 px-4 py-2 border-b border-gray-200/60 dark:border-gray-700/60 bg-gray-50/50 dark:bg-gray-900/50">
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center cursor-pointer hover:text-gray-700 dark:hover:text-gray-200">
               {t('knowledge.list.columns.name', '名称')} <ArrowUpDown className="w-3 h-3 ml-1" />
             </div>
@@ -390,7 +408,7 @@ const KnowledgeBase: React.FC = () => {
                 return (
                   <div
                     key={kb.id}
-                    className={`grid grid-cols-[minmax(0,_3fr)_80px_1fr_1fr_auto] gap-4 px-4 py-3 items-center hover:bg-gray-50/30 dark:hover:bg-gray-700/30 transition-colors ${
+                    className={`knowledge-row grid grid-cols-[minmax(0,_3fr)_80px_1fr_1fr_auto] gap-4 px-4 py-3 items-center hover:bg-gray-50/30 dark:hover:bg-gray-700/30 transition-colors ${
                       index < filteredKnowledgeBases.length - 1 ? 'border-b border-gray-200/60 dark:border-gray-700/60' : ''
                     }`}
                   >
@@ -409,7 +427,7 @@ const KnowledgeBase: React.FC = () => {
                       })()}
                       <div>
                         <p className="text-sm font-medium text-gray-800 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200">{kb.title}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug">{kb.content}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug line-clamp-2 break-words">{kb.content}</p>
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {kb.tags.map((tag: any, tagIndex: number) => {
                             const tagName = typeof tag === 'string' ? tag : tag.name;

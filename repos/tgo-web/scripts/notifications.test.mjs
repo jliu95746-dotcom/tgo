@@ -41,7 +41,7 @@ function loadSource(path, imports = {}, globals = {}) {
   return scope.exports;
 }
 
-function makeService(permission = 'granted') {
+function makeService(permission = 'granted', userAgent = 'Chrome/130.0', timers = {}) {
   const notifications = [];
   const inApp = [];
   let sounds = 0;
@@ -66,9 +66,10 @@ function makeService(permission = 'granted') {
       '@/i18n': { __esModule: true, default: { t: translate } },
     }, {
       window: { Notification: BrowserNotification, focus() {} }, document,
+      navigator: { userAgent },
       Notification: BrowserNotification, Audio: class { addEventListener() {} },
       Date: class extends Date { static now() { return time; } },
-      setTimeout() {}, console: { warn() {}, error() {}, log() {} },
+      setTimeout() {}, clearTimeout() {}, ...timers, console: { warn() {}, error() {}, log() {} },
     },
   );
   service.playNotificationSound = async () => { sounds++; };
@@ -167,6 +168,42 @@ test('a failed permission prompt preserves the actual browser state', async () =
   assert.equal(await fixture.service.requestPermission(), 'default');
 });
 
+test('WeCom never starts the browser permission prompt even when the API exists', async () => {
+  const fixture = makeService('default', 'Mozilla/5.0 WindowsWechat WXWork/4.1.0 MicroMessenger/7.0');
+  let called = false;
+  fixture.BrowserNotification.requestPermission = () => { called = true; return new Promise(() => {}); };
+  assert.equal(fixture.service.isWeComEnvironment(), true);
+  assert.equal(fixture.service.isSupported(), false);
+  assert.equal(await fixture.service.requestPermission(), 'default');
+  assert.equal(called, false);
+});
+
+test('a browser permission request that never answers releases after the deadline', async () => {
+  const scheduled = [];
+  const cleared = [];
+  const fixture = makeService('default', 'Chrome/130.0', {
+    setTimeout: (callback, delay) => { scheduled.push({ callback, delay }); return 23; },
+    clearTimeout: id => cleared.push(id),
+  });
+  fixture.BrowserNotification.requestPermission = () => new Promise(() => {});
+  const pending = fixture.service.requestPermission();
+  assert.equal(scheduled.length, 1);
+  assert.ok(scheduled[0].delay <= 15000);
+  scheduled[0].callback();
+  assert.equal(await pending, 'default');
+  assert.deepEqual(cleared, [23]);
+});
+
+test('WeCom keeps in-app human handoff alerts and sound without desktop permission', () => {
+  const fixture = makeService('granted', 'wxwork/4.1.0');
+  fixture.service.checkAndNotify({ type: 'system', payloadType: 1004, fromUid: 'system',
+    channelId: 'visitor-vtr', channelType: 251, content: '客户申请人工客服' }, null,
+    fixture.preferences, undefined, (title, body) => fixture.inApp.push({ title, body }));
+  assert.equal(fixture.notifications.length, 0);
+  assert.equal(fixture.inApp.length, 1);
+  assert.equal(fixture.sounds(), 1);
+});
+
 test('test notification reports failure honestly and respects sound preference', () => {
   const fixture = makeService('denied');
   assert.equal(fixture.service.sendTestNotification(false), false);
@@ -245,6 +282,34 @@ test('permission notice is inline, links to settings, and never requests permiss
   state.permission = 'default';
   state.preferences.notificationEnabled = false;
   assert.equal(render(), '');
+  state.preferences.notificationEnabled = true;
+  state.isWeCom = true;
+  state.isSupported = false;
+  assert.equal(render(), '');
+});
+
+test('the permission hook clears its busy state and explains an unanswered prompt', async () => {
+  const callbacks = [];
+  const fixture = makeService('default', 'Chrome/130.0', {
+    setTimeout: callback => { callbacks.push(callback); return 1; }, clearTimeout() {},
+  });
+  fixture.BrowserNotification.requestPermission = () => new Promise(() => {});
+  const values = [];
+  const { useNotification } = loadSource('hooks/useNotification.ts', {
+    react: { useState: initial => {
+      const index = values.length; values.push(initial);
+      return [initial, next => { values[index] = next; }];
+    }, useCallback: callback => callback, useEffect() {} },
+    '@/services/notificationService': { notificationService: fixture.service,
+      DEFAULT_NOTIFICATION_PREFERENCES: fixture.preferences },
+    '@/stores/uiStore': { useUIStore: select => select({ preferences: {}, updatePreferences() {} }) },
+  });
+  const pending = useNotification().requestPermission();
+  assert.equal(values[1], true);
+  callbacks[0]();
+  assert.equal(await pending, 'default');
+  assert.equal(values[1], false);
+  assert.equal(values[2], true);
 });
 
 test('permission hook refreshes on browser focus and removes both listeners on unmount', () => {
@@ -264,7 +329,7 @@ test('permission hook refreshes on browser focus and removes both listeners on u
       useCallback: callback => callback, useEffect: effect => effects.push(effect) },
     '@/stores/uiStore': { useUIStore: select => select({ preferences: {}, updatePreferences() {} }) },
     '@/services/notificationService': { DEFAULT_NOTIFICATION_PREFERENCES: {}, notificationService: {
-      isSupported: () => true, getPermission: () => permission,
+      isSupported: () => true, isWeComEnvironment: () => false, getPermission: () => permission,
     } },
   }, { window: listen('window'), document: listen('document') });
   useNotification();
@@ -279,7 +344,7 @@ test('permission hook refreshes on browser focus and removes both listeners on u
 function settingsFixture() {
   const changes = [];
   const state = {
-    permission: 'default', isSupported: true, isRequesting: false,
+    permission: 'default', isSupported: true, isRequesting: false, isWeCom: false,
     preferences: { notificationEnabled: true, notificationSound: false,
       notifyOnBackground: true, notifyOnOtherConversation: true, notifyOnNewVisitor: true },
     requestPermission: () => { throw new Error('must not request permission during render'); },
@@ -322,6 +387,25 @@ test('unsupported desktop notifications are distinct from permission denied', ()
   assert.match(desktop, /disabled=""/);
   assert.match(html, /不支持桌面通知/);
   assert.doesNotMatch(html, /已拒绝|请在浏览器设置中允许通知权限|点击按钮请求通知权限/);
+});
+
+test('WeCom settings explain the native notification scope without offering a browser prompt', () => {
+  const fixture = settingsFixture();
+  fixture.state.isWeCom = true;
+  fixture.state.isSupported = false;
+  const { html } = fixture.render();
+  assert.match(html, /企业微信/);
+  assert.doesNotMatch(html, /点击按钮请求通知权限|请求中|已拒绝/);
+  assert.match(html, /网页.*通知|通知.*网页/);
+  assert.equal(fixture.changes.length, 0);
+});
+
+test('an unanswered browser prompt shows recovery instructions after the busy state ends', () => {
+  const fixture = settingsFixture();
+  fixture.state.permissionRequestIncomplete = true;
+  const { html } = fixture.render();
+  assert.match(html, /尚未完成授权/);
+  assert.doesNotMatch(html, /请求中/);
 });
 
 test('restored permission respects both enabled and explicitly disabled saved preferences', () => {

@@ -112,3 +112,51 @@ def test_explicit_connection_keeps_migration_and_data_in_caller_transaction(
             )
     finally:
         engine.dispose()
+
+
+@pytest.mark.skipif(
+    not os.getenv("SAAS_TEST_DATABASE_URL"),
+    reason="Opt-in PostgreSQL migration environment test",
+)
+def test_long_alembic_revision_widens_version_column_before_recording_it(monkeypatch):
+    url = os.environ["SAAS_TEST_DATABASE_URL"].replace(
+        "postgresql+asyncpg://", "postgresql+psycopg2://"
+    )
+    engine = create_engine(url, connect_args={"connect_timeout": 5})
+    monkeypatch.setattr(
+        settings, "DATABASE_URL", "postgresql://synthetic:unused@127.0.0.1:1/never_used",
+    )
+    root = Path(__file__).parents[1]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "alembic"))
+    schema = "alembic_long_revision_" + uuid4().hex
+    try:
+        with engine.connect() as connection:
+            outer = connection.begin()
+            try:
+                connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+                connection.execute(text(
+                    "CREATE TABLE api_shadow_review_protocols (id UUID PRIMARY KEY)"
+                ))
+                config.attributes["connection"] = connection
+                command.stamp(config, "0059_shadow_review_protocols")
+                command.upgrade(config, "0060_shadow_review_candidate_manifest")
+                assert connection.execute(text(
+                    "SELECT version_num FROM api_alembic_version"
+                )).scalar_one() == "0060_shadow_review_candidate_manifest"
+                assert connection.execute(text(
+                    "SELECT character_maximum_length FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = 'api_alembic_version' "
+                    "AND column_name = 'version_num'"
+                ), {"schema": schema}).scalar_one() == 128
+                assert inspect(connection).has_table("api_shadow_review_protocol_candidates")
+                assert outer.is_active
+            finally:
+                outer.rollback()
+        with engine.connect() as check:
+            assert check.execute(text(
+                "SELECT count(*) FROM pg_namespace WHERE nspname = :schema"
+            ), {"schema": schema}).scalar_one() == 0
+    finally:
+        engine.dispose()

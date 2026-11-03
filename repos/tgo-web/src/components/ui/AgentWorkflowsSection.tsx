@@ -7,9 +7,11 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, X, GitBranch, ExternalLink } from 'lucide-react';
 import type { WorkflowSummary } from '@/types/workflow';
+import type { AgentWorkflowBinding } from '@/types';
 
 interface AgentWorkflowsSectionProps {
   workflows: WorkflowSummary[];
+  bindings?: AgentWorkflowBinding[];
   onAdd: () => void;
   onRemove: (workflowId: string) => void;
   onEdit?: (workflowId: string) => void;
@@ -18,12 +20,23 @@ interface AgentWorkflowsSectionProps {
 
 const AgentWorkflowsSection: React.FC<AgentWorkflowsSectionProps> = ({
   workflows,
+  bindings = [],
   onAdd,
   onRemove,
   onEdit,
   disabled = false,
 }) => {
   const { t } = useTranslation();
+  const unavailableBindings = bindings.filter(binding =>
+    !workflows.some(workflow => workflow.id === binding.id));
+
+  const releaseLabel = (workflowId: string): string => {
+    const binding = bindings.find(item => item.id === workflowId);
+    if (!binding) return t('workflowRelease.willBind');
+    return binding.bound_release_version
+      ? t('workflowRelease.boundVersion', { version: binding.bound_release_version })
+      : t('workflowRelease.unbound');
+  };
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
@@ -46,7 +59,7 @@ const AgentWorkflowsSection: React.FC<AgentWorkflowsSectionProps> = ({
   return (
     <div className="space-y-3">
       {/* Workflow List */}
-      {workflows.length > 0 ? (
+      {workflows.length > 0 || unavailableBindings.length > 0 ? (
         <div className="space-y-2">
           {workflows.map((workflow) => (
             <div
@@ -67,6 +80,14 @@ const AgentWorkflowsSection: React.FC<AgentWorkflowsSectionProps> = ({
                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
                     {workflow.description || t('workflow.noDescription', '暂无描述')}
                   </div>
+                  <div className="text-xs text-purple-600 dark:text-purple-400 mt-1">
+                    {releaseLabel(workflow.id)}
+                  </div>
+                  {bindings.some(binding => binding.id === workflow.id && binding.details_available === false) && (
+                    <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                      {t('workflowRelease.detailsUnavailable')}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -92,6 +113,28 @@ const AgentWorkflowsSection: React.FC<AgentWorkflowsSectionProps> = ({
                   <X className="w-4 h-4" />
                 </button>
               </div>
+            </div>
+          ))}
+          {unavailableBindings.map(binding => (
+            <div key={binding.id} className="flex items-center justify-between gap-3 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-gray-900 dark:text-gray-100 break-all">{binding.id}</div>
+                <div className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                  {t('workflowRelease.unavailableBadge')} · {releaseLabel(binding.id)}
+                </div>
+                <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  {t('workflowRelease.detailsUnavailable')}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onRemove(binding.id)}
+                disabled={disabled}
+                className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
+                title={t('common.remove', '移除')}
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           ))}
         </div>

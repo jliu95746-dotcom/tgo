@@ -97,7 +97,7 @@ const WebhookIncoming: React.FC<WebhookIncomingProps> = ({ config, onUpdate }) =
   const [showSecret, setShowSecret] = useState<boolean>(false);
   
   const webhookUrl = config?.webhookUrl || 'https://api.example.com/webhook/ch_abc123xyz';
-  const secretKey = config?.secretKey || 'sk_test_1234567890abcdef';
+  const secretKey = config?.secretKey || '';
 
   const handleCopy = (text: string): void => {
     navigator.clipboard.writeText(text);
@@ -303,7 +303,7 @@ const PlatformConfig: React.FC<PlatformConfigProps> = ({ platform, onUpdate, onT
     const origAgentIds = platform.agent_id ? [platform.agent_id] : [];
     const origMode = platform.ai_mode ?? 'auto';
     const origTimeout = platform.fallback_to_ai_timeout ?? null;
-    const agentIdsChanged = JSON.stringify(aiAgentIds.sort()) !== JSON.stringify([...origAgentIds].sort());
+    const agentIdsChanged = JSON.stringify([...aiAgentIds].sort()) !== JSON.stringify([...origAgentIds].sort());
     const modeChanged = aiMode !== origMode;
     const timeoutChanged = fallbackTimeout !== origTimeout;
     return agentIdsChanged || modeChanged || timeoutChanged;

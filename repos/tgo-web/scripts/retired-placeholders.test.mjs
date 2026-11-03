@@ -45,12 +45,13 @@ test('real settings and tool routes remain wired to their existing implementatio
   const router = readFileSync(resolve(sourceRoot, 'router/index.tsx'), 'utf8');
   const routes = {
     profile: 'ProfileSettings', general: 'GeneralSettings', notifications: 'NotificationSettings',
-    staff: 'StaffSettings', providers: 'ModelProvidersSettings', plugins: 'PluginsSettings',
+    staff: 'StaffSettings', plugins: 'PluginsSettings',
     logistics: 'LogisticsSettings', about: 'AboutSettings', tools: 'Tools',
   };
   for (const [path, component] of Object.entries(routes)) {
     assert.match(router, new RegExp(`path: ['"]${path}['"],\\s*element: <${component}\\s*/>`));
   }
+  assert.match(router, /path: ['"]providers['"],\s*element: <Navigate to="\/settings\/profile" replace\s*\/>/);
   const general = readFileSync(resolve(sourceRoot, 'components/settings/GeneralSettings.tsx'), 'utf8');
   assert.match(general, /<LanguageSelector\b/);
   assert.match(general, /setThemeMode\(option.value\)/);

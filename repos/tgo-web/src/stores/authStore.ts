@@ -4,6 +4,7 @@ import { STORAGE_KEYS } from '@/constants';
 
 import { apiClient, authAPI, APIError, RegistrationLoginError, RegistrationVerificationRequired, setSessionRequestHandler } from '@/services/api';
 import { tokenNeedsRefresh } from '@/services/staffSession';
+import { clearAllSessionCommandRecoveries } from '@/utils/sessionCommandRecovery';
 import { wukongimWebSocketService } from '@/services/wukongimWebSocket';
 import { useChatStore } from './chatStore';
 import type { LoginFormData, RegisterFormData } from '@/types';
@@ -34,11 +35,12 @@ interface AuthState {
   // Actions
   login: (credentials: LoginFormData) => Promise<void>;
   register: (userData: RegisterFormData) => Promise<void>;
-  logout: (revokeSession?: boolean) => Promise<void>;
+  logout: (revokeSession?: boolean, preserveSessionCommandRecoveries?: boolean) => Promise<void>;
   clearError: () => void;
   setLoading: (loading: boolean) => void;
   refreshSession: (active?: boolean) => Promise<void>;
   setSessionReady: () => void;
+  updateUserProfile: (profile: Pick<User, 'id' | 'project_id' | 'nickname' | 'avatar_url' | 'updated_at'>) => void;
 }
 
 let pendingRefresh: Promise<void> | null = null;
@@ -60,6 +62,13 @@ export const useAuthStore = create<AuthState>()(
       isSessionReady: false,
 
       setSessionReady: () => set({ isSessionReady: true }),
+
+      updateUserProfile: (profile) => {
+        const { user, isAuthenticated } = get();
+        if (!isAuthenticated || !user || user.id !== profile.id || user.project_id !== profile.project_id) return;
+        set({ user: { ...user, nickname: profile.nickname, avatar_url: profile.avatar_url,
+          updated_at: profile.updated_at } });
+      },
 
       refreshSession: async (active = false) => {
         if (!get().isAuthenticated) return;
@@ -213,7 +222,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       // Logout action
-      logout: async (revokeSession = true) => {
+      logout: async (revokeSession = true, preserveSessionCommandRecoveries = false) => {
         console.log('🔐 Auth Store: Starting logout process');
 
         try {
@@ -263,6 +272,7 @@ export const useAuthStore = create<AuthState>()(
               console.warn(`Failed to remove localStorage key: ${key}`, error);
             }
           });
+          if (!preserveSessionCommandRecoveries) clearAllSessionCommandRecoveries(localStorage);
 
           // 5. Clear sessionStorage as well
           try {

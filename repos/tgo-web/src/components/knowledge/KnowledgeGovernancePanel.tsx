@@ -13,6 +13,7 @@ import {
   XCircle,
 } from 'lucide-react';
 
+import { useKnowledgeUsageStore } from '@/stores/knowledgeUsageStore';
 import { KnowledgeGovernanceApiService } from '@/services/knowledgeGovernanceApi';
 import KnowledgeChannelEditor from './KnowledgeChannelEditor';
 import { useAuthStore } from '@/stores/authStore';
@@ -32,6 +33,7 @@ interface KnowledgeGovernancePanelProps {
   documents: KnowledgeGovernanceSource[];
   sourceType?: 'file' | 'qa' | 'website';
   onRefresh?: () => Promise<void>;
+  initialFileId?: string;
 }
 
 interface GovernanceFormState {
@@ -71,29 +73,21 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
   documents,
   sourceType = 'file',
   onRefresh,
+  initialFileId,
 }) => {
   const { t } = useTranslation();
   const currentUser = useAuthStore((state) => state.user);
-  const [records, setRecords] = useState<KnowledgeGovernanceRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const usage = useKnowledgeUsageStore((state) => state.entries[collectionId]);
+  const records = useMemo(() => usage?.records || [], [usage?.records]);
+  const isLoading = usage?.loading ?? true;
+  const refreshUsage = useKnowledgeUsageStore((state) => state.load);
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [form, setForm] = useState<GovernanceFormState | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadRecords = useCallback(async (): Promise<void> => {
-    setIsLoading(true);
-    try {
-      const response = await KnowledgeGovernanceApiService.list(collectionId);
-      setRecords(response.data);
-    } catch (error) {
-      setMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : t('knowledge.governance.loadFailed'),
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [collectionId, t]);
+    await refreshUsage(collectionId);
+  }, [collectionId, refreshUsage]);
 
   useEffect(() => {
     void loadRecords();
@@ -146,6 +140,18 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
       sourceOrigin: record.source_origin,
     });
   };
+
+  const [openedFileId, setOpenedFileId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!initialFileId || openedFileId === initialFileId || !usage?.loaded) return;
+    const record = records.find((item) => item.file_id === initialFileId);
+    const document = documents.find((item) => item.id === initialFileId);
+    if (record) openExistingDraft(record);
+    else if (document) openNewDraft(document);
+    setOpenedFileId(initialFileId);
+    // Opening once is intentional: refreshes must not overwrite edits in the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFileId, openedFileId, usage?.loaded, records, documents]);
 
   const saveDraft = async (): Promise<void> => {
     if (!form || !form.productLine.trim() || !form.owner.trim() || !form.documentVersion.trim()) {
@@ -259,6 +265,10 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
 
   return (
     <div className="p-6 space-y-5">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-200">
+        {t('knowledgeOnboarding.activationSteps')}
+      </div>
+      {usage?.error && <p role="alert" className="break-words text-sm text-red-600">{usage.error}</p>}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -404,10 +414,10 @@ export const KnowledgeGovernancePanel: React.FC<KnowledgeGovernancePanelProps> =
                 <div className="flex flex-wrap justify-end gap-1">
                   {currentUser?.role === 'admin' && record.review_status === 'approved' && <KnowledgeChannelEditor record={record} onSaved={loadRecords} />}
                   {(['draft', 'rejected'] as KnowledgeReviewStatus[]).includes(record.review_status) && <button title={t('knowledge.governance.edit')} onClick={() => openExistingDraft(record)} className="rounded p-2 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"><Pencil className="h-4 w-4" /></button>}
-                  {(['draft', 'rejected'] as KnowledgeReviewStatus[]).includes(record.review_status) && <button title={t('knowledge.governance.submit')} onClick={() => void runRecordAction(record, 'submit')} className="rounded p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30"><Send className="h-4 w-4" /></button>}
-                  {currentUser?.role === 'admin' && record.review_status === 'pending_review' && <button title={t('knowledge.governance.approve')} onClick={() => void runRecordAction(record, 'approved')} className="rounded p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30"><CheckCircle2 className="h-4 w-4" /></button>}
-                  {currentUser?.role === 'admin' && record.review_status === 'pending_review' && <button title={t('knowledge.governance.reject')} onClick={() => void runRecordAction(record, 'rejected')} className="rounded p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><XCircle className="h-4 w-4" /></button>}
-                  {currentUser?.role === 'admin' && record.review_status === 'approved' && <button title={t('knowledge.governance.revoke')} onClick={() => void runRecordAction(record, 'revoked')} className="rounded p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"><Ban className="h-4 w-4" /></button>}
+                  {(['draft', 'rejected'] as KnowledgeReviewStatus[]).includes(record.review_status) && <button title={t('knowledge.governance.submit')} disabled={!!activeAction} onClick={() => void runRecordAction(record, 'submit')} className="rounded p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30"><Send className="h-4 w-4" /><span className="ml-1">{t('knowledge.governance.submit')}</span></button>}
+                  {currentUser?.role === 'admin' && record.review_status === 'pending_review' && <button title={t('knowledge.governance.approve')} disabled={!!activeAction} onClick={() => void runRecordAction(record, 'approved')} className="rounded p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30"><CheckCircle2 className="h-4 w-4" /><span className="ml-1">{t('knowledge.governance.approve')}</span></button>}
+                  {currentUser?.role === 'admin' && record.review_status === 'pending_review' && <button title={t('knowledge.governance.reject')} disabled={!!activeAction} onClick={() => void runRecordAction(record, 'rejected')} className="rounded p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><XCircle className="h-4 w-4" /></button>}
+                  {currentUser?.role === 'admin' && record.review_status === 'approved' && <button title={t('knowledge.governance.revoke')} disabled={!!activeAction} onClick={() => void runRecordAction(record, 'revoked')} className="rounded p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"><Ban className="h-4 w-4" /></button>}
                   {activeAction === record.id && <Loader2 className="m-2 h-4 w-4 animate-spin" />}
                 </div>
               </div>

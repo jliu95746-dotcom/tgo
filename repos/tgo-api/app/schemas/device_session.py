@@ -12,6 +12,7 @@ class DeviceSessionSummary(BaseModel):
     device_name: str
     agent_id: UUID | None
     agent_name: str | None
+    workflow_execution_id: UUID | None = None
     status: Literal[
         "running", "completed", "failed", "cancelled", "interrupted"
     ]

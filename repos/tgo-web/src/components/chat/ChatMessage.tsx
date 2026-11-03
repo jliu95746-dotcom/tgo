@@ -1,12 +1,14 @@
 import React from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 
 import { MessagePayloadType, PlatformType, isSystemMessageType, type Message, type PayloadSystem } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 import { StreamEndReason } from '@/stores/chatStore';
 import { useChannelDisplay } from '@/hooks/useChannelDisplay';
 import { getPlatformIconComponent, getPlatformLabel, toPlatformType, getPlatformColor } from '@/utils/platformUtils';
+import { isNativeWecomStaffPayload } from '@/utils/nativeWecomSender';
 
 import AIInfoCard from './AIInfoCard';
 import ReplySuggestions from './ReplySuggestions';
@@ -14,6 +16,7 @@ import MessageAnalysisInsights from './MessageAnalysisInsights';
 import StaffDeliveryStatus from './StaffDeliveryStatus';
 import { deliveryKey, useStaffDeliveryStore } from '@/stores/staffDeliveryStore';
 import { ChatAvatar } from './ChatAvatar';
+import { customerWorkflowMessageLookup } from '@/utils/workflowTraceNavigation';
 
 import TextMessage from './messages/TextMessage';
 import ImageMessage from './messages/ImageMessage';
@@ -64,6 +67,9 @@ const MessageContent: React.FC<{
 const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, onSendMessage }) => {
   const { t } = useTranslation();
   const user = useAuthStore(state => state.user);
+  const workflowMessageLookup = user?.role === 'admin'
+    ? customerWorkflowMessageLookup(message)
+    : null;
   const currentUid = React.useMemo(() => (user?.id ? `${user.id}-staff` : null), [user?.id]);
   const delivery = useStaffDeliveryStore(state =>
     state.entries[deliveryKey(user?.id || '', message.clientMsgNo || message.id)]?.receipt);
@@ -76,6 +82,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
   const payloadType = typedPayload?.type ?? message.payloadType;
   const isSystemMessage = message.type === 'system' || (typeof payloadType === 'number' && isSystemMessageType(payloadType));
   const isOwnMessage = currentUid ? message.fromUid === currentUid : false;
+  const isNativeStaffMessage = message.metadata?.native_staff === true
+    || isNativeWecomStaffPayload(message.payload);
+  const isAIReply = message.type === 'staff' && message.senderKind === 'ai';
 
   // Error state detection
   const platformSendError = Boolean(meta.platform_send_error);
@@ -163,7 +172,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
   } = useChannelDisplay({
     channelId: senderChannelId,
     channelType: senderChannelType,
-    overrideName: message.fromInfo?.name,
+    overrideName: isNativeStaffMessage ? t('chat.messages.nativeStaffSender', '企微人工客服') : message.fromInfo?.name,
     overrideAvatar: message.fromInfo?.avatar || message.avatar,
     skipFetch: false,
   });
@@ -208,13 +217,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
 
 
   // Visitor/AI message (left side)
-  if (!isOwnMessage) {
+  if (!isOwnMessage && !isNativeStaffMessage) {
     return (
-      <div className="flex flex-col items-start max-w-[85%]">
+      <div className="chat-message-row flex min-w-0 flex-col items-start max-w-[85%]">
         <div className="text-xs text-gray-600 dark:text-gray-400 mb-1 ml-1">
-          {displayName} {getPlatformIcon()}
+          {displayName} {isAIReply ? <span className="ml-1 text-blue-600 dark:text-blue-400">{t('chat.messages.aiSender', 'AI 客服')}</span> : getPlatformIcon()}
         </div>
-        <div className="flex items-start space-x-2">
+        <div className="flex min-w-0 max-w-full items-start space-x-2">
           <ChatAvatar
             displayName={displayName}
             displayAvatar={displayAvatar}
@@ -241,14 +250,28 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
         {message.analysisInsights ? (
           <MessageAnalysisInsights state={message.analysisInsights} />
         ) : null}
+        {workflowMessageLookup && (
+          <Link
+            to="/ai/workflows"
+            state={{ workflowMessageLookup }}
+            className="ml-12 mt-1 text-xs text-blue-600 hover:underline dark:text-blue-400"
+          >
+            {t('businessScenarios.workflow.runTrace.openMessageRuns')}
+          </Link>
+        )}
       </div>
     );
   }
 
   // Own message (right side)
   return (
-    <div className="flex flex-col items-end ml-auto max-w-[85%]">
-      <div className="flex items-start flex-row-reverse mt-1">
+    <div className="chat-message-row flex min-w-0 flex-col items-end ml-auto max-w-[85%]">
+      {(isAIReply || isNativeStaffMessage) && (
+        <div className="text-xs text-blue-600 dark:text-blue-400 mb-1 mr-1">
+          {isNativeStaffMessage ? displayName : t('chat.messages.aiSender', 'AI 客服')}
+        </div>
+      )}
+      <div className="flex min-w-0 max-w-full items-start flex-row-reverse mt-1">
         <MessageContent
           message={message}
           isStaff={true}
@@ -282,7 +305,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSuggestionClick, o
           </div>
         )}
       </div>
-      {user?.id && <StaffDeliveryStatus staffId={user.id} clientMsgNo={message.clientMsgNo || message.id} />}
+      {!isNativeStaffMessage && user?.id && <StaffDeliveryStatus staffId={user.id} clientMsgNo={message.clientMsgNo || message.id} />}
     </div>
   );
 };

@@ -407,6 +407,7 @@ services:
       REDIS_URL: redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}/2
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tgo}:${POSTGRES_PASSWORD:-tgo}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-tgo}
       AI_SERVICE_URL: http://tgo-ai:8081
+      API_INTERNAL_SERVICE_URL: http://tgo-api:8001
       ALLOWED_ORIGINS: '["*"]'
     depends_on:
       postgres:
@@ -434,6 +435,7 @@ services:
       REDIS_URL: redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}/2
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tgo}:${POSTGRES_PASSWORD:-tgo}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-tgo}
       AI_SERVICE_URL: http://tgo-ai:8081
+      API_INTERNAL_SERVICE_URL: http://tgo-api:8001
       ALLOWED_ORIGINS: '["*"]'
     depends_on:
       postgres:
@@ -443,9 +445,40 @@ services:
       tgo-workflow:
         condition: service_started
     command: >
-      sh -c "celery -A celery_app.celery worker --loglevel=info -Q workflow"
+      sh -c "celery -A celery_app.celery worker --loglevel=info"
     healthcheck:
       test: ["CMD-SHELL", "/app/.venv/bin/celery -A celery_app.celery inspect ping -d \"celery@$$(hostname)\" --timeout=10 > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # Workflow approval expiry and continuation scheduler
+  tgo-workflow-beat:
+    image: ghcr.io/tgoai/tgo/tgo-workflow:latest
+    build:
+      context: ./repos/tgo-workflow
+    container_name: tgo-workflow-beat
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}/2
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tgo}:${POSTGRES_PASSWORD:-tgo}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-tgo}
+      AI_SERVICE_URL: http://tgo-ai:8081
+      API_INTERNAL_SERVICE_URL: http://tgo-api:8001
+      ALLOWED_ORIGINS: '["*"]'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tgo-workflow:
+        condition: service_started
+    command: >
+      sh -c "exec celery -A celery_app.celery beat --loglevel=info --schedule=/tmp/tgo-workflow-celerybeat-schedule"
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "from pathlib import Path; cmd = Path('/proc/1/cmdline').read_bytes(); assert b'celery' in cmd and b'beat' in cmd"]
       interval: 30s
       timeout: 10s
       retries: 3

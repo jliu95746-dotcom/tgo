@@ -62,9 +62,12 @@ wx.navigateTo({ url: '/pages/chat/chat' })
 
 ## 功能支持
 
+文字业务身份通过组件 `setBusinessCustomerSessionProvider` 方法接入；格式、生命周期和未验收项见[客户业务 SDK 接入说明](../../docs/business-customer-sdk-integration.md)。不要把业务凭据放入组件属性或 `setData`。
+
 - 文本消息收发
 - AI 流式回复（实时逐字显示）
 - 图片消息发送与预览
+- 语音消息接收与播放（播放前取得当前访客的附件访问链接；暂不支持录音发送）
 - 历史消息加载（上拉加载更多）
 - 系统消息展示（客服接入/转接/结束）
 - Markdown 渲染（加粗、斜体、链接、列表、代码块）

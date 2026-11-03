@@ -3,8 +3,11 @@
  * API: POST /v1/visitors/messages/sync
  */
 var adapter = require('../adapters/request')
+var dataAccess = require('./visitorDataAccess')
 
 function syncVisitorMessages(params) {
+  var access
+  try {access=dataAccess.captureVisitorDataAccess(params)} catch (error) {return Promise.reject(error)}
   var apiBase = (params.apiBase || '').replace(/\/$/, '')
   var platformApiKey = params.platformApiKey || ''
   var url = apiBase + '/v1/visitors/messages/sync'
@@ -23,18 +26,20 @@ function syncVisitorMessages(params) {
     url: url,
     method: 'POST',
     headers: {
+      Authorization:access.headers.Authorization,
       'Content-Type': 'application/json',
       'X-Platform-API-Key': platformApiKey
     },
     body: body,
     timeout: 10000
   }).then(function (res) {
+    access.assertCurrent()
     if (!res.ok) {
-      return res.text().then(function (text) {
-        throw new Error('[History] sync failed: ' + res.status + ' ' + text)
-      })
+      throw new Error('历史读取失败（HTTP '+res.status+'），请重新连接后重试。')
     }
     return res.json().then(function (data) {
+      access.assertCurrent()
+      access.assertSafeValue(data)
       if (!data || !Array.isArray(data.messages)) {
         throw new Error('[History] invalid response')
       }

@@ -6,10 +6,10 @@ import ts from 'typescript';
 
 const fileId = '11111111-1111-4111-8111-111111111111';
 const fileUrl = `https://files.example.test/v1/chat/files/${fileId}?file_token=expired`;
-function load(path, imports) {
+function load(path, imports, globals = {}) {
   const source = readFileSync(new URL(path, import.meta.url), 'utf8');
   const scope = { exports: {}, URL, window: { location: { origin: 'https://company.example.test' } },
-    require: name => imports[name] ?? {} };
+    require: name => imports[name] ?? {}, ...globals };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
   } }).outputText, scope);
@@ -48,18 +48,27 @@ test('expired staff file links are refreshed and denied requests never retain an
   assert.equal(calls, 2);
 });
 
-test('widget sends its platform key only to the configured API, including markdown images', () => {
-  const upload = load('../../tgo-widget-js/src/services/upload.ts', { '../utils/url': { resolveApiKey: () => null } });
-  const service = load('../../tgo-widget-js/src/services/chatFileAccess.ts', { './upload': upload });
-  const authorized = service.authorizeChatFileUrl(fileUrl, 'https://api.example.test', 'widget-key');
+test('widget renews file-only links at the configured API, including markdown images', async () => {
+  const calls = [];
+  const service = load('../../tgo-widget-js/src/services/chatFileAccess.ts', {
+    './visitorDataAccess': {captureVisitorDataAccess:() => ({headers:{Authorization:'Bearer owned-visitor-grant'},
+      assertCurrent(){},assertSafeValue(){}})},
+  }, {AbortController,setTimeout,clearTimeout,fetch:async (url,options) => {
+    calls.push({url,options});
+    return {ok:true,json:async() => ({access_url:`https://api.example.test/v1/chat/files/${fileId}?file_token=file-only`,
+      expires_at:new Date(Date.now()+60000).toISOString()})};
+  }});
+  const authorized = await service.authorizeChatFileUrl(fileUrl, 'https://api.example.test', 'widget-key');
   const result = new URL(authorized);
   assert.equal(result.origin, 'https://api.example.test');
-  assert.equal(result.searchParams.get('platform_api_key'), 'widget-key');
-  assert.equal(result.searchParams.has('file_token'), false);
-  assert.equal(service.authorizeChatFileUrl(fileUrl), '');
+  assert.equal(result.searchParams.has('platform_api_key'), false);
+  assert.equal(result.searchParams.get('file_token'), 'file-only');
+  assert.equal(calls[0].options.headers.Authorization,'Bearer owned-visitor-grant');
+  assert.equal(calls[0].url.includes('files.example.test'),false);
+  assert.equal(await service.authorizeChatFileUrl(fileUrl), '');
   const external = 'https://photos.example.test/image.png';
-  assert.equal(service.authorizeChatFileUrl(external, 'https://api.example.test', 'widget-key'), external);
-  const markdown = service.authorizeChatMarkdown(`![图片](${fileUrl})`, 'https://api.example.test', 'widget-key');
+  assert.equal(await service.authorizeChatFileUrl(external, 'https://api.example.test', 'widget-key'), external);
+  const markdown = await service.authorizeChatMarkdown(`![图片](${fileUrl})`, 'https://api.example.test', 'widget-key');
   assert.ok(markdown.includes('https://api.example.test/v1/chat/files/'));
   assert.ok(!markdown.includes('files.example.test'));
 });

@@ -34,6 +34,7 @@ function fixture(onSendMessage, overrides = {}) {
     assistTrainingSource: { customerMessage: '有绿色吗？', skillName: 'style-a', recentMessages: [] },
     setMessage: value => { state.text = typeof value === 'function' ? value(state.text) : value; },
     setAssistDraft: value => { state.draft = value; },
+    setAssistDraftId() {},
     setAssistSourceMessageId() {}, setAssistTrainingSource() {},
     setIsSendingLocal: value => { state.sending = value; }, maintainTextareaFocus() {},
     SkillsApiService: { addHumanizationTrainingSample: async (...args) => { state.samples.push(args); } },

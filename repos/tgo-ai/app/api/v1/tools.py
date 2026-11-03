@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from pydantic import BaseModel, Field, JsonValue
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,13 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.tool import Tool, ToolType, ToolSourceType
 from app.models.project import Project
-from app.schemas.tool import ToolResponse, ToolCreate, ToolUpdate
+from app.schemas.tool import ToolAvailability, ToolResponse, ToolCreate, ToolUpdate
 from app.core.logging import get_logger
 from app.dependencies import get_current_or_internal_project_id
 from app.services.tool_executor import ToolExecutor
 from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse
 from app.services.tool_probe import discover_mcp
 from app.services.logistics_provider import prepare_config
+from app.services.workflow_tool_policy import workflow_read_only_tool
 
 logger = get_logger(__name__)
 
@@ -86,6 +87,26 @@ async def list_tools(
     result = await db.execute(stmt)
     tools = result.scalars().all()
     return [ToolResponse.model_validate(tool) for tool in tools]
+
+
+@router.get("/{tool_id}/availability", response_model=ToolAvailability)
+async def get_tool_availability(
+    tool_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(get_current_or_internal_project_id),
+    db: AsyncSession = Depends(get_db),
+) -> ToolAvailability:
+    """Confirm existence without exposing tool configuration or credentials."""
+    tool = await db.scalar(select(Tool).where(
+        Tool.id == tool_id,
+        Tool.project_id == project_id,
+        Tool.deleted_at.is_(None),
+    ))
+    if tool is None:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    return ToolAvailability(
+        tool_id=tool_id, project_id=project_id,
+        available=True, workflow_read_only=workflow_read_only_tool(tool),
+    )
 
 
 @router.post("", response_model=ToolResponse)
@@ -168,6 +189,7 @@ def _prepare_logistics_tool(data: dict[str, object], previous: Tool | None = Non
 async def execute_tool_directly(
     tool_id: uuid.UUID,
     request: DirectToolExecuteRequest,
+    http_request: Request,
     project_id: uuid.UUID = Depends(get_current_or_internal_project_id),
     db: AsyncSession = Depends(get_db),
 ) -> DirectToolExecuteResponse:
@@ -182,6 +204,12 @@ async def execute_tool_directly(
     tool = result.scalar_one_or_none()
     if tool is None:
         raise HTTPException(status_code=404, detail="Tool not found")
+
+    workflow_marker = http_request.headers.get("X-Workflow-Tool-Read-Only")
+    if workflow_marker is not None and (
+        workflow_marker != "1" or not workflow_read_only_tool(tool)
+    ):
+        raise HTTPException(status_code=403, detail="此工具不能由工作流自动执行")
 
     executor = ToolExecutor(db, project_id)
     executor.set_context(visitor_id=request.visitor_id)

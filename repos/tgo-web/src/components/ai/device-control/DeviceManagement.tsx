@@ -21,6 +21,11 @@ import BindCodeModal from './BindCodeModal';
 import EditDeviceModal from './EditDeviceModal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import DeviceSessionBrowser from './DeviceSessionBrowser';
+import ScenarioLibrary from '@/components/business/ScenarioLibrary';
+import DeviceCapabilitiesDialog from '@/components/business/DeviceCapabilitiesDialog';
+import DeviceScenarioGuide from '@/components/business/DeviceScenarioGuide';
+import DevicePolicyDialog from '@/components/business/DevicePolicyDialog';
+import type { DeviceScenarioId } from '@/types/deviceSetup';
 import { useDeviceControlStore } from '@/stores/deviceControlStore';
 import type { Device, DeviceStatus } from '@/types/deviceControl';
 
@@ -28,8 +33,12 @@ const DeviceManagement: React.FC = () => {
   const { t } = useTranslation();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [inspectedDevice, setInspectedDevice] = useState<Device | null>(null);
+  const [policyDevice, setPolicyDevice] = useState<Device | null>(null);
   const [statusFilter, setStatusFilter] = useState<DeviceStatus | 'all'>('all');
   const [showBindCodeModal, setShowBindCodeModal] = useState(false);
+  const [deviceScenario, setDeviceScenario] = useState<DeviceScenarioId | null>(null);
+  const [scenarioDeviceId, setScenarioDeviceId] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -136,9 +145,9 @@ const DeviceManagement: React.FC = () => {
   };
 
   return (
-    <main className="flex-grow flex flex-col bg-[#f8fafc] dark:bg-gray-950 overflow-hidden">
+    <main className="min-h-0 min-w-0 flex-1 flex flex-col bg-[#f8fafc] dark:bg-gray-950 overflow-hidden">
       {/* Header */}
-      <header className="px-8 py-5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-30">
+      <header className="shrink-0 px-4 py-4 sm:px-8 sm:py-5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col xl:flex-row xl:items-center justify-between gap-4 sticky top-0 z-30">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <MonitorSmartphone className="w-7 h-7 text-blue-600" />
@@ -149,7 +158,7 @@ const DeviceManagement: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Search */}
           <div className="relative group hidden sm:block">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
@@ -191,6 +200,7 @@ const DeviceManagement: React.FC = () => {
           {/* Add Device */}
           <button
             onClick={() => setShowBindCodeModal(true)}
+            aria-label={t('deviceControl.addDevice', '添加设备')}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl shadow-lg shadow-blue-200 dark:shadow-none transition-all active:scale-95"
           >
             <Plus className="w-4 h-4" />
@@ -202,26 +212,29 @@ const DeviceManagement: React.FC = () => {
       </header>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <div className="max-w-[1600px] mx-auto p-8 space-y-8">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+        <div className="max-w-[1600px] mx-auto p-4 space-y-6 sm:p-8 sm:space-y-8">
           {/* Banner */}
           <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-3xl p-6 text-white shadow-xl shadow-blue-200 dark:shadow-none flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10" />
             <div className="relative z-10">
               <h3 className="text-xl font-bold flex items-center gap-2">
                 <MonitorSmartphone className="w-6 h-6" />
-                {t('deviceControl.banner.title', '远程设备控制')}
+                {t('businessScenarios.device.title')}
               </h3>
               <p className="text-blue-100 text-sm mt-1 opacity-90 max-w-xl">
                 {t(
-                  'deviceControl.banner.description',
-                  '连接您的电脑或移动设备，让 AI 员工能够直接操控屏幕，完成更复杂的自动化任务。'
+                  'businessScenarios.device.description'
                 )}
               </p>
             </div>
           </div>
 
           {/* Stats */}
+          <ScenarioLibrary module="devices" hasResources={devices.length > 0} onUse={scenario => {
+            if (scenario.id === 'files' || scenario.id === 'report') { setScenarioDeviceId(''); setDeviceScenario(scenario.id); }
+          }} />
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('businessScenarios.device.scope')}</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 border border-gray-200 dark:border-gray-700">
               <div className="flex items-center gap-3">
@@ -388,6 +401,9 @@ const DeviceManagement: React.FC = () => {
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                   onDisconnect={handleDisconnect}
+                  onInspect={setInspectedDevice}
+                  onPolicySettings={setPolicyDevice}
+                  onConfigure={device => { setScenarioDeviceId(device.id); setDeviceScenario('files'); }}
                 />
               ))}
             </div>
@@ -396,9 +412,15 @@ const DeviceManagement: React.FC = () => {
       </div>
 
       {/* Modals */}
+      {policyDevice && <DevicePolicyDialog device={policyDevice} onClose={() => setPolicyDevice(null)}
+        onConfigureFile={() => { setScenarioDeviceId(policyDevice.id); setDeviceScenario('files'); setPolicyDevice(null); }} />}
+      {deviceScenario && !showBindCodeModal && <DeviceScenarioGuide scenarioId={deviceScenario} initialDeviceId={scenarioDeviceId}
+        onClose={() => setDeviceScenario(null)} onConnect={deviceId => { setScenarioDeviceId(deviceId); setShowBindCodeModal(true); }} />}
+      {inspectedDevice && <DeviceCapabilitiesDialog device={inspectedDevice} onClose={() => setInspectedDevice(null)}
+        onConfigure={scenario => { setScenarioDeviceId(inspectedDevice.id); setInspectedDevice(null); setDeviceScenario(scenario); }} />}
       <BindCodeModal
         isOpen={showBindCodeModal}
-        onClose={() => setShowBindCodeModal(false)}
+        onClose={() => { setShowBindCodeModal(false); if (deviceScenario) void loadDevices(); }}
       />
 
       <EditDeviceModal

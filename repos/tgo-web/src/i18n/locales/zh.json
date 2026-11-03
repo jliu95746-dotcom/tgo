@@ -1,4 +1,11 @@
 {
+  "mobileChat": {
+    "workspace": "客服工作台",
+    "navigation": "打开功能菜单",
+    "closeNavigation": "关闭功能菜单",
+    "actions": "更多会话操作",
+    "replyOptions": "回复风格设置"
+  },
   "mediaProbe": {
     "title": "模型样本测试",
     "hint": "仅测试当前模型，不修改用途，不发送给客户。已有密钥会自动使用，无需重复填写。",
@@ -422,6 +429,19 @@
       }
     },
     "profile": {
+      "edit": "编辑资料",
+      "avatar": "头像",
+      "changeAvatar": "更换头像",
+      "cropAvatar": "裁剪头像",
+      "avatarHint": "支持 JPG、PNG、WebP，大小不超过 5MB",
+      "avatarTypeError": "请选择 JPG、PNG 或 WebP 图片",
+      "avatarSizeError": "头像不能超过 5MB，请选择较小的图片",
+      "nickname": "昵称",
+      "nicknameHint": "1–100 个字符，将显示在个人资料和聊天中",
+      "nicknameError": "昵称不能为空，且不能超过 100 个字符",
+      "saving": "保存中…",
+      "saved": "个人资料已保存",
+      "saveError": "保存失败，请重试",
       "title": "个人资料",
       "subtitle": "查看和管理你的个人信息",
       "loadError": "加载个人资料失败",
@@ -608,6 +628,12 @@
         "dismiss": "暂不提醒"
       },
       "notSupported": "您的浏览器不支持桌面通知功能",
+      "wecom": {
+        "title": "企业微信内置网页",
+        "description": "企业微信内无需申请网页桌面通知权限。消息提醒请在企业微信客户端的通知设置中管理，声音提醒可在下方设置。",
+        "tip": "企微原生提醒由服务端配置，仅推送转人工、排队和辅助模式待处理的会话。系统弹窗和声音仍受企业微信及手机通知设置影响。",
+        "desktopStatus": "网页桌面通知在企业微信内不启用；浏览器中的通知偏好已保留。"
+      },
       "permission": {
         "title": "通知权限",
         "granted": "已授权",
@@ -618,7 +644,8 @@
         "deniedDesc": "请在浏览器设置中允许通知权限",
         "defaultDesc": "点击按钮请求通知权限",
         "request": "请求权限",
-        "requesting": "请求中..."
+        "requesting": "请求中...",
+        "incompleteDesc": "尚未完成授权，请查看浏览器的权限提示；也可在网站设置中手动开启通知。"
       },
       "toggles": {
         "title": "通知设置",
@@ -946,7 +973,21 @@
       "intent": "意图",
       "insightSummary": "洞察摘要",
       "currentSatisfaction": "当前满意度",
-      "currentEmotion": "当前情绪"
+      "currentEmotion": "当前情绪",
+      "historyTags": "历史咨询标签",
+      "historyTagsHint": "根据历史咨询意图归纳，接待前请核对客户原话。",
+      "personaTags": {
+        "product_interest": "关注商品",
+        "price_sensitive": "关注价格优惠",
+        "order_support": "下单咨询",
+        "order_tracking": "查询订单",
+        "logistics_tracking": "查询物流",
+        "payment_support": "支付咨询",
+        "after_sales": "售后咨询",
+        "complaint_risk": "曾有投诉诉求",
+        "high_intent": "购买意向",
+        "needs_human": "曾请求人工"
+      }
     },
     "activity": {
       "noActivity": "暂无活动记录",
@@ -1644,6 +1685,28 @@
   },
   "workflow": {
     "title": "工作流",
+    "apiReadOnly": {
+      "message": "当前仅支持无请求体的 GET 查询，目标须为固定 HTTPS 地址（443 端口）。订单、物流等客户数据请使用受控业务连接；写入操作需先具备人工确认与幂等回执。",
+      "convert": "改为只读 GET"
+    },
+    "deviceAction": {
+      "title": "该员工的设备动作",
+      "device": "绑定设备",
+      "loading": "正在核验当前设备策略…",
+      "error": "设备动作状态暂时无法核验，请重试。",
+      "refresh": "重新核验",
+      "openDevices": "前往设备控制",
+      "openAgents": "前往 AI 员工",
+      "status": {
+        "not_bound": "该员工没有绑定设备，可在 AI 员工配置中关联。",
+        "ready": "已核对固定的文件读取策略和本次连接的测试；实际执行时仍会重新检查。",
+        "needs_rebind": "设备策略已变化，请在 AI 员工中明确解除并重新绑定。",
+        "needs_test": "设备当前文件读取测试未通过，请先在设备控制中测试。",
+        "legacy_unverified": "旧设备尚无可核验的已发布文件读取策略，请先配置并测试。",
+        "device_missing": "绑定的设备不存在或不属于当前企业，请重新选择。",
+        "invalid_binding": "保存的设备编号无效，请重新绑定。"
+      }
+    },
     "management": {
       "title": "工作流管理",
       "subtitle": "编排复杂的 AI 任务流程"
@@ -1708,6 +1771,10 @@
         "label": "AI Agent",
         "description": "调用其他AI员工"
       },
+      "approval": {
+        "label": "人工确认",
+        "description": "等待指定员工确认后继续只读流程"
+      },
       "tool": {
         "label": "工具",
         "description": "执行工具"
@@ -1728,6 +1795,10 @@
         "label": "API调用",
         "description": "执行外部 HTTP 请求"
       },
+      "business_query": {
+        "label": "受控业务查询",
+        "description": "经客户归属核验后查询订单或物流"
+      },
       "classifier": {
         "label": "问题分类器",
         "description": "使用LLM对输入进行分类"
@@ -1737,6 +1808,19 @@
       "active": "已启用",
       "draft": "草稿",
       "archived": "已归档"
+    },
+    "execution": {
+      "status": {
+        "pending": "等待执行",
+        "running": "执行中",
+        "waiting_approval": "等待人工确认",
+        "pending_resume": "等待恢复执行",
+        "completed": "已完成",
+        "failed": "执行失败",
+        "rejected": "人工已拒绝",
+        "expired": "确认已超时",
+        "cancelled": "已取消"
+      }
     },
     "actions": {
       "create": "创建工作流",
@@ -1756,6 +1840,14 @@
       "incomplete": "执行未完成",
       "streamInterrupted": "调试连接已中断，请刷新查看执行结果。",
       "cancelFailed": "未能确认取消结果，请刷新重试。",
+      "statusRefreshFailed": "运行状态读取失败，请手动刷新。",
+      "refreshStatus": "刷新运行状态",
+      "waitingApproval": "等待审批人确认",
+      "pendingResume": "已批准，等待恢复执行",
+      "rejected": "审批已拒绝",
+      "expired": "审批已超时",
+      "approvalHint": "流程已暂停。指定审批人可在工作流管理的“我的审批”处理；处理后刷新这里的运行状态。",
+      "cancelWaiting": "取消本次运行",
       "input_variables": "输入变量",
       "execution_status": "执行状态",
       "final_output": "最终输出",
@@ -1776,6 +1868,10 @@
       "input": "输入",
       "output": "输出",
       "copy_json": "复制 JSON",
+      "historyTitle": "查看运行记录",
+      "historySubtitle": "核对已保存的步骤与结果",
+      "historyClose": "关闭运行记录",
+      "historyNote": "此处仅查看已保存的运行记录。要测试当前草稿，请关闭记录后点击“调试”。",
       "persistence_note": "调试模式下的执行结果仅供预览，不会影响线上运行的工作流版本。"
     },
     "fields": {
@@ -3431,8 +3527,29 @@
       "endChat": "结束聊天",
       "transfer": "转接",
       "transferTooltip": "转接给其他客服",
+      "summaryButton": "接待摘录",
+      "summaryTitle": "本次会话接待摘录",
+      "summaryScope": "仅摘录本次会话的最近消息，供接管时快速了解情况；处理结果请以聊天记录和业务系统为准。",
+      "summaryQuestions": "客户最近提出",
+      "summaryReplies": "最近回复",
+      "summaryCustomer": "客户",
+      "summaryStaff": "客服",
+      "summaryAssistant": "AI 员工",
+      "summaryEmpty": "暂无可展示的消息",
+      "summaryMore": "还有更早的消息，请查看完整聊天记录。",
+      "summaryLoading": "正在读取会话消息…",
+      "summaryLoadError": "读取接待摘录失败",
+      "summaryRefresh": "刷新摘录",
+      "summaryClose": "关闭摘录",
       "transferSuccess": "已转接给 {{name}}",
       "transferError": "转接失败",
+      "commandPending": "操作结果待确认。请查询结果，不要创建新操作。",
+      "commandPendingLabel": "结果待确认",
+      "checkCommand": "查询结果",
+      "retryCommand": "重试原操作",
+      "commandCommitted": "原操作已完成",
+      "commandStillPending": "尚未查到原操作结果，请稍后查询。",
+      "recoveryTitle": "待确认的会话操作",
       "transferTo": "转接给",
       "noStaffAvailable": "暂无可用客服",
       "loadingStaff": "加载中...",
@@ -3459,6 +3576,8 @@
     "messages": {
       "sending": "发送中...",
       "sendFailedTitle": "发送失败",
+      "aiSender": "AI 客服",
+      "nativeStaffSender": "企微人工客服",
       "image": {
         "previewAria": "预览图片",
         "alt": "图片",
@@ -4305,6 +4424,42 @@
     }
   },
   "deviceControl": {
+    "business": {
+      "toggle": "业务配置与执行状态",
+      "loading": "正在读取业务状态…",
+      "error": "业务状态读取失败，请重试。",
+      "purpose": "业务用途",
+      "system": "业务系统",
+      "action": "策略动作",
+      "policy": "策略状态",
+      "lastRun": "最近执行",
+      "lastTest": "最近动作测试",
+      "noTest": "暂无记录",
+      "testStatus": {
+        "passed": "通过",
+        "failed": "失败",
+        "unknown": "结果待确认"
+      },
+      "agents": "关联 AI 员工",
+      "workflows": "引用的工作流",
+      "workflowCount": "共 {{count}} 个",
+      "noWorkflows": "暂无",
+      "workflowSource": {
+        "draft": "草稿",
+        "published": "已发布",
+        "both": "已发布及草稿"
+      },
+      "agentCount": "共 {{count}} 位",
+      "noAgents": "暂无",
+      "agentSeparator": "、",
+      "unconfigured": "未配置",
+      "adminOnly": "仅管理员可查看",
+      "pending": "待设备确认",
+      "untested": "已生效，待测试",
+      "tested": "已生效并通过测试",
+      "noRuns": "暂无记录",
+      "configure": "配置文件场景"
+    },
     "sessions": {
       "title": "执行记录",
       "subtitle": "查看 AI 员工操作设备的任务与步骤",
@@ -4318,6 +4473,7 @@
       "failedActions": "失败或中断",
       "screenshots": "返回图片数",
       "executionId": "任务编号",
+      "workflowExecutionId": "所属工作流运行编号",
       "started": "开始时间",
       "ended": "结束时间",
       "steps": "操作步骤（最新在前）",

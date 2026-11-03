@@ -5,7 +5,7 @@ import logging
 from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator, Callable, Protocol
 from uuid import UUID, uuid4
 
 from anyio import CancelScope
@@ -36,6 +36,21 @@ class DeviceExecution:
         self.status = "completed" if success else "failed"
 
 
+class DeviceSessionClient(Protocol):
+    async def start_session(self, identity: DeviceExecutionIdentity) -> None:
+        ...
+
+    async def heartbeat_session(
+        self, identity: DeviceExecutionIdentity
+    ) -> None:
+        ...
+
+    async def finish_session(
+        self, identity: DeviceExecutionIdentity, status: DeviceFinishStatus
+    ) -> None:
+        ...
+
+
 _execution: ContextVar[DeviceExecution | None] = ContextVar(
     "device_execution", default=None
 )
@@ -48,6 +63,7 @@ def current_device_execution() -> DeviceExecution | None:
 def device_headers_factory(
     project_id: str,
     device_id: str,
+    read_policy_digest: str | None = None,
 ) -> Callable[[], dict[str, str]]:
     """Capture once: orphan tasks cannot shed the ended execution's fence."""
     execution = current_device_execution()
@@ -65,6 +81,7 @@ def device_headers_factory(
             project,
             device,
             session_id=execution.identity.session_id if execution else None,
+            read_policy_digest=read_policy_digest,
         )
 
     return headers
@@ -90,11 +107,24 @@ async def track_device_execution(
     identity = DeviceExecutionIdentity(
         project_id=UUID(context.project_id),
         device_id=UUID(context.agent.bound_device_id),
-        session_id=uuid4(),
+        session_id=getattr(context, "execution_id", None) or uuid4(),
         agent_id=context.agent.id,
         agent_name=context.agent.name,
+        workflow_execution_id=getattr(
+            context, "parent_workflow_execution_id", None
+        ),
     )
-    await device_control_client.start_session(identity)
+    async with track_device_identity(identity) as execution:
+        yield execution
+
+
+@asynccontextmanager
+async def track_device_identity(
+    identity: DeviceExecutionIdentity,
+    client: DeviceSessionClient | None = None,
+) -> AsyncIterator[DeviceExecution]:
+    client = client or device_control_client
+    await client.start_session(identity)
     execution = DeviceExecution(identity)
     token = _execution.set(execution)
     owner = asyncio.current_task()
@@ -106,7 +136,7 @@ async def track_device_execution(
         try:
             while True:
                 await asyncio.sleep(HEARTBEAT_SECONDS)
-                await device_control_client.heartbeat_session(identity)
+                await client.heartbeat_session(identity)
         except Exception:
             execution.heartbeat_failed = True
             execution.closed = True
@@ -143,9 +173,7 @@ async def track_device_execution(
                 await keeper
             try:
                 async with asyncio.timeout(5):
-                    await device_control_client.finish_session(
-                        identity, execution.status
-                    )
+                    await client.finish_session(identity, execution.status)
             except Exception as exc:
                 # Lease expiry reports interruption, not success.
                 logger.warning(

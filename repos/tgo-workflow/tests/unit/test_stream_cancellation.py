@@ -18,6 +18,7 @@ class StateDatabase:
         self.rollback = AsyncMock()
         self.close = AsyncMock()
         self.add = Mock()
+        self.flush = AsyncMock()
 
     async def execute(self, statement):
         values = statement.compile().params
@@ -32,7 +33,22 @@ class StateDatabase:
             if allowed:
                 self.status = values["status"]
             value = "execution-owned" if allowed else None
-        return Mock(scalar_one_or_none=Mock(return_value=value))
+        return Mock(
+            scalar_one_or_none=Mock(return_value=value),
+            one_or_none=Mock(return_value=(self.status, None)),
+        )
+
+    async def scalar(self, statement):
+        return (await self.execute(statement)).scalar_one_or_none()
+
+    async def scalars(self, statement):
+        return []
+
+    async def get(self, model, identifier, **options):
+        return SimpleNamespace(
+            id=identifier, project_id="project-owned", status=self.status,
+            source_channel=None,
+        )
 
 
 def arguments(db):

@@ -1,5 +1,7 @@
 """Exercise account activation through the real service and database."""
 from uuid import uuid4
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -14,6 +16,9 @@ from app.models.base import BaseModel
 from app.models.project import Project
 from app.schemas.agent import AgentCreate, AgentUpdate
 from app.services.agent_service import AgentService
+from app.services.agent_activation_readiness import AgentActivationReadinessService
+from app.schemas.agent_activation_readiness import AgentActivationReadiness
+from app.exceptions import ConflictError
 
 
 @compiles(JSONB, "sqlite")
@@ -35,7 +40,7 @@ async def account_database():
         service = AgentService(db)
         original_get = service.get_agent
 
-        async def without_external_enrichment(project_id, agent_id):
+        async def without_external_enrichment(project_id, agent_id, **kwargs):
             return await original_get(
                 project_id, agent_id, enrich_resources=False
             )
@@ -45,24 +50,39 @@ async def account_database():
     await engine.dispose()
 
 
+async def legacy_agent(db, project, name, *, active=True, default=True):
+    agent = Agent(project_id=project, name=name, model="fixture", is_active=active,
+        is_default=default, skills_enabled=False)
+    db.add(agent)
+    await db.commit()
+    return agent
+
+
+def proof(project, actor, agent):
+    return AgentActivationReadiness(project_id=project, agent_id=agent, checked_by=actor,
+        checked_at=datetime.now(UTC), enabled=False, can_enable=True,
+        configuration_fingerprint="a" * 64, model_owner_revision="b" * 64,
+        channels=[{"template_id": "knowledge", "template_version": 1, "channel": "web",
+            "policy_revision": 1, "requirements_revision": "c" * 64, "status": "passed",
+            "valid_until": datetime.now(UTC) + timedelta(hours=1)}])
+
+
 @pytest.mark.asyncio
 async def test_activation_switches_default_and_preserves_other_accounts(
-    account_database,
+    account_database, monkeypatch,
 ):
     db, service, project = account_database
     other = uuid4()
-    old = await service.create_agent(
-        project, AgentCreate(name="old", model="fixture", is_default=True)
-    )
-    foreign = await service.create_agent(
-        other, AgentCreate(name="foreign", model="fixture", is_default=True)
-    )
+    old = await legacy_agent(db, project, "old")
+    foreign = await legacy_agent(db, other, "foreign")
     candidate = await service.create_agent(
         project, AgentCreate(name="new", model="fixture", is_active=False)
     )
     old_instruction = old.instruction
+    actor = uuid4()
+    monkeypatch.setattr(AgentActivationReadinessService, "read", AsyncMock(return_value=proof(project, actor, candidate.id)))
     activated = await service.update_agent(
-        project, candidate.id, AgentUpdate(is_active=True)
+        project, candidate.id, AgentUpdate(is_active=True), requested_by=actor,
     )
     assert activated.is_active and activated.is_default
     await db.refresh(old)
@@ -87,22 +107,16 @@ async def test_activation_switches_default_and_preserves_other_accounts(
 
 
 @pytest.mark.asyncio
-async def test_active_creation_also_switches_existing_employee(
+async def test_active_creation_is_rejected_without_switching_existing_employee(
     account_database,
 ):
     db, service, project = account_database
-    old = await service.create_agent(
-        project, AgentCreate(name="old", model="fixture", is_default=True)
-    )
-    new = await service.create_agent(
-        project,
-        AgentCreate(
-            name="new", model="fixture", is_active=True, is_default=False
-        ),
-    )
+    old = await legacy_agent(db, project, "old")
+    with pytest.raises(ConflictError):
+        await service.create_agent(project, AgentCreate(name="new", model="fixture", is_active=True))
     await db.refresh(old)
-    assert new.is_active and new.is_default
-    assert not old.is_active and not old.is_default
+    assert old.is_active and old.is_default
+    assert not await db.scalar(select(Agent.id).where(Agent.name == "new"))
 
 
 @pytest.mark.asyncio
@@ -110,9 +124,7 @@ async def test_disabling_and_editing_do_not_activate_another_employee(
     account_database,
 ):
     db, service, project = account_database
-    active = await service.create_agent(
-        project, AgentCreate(name="active", model="fixture", is_default=True)
-    )
+    active = await legacy_agent(db, project, "active")
     inactive = await service.create_agent(
         project, AgentCreate(name="inactive", model="fixture", is_active=False)
     )
@@ -141,9 +153,7 @@ async def test_disabling_and_editing_do_not_activate_another_employee(
 @pytest.mark.asyncio
 async def test_database_rejects_a_second_active_employee(account_database):
     db, service, project = account_database
-    await service.create_agent(
-        project, AgentCreate(name="active", model="fixture")
-    )
+    await legacy_agent(db, project, "active")
     db.add(
         Agent(
             project_id=project,
@@ -163,11 +173,7 @@ async def test_routing_prefers_enabled_employee_over_legacy_default(
     account_database,
 ):
     db, service, project = account_database
-    old = await service.create_agent(
-        project,
-        AgentCreate(name="paused", model="fixture", is_active=False,
-                    is_default=True),
-    )
+    old = await legacy_agent(db, project, "paused", active=False)
     active = await service.create_agent(
         project,
         AgentCreate(name="enabled", model="fixture", is_active=False),
@@ -175,9 +181,7 @@ async def test_routing_prefers_enabled_employee_over_legacy_default(
     # Reproduce a pre-migration account without rewriting its preferences.
     active.is_active = True
     await db.commit()
-    foreign = await service.create_agent(
-        uuid4(), AgentCreate(name="foreign", model="fixture"),
-    )
+    foreign = await legacy_agent(db, uuid4(), "foreign")
     selected = await service.get_default_agent(
         project, enrich_resources=False,
     )
@@ -204,12 +208,8 @@ async def test_routing_prefers_enabled_employee_over_legacy_default(
 
 @pytest.mark.asyncio
 async def test_all_paused_retains_default_for_readiness(account_database):
-    _, service, project = account_database
-    paused = await service.create_agent(
-        project,
-        AgentCreate(name="paused", model="fixture", is_active=False,
-                    is_default=True),
-    )
+    db, service, project = account_database
+    paused = await legacy_agent(db, project, "paused", active=False)
     selected = await service.get_default_agent(
         project, enrich_resources=False,
     )

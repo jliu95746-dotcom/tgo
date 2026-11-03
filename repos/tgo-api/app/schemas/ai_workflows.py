@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """AI Workflows (Workflow Engine proxy) schemas.
 
 These schemas are aligned with `docs/api_workflow.json` (Workflow Engine OpenAPI).
@@ -7,10 +5,16 @@ They are intentionally strict in typing (no Any/Dict in request/response signatu
 while still being forward-compatible via BaseSchema(extra="ignore").
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Annotated, Literal, Optional, Union
+from uuid import UUID
 
-from pydantic import Field, JsonValue
+from pydantic import (
+    ConfigDict, Field, FiniteFloat, JsonValue, StrictBool,
+    field_serializer, field_validator, model_validator,
+)
 
 from app.schemas.base import BaseSchema
 
@@ -44,6 +48,52 @@ class InputVariable(BaseSchema):
         ..., description="The type of the variable"
     )
     description: Optional[str] = Field(None, description="The description of the variable")
+    required: StrictBool = Field(False, description="Whether the workflow input is required")
+    min_length: int | None = Field(default=None, ge=0, le=65535, strict=True)
+    max_length: int | None = Field(default=None, ge=0, le=65535, strict=True)
+    minimum: FiniteFloat | None = None
+    maximum: FiniteFloat | None = None
+    allowed_values: list[str] | None = Field(default=None, min_length=1, max_length=30)
+
+    @field_validator("allowed_values", mode="before")
+    @classmethod
+    def reject_spaced_choices(cls, value: object) -> object:
+        if isinstance(value, list) and any(
+            isinstance(choice, str) and choice != choice.strip() for choice in value
+        ):
+            raise ValueError("Allowed text values cannot have surrounding whitespace")
+        return value
+
+    @model_validator(mode="after")
+    def validate_constraints(self) -> "InputVariable":
+        has_length = self.min_length is not None or self.max_length is not None
+        has_range = self.minimum is not None or self.maximum is not None
+        if (
+            ((has_length or self.allowed_values is not None) and self.type != "string")
+            or (has_range and self.type != "number")
+        ):
+            raise ValueError("Input constraints do not match variable type")
+        if (
+            self.min_length is not None and self.max_length is not None
+            and self.min_length > self.max_length
+        ):
+            raise ValueError("Minimum text length exceeds maximum")
+        if (
+            self.minimum is not None and self.maximum is not None
+            and self.minimum > self.maximum
+        ):
+            raise ValueError("Minimum number exceeds maximum")
+        if self.allowed_values is not None and (
+            len(set(self.allowed_values)) != len(self.allowed_values)
+            or any(
+                not value or len(value) > 100
+                or (self.min_length is not None and len(value) < self.min_length)
+                or (self.max_length is not None and len(value) > self.max_length)
+                for value in self.allowed_values
+            )
+        ):
+            raise ValueError("Allowed text values must be unique, nonblank, and meet length limits")
+        return self
 
 
 class OutputField(BaseSchema):
@@ -60,7 +110,10 @@ class PaginationInfo(BaseSchema):
 
 
 # ---- Enums ----
-ExecutionStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
+ExecutionStatus = Literal[
+    "pending", "running", "waiting_approval", "pending_resume",
+    "completed", "failed", "rejected", "expired", "cancelled",
+]
 WorkflowStatus = Literal["draft", "active", "archived"]
 
 
@@ -97,7 +150,14 @@ class TimerNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
     reference_key: str = Field(..., description="The unique reference key of the node")
     type: Literal["timer"] = Field("timer", description="Node type: timer")
-    cron_expression: str = Field(..., description="Cron expression for scheduled tasks")
+    cron_expression: str = Field(
+        ..., min_length=1, max_length=512, strict=True,
+        description="Numeric five-field schedule expression",
+    )
+    timezone: str = Field(
+        "UTC", min_length=1, max_length=100, strict=True,
+        description="IANA timezone; legacy definitions use UTC",
+    )
 
 
 class WebhookNodeData(BaseSchema):
@@ -141,6 +201,32 @@ class AgentNodeData(BaseSchema):
     input_mapping: Optional[dict[str, str]] = Field(None, description="Input parameters mapping")
 
 
+class ApprovalNodeData(BaseSchema):
+    label: str
+    reference_key: str
+    type: Literal["approval"] = "approval"
+    approver_staff_id: str
+    summary: str = Field(min_length=1, max_length=500)
+    expires_in_minutes: int = Field(default=1440, ge=1, le=10080)
+    after_approval_action: Optional[Literal["create_aftersales_review"]] = None
+    case_category: Optional[Literal[
+        "return_request", "exchange_request", "quality_issue",
+    ]] = None
+
+    @field_validator("approver_staff_id")
+    @classmethod
+    def valid_assignee(cls, value: str) -> str:
+        UUID(value)
+        return value
+
+    @field_validator("summary")
+    @classmethod
+    def nonempty_summary(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("审批摘要不能为空")
+        return value.strip()
+
+
 class ToolNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
     reference_key: str = Field(..., description="The unique reference key of the node")
@@ -149,6 +235,15 @@ class ToolNodeData(BaseSchema):
     tool_name: Optional[str] = Field(None, description="Tool name")
     config: Optional[dict[str, JsonValue]] = Field(None, description="Tool configuration parameters")
     input_mapping: Optional[dict[str, str]] = Field(None, description="Input parameters mapping")
+
+
+class BusinessQueryNodeData(BaseSchema):
+    label: str = Field(..., description="The display name of the node")
+    reference_key: str = Field(..., description="The unique reference key of the node")
+    type: Literal["business_query"] = "business_query"
+    connection_id: UUID = Field(..., description="Owned business connection")
+    operation: Literal["order_query", "logistics_query"]
+    order_variable: Literal["input.order_no"] = "input.order_no"
 
 
 class APINodeData(BaseSchema):
@@ -224,7 +319,9 @@ NodeData = Annotated[
         EventNodeData,
         LLMNodeData,
         AgentNodeData,
+        ApprovalNodeData,
         ToolNodeData,
+        BusinessQueryNodeData,
         APINodeData,
         ConditionNodeData,
         ClassifierNodeData,
@@ -273,6 +370,7 @@ class WorkflowCreate(BaseSchema):
 
 
 class WorkflowUpdate(BaseSchema):
+    expected_version: int | None = Field(default=None, ge=1)
     name: Optional[str] = Field(None, description="Workflow name")
     description: Optional[str] = Field(None, description="Detailed description of the workflow")
     nodes: Optional[list[WorkflowNodeInput]] = Field(None, description="List of workflow nodes")
@@ -314,6 +412,8 @@ class WorkflowVariablesResponse(BaseSchema):
 
 
 class WorkflowSummary(BaseSchema):
+    published_version: int | None = None
+    publication_revision: int = 0
     name: str = Field(..., description="Workflow name")
     description: Optional[str] = Field(None, description="Detailed description of the workflow")
     tags: list[str] = Field(default_factory=list, description="List of workflow tags")
@@ -329,6 +429,8 @@ class PaginatedWorkflowSummaryResponse(BaseSchema):
 
 
 class WorkflowInDB(BaseSchema):
+    published_version: int | None = None
+    publication_revision: int = 0
     name: str = Field(..., description="Workflow name")
     description: Optional[str] = Field(None, description="Detailed description of the workflow")
     tags: list[str] = Field(default_factory=list, description="List of workflow tags")
@@ -342,7 +444,31 @@ class WorkflowInDB(BaseSchema):
 
 
 # ---- Executions ----
+class WorkflowCustomerMessageLookup(BaseSchema):
+    """Find an original AI request within a server-owned customer session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    visitor_session_id: UUID
+    source_message_id: str = Field(min_length=1, max_length=255)
+
+
+class WorkflowChannelMessageLookup(BaseSchema):
+    """Locate the server-owned AI request from the original chat message."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    channel_id: str = Field(min_length=1, max_length=255)
+    source_message_id: str = Field(min_length=1, max_length=255)
+
+
 class WorkflowExecuteRequest(BaseSchema):
+    release_version: int | None = Field(default=None, ge=1)
+    expected_release_id: str | None = Field(default=None, min_length=1)
+    expected_release_digest: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    execution_mode: Literal["draft_test", "production"] = "draft_test"
     inputs: dict[str, JsonValue] = Field(
         default_factory=dict,
         description="Input variables passed to the start node, where Key is the variable name",
@@ -363,6 +489,61 @@ class WorkflowSyncResponse(BaseSchema):
     metadata: WorkflowSyncResponseMetadata
 
 
+def public_workflow_input_evidence(
+    inputs: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    if inputs.get("capture_status") == "redacted":
+        evidence: dict[str, JsonValue] = {"capture_status": "redacted"}
+        field_count = inputs.get("field_count")
+        if type(field_count) is int and 0 <= field_count <= 10000:
+            evidence["field_count"] = field_count
+        return evidence
+    return {"capture_status": "redacted", "field_count": len(inputs)}
+
+
+def public_workflow_node_output(
+    node_type: str, output: JsonValue,
+) -> JsonValue:
+    if output is None or node_type == "answer":
+        return output
+    if not isinstance(output, dict):
+        return {"capture_status": "redacted"}
+    if node_type == "business_query":
+        query_id = output.get("query_id")
+        connection_id = output.get("connection_id")
+        operation = output.get("operation")
+        if (
+            isinstance(query_id, str) and isinstance(connection_id, str)
+            and isinstance(operation, str)
+            and operation in {"order_query", "logistics_query"}
+        ):
+            try:
+                return {
+                    "query_id": str(UUID(query_id)),
+                    "connection_id": str(UUID(connection_id)),
+                    "operation": operation,
+                }
+            except ValueError:
+                pass
+        return public_workflow_input_evidence(output)
+    if node_type == "condition" and type(output.get("result")) is bool:
+        return {"result": output["result"]}
+    if node_type == "approval" and output.get("requested") is True:
+        return {"requested": True}
+    evidence = public_workflow_input_evidence(output)
+    agent_execution_id = output.get("agent_execution_id")
+    if node_type == "agent" and isinstance(agent_execution_id, str):
+        try:
+            evidence["agent_execution_id"] = str(UUID(agent_execution_id))
+        except ValueError:
+            pass
+    status_code = output.get("status_code")
+    if node_type == "api" and type(status_code) is int:
+        if 100 <= status_code <= 599:
+            evidence["status_code"] = status_code
+    return evidence
+
+
 class NodeExecution(BaseSchema):
     node_id: str = Field(..., description="The node ID in the workflow")
     node_type: str = Field(..., description="Node type")
@@ -376,8 +557,30 @@ class NodeExecution(BaseSchema):
     id: str = Field(..., description="Unique identifier for the node execution record")
     execution_id: str = Field(..., description="The ID of the parent workflow execution record")
 
+    @field_serializer("input")
+    def serialize_input(
+        self, inputs: dict[str, JsonValue] | None,
+    ) -> dict[str, JsonValue] | None:
+        return public_workflow_input_evidence(inputs) if inputs is not None else None
+
+    @field_serializer("output")
+    def serialize_output(self, output: JsonValue) -> JsonValue:
+        return public_workflow_node_output(self.node_type, output)
+
 
 class WorkflowExecution(BaseSchema):
+    release_id: str | None = None
+    employee_agent_id: str | None = None
+    definition_digest: str | None = None
+    ai_request_id: str | None = None
+    business_request_id: str | None = None
+    visitor_session_id: str | None = None
+    source_message_id: str | None = None
+    source_channel: str | None = None
+    parent_execution_id: str | None = None
+    workflow_lineage: list[str] | None = None
+    execution_mode: Literal["draft_test", "production"] | None = None
+    workflow_version: int | None = None
     workflow_id: str = Field(..., description="Workflow ID")
     status: ExecutionStatus = Field(..., description="Overall execution status")
     input: Optional[dict[str, JsonValue]] = Field(None, description="Workflow startup input data")
@@ -390,6 +593,12 @@ class WorkflowExecution(BaseSchema):
     node_executions: list[NodeExecution] = Field(
         default_factory=list, description="List of detailed node executions"
     )
+
+    @field_serializer("input")
+    def serialize_input(
+        self, inputs: dict[str, JsonValue] | None,
+    ) -> dict[str, JsonValue] | None:
+        return public_workflow_input_evidence(inputs) if inputs is not None else None
 
 
 class WorkflowExecutionCancelResponse(BaseSchema):

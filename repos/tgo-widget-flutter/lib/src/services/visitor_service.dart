@@ -62,8 +62,7 @@ class VisitorService {
       try {
         _cachedVisitor = CachedVisitor.fromJson(json);
         return _cachedVisitor;
-      } catch (e) {
-        debugPrint('[VisitorService] Failed to parse cached visitor: $e');
+      } catch (_) {
         await TgoStorage.remove(cacheKey);
       }
     }
@@ -117,11 +116,6 @@ class VisitorService {
 
       final visitorResponse = VisitorRegisterResponse.fromJson(response.data!);
 
-      debugPrint('[VisitorService] Registration successful: '
-          'id=${visitorResponse.id}, '
-          'channelId=${visitorResponse.channelId}, '
-          'hasImToken=${visitorResponse.imToken != null}');
-
       // Cache the visitor
       final cached = CachedVisitor.fromResponse(
         apiBase,
@@ -133,10 +127,8 @@ class VisitorService {
       return visitorResponse;
     } on DioException catch (e) {
       final errorMessage = _extractDioErrorMessage(e);
-      debugPrint('[VisitorService] Registration DioException: $errorMessage');
       throw Exception('Registration failed: $errorMessage');
     } catch (e) {
-      debugPrint('[VisitorService] Registration error: $e');
       throw Exception('Registration failed: $e');
     }
   }

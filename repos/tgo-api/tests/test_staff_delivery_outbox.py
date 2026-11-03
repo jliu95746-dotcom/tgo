@@ -10,15 +10,19 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from app.models.assist_draft_record import AssistDraftRecord
 from app.models.staff_message_delivery import StaffMessageDelivery
+from app.schemas.chat import AssistDraftRequest, AssistDraftResponse
 from app.schemas.staff_delivery import StaffDeliveryRequest
 from app.services import staff_delivery
+from app.services.assist_draft_record import save_assist_draft
 from app.services.staff_message_target import StaffMessageTarget
 
 
 @pytest.fixture
 def db():
     engine = create_engine("sqlite://")
+    AssistDraftRecord.__table__.create(engine)
     StaffMessageDelivery.__table__.create(engine)
     with Session(engine) as session:
         yield session
@@ -47,6 +51,79 @@ def request(target, **changes):
         client_msg_no="local-test-send-1",
         payload={"type": 1, "content": "你好"},
     ).model_copy(update=changes)
+
+
+def test_staff_delivery_keeps_source_message_for_shadow_comparison(db, target):
+    row, claimed = staff_delivery._claim(
+        db, target, request(target, source_message_id="visitor-message-1")
+    )
+    assert claimed is True
+    assert row.source_message_id == "visitor-message-1"
+
+    replay, claimed_again = staff_delivery._claim(
+        db, target, request(target, source_message_id="visitor-message-1")
+    )
+    assert claimed_again is False
+    assert replay.id == row.id
+
+    with pytest.raises(HTTPException) as conflict:
+        staff_delivery._claim(
+            db, target, request(target, source_message_id="visitor-message-2")
+        )
+    assert conflict.value.status_code == 409
+
+
+def test_staff_delivery_links_only_own_matching_generated_draft(db, target):
+    draft_request = AssistDraftRequest(
+        visitor_id=target.visitor_id,
+        customer_message="能装电脑吗？",
+        source_message_id="visitor-message-1",
+    )
+    draft = save_assist_draft(
+        db, project_id=target.project_id, staff_id=target.staff_id,
+        request=draft_request, fingerprint="draft-fingerprint",
+        response=AssistDraftResponse(draft="可放 13 英寸电脑。"),
+    )
+    linked_request = request(
+        target, source_message_id="visitor-message-1", assist_draft_id=draft.id,
+    )
+    row, claimed = staff_delivery._claim(db, target, linked_request)
+    assert claimed is True
+    assert row.assist_draft_id == draft.id
+    assert staff_delivery._claim(db, target, linked_request)[1] is False
+
+    with pytest.raises(HTTPException) as conflict:
+        staff_delivery._claim(db, target, request(
+            target, client_msg_no="local-test-send-2",
+            source_message_id="visitor-message-1", assist_draft_id=uuid4(),
+        ))
+    assert conflict.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_stale_channel_attempt_becomes_durable_unknown_without_replay(db, target):
+    stale_request = request(target, client_msg_no="stale-channel-send")
+    row, claimed = staff_delivery._claim(db, target, stale_request)
+    assert claimed is True
+    row.updated_at = datetime.now(timezone.utc) - timedelta(minutes=6)
+    db.commit()
+
+    assert await staff_delivery.recover_stale_external_deliveries(db) == 1
+    db.refresh(row)
+    assert row.external_status == "unknown"
+    assert row.error_code == "PLATFORM_RECEIPT_UNKNOWN"
+    assert staff_delivery.receipt(row).delivery_status == "unknown"
+    assert staff_delivery._claim(db, target, stale_request)[1] is False
+    assert await staff_delivery.recover_stale_external_deliveries(db) == 0
+
+
+@pytest.mark.asyncio
+async def test_active_channel_attempt_stays_processing(db, target):
+    row, _ = staff_delivery._claim(db, target, request(target))
+    assert await staff_delivery.recover_stale_external_deliveries(db) == 0
+    db.refresh(row)
+    assert row.external_status == "sending"
+    assert staff_delivery.receipt(row).delivery_status == "processing"
 
 
 @pytest.mark.asyncio
@@ -223,6 +300,70 @@ async def test_unknown_history_attempt_reconciles_before_resending(
     send.assert_not_awaited()
     assert sync.call_args.kwargs["channel_id"] == target.channel_id
     assert sync.call_args.kwargs["raise_on_error"] is True
+
+
+@pytest.mark.asyncio
+async def test_first_history_attempt_reconciles_after_lost_database_receipt(
+    target, monkeypatch
+):
+    """A send may have reached IM before its first local commit failed."""
+    from types import SimpleNamespace
+
+    row = StaffMessageDelivery(
+        staff_id=target.staff_id,
+        channel_id=target.channel_id,
+        channel_type=251,
+        client_msg_no="first-attempt-lost-receipt",
+        payload={"type": 1, "content": "你好"},
+        history_attempts=0,
+    )
+    lookup = AsyncMock(return_value=SimpleNamespace(
+        client_msg_no=row.client_msg_no,
+        from_uid=f"{target.staff_id}-staff",
+        payload=row.payload,
+    ))
+    send = AsyncMock()
+    monkeypatch.setattr(staff_delivery.wukongim_client, "enabled", True)
+    monkeypatch.setattr(
+        staff_delivery.wukongim_client, "get_message_by_client_msg_no", lookup
+    )
+    monkeypatch.setattr(staff_delivery.wukongim_client, "send_message", send)
+
+    await staff_delivery.write_delivery_history(row)
+
+    lookup.assert_awaited_once()
+    send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_first_history_attempt_sends_only_after_confirmed_absence(
+    target, monkeypatch
+):
+    row = StaffMessageDelivery(
+        staff_id=target.staff_id,
+        channel_id=target.channel_id,
+        channel_type=251,
+        client_msg_no="new-history-message",
+        payload={"type": 1, "content": "你好"},
+        history_attempts=0,
+    )
+    lookup = AsyncMock(return_value=None)
+    send = AsyncMock(return_value=object())
+    monkeypatch.setattr(staff_delivery.wukongim_client, "enabled", True)
+    monkeypatch.setattr(
+        staff_delivery.wukongim_client, "get_message_by_client_msg_no", lookup
+    )
+    monkeypatch.setattr(staff_delivery.wukongim_client, "send_message", send)
+
+    await staff_delivery.write_delivery_history(row)
+    lookup.assert_awaited_once()
+    send.assert_awaited_once()
+
+    lookup.side_effect = RuntimeError("IM lookup unavailable")
+    send.reset_mock()
+    with pytest.raises(RuntimeError, match="IM lookup unavailable"):
+        await staff_delivery.write_delivery_history(row)
+    send.assert_not_awaited()
 
 
 @pytest.mark.asyncio

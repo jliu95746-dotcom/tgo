@@ -173,7 +173,7 @@ const renderer: RendererObject = {
       .join('');
 
     return `
-      <div class="my-3 overflow-x-auto">
+      <div class="chat-table-scroll my-3 overflow-x-auto">
         <table class="min-w-full border-collapse border border-gray-300 dark:border-gray-600">
           ${headerSection}
           <tbody>${bodyRows}</tbody>

@@ -45,6 +45,17 @@
         />
       </view>
 
+      <!-- Voice message: audio URL is acquired when the visitor taps play. -->
+      <view wx:elif="{{item.payload.type === 4}}" class="msg-voice-wrap">
+        <message-bubble self="{{item.isSelf}}" themeColor="{{themeColor}}">
+          <view class="msg-voice-control" bindtap="onTapVoice" data-id="{{item.id}}"
+            role="button" aria-label="{{playingVoiceId === item.id ? voiceStopLabel : voicePlayLabel}}">
+            <text>{{playingVoiceId === item.id ? voiceStopLabel : voicePlayLabel}}</text>
+          </view>
+          <text wx:if="{{voiceErrorId === item.id}}" class="msg-voice-error">{{voiceUnavailableLabel}}</text>
+        </message-bubble>
+      </view>
+
       <!-- JSON Render message -->
       <block wx:elif="{{item.hasUiParts}}">
         <message-bubble self="{{item.isSelf}}" themeColor="{{themeColor}}">
@@ -102,7 +113,7 @@
       </view>
 
       <!-- Time label -->
-      <text wx:if="{{item._time}}" class="time-label">{{item._time}}</text>
+      <text wx:if="{{item._time}}" class="time-label"><text wx:if="{{item.senderKind === 'ai'}}">{{aiLabel}} · </text>{{item._time}}</text>
     </view>
   </view>
 </scroll-view>

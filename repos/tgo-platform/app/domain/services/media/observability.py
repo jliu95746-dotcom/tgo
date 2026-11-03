@@ -37,6 +37,7 @@ class ObservedMediaType(StrEnum):
 
 class MediaCleanupKind(StrEnum):
     STAGING = "staging"
+    TEMPORARY = "temporary"
     RETENTION = "retention"
     CYCLE = "cycle"
 

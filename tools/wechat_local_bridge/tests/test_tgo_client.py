@@ -106,22 +106,9 @@ class TgoClientTests(unittest.TestCase):
         client.connect()
         client.heartbeat()
         self.assertEqual(self.calls[-1], (
-            "/v1/platforms/test-platform/wechat-local/heartbeat", "Bearer fake-im", {"channel_id": "visitor-vtr"},
+            "/v1/platforms/test-platform/wechat-local/heartbeat", "Bearer fake-im", {},
         ))
         self.assertEqual(self.heartbeat_headers, ["test-channel-key"])
-
-    def test_first_class_platform_renews_an_expired_cached_grant(self):
-        config = json.loads(self.config_file.read_text(encoding="utf-8"))
-        config["platform_type"] = "wechat_local"
-        self.config_file.write_text(json.dumps(config), encoding="utf-8")
-        first = TgoClient(self.config_file, self.root, "account-a")
-        first.connect()
-        restarted = TgoClient(self.config_file, self.root, "account-a")
-        restarted.connect()
-        registrations = [body for path, _, body in self.calls if path.endswith("/register")]
-        self.assertEqual(len(registrations), 2)
-        self.assertEqual(registrations[0]["platform_open_id"], registrations[1]["platform_open_id"])
-        self.assertEqual(first.channel_id, restarted.channel_id)
 
     def test_only_first_class_platform_can_bind_https(self):
         self.assertEqual(

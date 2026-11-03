@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import {
   Monitor,
   Smartphone,
@@ -15,13 +16,23 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import type { Device } from '@/types/deviceControl';
+import { getDeviceReadPolicy, getDeviceScenarioDraft, listDeviceSessions } from '@/services/deviceControlApi';
+import { APIError } from '@/services/api';
+import { AIAgentsApiService } from '@/services/aiAgentsApi';
+import { WorkflowApiService } from '@/services/workflowApi';
+import { useAuthStore } from '@/stores/authStore';
+import type { AgentWithDetailsResponse } from '@/types';
+import type { Device, DeviceReadPolicy, DeviceScenarioDraft, DeviceSession } from '@/types/deviceControl';
+import type { WorkflowDeviceReference } from '@/types/workflow';
 
 interface DeviceCardProps {
   device: Device;
   onEdit: (device: Device) => void;
   onDelete: (device: Device) => void;
   onDisconnect: (device: Device) => void;
+  onInspect: (device: Device) => void;
+  onConfigure: (device: Device) => void;
+  onPolicySettings?: (device: Device) => void;
 }
 
 const DeviceCard: React.FC<DeviceCardProps> = ({
@@ -29,10 +40,79 @@ const DeviceCard: React.FC<DeviceCardProps> = ({
   onEdit,
   onDelete,
   onDisconnect,
+  onInspect,
+  onConfigure,
+  onPolicySettings,
 }) => {
   const { t } = useTranslation();
   const [showMenu, setShowMenu] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
+  const [showBusiness, setShowBusiness] = React.useState(false);
+  const [businessRefresh, setBusinessRefresh] = React.useState(0);
+  const [businessLoading, setBusinessLoading] = React.useState(false);
+  const [businessError, setBusinessError] = React.useState(false);
+  const [draft, setDraft] = React.useState<DeviceScenarioDraft | null>(null);
+  const [policy, setPolicy] = React.useState<DeviceReadPolicy | null>(null);
+  const [lastSession, setLastSession] = React.useState<DeviceSession | null>(null);
+  const [agentReferences, setAgentReferences] = React.useState<AgentWithDetailsResponse[]>([]);
+  const [agentReferenceTotal, setAgentReferenceTotal] = React.useState(0);
+  const [workflowReferences, setWorkflowReferences] = React.useState<WorkflowDeviceReference[]>([]);
+  const [workflowReferenceTotal, setWorkflowReferenceTotal] = React.useState(0);
+  const user = useAuthStore(state => state.user);
+  const canReadPolicy = user?.role === 'admin';
+
+  React.useEffect(() => {
+    if (!showBusiness) return;
+    const abort = new AbortController();
+    setBusinessLoading(true);
+    setBusinessError(false);
+    setDraft(null);
+    setPolicy(null);
+    setLastSession(null);
+    setAgentReferences([]);
+    setAgentReferenceTotal(0);
+    setWorkflowReferences([]);
+    setWorkflowReferenceTotal(0);
+    if (device.project_id !== user?.project_id) {
+      setBusinessLoading(false);
+      setBusinessError(true);
+      return () => abort.abort();
+    }
+    const optional = async <T,>(request: Promise<T>): Promise<T | null> => {
+      try { return await request; }
+      catch (error) {
+        if (error instanceof APIError && error.status === 404) return null;
+        throw error;
+      }
+    };
+    Promise.all([
+      optional(getDeviceScenarioDraft(device.id, 'files', { signal: abort.signal })),
+      canReadPolicy
+        ? optional(getDeviceReadPolicy(device.id, { signal: abort.signal }))
+        : Promise.resolve(null),
+      listDeviceSessions({ device_id: device.id, limit: 1 }, { signal: abort.signal }),
+      AIAgentsApiService.getAgents({ bound_device_id: device.id, limit: 5 }),
+      WorkflowApiService.listDeviceReferences(device.id, abort.signal),
+    ]).then(([nextDraft, nextPolicy, sessions, agents, workflows]) => {
+      if (abort.signal.aborted) return;
+      if ((nextDraft && (nextDraft.device_id !== device.id || nextDraft.project_id !== device.project_id))
+        || (nextPolicy && (nextPolicy.device_id !== device.id || nextPolicy.project_id !== device.project_id))
+        || (sessions.sessions[0] && sessions.sessions[0].device_id !== device.id)
+        || agents.data.some(agent => agent.bound_device_id !== device.id)) {
+        throw new Error('Device business summary scope mismatch');
+      }
+      setDraft(nextDraft);
+      setPolicy(nextPolicy);
+      setLastSession(sessions.sessions[0] ?? null);
+      setAgentReferences(agents.data);
+      setAgentReferenceTotal(agents.pagination.total);
+      setWorkflowReferences(workflows.references);
+      setWorkflowReferenceTotal(workflows.total);
+    }).catch(() => { if (!abort.signal.aborted) setBusinessError(true); })
+      .finally(() => { if (!abort.signal.aborted) setBusinessLoading(false); });
+    return () => abort.abort();
+  }, [showBusiness, businessRefresh, canReadPolicy, device.id, device.project_id, device.status,
+    user?.id, user?.project_id]);
 
   // Close menu when clicking outside
   React.useEffect(() => {
@@ -154,6 +234,8 @@ const DeviceCard: React.FC<DeviceCardProps> = ({
       </div>
 
       {/* Status */}
+      {canReadPolicy && onPolicySettings && <button type="button" onClick={() => onPolicySettings(device)} className="mb-3 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-blue-600 dark:border-gray-700">{t('devicePolicies.open')}</button>}
+      <button onClick={() => onInspect(device)} className="mb-4 w-full rounded-xl bg-blue-50 px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20">{t('businessScenarios.device.inspect')}</button>
       <div className="flex items-center gap-2 mb-3">
         {isOnline ? (
           <>
@@ -188,6 +270,54 @@ const DeviceCard: React.FC<DeviceCardProps> = ({
             {isOnline ? t('deviceControl.device.now', '现在') : formatLastSeen(device.last_seen_at)}
           </span>
         </div>
+      </div>
+
+      <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-700">
+        <button type="button" aria-expanded={showBusiness} onClick={() => setShowBusiness(value => !value)}
+          className="text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400">
+          {t('deviceControl.business.toggle')}
+        </button>
+        {showBusiness && <div className="mt-3 space-y-2 text-xs text-gray-600 dark:text-gray-300">
+          {businessLoading ? <p role="status">{t('deviceControl.business.loading')}</p>
+            : businessError ? <p role="alert" className="text-red-600">{t('deviceControl.business.error')}</p>
+              : <>
+                <p>{t('deviceControl.business.purpose')}: {draft?.purpose || t('deviceControl.business.unconfigured')}</p>
+                <p>{t('deviceControl.business.system')}: {draft?.business_system || t('deviceControl.business.unconfigured')}</p>
+                <p>{t('deviceControl.business.action')}: {policy ? 'fs_read' : t('deviceControl.business.unconfigured')}</p>
+                <p>{t('deviceControl.business.policy')}: {!canReadPolicy
+                  ? t('deviceControl.business.adminOnly') : policy
+                  ? policy.status === 'revoked' ? t('devicePolicies.revoked') : t(`deviceControl.business.${policy.status === 'active' && policy.verified ? 'tested' : policy.status === 'active' ? 'untested' : 'pending'}`)
+                  : t('deviceControl.business.unconfigured')}</p>
+                {canReadPolicy && <p>{t('deviceControl.business.lastTest')}: {policy?.last_tested_at
+                  ? `${t(`deviceControl.business.testStatus.${policy.last_test_status ?? 'unknown'}`)} · ${new Date(policy.last_tested_at).toLocaleString()}`
+                  : t('deviceControl.business.noTest')}</p>}
+                <p>{t('deviceControl.business.lastRun')}: {lastSession
+                  ? `${t(`deviceControl.sessions.status.${lastSession.status}`)} · ${new Date(lastSession.started_at).toLocaleString()}`
+                  : t('deviceControl.business.noRuns')}</p>
+                <p>{t('deviceControl.business.agents')}: {agentReferenceTotal
+                  ? t('deviceControl.business.agentCount', { count: agentReferenceTotal })
+                  : t('deviceControl.business.noAgents')}</p>
+                {agentReferences.length > 0 && <p className="break-words">{agentReferences.map(agent => agent.name).join(t('deviceControl.business.agentSeparator'))}{agentReferenceTotal > agentReferences.length ? '…' : ''}</p>}
+                <p>{t('deviceControl.business.workflows')}: {workflowReferenceTotal
+                  ? t('deviceControl.business.workflowCount', { count: workflowReferenceTotal })
+                  : t('deviceControl.business.noWorkflows')}</p>
+                {workflowReferences.length > 0 && <ul className="space-y-1">{workflowReferences.map(workflow =>
+                  <li key={workflow.workflow_id}>
+                    <Link to={`/ai/workflows/${encodeURIComponent(workflow.workflow_id)}/edit`}
+                      className="text-blue-600 hover:underline dark:text-blue-400">
+                      {workflow.name}
+                    </Link>
+                    <span className="ml-1 text-gray-500 dark:text-gray-400">({t(`deviceControl.business.workflowSource.${workflow.source}`)})</span>
+                  </li>,
+                )}{workflowReferenceTotal > workflowReferences.length && <li>…</li>}</ul>}
+              </>}
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={() => setBusinessRefresh(value => value + 1)}
+              className="text-blue-600 dark:text-blue-400">{t('common.refresh')}</button>
+            <button type="button" onClick={() => onConfigure(device)}
+              className="text-blue-600 dark:text-blue-400">{t('deviceControl.business.configure')}</button>
+          </div>
+        </div>}
       </div>
 
     </div>

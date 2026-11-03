@@ -120,6 +120,9 @@ class DeviceSession(Base):
         nullable=True,
         index=True,
     )
+    workflow_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True,
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

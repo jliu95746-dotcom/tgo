@@ -1,13 +1,31 @@
 import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import { TgoWidgetClient } from '../client.js';
-import { loadConfig, resolveOutput, resolveServer, resolveApiKey } from '../config.js';
+import { TgoWidgetClient, type VisitorRequestProof } from '../client.js';
+import { loadConfig, resolveOutput, resolveServer, resolveApiKey, type TgoWidgetConfig } from '../config.js';
 import { printError, printResult } from '../output.js';
 import { ensureWuKongIMConnected, getSharedWuKongIMClient } from '../wukongim.js';
+import { normalizeCustomerSessions, readCustomerSessionsFromStdin, type BusinessCustomerSessionInput } from '../businessCustomerSession.js';
+import { sendBusinessChat } from '../businessChat.js';
 
 function makeClient(globals: Record<string, string>) {
   return new TgoWidgetClient({ server: resolveServer(globals.server), apiKey: resolveApiKey(globals.apiKey) });
+}
+
+function currentVisitorProof(client: TgoWidgetClient, config: TgoWidgetConfig): VisitorRequestProof {
+  if (!config.visitor_id || !config.im_token || !config.server || config.api_key !== client.apiKey
+      || config.server.replace(/\/+$/, '') !== client.serverUrl) {
+    throw new Error('当前访客访问与服务器不匹配，请重新初始化。');
+  }
+  const token = config.im_token;
+  return {imToken:token, assertCurrent:() => {
+    const current = loadConfig();
+    if (current.server !== config.server || current.api_key !== config.api_key
+        || current.visitor_id !== config.visitor_id || current.im_token !== token
+        || current.channel_id !== config.channel_id || current.channel_type !== config.channel_type) {
+      throw new Error('当前聊天访问已变化，请重新初始化后重试。');
+    }
+  }};
 }
 
 export function registerChatCommands(parent: Command): void {
@@ -18,6 +36,7 @@ export function registerChatCommands(parent: Command): void {
     .description('Send a message and get AI response (SSE streaming by default)')
     .requiredOption('-m, --message <text>', 'Message text')
     .option('--no-stream', 'Disable streaming, return JSON')
+    .option('--customer-sessions-stdin', '从标准输入读取本次签名客户会话 JSON，不保存到配置')
     .action(async (opts, cmd) => {
       const globals = cmd.parent!.parent!.opts();
       const format = resolveOutput(globals.output);
@@ -27,6 +46,7 @@ export function registerChatCommands(parent: Command): void {
           apiKey: globals.apiKey,
           message: opts.message,
           stream: opts.stream !== false,
+          customerSessions: opts.customerSessionsStdin ? readCustomerSessionsFromStdin() : undefined,
         });
         if (!opts.stream || opts.stream === false) {
           printResult(result, format);
@@ -130,6 +150,7 @@ export async function chatSend(params: {
   apiKey?: string;
   message: string;
   stream?: boolean;
+  customerSessions?: readonly BusinessCustomerSessionInput[];
 }): Promise<unknown> {
   const config = loadConfig();
   const server = params.server || resolveServer();
@@ -139,6 +160,7 @@ export async function chatSend(params: {
   if (!config.platform_open_id) throw new Error('No platform_open_id. Run: tgo-widget init');
 
   const client = new TgoWidgetClient({ server, apiKey });
+  const proof = currentVisitorProof(client, config);
 
   const body: Record<string, unknown> = {
     api_key: apiKey,
@@ -148,42 +170,15 @@ export async function chatSend(params: {
   };
   if (config.channel_id) body.channel_id = config.channel_id;
   if (config.channel_type != null) body.channel_type = config.channel_type;
-
-  if (params.stream === false) {
-    // Non-streaming mode
-    return client.postPublic('/v1/chat/completion', body);
-  }
-
-  // Streaming mode — SSE
-  let accumulated = '';
-  await client.stream('/v1/chat/completion', body, {
-    onMessage: (event, data) => {
-      if (!data || typeof data !== 'object') return;
-      const d = data as Record<string, unknown>;
-      const eventType = (d.event_type as string) || event;
-
-      if (eventType === 'team_run_content') {
-        // SSE structure: { event_type, data: { data: { content } } }
-        const mid = d.data as Record<string, unknown> | undefined;
-        const inner = mid?.data as Record<string, unknown> | undefined;
-        const content = (inner?.content ?? mid?.content ?? '') as string;
-        if (content) {
-          process.stdout.write(content);
-          accumulated += content;
-        }
-      } else if (eventType === 'error') {
-        const mid = d.data as Record<string, unknown> | undefined;
-        const errMsg = mid?.message || d.message || JSON.stringify(data);
-        process.stderr.write(`\nStream error: ${errMsg}\n`);
-      }
-    },
-    onClose: () => {
-      // Add newline after stream
-      if (accumulated) process.stdout.write('\n');
-    },
-  });
-
-  return { content: accumulated, stream: true };
+  const sessions = normalizeCustomerSessions(params.customerSessions || []);
+  if (sessions.length) body.customer_sessions = sessions;
+  const assertIdentity = () => {
+    const current = loadConfig();
+    if (current.platform_open_id !== config.platform_open_id || current.channel_id !== config.channel_id
+      || current.channel_type !== config.channel_type || (params.server ? params.server : resolveServer()) !== server
+      || (params.apiKey ? params.apiKey : resolveApiKey()) !== apiKey) throw new Error('聊天身份已变化，请重新发送。');
+  };
+  return sendBusinessChat(client, body, sessions, assertIdentity, proof);
 }
 
 /**
@@ -271,14 +266,15 @@ export async function chatHistory(params: {
   if (config.channel_type == null) throw new Error('No channel_type. Run: tgo-widget init');
 
   const client = new TgoWidgetClient({ server: params.server || resolveServer(), apiKey });
-  return client.post('/v1/visitors/messages/sync', {
+  const proof = currentVisitorProof(client, config);
+  return client.postVisitor('/v1/visitors/messages/sync', {
     platform_api_key: apiKey,
     channel_id: config.channel_id,
     channel_type: config.channel_type,
     start_message_seq: params.startSeq ?? null,
     limit: params.limit ?? 20,
     pull_mode: 0,
-  });
+  }, proof);
 }
 
 /**
@@ -297,6 +293,8 @@ export async function chatUpload(params: {
 
   const client = new TgoWidgetClient({ server: params.server || resolveServer(), apiKey });
 
+  const proof = currentVisitorProof(client, config);
+  proof.assertCurrent();
   const fileBuffer = readFileSync(params.filePath);
   const fileName = basename(params.filePath);
   const blob = new Blob([fileBuffer]);
@@ -306,7 +304,7 @@ export async function chatUpload(params: {
   formData.append('channel_id', config.channel_id);
   formData.append('channel_type', String(config.channel_type));
 
-  return client.postFormData('/v1/chat/upload', formData);
+  return client.postVisitorFormData('/v1/chat/upload', formData, proof);
 }
 
 // -- Helpers --

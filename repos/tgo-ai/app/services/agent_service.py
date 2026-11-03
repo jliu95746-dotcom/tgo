@@ -7,19 +7,28 @@ from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.exceptions import NotFoundError, ValidationError
+from app.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.agent import Agent, AgentToolAssociation
+from app.models.agent_device_script_binding import AgentDeviceScriptBinding
 from app.models.collection import AgentCollection
 from app.models.tool import Tool
 from app.models.workflow import AgentWorkflow
 from app.schemas.agent import AgentCreate, AgentUpdate
+from app.schemas.agent_activation_requests import ActivationExpectation
+from app.schemas.device_access import (
+    AgentDeviceActionReadiness, AgentDeviceActionStatus,
+)
 from app.services.rag_service import rag_service_client
-from app.services.workflow_service import workflow_service_client
+from app.services.workflow_service import WorkflowIntegrationRelease, workflow_service_client
+from app.services.agent_workflow_enrichment import enrich_agent_workflow_bindings
 from app.services.device_control_client import device_control_client
 from app.services.agent_humanization import validate_humanization_binding
 from app.services.agent_activation import (
     deactivate_account_peers,
     lock_account_agents,
+)
+from app.services.agent_activation_guard import (
+    business_fingerprint, check_live_binding, check_new_employee, require_activation,
 )
 
 
@@ -29,8 +38,50 @@ class AgentService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def device_action_readiness(
+        self, project_id: uuid.UUID, agent_id: uuid.UUID,
+    ) -> AgentDeviceActionReadiness:
+        """Recheck an employee's fixed file action before workflow selection."""
+        agent = await self.get_agent(project_id, agent_id, enrich_resources=False)
+        device_id = agent.bound_device_id
+        if not device_id:
+            return AgentDeviceActionReadiness(
+                agent_id=agent_id, status="not_bound",
+            )
+        try:
+            parsed_device_id = uuid.UUID(device_id)
+        except ValueError:
+            return AgentDeviceActionReadiness(
+                agent_id=agent_id, device_id=device_id,
+                status="invalid_binding",
+            )
+        ready_digest: str | None = None
+        try:
+            policy = await device_control_client.validate_binding(
+                project_id, device_id,
+            )
+        except NotFoundError:
+            status: AgentDeviceActionStatus = "device_missing"
+        except ValidationError:
+            status = "needs_test"
+        else:
+            if policy is None:
+                status = "legacy_unverified"
+            elif (policy.project_id != project_id
+                  or policy.device_id != parsed_device_id
+                  or policy.digest != agent.bound_device_policy_digest):
+                status = "needs_rebind"
+            else:
+                status = "ready"
+                ready_digest = policy.digest
+        return AgentDeviceActionReadiness(
+            agent_id=agent_id, device_id=device_id, status=status,
+            policy_digest=ready_digest,
+        )
+
     async def create_agent(
-        self, project_id: uuid.UUID, agent_data: AgentCreate
+        self, project_id: uuid.UUID, agent_data: AgentCreate, *, commit: bool = True,
+        requested_by: uuid.UUID | None = None,
     ) -> Agent:
         """
         Create a new agent.
@@ -45,22 +96,33 @@ class AgentService:
         Raises:
             ValidationError: If tools not found
         """
+        check_new_employee(agent_data)
         await validate_humanization_binding(
             project_id, agent_data.humanization_skill_name, agent_data.humanization_skill_enabled)
+        device_policy_digest: str | None = None
         if agent_data.bound_device_id is not None:
-            await device_control_client.validate_binding(project_id, agent_data.bound_device_id)
+            read_policy = await device_control_client.validate_binding(
+                project_id, agent_data.bound_device_id
+            )
+            device_policy_digest = read_policy.digest if read_policy else None
 
         # Validate tools if provided
         if agent_data.tools:
             tool_ids = [tool.tool_id for tool in agent_data.tools]
             await self._validate_tools_belong_to_project(tool_ids, project_id)
 
-        await lock_account_agents(self.db, project_id)
-        if agent_data.is_active:
-            await deactivate_account_peers(self.db, project_id)
-        elif agent_data.is_default:
-            await self._clear_project_default_agents(project_id)
+        if len(agent_data.workflows or []) != len(set(agent_data.workflows or [])):
+            raise ValidationError("工作流关联不能重复", "workflows")
+        if not set(agent_data.workflow_release_versions).issubset(
+            set(agent_data.workflows or [])
+        ):
+            raise ValidationError("指定版本的工作流必须已关联员工", "workflow_release_versions")
+        resolved_workflows = await self._validate_workflows_belong_to_project(
+            agent_data.workflows or [], project_id,
+            agent_data.workflow_release_versions,
+        )
 
+        await lock_account_agents(self.db, project_id)
         # Create agent
         agent = Agent(
             project_id=project_id,
@@ -73,8 +135,10 @@ class AgentService:
             is_remote_store_agent=agent_data.is_remote_store_agent,
             remote_agent_url=agent_data.remote_agent_url,
             store_agent_id=agent_data.store_agent_id,
+            agent_category=agent_data.agent_category.value,
             config=agent_data.config,
             bound_device_id=agent_data.bound_device_id,
+            bound_device_policy_digest=device_policy_digest,
             skills_enabled=agent_data.skills_enabled,
             humanization_skill_name=agent_data.humanization_skill_name,
             humanization_skill_enabled=agent_data.humanization_skill_enabled,
@@ -107,14 +171,21 @@ class AgentService:
         # Create workflow bindings
         if agent_data.workflows:
             for workflow_id_str in agent_data.workflows:
+                release = resolved_workflows[workflow_id_str]
                 agent_workflow = AgentWorkflow(
                     agent_id=agent.id,
                     workflow_id=workflow_id_str,
+                    release_version=release.release_version,
+                    release_id=release.release_id,
+                    release_digest=release.definition_digest,
                 )
                 self.db.add(agent_workflow)
 
-        await self.db.commit()
-        await self.db.refresh(agent)
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(agent)
+        else:
+            await self.db.flush()
         return agent
 
     async def get_agent(
@@ -153,7 +224,7 @@ class AgentService:
                 )
             )
         )
-        result = await self.db.execute(stmt)
+        result = await self.db.execute(stmt.execution_options(populate_existing=True))
         agent = result.scalar_one_or_none()
 
         if not agent:
@@ -183,6 +254,7 @@ class AgentService:
         limit: int = 20,
         offset: int = 0,
         *,
+        bound_device_id: uuid.UUID | None = None,
         enrich_resources: bool = True,
     ) -> Tuple[List[Agent], int]:
         """
@@ -206,6 +278,8 @@ class AgentService:
 
         if model is not None:
             conditions.append(Agent.model == model)
+        if bound_device_id is not None:
+            conditions.append(Agent.bound_device_id == str(bound_device_id))
         if is_default is not None:
             # One enabled employee serves the account. Older accounts can
             # still have a paused employee marked as their stored default.
@@ -226,7 +300,7 @@ class AgentService:
         # Get total count
         count_stmt = select(func.count(Agent.id)).where(and_(*conditions))
         count_result = await self.db.execute(count_stmt)
-        total_count = count_result.scalar()
+        total_count = int(count_result.scalar_one())
 
         # Get agents
         stmt = (
@@ -261,7 +335,10 @@ class AgentService:
         return enriched_agents, total_count
 
     async def update_agent(
-        self, project_id: uuid.UUID, agent_id: uuid.UUID, agent_data: AgentUpdate
+        self, project_id: uuid.UUID, agent_id: uuid.UUID, agent_data: AgentUpdate,
+        *, commit: bool = True, enrich_resources: bool = True,
+        requested_by: uuid.UUID | None = None,
+        expected_activation: "ActivationExpectation | None" = None,
     ) -> Agent:
         """
         Update an agent.
@@ -277,10 +354,30 @@ class AgentService:
         Raises:
             NotFoundError: If agent not found
         """
+        # A savepoint also protects callers that own the enclosing transaction.
+        async with self.db.begin_nested():
+            agent = await self._update_agent(
+                project_id, agent_id, agent_data, requested_by=requested_by,
+                enrich_resources=enrich_resources,
+                expected_activation=expected_activation,
+            )
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(agent)
+        return agent
+
+    async def _update_agent(
+        self, project_id: uuid.UUID, agent_id: uuid.UUID, agent_data: AgentUpdate,
+        *, requested_by: uuid.UUID | None, enrich_resources: bool,
+        expected_activation: "ActivationExpectation | None" = None,
+    ) -> Agent:
+        if agent_data.is_active is False and agent_data.is_default is True:
+            raise ValidationError("不能同时停用员工并将其切换为默认接待员工")
         await lock_account_agents(self.db, project_id)
         # Get existing agent
-        agent = await self.get_agent(project_id, agent_id)
-
+        agent = await self.get_agent(project_id, agent_id) if enrich_resources else await self.get_agent(
+            project_id, agent_id, enrich_resources=False,
+        )
         if {"humanization_skill_name", "humanization_skill_enabled"} & agent_data.model_fields_set:
             await validate_humanization_binding(
                 project_id,
@@ -290,8 +387,30 @@ class AgentService:
                 else agent.humanization_skill_enabled,
             )
 
-        if agent_data.bound_device_id is not None:
-            await device_control_client.validate_binding(project_id, agent_data.bound_device_id)
+        device_policy_digest: str | None = None
+        if "bound_device_id" in agent_data.model_fields_set:
+            if agent_data.bound_device_id is not None:
+                script = await self.db.scalar(
+                    select(AgentDeviceScriptBinding.id).where(
+                        AgentDeviceScriptBinding.project_id == project_id,
+                        AgentDeviceScriptBinding.agent_id == agent_id,
+                        AgentDeviceScriptBinding.enabled.is_(True),
+                        AgentDeviceScriptBinding.deleted_at.is_(None),
+                    ).limit(1)
+                )
+                if script is not None:
+                    raise ConflictError("请先解除员工脚本绑定，再配置设备读取")
+                read_policy = await device_control_client.validate_binding(
+                    project_id, agent_data.bound_device_id
+                )
+                device_policy_digest = read_policy.digest if read_policy else None
+                if (
+                    agent.bound_device_id == agent_data.bound_device_id
+                    and agent.bound_device_policy_digest != device_policy_digest
+                ):
+                    raise ConflictError(
+                        "设备策略已变化，请先解除原设备绑定并重新选择设备"
+                    )
 
         # Validate collections if provided
         if agent_data.collections is not None:
@@ -299,10 +418,44 @@ class AgentService:
                 agent_data.collections, project_id
             )
 
-        # Validate workflows if provided
-        if agent_data.workflows is not None:
-            await self._validate_workflows_belong_to_project(
-                agent_data.workflows, project_id
+        # Preserve existing pins when the editor resends unchanged workflow IDs.
+        existing_workflows = {
+            binding.workflow_id: binding
+            for binding in agent.workflows if binding.deleted_at is None
+        }
+        wanted_workflow_ids = (
+            agent_data.workflows if agent_data.workflows is not None
+            else list(existing_workflows)
+        )
+        if len(wanted_workflow_ids) != len(set(wanted_workflow_ids)):
+            raise ValidationError("工作流关联不能重复", "workflows")
+        if not set(agent_data.workflow_release_versions).issubset(
+            set(wanted_workflow_ids)
+        ):
+            raise ValidationError("指定版本的工作流必须已关联员工", "workflow_release_versions")
+        ids_to_resolve = (
+            wanted_workflow_ids if agent_data.refresh_workflow_releases
+            else [
+                item for item in wanted_workflow_ids
+                if item not in existing_workflows
+                or item in agent_data.workflow_release_versions
+            ]
+        )
+        for workflow_id in ids_to_resolve:
+            existing_binding = existing_workflows.get(workflow_id)
+            if existing_binding is not None and not all((
+                existing_binding.release_version,
+                existing_binding.release_id,
+                existing_binding.release_digest,
+            )):
+                raise ConflictError("旧关联请先停用，再通过工作流版本切换入口固定发布版本")
+        resolved_workflows: Dict[str, WorkflowIntegrationRelease] = {}
+        if ids_to_resolve:
+            resolved_workflows = await self._validate_workflows_belong_to_project(
+                ids_to_resolve, project_id,
+                {item: agent_data.workflow_release_versions[item]
+                 for item in ids_to_resolve
+                 if item in agent_data.workflow_release_versions},
             )
 
         # Validate tools if provided
@@ -310,21 +463,19 @@ class AgentService:
             tool_ids = [tool.tool_id for tool in agent_data.tools]
             await self._validate_tools_belong_to_project(tool_ids, project_id)
 
+        before = await business_fingerprint(self.db, agent)
+        wanted_active = agent_data.is_active if agent_data.is_active is not None else agent.is_active
+        if agent_data.is_default is True:
+            wanted_active = True
+
         # Update basic fields
         update_data = agent_data.model_dump(
-            exclude_unset=True, exclude={"tools", "collections", "workflows"}
+            exclude_unset=True, exclude={"tools", "collections", "workflows", "workflow_release_versions", "is_active", "is_default", "refresh_workflow_releases"}
         )
-        # Retire peers before mutating this agent: ORM autoflush must never
-        # expose two active employees to the account's unique index.
-        if agent_data.is_active is True:
-            await deactivate_account_peers(self.db, project_id, agent.id)
-            update_data["is_default"] = True
-        elif agent_data.is_default is True:
-            await self._clear_project_default_agents(
-                project_id, exclude_agent_id=agent.id,
-            )
         for field, value in update_data.items():
             setattr(agent, field, value)
+        if "bound_device_id" in agent_data.model_fields_set:
+            agent.bound_device_policy_digest = device_policy_digest
 
         # Update tools if provided
         if agent_data.tools is not None:
@@ -368,21 +519,52 @@ class AgentService:
                 self.db.add(agent_collection)
 
         # Update workflows if provided
-        if agent_data.workflows is not None:
-            # Remove existing workflow associations
-            for agent_workflow in agent.workflows:
-                await self.db.delete(agent_workflow)
+        if (agent_data.workflows is not None
+                or agent_data.refresh_workflow_releases
+                or agent_data.workflow_release_versions):
+            for workflow_id, binding in existing_workflows.items():
+                if workflow_id not in wanted_workflow_ids:
+                    await self.db.delete(binding)
+            for workflow_id in wanted_workflow_ids:
+                release = resolved_workflows.get(workflow_id)
+                existing_binding = existing_workflows.get(workflow_id)
+                if existing_binding is None:
+                    if release is None:
+                        raise ValidationError("新增工作流缺少发布版本", "workflows")
+                    self.db.add(AgentWorkflow(
+                        agent_id=agent.id,
+                        workflow_id=workflow_id,
+                        release_version=release.release_version,
+                        release_id=release.release_id,
+                        release_digest=release.definition_digest,
+                    ))
+                elif release is not None:
+                    existing_binding.release_version = release.release_version
+                    existing_binding.release_id = release.release_id
+                    existing_binding.release_digest = release.definition_digest
 
-            # Add new workflow associations
-            for workflow_id_str in agent_data.workflows:
-                agent_workflow = AgentWorkflow(
-                    agent_id=agent.id,
-                    workflow_id=workflow_id_str,
-                )
-                self.db.add(agent_workflow)
-
-        await self.db.commit()
-        await self.db.refresh(agent)
+        await self.db.flush()
+        # Load replacement associations before comparing the candidate.
+        agent = await self.get_agent(project_id, agent_id) if enrich_resources else await self.get_agent(
+            project_id, agent_id, enrich_resources=False,
+        )
+        changed = before != await business_fingerprint(self.db, agent)
+        requires_check = wanted_active and (
+            agent_data.is_active is True or agent_data.is_default is True or changed
+        )
+        if requires_check:
+            if expected_activation is None:
+                await require_activation(self.db, project_id, requested_by, agent_id)
+            else:
+                await require_activation(self.db, project_id, requested_by, agent_id, expected=expected_activation)
+            # Flush candidate business changes while keeping old activation,
+            # then retire peers before this row reaches the unique index.
+            await deactivate_account_peers(self.db, project_id, agent.id)
+            agent.is_default = True
+        elif agent_data.is_default is not None:
+            agent.is_default = agent_data.is_default
+        agent.is_active = wanted_active
+        await self.db.flush()
         return agent
 
     async def get_default_agent(
@@ -430,6 +612,7 @@ class AgentService:
         enabled: bool,
     ) -> None:
         """Enable or disable a specific tool binding for an agent."""
+        await lock_account_agents(self.db, project_id)
         # Verify agent belongs to project
         stmt_agent = select(Agent).where(
             and_(
@@ -438,7 +621,7 @@ class AgentService:
                 Agent.deleted_at.is_(None),
             )
         )
-        res = await self.db.execute(stmt_agent)
+        res = await self.db.execute(stmt_agent.execution_options(populate_existing=True))
         agent = res.scalar_one_or_none()
         if not agent:
             raise NotFoundError("Agent", agent_id)
@@ -451,13 +634,14 @@ class AgentService:
                 AgentToolAssociation.deleted_at.is_(None),
             )
         )
-        res_tool = await self.db.execute(stmt_tool)
+        res_tool = await self.db.execute(stmt_tool.execution_options(populate_existing=True))
         binding = res_tool.scalar_one_or_none()
         if not binding:
             raise NotFoundError(
                 "AgentToolAssociation", details={"tool_id": str(tool_id)}
             )
 
+        check_live_binding(agent, binding.enabled, enabled)
         binding.enabled = enabled
         await self.db.commit()
 
@@ -469,6 +653,7 @@ class AgentService:
         enabled: bool,
     ) -> None:
         """Enable or disable a specific collection binding for an agent."""
+        await lock_account_agents(self.db, project_id)
         # Verify agent belongs to project
         stmt_agent = select(Agent).where(
             and_(
@@ -477,7 +662,7 @@ class AgentService:
                 Agent.deleted_at.is_(None),
             )
         )
-        res = await self.db.execute(stmt_agent)
+        res = await self.db.execute(stmt_agent.execution_options(populate_existing=True))
         agent = res.scalar_one_or_none()
         if not agent:
             raise NotFoundError("Agent", agent_id)
@@ -490,13 +675,14 @@ class AgentService:
                 AgentCollection.deleted_at.is_(None),
             )
         )
-        res_col = await self.db.execute(stmt_col)
+        res_col = await self.db.execute(stmt_col.execution_options(populate_existing=True))
         binding = res_col.scalar_one_or_none()
         if not binding:
             raise NotFoundError(
                 "AgentCollection", details={"collection_id": collection_id}
             )
 
+        check_live_binding(agent, binding.enabled, enabled)
         binding.enabled = enabled
         await self.db.commit()
 
@@ -508,6 +694,7 @@ class AgentService:
         enabled: bool,
     ) -> None:
         """Enable or disable a specific workflow binding for an agent."""
+        await lock_account_agents(self.db, project_id)
         # Verify agent belongs to project
         stmt_agent = select(Agent).where(
             and_(
@@ -516,7 +703,7 @@ class AgentService:
                 Agent.deleted_at.is_(None),
             )
         )
-        res = await self.db.execute(stmt_agent)
+        res = await self.db.execute(stmt_agent.execution_options(populate_existing=True))
         agent = res.scalar_one_or_none()
         if not agent:
             raise NotFoundError("Agent", agent_id)
@@ -526,13 +713,18 @@ class AgentService:
             and_(
                 AgentWorkflow.agent_id == agent_id,
                 AgentWorkflow.workflow_id == workflow_id,
+                AgentWorkflow.deleted_at.is_(None),
             )
         )
-        res_wf = await self.db.execute(stmt_wf)
+        res_wf = await self.db.execute(stmt_wf.execution_options(populate_existing=True))
         binding = res_wf.scalar_one_or_none()
         if not binding:
             raise NotFoundError("AgentWorkflow", details={"workflow_id": workflow_id})
 
+        check_live_binding(agent, binding.enabled, enabled)
+        if enabled and not all((binding.release_version, binding.release_id,
+                                binding.release_digest)):
+            raise ConflictError("工作流关联缺少固定发布版本，请先完成旧关联切换")
         binding.enabled = enabled
         await self.db.commit()
 
@@ -575,12 +767,12 @@ class AgentService:
         self,
         project_id: uuid.UUID,
         new_default_agent_id: uuid.UUID,
+        *, requested_by: uuid.UUID | None = None,
     ) -> None:
-        """Clear any other default agent before setting the requested default."""
-
-        await self._clear_project_default_agents(
-            project_id,
-            exclude_agent_id=new_default_agent_id,
+        """Keep legacy internal default switching behind the same activation gate."""
+        await self.update_agent(
+            project_id, new_default_agent_id, AgentUpdate(is_default=True),
+            requested_by=requested_by, enrich_resources=False,
         )
 
     async def _clear_project_default_agents(
@@ -626,8 +818,9 @@ class AgentService:
         )
 
     async def _validate_workflows_belong_to_project(
-        self, workflow_ids: List[str], project_id: uuid.UUID
-    ) -> None:
+        self, workflow_ids: List[str], project_id: uuid.UUID,
+        release_versions: Optional[Dict[str, int]] = None,
+    ) -> Dict[str, WorkflowIntegrationRelease]:
         """
         Validate that all workflows exist in the Workflow service for the project.
 
@@ -640,12 +833,15 @@ class AgentService:
             ValidationError: If validation fails
         """
         if not workflow_ids:
-            return
+            return {}
 
         # Validate workflows exist in Workflow service
-        await workflow_service_client.validate_workflows_exist(
-            workflow_ids,
-            str(project_id),
+        if release_versions:
+            return await workflow_service_client.resolve_published_bindings(
+                workflow_ids, str(project_id), release_versions,
+            )
+        return await workflow_service_client.resolve_published_bindings(
+            workflow_ids, str(project_id),
         )
 
     async def _validate_tools_belong_to_project(
@@ -767,63 +963,8 @@ class AgentService:
     async def enrich_agents_with_workflow_data(
         self, agents: List[Agent], project_id: uuid.UUID
     ) -> List[Agent]:
-        """
-        Enrich agents with workflow data from the Workflow service.
-
-        Args:
-            agents: List of agents to enrich
-            project_id: Project ID for Workflow service authentication
-
-        Returns:
-            List of agents with workflow data attached
-        """
-        if not agents:
-            return agents
-
-        # Collect all unique workflow IDs from all agents
-        all_workflow_ids = set()
-        for agent in agents:
-            for aw in agent.workflows or []:
-                all_workflow_ids.add(aw.workflow_id)
-
-        if not all_workflow_ids:
-            # No workflows to fetch
-            for agent in agents:
-                agent._workflow_data = []
-            return agents
-
-        # Fetch workflow data from Workflow service
-        try:
-            workflows = await workflow_service_client.get_workflows_batch(
-                list(all_workflow_ids),
-                str(project_id),
-            )
-
-            # Create a mapping of workflow_id -> workflow_data
-            workflow_data_map = {str(workflow.id): workflow for workflow in workflows}
-
-            # Attach workflow data (with enabled from binding) to each agent
-            for agent in agents:
-                agent_workflow_data = []
-                for aw in agent.workflows or []:
-                    wid = str(aw.workflow_id)
-                    if wid in workflow_data_map:
-                        wf = workflow_data_map[wid]
-                        try:
-                            wf_with_enabled = wf.model_copy(
-                                update={"enabled": bool(getattr(aw, "enabled", True))}
-                            )
-                        except Exception:
-                            wf_with_enabled = wf
-                        agent_workflow_data.append(wf_with_enabled)
-                agent._workflow_data = agent_workflow_data
-
-        except Exception:
-            # If Workflow service fails, return agents without workflow data
-            for agent in agents:
-                agent._workflow_data = []
-
-        return agents
+        """Preserve local bindings even if their remote details cannot be loaded."""
+        return await enrich_agent_workflow_bindings(agents, project_id)
 
     async def enrich_agents_with_tool_details(
         self, agents: List[Agent], project_id: uuid.UUID

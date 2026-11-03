@@ -52,7 +52,7 @@ async def get_wukongim_route(
             detail="uid parameter is required and cannot be empty"
         )
     
-    if settings.SAAS_ENABLED:
+    if settings.SAAS_ENABLED or uid.endswith("-vtr"):
         public_url, _ = gateway_urls()
         return WuKongIMRouteResponse(
             tcp_addr="", ws_addr=public_url,

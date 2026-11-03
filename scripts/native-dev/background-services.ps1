@@ -8,14 +8,24 @@ function Get-NativeBackgroundServices {
                 '-Q', 'document_processing,embedding,website_crawling,qa_processing,celery')
             Ports = @(); HealthUrl = $null
             WorkerNode = 'worker@tgo-rag-native'
+            ProcessOnly = $false
             ConflictingWorkerNodes = @('worker@tgo-rag-worker')
         },
         [pscustomobject]@{
             Name = 'tgo-workflow-worker'; Environment = 'workflow'; Directory = 'repos\tgo-workflow'
             Arguments = @('-m', 'celery', '-A', 'celery_app.celery', 'worker',
-                '--pool=solo', '--loglevel=info', '--hostname=worker@tgo-workflow-native', '-Q', 'workflow')
+                '--pool=solo', '--loglevel=info', '--hostname=worker@tgo-workflow-native')
             Ports = @(); HealthUrl = $null
             WorkerNode = 'worker@tgo-workflow-native'
+            ProcessOnly = $false
+            ConflictingWorkerNodes = @()
+        },
+        [pscustomobject]@{
+            Name = 'tgo-workflow-beat'; Environment = 'workflow'; Directory = 'repos\tgo-workflow'
+            Arguments = @('-m', 'celery', '-A', 'celery_app.celery', 'beat', '--loglevel=info',
+                '--schedule', (Join-Path $script:RuntimeDir 'workflow-celerybeat-schedule'))
+            Ports = @(); HealthUrl = $null
+            WorkerNode = $null; ProcessOnly = $true
             ConflictingWorkerNodes = @()
         },
         [pscustomobject]@{
@@ -23,6 +33,7 @@ function Get-NativeBackgroundServices {
             Arguments = @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8090')
             Ports = @(8090, $pluginTcpPort); HealthUrl = 'http://127.0.0.1:8090/health'
             WorkerNode = $null
+            ProcessOnly = $false
             ConflictingWorkerNodes = @()
         }
     )
@@ -67,6 +78,9 @@ function Wait-NativeBackgroundReady {
         }
         if ($Definition.WorkerNode) {
             if (Test-NativeWorkerReady -Python $Python -Node $Definition.WorkerNode) { return }
+        } elseif ($Definition.ProcessOnly) {
+            Start-Sleep -Milliseconds 500
+            if (Test-NativeProcessIdentity -Entry $Entry) { return }
         } else {
             try {
                 $response = Invoke-WebRequest -Uri $Definition.HealthUrl -UseBasicParsing -TimeoutSec 3
@@ -82,8 +96,8 @@ function Wait-NativeBackgroundReady {
 function Start-NativeBackgroundServices {
     param(
         [switch]$SkipRagWorker, [switch]$SkipMigrations,
-        [ValidateSet('tgo-rag-worker', 'tgo-workflow-worker', 'tgo-plugin-runtime')]
-        [string[]]$ServiceNames = @('tgo-rag-worker', 'tgo-workflow-worker', 'tgo-plugin-runtime')
+        [ValidateSet('tgo-rag-worker', 'tgo-workflow-worker', 'tgo-workflow-beat', 'tgo-plugin-runtime')]
+        [string[]]$ServiceNames = @('tgo-rag-worker', 'tgo-workflow-worker', 'tgo-workflow-beat', 'tgo-plugin-runtime')
     )
 
     $definitions = @(Get-NativeBackgroundServices | Where-Object {

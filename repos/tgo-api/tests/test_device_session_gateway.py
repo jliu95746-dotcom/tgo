@@ -11,8 +11,54 @@ from jose import jwt
 
 from app.api.v1.endpoints import device_control
 from app.core.config import settings
-from app.core.exceptions import TGOAPIException, tgo_api_exception_handler
+from app.core.exceptions import ExternalServiceError, TGOAPIException, tgo_api_exception_handler
 from app.core.security import get_current_active_user
+from app.schemas.device_session import DeviceSessionList
+
+
+@pytest.mark.asyncio
+async def test_workflow_run_device_filter_uses_signed_in_project(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    project, parent = uuid4(), uuid4()
+    read = AsyncMock(return_value={"sessions": [], "total": 0})
+    monkeypatch.setattr(device_control.device_control_client, "list_sessions", read)
+    app = FastAPI()
+    app.include_router(device_control.router, prefix="/v1/device-control")
+    app.dependency_overrides[get_current_active_user] = lambda: SimpleNamespace(project_id=project)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as staff:
+        result = await staff.get("/v1/device-control/sessions", params={
+            "workflow_execution_id": str(parent), "project_id": str(uuid4()),
+        })
+    assert result.status_code == 200
+    read.assert_awaited_once_with(
+        str(project), device_id=None, workflow_execution_id=parent, skip=0, limit=20,
+    )
+
+
+@pytest.mark.asyncio
+async def test_gateway_rejects_wrong_parent_workflow_in_upstream_rows(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    project, requested_parent = uuid4(), uuid4()
+    summary = {
+        "id": uuid4(), "device_id": uuid4(), "device_name": "测试设备",
+        "agent_id": uuid4(), "agent_name": "测试员工",
+        "workflow_execution_id": uuid4(), "status": "completed",
+        "started_at": datetime.now(timezone.utc), "ended_at": None,
+        "lease_expires_at": None, "actions_count": 1,
+        "failed_actions_count": 0, "screenshots_count": 0,
+    }
+    read = AsyncMock(return_value=DeviceSessionList.model_validate({
+        "sessions": [summary], "total": 1,
+    }))
+    monkeypatch.setattr(device_control.device_control_client, "_read_session_metadata", read)
+    with pytest.raises(ExternalServiceError):
+        await device_control.device_control_client.list_sessions(
+            str(project), workflow_execution_id=requested_parent,
+        )
+    assert read.await_args.args[0] == "/v1/sessions"
+    assert read.await_args.args[2]["workflow_execution_id"] == str(requested_parent)
 
 
 @pytest.mark.asyncio

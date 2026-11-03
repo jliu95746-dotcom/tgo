@@ -1,16 +1,24 @@
 """Workflow service proxy endpoints."""
 
-from typing import List, Optional, Union
+import hmac
+from typing import List, Literal, Optional, Union
+from collections.abc import AsyncGenerator
+from uuid import UUID
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
 from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_admin
+from app.core.database import get_db
 from app.models import Staff
 from app.schemas.ai_workflows import (
     PaginatedWorkflowSummaryResponse,
     WorkflowCreate,
+    WorkflowCustomerMessageLookup,
+    WorkflowChannelMessageLookup,
     WorkflowDuplicateRequest,
     WorkflowExecuteRequest,
     WorkflowExecution,
@@ -23,8 +31,280 @@ from app.schemas.ai_workflows import (
     WorkflowVariablesResponse,
 )
 from app.services.workflow_client import workflow_client
+from app.services.aftersales_review_files import (
+    list_review_files, require_customer_read, require_intake_evidence_files,
+    review_chat_target,
+)
+from app.services.aftersales_review_handoff import (
+    get_aftersales_handoff, request_aftersales_handoff,
+)
+from app.services.workflow_approval_assignee import require_approval_assignees
+from app.services.workflow_trace import (
+    find_business_request_for_message,
+    find_ai_request_for_channel_message,
+    page_workflow_records_for_ai_request,
+    page_workflow_records_for_ai_request_after,
+)
+from app.services.workflow_stream import prepare_workflow_stream
+from app.schemas.workflow_capabilities import WorkflowCapabilities
+from app.schemas.workflow_device_references import WorkflowDeviceReferences
+from app.schemas.business_query_audit import BusinessQueryAuditList
+from app.services.business_query_audit_client import read_business_query_audits
+from app.schemas.workflow_releases import WorkflowPublishRequest, WorkflowReleaseSummary, WorkflowRollbackRequest
+from app.schemas.workflow_approval import (
+    WorkflowApprovalDecision, WorkflowApprovalDecisionResult,
+    WorkflowApprovalSummary, WorkflowAfterSalesReviewSummary,
+    WorkflowAfterSalesReviewDecision,
+    WorkflowAfterSalesEvidenceFile,
+    WorkflowAfterSalesChatTarget,
+    WorkflowAfterSalesIntakeCreate, WorkflowAfterSalesIntakeSummary,
+    WorkflowAfterSalesHandoffSummary,
+)
 
 router = APIRouter()
+
+
+@router.get("/aftersales-reviews", response_model=list[WorkflowAfterSalesReviewSummary])
+async def list_my_aftersales_reviews(
+    response: Response,
+    limit: int = Query(100, ge=1, le=100),
+    before_status: Literal["pending_staff_review", "reviewed"] | None = Query(None),
+    before_created_at: datetime | None = Query(None),
+    before_id: UUID | None = Query(None),
+    current_user: Staff = Depends(get_current_active_user),
+) -> list[WorkflowAfterSalesReviewSummary]:
+    response.headers["Cache-Control"] = "no-store"
+    if any(value is not None for value in (before_status, before_created_at, before_id)) and not all(
+        value is not None for value in (before_status, before_created_at, before_id)
+    ):
+        raise HTTPException(400, "售后待办分页位置不完整")
+    return await workflow_client.list_aftersales_reviews(
+        str(current_user.project_id), str(current_user.id),
+        limit=limit, before_status=before_status,
+        before_created_at=before_created_at.isoformat() if before_created_at else None,
+        before_id=str(before_id) if before_id else None,
+    )
+
+
+@router.get(
+    "/aftersales-reviews/{review_id}/files",
+    response_model=list[WorkflowAfterSalesEvidenceFile],
+)
+async def list_my_aftersales_review_files(
+    review_id: UUID,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_active_user),
+) -> list[WorkflowAfterSalesEvidenceFile]:
+    response.headers["Cache-Control"] = "no-store"
+    review = await workflow_client.get_aftersales_review(
+        str(current_user.project_id), str(current_user.id), str(review_id),
+    )
+    return await list_review_files(db, current_user, review.visitor_session_id)
+
+
+@router.get(
+    "/aftersales-reviews/{review_id}/chat-target",
+    response_model=WorkflowAfterSalesChatTarget,
+    response_model_exclude_none=True,
+)
+async def get_my_aftersales_chat_target(
+    review_id: UUID,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_active_user),
+) -> WorkflowAfterSalesChatTarget:
+    response.headers["Cache-Control"] = "no-store"
+    review = await workflow_client.get_aftersales_review(
+        str(current_user.project_id), str(current_user.id), str(review_id),
+    )
+    return await review_chat_target(
+        db, current_user, review.visitor_session_id,
+        execution_id=review.execution_id,
+    )
+
+
+@router.get(
+    "/aftersales-reviews/{review_id}/intake",
+    response_model=WorkflowAfterSalesIntakeSummary | None,
+)
+async def get_my_aftersales_intake(
+    review_id: UUID,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_active_user),
+) -> WorkflowAfterSalesIntakeSummary | None:
+    response.headers["Cache-Control"] = "no-store"
+    require_customer_read(db, current_user)
+    return await workflow_client.get_aftersales_intake(
+        str(current_user.project_id), str(current_user.id), str(review_id),
+    )
+
+
+@router.post(
+    "/aftersales-reviews/{review_id}/intake",
+    response_model=WorkflowAfterSalesIntakeSummary,
+)
+async def prepare_my_aftersales_intake(
+    review_id: UUID,
+    request: WorkflowAfterSalesIntakeCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_active_user),
+) -> WorkflowAfterSalesIntakeSummary:
+    response.headers["Cache-Control"] = "no-store"
+    require_customer_read(db, current_user)
+    review = await workflow_client.get_aftersales_review(
+        str(current_user.project_id), str(current_user.id), str(review_id),
+    )
+    if (
+        review.status != "reviewed" or review.review_result != "needs_manual_service"
+        or review.reviewed_by != current_user.id
+        or not hmac.compare_digest(review.review_digest, request.review_digest)
+    ):
+        raise HTTPException(409, "售后核对内容已变化，请刷新后重新填写。")
+    existing = await workflow_client.get_aftersales_intake(
+        str(current_user.project_id), str(current_user.id), str(review_id),
+    )
+    if existing is not None:
+        if (
+            existing.order_reference == request.order_reference
+            and existing.sku == request.sku
+            and existing.request_reason == request.request_reason
+            and existing.policy_reference == request.policy_reference
+            and sorted(existing.evidence_file_ids) == sorted(request.evidence_file_ids)
+        ):
+            return existing
+        raise HTTPException(409, "内部售后登记已保存其他内容，不能覆盖。")
+    await require_intake_evidence_files(
+        db, current_user, review.visitor_session_id, request.evidence_file_ids,
+    )
+    return await workflow_client.prepare_aftersales_intake(
+        str(current_user.project_id), str(current_user.id), str(review_id), request,
+    )
+
+
+@router.get(
+    "/aftersales-reviews/{review_id}/handoff",
+    response_model=WorkflowAfterSalesHandoffSummary | None,
+)
+async def get_my_aftersales_handoff(
+    review_id: UUID,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_active_user),
+) -> WorkflowAfterSalesHandoffSummary | None:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_aftersales_handoff(db, current_user, review_id)
+
+
+@router.post(
+    "/aftersales-reviews/{review_id}/handoff",
+    response_model=WorkflowAfterSalesHandoffSummary,
+)
+async def request_my_aftersales_handoff(
+    review_id: UUID,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_active_user),
+) -> WorkflowAfterSalesHandoffSummary:
+    response.headers["Cache-Control"] = "no-store"
+    return await request_aftersales_handoff(db, current_user, review_id)
+
+
+@router.post(
+    "/aftersales-reviews/{review_id}/decision",
+    response_model=WorkflowAfterSalesReviewSummary,
+)
+async def decide_my_aftersales_review(
+    review_id: UUID,
+    decision: WorkflowAfterSalesReviewDecision,
+    response: Response,
+    current_user: Staff = Depends(get_current_active_user),
+) -> WorkflowAfterSalesReviewSummary:
+    response.headers["Cache-Control"] = "no-store"
+    return await workflow_client.decide_aftersales_review(
+        str(current_user.project_id), str(current_user.id),
+        str(review_id), decision,
+    )
+
+
+@router.get("/approvals", response_model=list[WorkflowApprovalSummary])
+async def list_my_workflow_approvals(
+    current_user: Staff = Depends(get_current_active_user),
+) -> list[WorkflowApprovalSummary]:
+    return await workflow_client.list_approvals(
+        str(current_user.project_id), str(current_user.id),
+    )
+
+
+@router.get(
+    "/approvals/{approval_id}/chat-target",
+    response_model=WorkflowAfterSalesChatTarget,
+    response_model_exclude_none=True,
+)
+async def get_my_approval_chat_target(
+    approval_id: UUID,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_active_user),
+) -> WorkflowAfterSalesChatTarget:
+    response.headers["Cache-Control"] = "no-store"
+    origin = await workflow_client.get_approval_customer_session(
+        str(current_user.project_id), str(current_user.id), str(approval_id),
+    )
+    return await review_chat_target(
+        db, current_user, origin.visitor_session_id,
+        source_message_id=origin.source_message_id,
+        source_channel=origin.source_channel,
+    )
+
+
+@router.post(
+    "/approvals/{approval_id}/decision",
+    response_model=WorkflowApprovalDecisionResult,
+)
+async def decide_my_workflow_approval(
+    approval_id: UUID,
+    request: WorkflowApprovalDecision,
+    current_user: Staff = Depends(get_current_active_user),
+) -> WorkflowApprovalDecisionResult:
+    return await workflow_client.decide_approval(
+        str(current_user.project_id), str(current_user.id),
+        str(approval_id), request.decision, request.preview_digest,
+    )
+
+
+@router.get("/capabilities", response_model=WorkflowCapabilities)
+async def get_workflow_capabilities(
+    current_user: Staff = Depends(get_current_active_user),
+) -> WorkflowCapabilities:
+    return await workflow_client.get_capabilities(str(current_user.project_id))
+
+
+@router.get("/device-references", response_model=WorkflowDeviceReferences)
+async def list_device_workflow_references(
+    device_id: UUID = Query(...),
+    limit: int = Query(5, ge=1, le=20),
+    offset: int = Query(0, ge=0),
+    current_user: Staff = Depends(get_current_active_user),
+) -> WorkflowDeviceReferences:
+    return await workflow_client.list_device_references(
+        str(current_user.project_id), str(device_id), limit=limit, offset=offset,
+    )
+
+
+@router.get(
+    "/business-queries/{query_id}/audits",
+    response_model=BusinessQueryAuditList,
+)
+async def get_workflow_business_query_audits(
+    query_id: UUID,
+    response: Response,
+    current_user: Staff = Depends(require_admin()),
+) -> BusinessQueryAuditList:
+    response.headers["Cache-Control"] = "no-store"
+    return await read_business_query_audits(current_user.project_id, query_id)
 
 
 @router.get(
@@ -67,8 +347,10 @@ async def list_workflows(
 async def create_workflow(
     workflow_data: WorkflowCreate,
     current_user: Staff = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
 ) -> WorkflowInDB:
     """Create workflow in Workflow service."""
+    require_approval_assignees(workflow_data.nodes, db, current_user.project_id)
     data = await workflow_client.create_workflow(
         str(current_user.project_id), workflow_data.model_dump(by_alias=True)
     )
@@ -100,8 +382,11 @@ async def update_workflow(
     workflow_id: str,
     workflow_data: WorkflowUpdate,
     current_user: Staff = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
 ) -> WorkflowInDB:
     """Update workflow in Workflow service."""
+    if workflow_data.nodes is not None:
+        require_approval_assignees(workflow_data.nodes, db, current_user.project_id)
     data = await workflow_client.update_workflow(
         workflow_id,
         str(current_user.project_id),
@@ -183,10 +468,30 @@ async def validate_workflow(
 )
 async def publish_workflow(
     workflow_id: str,
-    current_user: Staff = Depends(get_current_active_user),
+    request: WorkflowPublishRequest,
+    current_user: Staff = Depends(require_admin()),
+    db: Session = Depends(get_db),
 ) -> WorkflowInDB:
     """Publish a workflow in Workflow service."""
-    data = await workflow_client.publish_workflow(workflow_id, str(current_user.project_id))
+    draft = WorkflowInDB.model_validate(await workflow_client.get_workflow(
+        workflow_id, str(current_user.project_id),
+    ))
+    if (draft.version == request.expected_draft_version
+            and draft.publication_revision == request.expected_publication_revision):
+        require_approval_assignees(draft.definition.nodes, db, current_user.project_id)
+    data = await workflow_client.publish_workflow(workflow_id, str(current_user.project_id), request, str(current_user.id))
+    return WorkflowInDB.model_validate(data)
+
+
+@router.get("/{workflow_id}/releases", response_model=list[WorkflowReleaseSummary])
+async def get_workflow_releases(workflow_id: str, current_user: Staff = Depends(get_current_active_user)) -> list[WorkflowReleaseSummary]:
+    rows = await workflow_client.workflow_releases(workflow_id, str(current_user.project_id))
+    return [WorkflowReleaseSummary.model_validate(row) for row in rows]
+
+
+@router.post("/{workflow_id}/rollback", response_model=WorkflowInDB)
+async def rollback_workflow(workflow_id: str, request: WorkflowRollbackRequest, current_user: Staff = Depends(require_admin())) -> WorkflowInDB:
+    data = await workflow_client.rollback_workflow(workflow_id, str(current_user.project_id), request)
     return WorkflowInDB.model_validate(data)
 
 
@@ -301,7 +606,10 @@ async def execute_workflow(
     )
 
     if request.stream:
-        return StreamingResponse(res, media_type="text/event-stream")
+        if not isinstance(res, AsyncGenerator):
+            raise HTTPException(502, "工作流服务未返回有效数据流，请重试。")
+        ready_stream = await prepare_workflow_stream(res)
+        return StreamingResponse(ready_stream, media_type="text/event-stream")
 
     # Determine if it's sync or async response
     if request.async_mode:
@@ -334,12 +642,145 @@ async def list_workflow_executions(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current_user: Staff = Depends(get_current_active_user),
+    before_started_at: str | None = None,
+    before_id: str | None = None,
 ) -> List[WorkflowExecution]:
     """List workflow executions from Workflow service."""
     data = await workflow_client.list_workflow_executions(
-        workflow_id, str(current_user.project_id), skip=skip, limit=limit
+        workflow_id, str(current_user.project_id), skip=skip, limit=limit,
+        before_started_at=before_started_at, before_id=before_id,
     )
     return [WorkflowExecution.model_validate(item) for item in data]
+
+
+@router.get(
+    "/executions/by-business-request/{business_request_id}",
+    response_model=List[WorkflowExecution],
+    summary="List Workflow Executions for a Customer Request",
+)
+async def list_business_request_executions(
+    business_request_id: UUID,
+    limit: int = Query(20, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    current_user: Staff = Depends(require_admin()),
+    before_started_at: str | None = None,
+    before_id: str | None = None,
+) -> List[WorkflowExecution]:
+    return await workflow_client.list_business_request_executions(
+        str(business_request_id), str(current_user.project_id), limit=limit,
+        skip=skip, before_started_at=before_started_at, before_id=before_id,
+    )
+
+
+@router.get(
+    "/executions/by-parent/{parent_execution_id}",
+    response_model=List[WorkflowExecution],
+    summary="List Child Workflow Executions",
+)
+async def list_child_executions(
+    parent_execution_id: UUID,
+    limit: int = Query(20, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    current_user: Staff = Depends(require_admin()),
+    before_started_at: str | None = None,
+    before_id: str | None = None,
+) -> List[WorkflowExecution]:
+    return await workflow_client.list_child_executions(
+        str(parent_execution_id), str(current_user.project_id),
+        limit=limit, skip=skip,
+        before_started_at=before_started_at, before_id=before_id,
+    )
+
+
+@router.get(
+    "/executions/by-visitor-session/{visitor_session_id}",
+    response_model=List[WorkflowExecution],
+    summary="List Workflow Executions for a Customer Session",
+)
+async def list_visitor_session_executions(
+    visitor_session_id: UUID,
+    limit: int = Query(20, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    current_user: Staff = Depends(require_admin()),
+    before_started_at: str | None = None,
+    before_id: str | None = None,
+) -> List[WorkflowExecution]:
+    return await workflow_client.list_visitor_session_executions(
+        str(visitor_session_id), str(current_user.project_id), limit=limit,
+        skip=skip, before_started_at=before_started_at, before_id=before_id,
+    )
+
+
+@router.post(
+    "/executions/lookup-customer-message",
+    response_model=List[WorkflowExecution],
+    summary="Find Workflow Executions for an Original Customer Message",
+)
+async def lookup_customer_message_executions(
+    request: WorkflowCustomerMessageLookup,
+    limit: int = Query(20, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    current_user: Staff = Depends(require_admin()),
+    db: Session = Depends(get_db),
+    before_started_at: str | None = None,
+    before_id: str | None = None,
+) -> List[WorkflowExecution]:
+    request_id = find_business_request_for_message(
+        db, current_user.project_id, request.visitor_session_id,
+        request.source_message_id,
+    )
+    if request_id is None:
+        return []
+    records = await workflow_client.list_business_request_executions(
+        str(request_id), str(current_user.project_id), limit=limit,
+        visitor_session_id=str(request.visitor_session_id),
+        skip=skip, before_started_at=before_started_at, before_id=before_id,
+    )
+    return [record for record in records
+            if record.business_request_id == str(request_id)
+            and record.visitor_session_id == str(request.visitor_session_id)]
+
+
+@router.post(
+    "/executions/lookup-channel-message",
+    response_model=List[WorkflowExecution],
+    summary="Find Workflow Executions from a Customer Chat Message",
+)
+async def lookup_channel_message_executions(
+    request: WorkflowChannelMessageLookup,
+    limit: int = Query(20, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    current_user: Staff = Depends(require_admin()),
+    db: Session = Depends(get_db),
+    before_started_at: str | None = None,
+    before_id: str | None = None,
+) -> List[WorkflowExecution]:
+    if (before_started_at is None) != (before_id is None):
+        raise HTTPException(400, "before_started_at and before_id must be provided together")
+    run = find_ai_request_for_channel_message(
+        db, current_user.project_id, request.channel_id, request.source_message_id,
+    )
+    if run is None:
+        return []
+    if before_started_at is not None:
+        async def fetch_after(
+            anchor_at: str | None, anchor_id: str | None, page_limit: int,
+        ) -> list[WorkflowExecution]:
+            return await workflow_client.list_business_request_executions(
+                str(run.id), str(current_user.project_id), limit=page_limit,
+                before_started_at=anchor_at, before_id=anchor_id,
+            )
+
+        return await page_workflow_records_for_ai_request_after(
+            db, run, limit, before_started_at, before_id, fetch_after,
+        )
+    async def fetch_page(raw_skip: int, page_limit: int) -> list[WorkflowExecution]:
+        return await workflow_client.list_business_request_executions(
+            str(run.id), str(current_user.project_id), limit=page_limit,
+            skip=raw_skip,
+        )
+
+    return await page_workflow_records_for_ai_request(db, run, limit, skip, fetch_page)
 
 
 @router.post(

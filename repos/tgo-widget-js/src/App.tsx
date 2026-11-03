@@ -5,11 +5,13 @@ import { css } from '@emotion/react'
 import Header from './components/Header'
 import MessageList from './components/MessageList'
 import MessageInput from './components/MessageInput'
+import CustomerServiceNotice from './components/CustomerServiceNotice'
 import { ImagePreviewProvider } from './components/ImagePreview'
 import { useChatStore, usePlatformStore } from './store'
 import { resolveApiKey, resolveMode } from './utils/url'
 import { recordVisitorActivity } from './services/visitorActivity'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { initializeBusinessCustomerSessions, disposeBusinessCustomerSessions, subscribeBusinessCustomerSessionChanges, captureBusinessCustomerSessionState } from './services/businessCustomerSession'
 
 
 const WidgetWrap = styled.div`
@@ -27,6 +29,7 @@ export default function App(){
   const unreadCount = useChatStore(s => s.unreadCount)
   const clearUnreadCount = useChatStore(s => s.clearUnreadCount)
   const initIM = useChatStore(s => s.initIM)
+  const sessionRevision = useChatStore(s => s.sessionRevision)
   const sendMessage = useChatStore(s => s.sendMessage)
   const ensureWelcomeMessage = useChatStore(s => s.ensureWelcomeMessage)
   const myUid = useChatStore(s => s.myUid)
@@ -134,7 +137,29 @@ export default function App(){
       console.warn('[Widget] Missing env VITE_API_BASE_URL. Also ensure URL has ?apiKey=... for visitor register')
       return
     }
+    initializeBusinessCustomerSessions()
+    let disposed = false
+    const off = subscribeBusinessCustomerSessionChanges(() => {
+      // endSession freezes/clears synchronously; only the current host state restarts.
+      const current = captureBusinessCustomerSessionState()
+      const ending = useChatStore.getState().endSession()
+      void Promise.all([current,ending]).then(([state]) => {
+        if(disposed) return
+        state.assertCurrent()
+        return useChatStore.getState().initIM({apiBase:cfg.apiBase!})
+      }).catch(()=>{})
+    })
+    const end = () => { void useChatStore.getState().endSession() }
+    const resume = (event: PageTransitionEvent) => {
+      if(event.persisted && !disposed) void useChatStore.getState().initIM({apiBase:cfg.apiBase!})
+    }
+    window.addEventListener('pagehide',end)
+    window.addEventListener('pageshow',resume)
     void initIM({ apiBase: cfg.apiBase! })
+    return () => {
+      disposed = true; off(); window.removeEventListener('pagehide',end); window.removeEventListener('pageshow',resume)
+      end(); disposeBusinessCustomerSessions()
+    }
   }, [])
 
   useEffect(() => {
@@ -466,9 +491,10 @@ export default function App(){
       <WidgetWrap role="dialog" aria-label="Customer Support">
         <Header title={title} onClose={requestClose} />
         {serviceAvailable === false && <div role="status" style={{ padding: '10px 16px', background: 'var(--bg-tertiary, #f3f4f6)', color: 'var(--text-secondary, #6b7280)', fontSize: 13 }}>{t('common.servicePaused')}</div>}
+        <CustomerServiceNotice serviceAvailable={serviceAvailable} />
         <Grow>
-          <MessageList messages={messages} />
-          <MessageInput onSend={onSend} />
+          <MessageList key={sessionRevision} messages={messages} />
+          <MessageInput key={sessionRevision} onSend={onSend} />
         </Grow>
         <div
           css={css`
@@ -482,7 +508,7 @@ export default function App(){
           `}
         >{t('brand.poweredBy')}</div>
       </WidgetWrap>
-      <ImagePreviewProvider />
+      <ImagePreviewProvider key={sessionRevision} />
     </ThemeProvider>
   )
 }

@@ -166,7 +166,13 @@ class NotificationService {
    * 检查浏览器是否支持通知
    */
   isSupported(): boolean {
-    return typeof window !== 'undefined' && 'Notification' in window;
+    return typeof window !== 'undefined' && 'Notification' in window
+      && !this.isWeComEnvironment();
+  }
+
+  /** WeCom's embedded page uses the host client's notification settings. */
+  isWeComEnvironment(): boolean {
+    return typeof navigator !== 'undefined' && /\bwxwork\b/i.test(navigator.userAgent);
   }
 
   /**
@@ -175,16 +181,23 @@ class NotificationService {
   async requestPermission(): Promise<NotificationPermission> {
     if (!this.isSupported()) {
       console.warn('🔔 NotificationService: Browser does not support notifications');
-      return 'denied';
+      return this.getPermission();
     }
 
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      const permission = await Notification.requestPermission();
-      console.log('🔔 NotificationService: Permission result:', permission);
+      // Invoke during the original click; embedded or dismissed prompts may never settle.
+      const pending = Notification.requestPermission();
+      const deadline = new Promise<NotificationPermission>(resolve => {
+        timeout = setTimeout(() => resolve(this.getPermission()), 10000);
+      });
+      const permission = await Promise.race([pending, deadline]);
       return permission as NotificationPermission;
     } catch (error) {
       console.error('🔔 NotificationService: Failed to request permission:', error);
       return this.getPermission();
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
     }
   }
 

@@ -152,6 +152,18 @@ class IntentModelOutput(StrictIntentSchema):
     taxonomy_version: Literal["v1"]
 
 
+ContextDependency = Literal["standalone", "follow_up", "ambiguous"]
+
+
+class ContextualIntentModelOutput(IntentModelOutput):
+    context_dependency: ContextDependency
+
+
+class IntentHistoryTurn(StrictIntentSchema):
+    role: Literal["customer", "staff", "assistant"]
+    content: str = Field(min_length=1, max_length=600)
+
+
 class IntentRoutingContext(StrictIntentSchema):
     """Deterministic non-model signals used by the routing policy."""
 
@@ -172,6 +184,9 @@ class IntentClassificationInput(StrictIntentSchema):
     vlm_text: str | None = Field(default=None, min_length=1, max_length=65535)
     sensitive_data_categories: tuple[SensitiveDataCategory, ...] = ()
     consecutive_unknown_count: int = Field(default=0, ge=0)
+    prior_turns: tuple[IntentHistoryTurn, ...] | None = Field(
+        default=None, max_length=8
+    )
 
     @model_validator(mode="after")  # type: ignore[misc]
     def require_customer_content(self) -> Self:
@@ -198,3 +213,7 @@ class IntentClassificationResult(StrictIntentSchema):
     taxonomy_version: Literal["v1"]
     routing_reason: RoutingReason
     classification_source: ClassificationSource
+
+
+class ContextualIntentClassificationResult(IntentClassificationResult):
+    context_dependency: ContextDependency

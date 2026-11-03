@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, Field, FiniteFloat, JsonValue, StrictBool, model_validator
 from typing import List, Optional, Literal, Dict, Union, Annotated
+from app.services.schedule_rules import parse_schedule
 
 class BaseNodeData(BaseModel):
     label: str = Field(..., description="The display name of the node")
@@ -9,6 +10,40 @@ class InputVariable(BaseModel):
     name: str = Field(..., description="The name of the variable")
     type: Literal["string", "number", "boolean"] = Field(..., description="The type of the variable")
     description: Optional[str] = Field(None, description="The description of the variable")
+    required: StrictBool = Field(False, description="Missing legacy fields remain optional")
+    min_length: int | None = Field(default=None, ge=0, le=65535, strict=True)
+    max_length: int | None = Field(default=None, ge=0, le=65535, strict=True)
+    minimum: FiniteFloat | None = None
+    maximum: FiniteFloat | None = None
+    allowed_values: list[str] | None = Field(default=None, min_length=1, max_length=30)
+
+    @model_validator(mode="after")
+    def validate_constraints(self) -> "InputVariable":
+        has_length = self.min_length is not None or self.max_length is not None
+        has_range = self.minimum is not None or self.maximum is not None
+        if ((has_length or self.allowed_values is not None) and self.type != "string") or (has_range and self.type != "number"):
+            raise ValueError("Input constraints do not match variable type")
+        if (
+            self.min_length is not None and self.max_length is not None
+            and self.min_length > self.max_length
+        ):
+            raise ValueError("Minimum text length exceeds maximum")
+        if (
+            self.minimum is not None and self.maximum is not None
+            and self.minimum > self.maximum
+        ):
+            raise ValueError("Minimum number exceeds maximum")
+        if self.allowed_values is not None and (
+            len(set(self.allowed_values)) != len(self.allowed_values)
+            or any(
+                not value or value != value.strip() or len(value) > 100
+                or (self.min_length is not None and len(value) < self.min_length)
+                or (self.max_length is not None and len(value) > self.max_length)
+                for value in self.allowed_values
+            )
+        ):
+            raise ValueError("Allowed text values must be unique, nonblank, and meet length limits")
+        return self
 
 class InputNodeData(BaseNodeData):
     type: Literal["input"] = Field("input", description="Node type: input")
@@ -16,7 +51,20 @@ class InputNodeData(BaseNodeData):
 
 class TimerNodeData(BaseNodeData):
     type: Literal["timer"] = Field("timer", description="Node type: timer")
-    cron_expression: str = Field(..., description="Cron expression for scheduled tasks")
+    cron_expression: str = Field(
+        ..., min_length=1, max_length=512, strict=True,
+        description="Numeric five-field schedule expression",
+    )
+    timezone: str = Field(
+        "UTC", min_length=1, max_length=100, strict=True,
+        description="IANA timezone; legacy definitions use UTC",
+    )
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "TimerNodeData":
+        rule = parse_schedule(self.cron_expression, self.timezone)
+        self.cron_expression = rule.expression
+        return self
 
 class WebhookNodeData(BaseNodeData):
     type: Literal["webhook"] = Field("webhook", description="Node type: webhook")
@@ -56,12 +104,30 @@ class AgentNodeData(BaseNodeData):
     agent_name: Optional[str] = Field(None, description="Agent name")
     input_mapping: Optional[Dict[str, str]] = Field(None, description="Input parameters mapping")
 
+
+class ApprovalNodeData(BaseNodeData):
+    type: Literal["approval"] = Field("approval", description="Human approval gate")
+    approver_staff_id: str = Field(..., description="Assigned staff ID")
+    summary: str = Field(..., min_length=1, max_length=500)
+    expires_in_minutes: int = Field(1440, ge=1, le=10080)
+    after_approval_action: Optional[Literal["create_aftersales_review"]] = None
+    case_category: Optional[Literal[
+        "return_request", "exchange_request", "quality_issue",
+    ]] = None
+
 class ToolNodeData(BaseNodeData):
     type: Literal["tool"] = Field("tool", description="Node type: tool")
     tool_id: str = Field(..., description="Tool ID")
     tool_name: Optional[str] = Field(None, description="Tool name")
     config: Optional[Dict[str, JsonValue]] = Field(None, description="Tool configuration parameters")
     input_mapping: Optional[Dict[str, str]] = Field(None, description="Input parameters mapping")
+
+
+class BusinessQueryNodeData(BaseNodeData):
+    type: Literal["business_query"] = "business_query"
+    connection_id: str = Field(..., description="Owned business connection UUID")
+    operation: Literal["order_query", "logistics_query"]
+    order_variable: Literal["input.order_no"] = "input.order_no"
 
 class KeyValue(BaseModel):
     key: str = Field(..., description="Key")
@@ -117,8 +183,8 @@ class ParallelNodeData(BaseNodeData):
 WorkflowNodeData = Annotated[
     Union[
         InputNodeData, TimerNodeData, WebhookNodeData, EventNodeData,
-        AnswerNodeData, LLMNodeData, AgentNodeData, 
-        ToolNodeData, APINodeData, ConditionNodeData, 
+        AnswerNodeData, LLMNodeData, AgentNodeData, ApprovalNodeData,
+        ToolNodeData, BusinessQueryNodeData, APINodeData, ConditionNodeData,
         ClassifierNodeData, ParallelNodeData
     ],
     Field(discriminator='type')

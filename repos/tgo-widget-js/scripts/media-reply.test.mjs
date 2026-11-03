@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
+import {loadWebDataAccess} from './visitor-access-fixture.mjs'
 
 const source = readFileSync(new URL('../src/services/mediaReply.ts', import.meta.url), 'utf8')
 function fixture(status = 200, event = 'accepted') {
@@ -10,7 +11,7 @@ function fixture(status = 200, event = 'accepted') {
   const exports = {}
   vm.runInNewContext(ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { exports, AbortSignal, fetch: async (...args) => {
+  }).outputText, { exports, AbortSignal, require: () => loadWebDataAccess(), fetch: async (...args) => {
     calls.push(args)
     return { ok: status === 200, status, json: async () => ({ event_type: event }) }
   } })

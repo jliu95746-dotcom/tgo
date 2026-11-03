@@ -1,4 +1,5 @@
 import { useBoundProp, type ComponentRegistry, type ComponentRenderProps } from '@json-render/react';
+import { useChatFileUrls } from '@/hooks/useChatFileUrls';
 
 type JsonRenderProps = Record<string, unknown>;
 
@@ -167,9 +168,10 @@ const Card = ({ element, children }: ComponentRenderProps<JsonRenderProps>) => {
 const Image = ({ element }: ComponentRenderProps<JsonRenderProps>) => {
   const props = element.props;
   const src = pickFirstString(props, ['url', 'src']);
-  if (!src) return null;
+  const [authorizedSrc] = useChatFileUrls([src]);
+  if (!authorizedSrc) return null;
   const alt = pickFirstString(props, ['alt'], 'image');
-  return <img src={src} alt={alt} className="max-w-full rounded-md" />;
+  return <img src={authorizedSrc} alt={alt} referrerPolicy="no-referrer" className="max-w-full rounded-md" />;
 };
 
 const Row = ({ element, children }: ComponentRenderProps<JsonRenderProps>) => {

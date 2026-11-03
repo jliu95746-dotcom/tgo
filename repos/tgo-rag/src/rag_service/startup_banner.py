@@ -3,6 +3,7 @@ Beautiful startup banner and enhanced logging utilities for the RAG service.
 """
 
 import sys
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Dict, Any, Optional
 
@@ -134,7 +135,7 @@ def print_step(message: str, status: str = "info", indent: int = 0) -> None:
     print(f"{Colors.HEADER}│{Colors.RESET} {indent_str}{symbol} {color}{message}{Colors.RESET}")
 
 
-def print_config_info(config_data: Dict[str, Any]) -> None:
+def print_config_info(config_data: Mapping[str, object]) -> None:
     """
     Print configuration information in a structured format.
     
@@ -143,13 +144,15 @@ def print_config_info(config_data: Dict[str, Any]) -> None:
     """
     print_section_header("Configuration", Symbols.GEAR)
     
+    private_fields = (
+        "password", "secret", "key", "token", "authorization",
+        "credential", "url",
+    )
     for key, value in config_data.items():
-        # Mask sensitive information
-        if any(sensitive in key.lower() for sensitive in ['password', 'secret', 'key', 'token']):
-            if isinstance(value, str) and len(value) > 8:
-                display_value = f"{value[:4]}{'*' * (len(value) - 8)}{value[-4:]}"
-            else:
-                display_value = "***"
+        # Connection URLs can contain passwords or query credentials. Hide the
+        # entire value rather than retaining credential prefixes or suffixes.
+        if any(field in key.lower() for field in private_fields):
+            display_value = "***"
         else:
             display_value = str(value)
         

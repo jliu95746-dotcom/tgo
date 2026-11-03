@@ -17,6 +17,8 @@ class LLMProvider:
         collection_ids: Optional[List[str]] = None,
         max_tool_rounds: int = 5
     ) -> str:
+        if tool_ids:
+            raise ValueError("工作流模型目前不能直接调用工具；请使用已核验的只读工具节点。")
         logger.info(f"LLM Chat Completion via AI Service: provider_id={provider_id} model={model}")
         
         # Use a default project_id if not provided
@@ -48,6 +50,6 @@ class LLMProvider:
             return data["choices"][0]["message"]["content"]
             
         except Exception as e:
-            logger.error(f"LLM Chat Completion failed: {e}")
+            logger.error("LLM Chat Completion failed: %s", type(e).__name__)
             raise
 

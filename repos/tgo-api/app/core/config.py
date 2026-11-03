@@ -1,9 +1,12 @@
 """Application configuration using Pydantic Settings."""
 
 from typing import List, Optional
+from uuid import UUID
 
 from pydantic import Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.core.contextual_reply_config import ReviewedFAQ
 
 
 class Settings(BaseSettings):
@@ -14,6 +17,11 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
+    )
+
+    # A channel entry enables context-aware routing, even with no reviewed FAQs.
+    CONTEXTUAL_REPLY_CHANNELS: dict[UUID, list[ReviewedFAQ]] = Field(
+        default_factory=dict
     )
 
     # Project Information
@@ -41,6 +49,9 @@ class Settings(BaseSettings):
     )
 
     # Security
+    BUSINESS_CONNECTION_CREDENTIAL_KEY: Optional[SecretStr] = Field(default=None, description="Dedicated URL-safe base64 AES-256 key for company business credentials")
+    BUSINESS_CONNECTION_SERVICE_TOKEN: Optional[SecretStr] = Field(default=None, description="Private credential resolution token shared only with the business adapter")
+    BUSINESS_CONNECTION_TEST_TTL_SECONDS: int = Field(default=86400, ge=60, le=604800, description="Maximum age of individual business operation test proof")
     SECRET_KEY: str = Field(
         ...,
         description="Secret key for JWT token generation",
@@ -57,6 +68,9 @@ class Settings(BaseSettings):
     )
 
     # Commercial rollout is opt-in; existing companies are not enrolled here.
+    WORKFLOW_EVENT_DELIVERY_KEYS: SecretStr | None = None
+    WORKFLOW_EVENT_DELIVERY_ACTIVE_KEY_ID: str | None = None
+
     SAAS_ENABLED: bool = Field(default=False)
     SAAS_NEW_PURCHASES_ENABLED: bool = Field(default=False)
     SAAS_BILLING_ENABLED: bool = Field(default=False)
@@ -75,6 +89,11 @@ class Settings(BaseSettings):
     SAAS_SMTP_PASSWORD: Optional[SecretStr] = Field(default=None)
     SAAS_SMTP_FROM: str = Field(default="")
     SAAS_SMTP_STARTTLS: bool = Field(default=False)
+    ASSIST_DRAFT_RETENTION_ENABLED: bool = Field(default=True)
+    ASSIST_DRAFT_RETENTION_DAYS: int = Field(default=90, ge=1, le=3650)
+    ASSIST_DRAFT_RETENTION_INTERVAL_SECONDS: int = Field(
+        default=3600, ge=60, le=86400,
+    )
     WECHAT_PAY_MCH_ID: str = Field(default="")
     WECHAT_PAY_APP_ID: str = Field(default="")
     WECHAT_PAY_CERT_SERIAL: str = Field(default="")
@@ -172,6 +191,7 @@ class Settings(BaseSettings):
     )
 
     # Workflow Service settings
+    WEBHOOK_EXECUTION_ENABLED: bool = False
     WORKFLOW_SERVICE_URL: str = Field(
         default="http://localhost:8004",
         description="URL of the Workflow service"
@@ -226,6 +246,17 @@ class Settings(BaseSettings):
     PROJECT_AI_CONFIG_SYNC_ENABLED: bool = Field(
         default=True,
         description="Enable periodic background sync for ProjectAIConfig",
+    )
+
+    SHADOW_PROTOCOL_AUTO_FINALIZE_ENABLED: bool = Field(
+        default=True,
+        description="Automatically freeze due official shadow review protocols",
+    )
+    SHADOW_PROTOCOL_FINALIZE_INTERVAL_SECONDS: int = Field(
+        default=30,
+        ge=5,
+        le=3600,
+        description="Seconds between official shadow protocol finalization sweeps",
     )
 
     # Queue Processing settings (event-driven with fallback)
@@ -489,6 +520,30 @@ class Settings(BaseSettings):
     UPLOAD_BASE_DIR: str = Field(
         default="./uploads",
         description="Base directory for file uploads",
+    )
+    VISITOR_AVATAR_CLEANUP_ENABLED: bool = Field(
+        default=True,
+        description="Remove old unbound generated visitor avatar files",
+    )
+    VISITOR_AVATAR_CLEANUP_AGE_DAYS: int = Field(
+        default=7, ge=1,
+        description="Minimum age in days before an unbound avatar may be removed",
+    )
+    VISITOR_AVATAR_CLEANUP_INTERVAL_SECONDS: int = Field(
+        default=6 * 60 * 60, ge=60 * 60,
+        description="Interval between visitor avatar cleanup batches",
+    )
+    VISITOR_END_RECOVERY_ENABLED: bool = Field(
+        default=True,
+        description="Retry retired visitor stop and IM disconnect cleanup",
+    )
+    VISITOR_END_RECOVERY_INTERVAL_SECONDS: int = Field(
+        default=60, ge=10,
+        description="Seconds between bounded visitor end recovery sweeps",
+    )
+    VISITOR_END_RECOVERY_BATCH_SIZE: int = Field(
+        default=5, ge=1, le=50,
+        description="Maximum retired visitors checked per recovery sweep",
     )
     MULTIMODAL_MAX_MEDIA_BYTES: int = Field(default=10 * 1024 * 1024, ge=1024, le=25 * 1024 * 1024)
 

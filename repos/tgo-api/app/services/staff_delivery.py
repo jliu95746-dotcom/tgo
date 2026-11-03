@@ -17,8 +17,8 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.platform import PlatformType
 from app.models.staff_message_delivery import StaffMessageDelivery, utc_now
+from app.models.platform import PlatformType
 from app.schemas.staff_delivery import (
     AssistTrainingIntent,
     StaffDeliveryRecord,
@@ -26,6 +26,7 @@ from app.schemas.staff_delivery import (
     StaffDeliveryResponse,
 )
 from app.services.platform_message_client import forward_staff_platform_message
+from app.services.assist_draft_record import resolve_delivery_draft
 from app.services.staff_delivery_training import authorize_training, training_snapshot
 from app.services.employee_style import resolve_employee_style
 from app.services.staff_message_target import StaffMessageTarget
@@ -33,6 +34,7 @@ from app.services.wukongim_client import wukongim_client
 
 UNKNOWN_MESSAGE = "发送结果暂时无法确认，请先确认客户是否收到，勿重复发送。"
 DEFINITE_REJECTIONS = {400, 401, 403, 404, 409, 413, 415, 422}
+EXTERNAL_RECEIPT_WAIT = timedelta(minutes=5)
 
 
 def receipt(row: StaffMessageDelivery) -> StaffDeliveryResponse:
@@ -62,7 +64,7 @@ def receipt(row: StaffMessageDelivery) -> StaffDeliveryResponse:
             else row.updated_at
         )
         delivery_status = (
-            "processing" if utc_now() - started < timedelta(minutes=5) else "unknown"
+            "processing" if utc_now() - started < EXTERNAL_RECEIPT_WAIT else "unknown"
         )
     return StaffDeliveryResponse(
         training_status=training_status,
@@ -126,6 +128,8 @@ def pending_deliveries(
                 channel_type=251,
                 client_msg_no=row.client_msg_no,
                 payload=row.payload,
+                source_message_id=row.source_message_id,
+                assist_draft_id=row.assist_draft_id,
                 training=AssistTrainingIntent.model_validate(row.training_snapshot)
                 if row.training_snapshot
                 else None,
@@ -149,6 +153,8 @@ def _claim(
                 "platform_id": str(target.platform_id),
                 "recipient": target.platform_open_id,
                 "payload": request.payload,
+                **({"source_message_id": request.source_message_id} if request.source_message_id else {}),
+                **({"assist_draft_id": str(request.assist_draft_id)} if request.assist_draft_id else {}),
                 **({"training": snapshot} if snapshot else {}),
             },
             sort_keys=True,
@@ -172,6 +178,13 @@ def _claim(
     row = existing()
     if row is None:
         authorize_training(target, snapshot)
+        draft_id = resolve_delivery_draft(
+            db, draft_id=request.assist_draft_id,
+            project_id=target.project_id, staff_id=target.staff_id,
+            visitor_id=target.visitor_id,
+            source_message_id=request.source_message_id,
+            payload_type=request.payload.get("type"),
+        ) if request.assist_draft_id else None
         row = StaffMessageDelivery(
             project_id=target.project_id,
             staff_id=target.staff_id,
@@ -181,6 +194,8 @@ def _claim(
             client_msg_no=request.client_msg_no,
             request_fingerprint=fingerprint,
             payload=request.payload,
+            source_message_id=request.source_message_id,
+            assist_draft_id=draft_id,
             training_snapshot=snapshot,
             training_status="pending" if snapshot else "none",
             external_status="sending"
@@ -215,19 +230,23 @@ async def write_delivery_history(row: StaffMessageDelivery) -> None:
     if not wukongim_client.enabled:
         raise RuntimeError("IM_DISABLED")
     from_uid = f"{row.staff_id}-staff"
-    # A prior IM attempt may have succeeded before its HTTP response was lost.
-    # Reconcile by the original message identity before an at-least-once retry.
-    if row.history_attempts:
-        existing = await wukongim_client.get_message_by_client_msg_no(
-            channel_id=row.channel_id,
-            channel_type=row.channel_type,
-            client_msg_no=row.client_msg_no,
-            raise_on_error=True,
-        )
-        if existing is not None:
-            if existing.from_uid != from_uid or existing.payload != row.payload:
-                raise RuntimeError("IM_MESSAGE_IDENTITY_CONFLICT")
-            return
+    # The first IM send may have succeeded before its database receipt committed.
+    # Reconcile even when the local attempt counter is still zero; a failed
+    # lookup must stop the send rather than risk a duplicate.
+    existing = await wukongim_client.get_message_by_client_msg_no(
+        channel_id=row.channel_id,
+        channel_type=row.channel_type,
+        client_msg_no=row.client_msg_no,
+        raise_on_error=True,
+    )
+    if existing is not None:
+        if (
+            existing.client_msg_no != row.client_msg_no
+            or existing.from_uid != from_uid
+            or existing.payload != row.payload
+        ):
+            raise RuntimeError("IM_MESSAGE_IDENTITY_CONFLICT")
+        return
     response = await wukongim_client.send_message(
         from_uid=from_uid,
         channel_id=row.channel_id,
@@ -315,6 +334,34 @@ async def recover_pending_history(
         if row.history_status == "sent":
             recovered += 1
     return recovered
+
+
+async def recover_stale_external_deliveries(
+    db: Session, limit: int = 20,
+) -> int:
+    """Persist uncertain external attempts without ever resending them."""
+    now = utc_now()
+    rows: list[StaffMessageDelivery] = (
+        db.query(StaffMessageDelivery)
+        .filter(
+            StaffMessageDelivery.external_status == "sending",
+            StaffMessageDelivery.updated_at <= now - EXTERNAL_RECEIPT_WAIT,
+        )
+        .order_by(StaffMessageDelivery.updated_at, StaffMessageDelivery.id)
+        .with_for_update(skip_locked=True)
+        .limit(limit)
+        .all()
+    )
+    if not rows:
+        db.rollback()
+        return 0
+    for row in rows:
+        row.external_status = "unknown"
+        row.error_code = "PLATFORM_RECEIPT_UNKNOWN"
+        row.error_message = UNKNOWN_MESSAGE
+        row.updated_at = now
+    db.commit()
+    return len(rows)
 
 
 def _rejection(response: httpx.Response, target: StaffMessageTarget) -> tuple[str, str]:

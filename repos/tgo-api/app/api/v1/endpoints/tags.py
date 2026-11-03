@@ -4,13 +4,16 @@ from datetime import datetime
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.api.current_access_route import CurrentAccessRoute
+from app.services.visitor_tag_access import begin_tag_change, begin_tag_removal, commit_tag_change
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.core.security import get_current_active_user, get_user_language, UserLanguage, require_permission
-from app.models import Staff, Tag, Visitor, VisitorTag
+from app.models import Staff, Tag
 from app.schemas import (
     TagCreate,
     TagListParams,
@@ -23,7 +26,8 @@ from app.schemas import (
 from app.schemas.tag import set_tag_display_name, set_tag_list_display_name
 
 logger = get_logger("endpoints.tags")
-router = APIRouter()
+router = APIRouter(route_class=CurrentAccessRoute)
+original_bearer = HTTPBearer(auto_error=False)
 
 
 @router.get("", response_model=TagListResponse)
@@ -237,149 +241,47 @@ async def delete_tag(
 
 @router.post("/visitor-tags", response_model=VisitorTagResponse, status_code=status.HTTP_201_CREATED)
 async def create_visitor_tag(
+    request: Request,
     visitor_tag_data: VisitorTagCreate,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("tags:create")),
+    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
 ) -> VisitorTagResponse:
-    """
-    Create visitor-tag association.
-    
-    Associate a tag with a visitor for categorization purposes.
-    Requires tags:create permission.
-    """
-    logger.info(f"User {current_user.username} creating visitor-tag association")
-    
-    # Validate visitor exists and belongs to project
-    visitor = db.query(Visitor).filter(
-        Visitor.id == visitor_tag_data.visitor_id,
-        Visitor.project_id == current_user.project_id,
-        Visitor.deleted_at.is_(None)
-    ).first()
-    
-    if not visitor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Visitor not found"
-        )
-    
-    # Validate tag exists and belongs to project
-    tag = db.query(Tag).filter(
-        Tag.id == visitor_tag_data.tag_id,
-        Tag.project_id == current_user.project_id,
-        Tag.deleted_at.is_(None)
-    ).first()
-    
-    if not tag:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tag not found"
-        )
-    
-    # Check if association already exists
-    existing_visitor_tag = db.query(VisitorTag).filter(
-        VisitorTag.visitor_id == visitor_tag_data.visitor_id,
-        VisitorTag.tag_id == visitor_tag_data.tag_id,
-        VisitorTag.deleted_at.is_(None)
-    ).first()
-    
-    if existing_visitor_tag:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Visitor-tag association already exists"
-        )
-    
-    # Create visitor-tag association
-    visitor_tag = VisitorTag(
-        project_id=current_user.project_id,
-        visitor_id=visitor_tag_data.visitor_id,
-        tag_id=visitor_tag_data.tag_id,
-    )
-    
-    db.add(visitor_tag)
-    db.commit()
-    db.refresh(visitor_tag)
-    
-    logger.info(f"Created visitor-tag association {visitor_tag.id}")
-    
-    return VisitorTagResponse.model_validate(visitor_tag)
+    """Associate a real, currently owned customer with an existing project tag."""
+    scope = begin_tag_change(db, credentials, current_user, visitor_tag_data.visitor_id, visitor_tag_data.tag_id)
+    link, output = commit_tag_change(db, scope)
+    assert link is not None
+    output.check(db)
+    request.state.operation_guard = output.guard()
+    return VisitorTagResponse.model_validate(link)
 
 
 @router.delete("/visitor-tags/{visitor_tag_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_visitor_tag(
+    request: Request,
     visitor_tag_id: UUID,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("tags:delete")),
+    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
 ) -> None:
-    """
-    Delete visitor-tag association (hard delete).
-
-    Permanently remove the association between a visitor and a tag.
-    This action cannot be undone. Requires tags:delete permission.
-    """
-    logger.info(f"User {current_user.username} deleting visitor-tag association: {visitor_tag_id}")
-
-    visitor_tag = db.query(VisitorTag).filter(
-        VisitorTag.id == visitor_tag_id,
-        VisitorTag.project_id == current_user.project_id,
-        VisitorTag.deleted_at.is_(None)
-    ).first()
-
-    if not visitor_tag:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Visitor-tag association not found"
-        )
-
-    # Hard delete
-    db.delete(visitor_tag)
-    db.commit()
-
-    logger.info(f"Permanently deleted visitor-tag association {visitor_tag_id}")
-
-    return None
+    """Remove the original association after checking current customer ownership."""
+    scope = begin_tag_removal(db, credentials, current_user, visitor_tag_id)
+    _, output = commit_tag_change(db, scope)
+    output.check(db)
+    request.state.operation_guard = output.guard()
 
 
 @router.delete("/visitors/{visitor_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_visitor_tag_by_ids(
+    request: Request,
     visitor_id: UUID,
     tag_id: str,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("tags:delete")),
+    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
 ) -> None:
-    """
-    Delete visitor-tag association by visitor ID and tag ID (hard delete).
-
-    Permanently remove the association between a specific visitor and a specific tag.
-    This endpoint allows deletion using the visitor_id and tag_id directly,
-    without needing to know the visitor_tag association ID.
-    This action cannot be undone. Requires tags:delete permission.
-    """
-    logger.info(
-        f"User {current_user.username} deleting visitor-tag association "
-        f"for visitor {visitor_id} and tag {tag_id}"
-    )
-
-    # Query the visitor-tag association
-    visitor_tag = db.query(VisitorTag).filter(
-        VisitorTag.visitor_id == visitor_id,
-        VisitorTag.tag_id == tag_id,
-        VisitorTag.project_id == current_user.project_id,
-        VisitorTag.deleted_at.is_(None)
-    ).first()
-
-    if not visitor_tag:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Visitor-tag association not found for visitor {visitor_id} and tag {tag_id}"
-        )
-
-    # Hard delete
-    db.delete(visitor_tag)
-    db.commit()
-
-    logger.info(
-        f"Permanently deleted visitor-tag association {visitor_tag.id} "
-        f"(visitor: {visitor_id}, tag: {tag_id})"
-    )
-
-    return None
+    """Resolve the original association once; do not adopt a later replacement."""
+    scope = begin_tag_change(db, credentials, current_user, visitor_id, tag_id, remove=True)
+    _, output = commit_tag_change(db, scope)
+    output.check(db)
+    request.state.operation_guard = output.guard()

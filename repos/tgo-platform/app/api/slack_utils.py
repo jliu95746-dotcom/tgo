@@ -39,10 +39,10 @@ async def slack_send_text(
             text=text,
             thread_ts=thread_ts,
         )
-        logger.info(f"[SLACK] Message sent to {channel}")
+        logger.debug("[SLACK] Message sent")
         return response.data
     except SlackApiError as e:
-        logger.error(f"[SLACK] Failed to send message: {e.response['error']}")
+        logger.error("[SLACK] Failed to send message: %s", type(e).__name__)
         raise
 
 
@@ -81,10 +81,10 @@ async def slack_send_file(
             initial_comment=initial_comment,
             thread_ts=thread_ts,
         )
-        logger.info(f"[SLACK] File '{filename}' uploaded to {channel}")
+        logger.debug("[SLACK] File uploaded")
         return response.data
     except SlackApiError as e:
-        logger.error(f"[SLACK] Failed to upload file: {e.response['error']}")
+        logger.error("[SLACK] Failed to upload file: %s", type(e).__name__)
         raise
 
 
@@ -117,7 +117,7 @@ async def slack_get_user_info(
             "is_bot": user.get("is_bot", False),
         }
     except SlackApiError as e:
-        logger.error(f"[SLACK] Failed to get user info: {e.response['error']}")
+        logger.error("[SLACK] Failed to get user info: %s", type(e).__name__)
         raise
 
 
@@ -149,7 +149,7 @@ async def slack_download_file(
             response.raise_for_status()
             return response.content
     except Exception as e:
-        logger.error(f"[SLACK] Failed to download file: {e}")
+        logger.error("[SLACK] Failed to download file: %s", type(e).__name__)
         raise
 async def slack_get_dm_channel(
     bot_token: str,
@@ -173,9 +173,9 @@ async def slack_get_dm_channel(
         response = client.conversations_open(users=user_id)
         channel_id = response.data.get("channel", {}).get("id")
         if not channel_id:
-            logger.error(f"[SLACK] Failed to resolve channel ID for user {user_id}")
+            logger.error("[SLACK] Failed to resolve DM channel")
             return user_id # Fallback
         return channel_id
     except SlackApiError as e:
-        logger.error(f"[SLACK] Error opening DM with {user_id}: {e.response['error']}")
+        logger.error("[SLACK] Failed to open DM: %s", type(e).__name__)
         return user_id # Fallback

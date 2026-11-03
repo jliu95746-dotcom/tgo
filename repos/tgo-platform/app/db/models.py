@@ -132,11 +132,18 @@ class WeComInbox(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # At most one customer-facing fallback attempt for failed/unsupported media.
+    # An interrupted or uncertain send remains visible for operator review.
+    failure_notice_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    failure_notice_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failure_notice_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failure_notice_error: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("platform_id", "message_id", name="uq_wecom_inbox_platform_message"),
         Index("ix_wecom_inbox_platform_status", "platform_id", "status"),
         Index("ix_wecom_inbox_status_fetched", "status", "fetched_at"),
+        Index("ix_wecom_inbox_failure_notice", "platform_id", "failure_notice_status"),
     )
 
 

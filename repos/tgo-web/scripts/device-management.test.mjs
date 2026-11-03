@@ -40,6 +40,10 @@ function render(state) {
     './EditDeviceModal': hiddenModal,
     './DeviceSessionBrowser': hiddenModal,
     '@/components/ui/ConfirmDialog': hiddenModal,
+    '@/components/business/ScenarioLibrary': hiddenModal,
+    '@/components/business/DeviceCapabilitiesDialog': hiddenModal,
+    '@/components/business/DeviceScenarioGuide': hiddenModal,
+    '@/components/business/DevicePolicyDialog': hiddenModal,
   }).default;
   return renderToStaticMarkup(React.createElement(View));
 }

@@ -21,6 +21,15 @@ class BusinessQueryAuditRecord(Base):
             "tenant_id",
             "created_at",
         ),
+        Index(
+            "ix_pg_business_query_audit_tenant_request_created",
+            "tenant_id", "request_id", "created_at", "id",
+        ),
+        Index(
+            "ix_pg_business_query_audit_message_created",
+            "tenant_id", "source_message_digest", "response_message_digest",
+            "created_at", "id",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -38,6 +47,8 @@ class BusinessQueryAuditRecord(Base):
         String(64),
         nullable=False,
     )
+    source_message_digest: Mapped[str | None] = mapped_column(String(64))
+    response_message_digest: Mapped[str | None] = mapped_column(String(64))
     duration_ms: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         nullable=False,

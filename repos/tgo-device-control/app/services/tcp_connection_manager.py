@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,6 +17,8 @@ from weakref import WeakValueDictionary
 
 from app.config import settings
 from app.core.logging import get_logger
+from app.schemas.device_screen_policy import ScreenGrantStatus, ScreenPolicy
+from app.schemas.device_script_policy import ScriptPolicy, ScriptPolicyAck
 
 logger = get_logger("services.tcp_connection_manager")
 
@@ -37,6 +40,21 @@ class TcpDeviceConnection:
     device_db_id: Optional[
         str
     ] = None  # Database device ID (same as agent_id for new auth)
+    connection_instance_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    desired_read_policy_digest: Optional[str] = None
+    applied_read_policy_digest: Optional[str] = None
+    read_policy_verified_digest: Optional[str] = None
+    read_policy_directory: Optional[str] = None
+    read_policy_revision: Optional[int] = None
+    read_policy_max_lines: Optional[int] = None
+    read_policy_max_offset: Optional[int] = None
+    desired_screen_policy: ScreenPolicy | None = None
+    applied_screen_policy_digest: str | None = None
+    screen_grant: ScreenGrantStatus | None = None
+    script_policy_required: bool = False
+    desired_script_policy: ScriptPolicy | None = None
+    script_session_id: str | None = None
+    applied_script_policy_ack: ScriptPolicyAck | None = None
     _request_id: int = 0
     _pending_requests: Dict[Union[int, str], asyncio.Future[Any]] = field(
         default_factory=dict
@@ -242,6 +260,7 @@ class TcpConnectionManager:
         writer: asyncio.StreamWriter,
         project_id: Optional[str] = None,
         device_db_id: Optional[str] = None,
+        script_policy_required: bool = False,
     ) -> TcpDeviceConnection:
         """Register a new TCP connection.
 
@@ -267,6 +286,7 @@ class TcpConnectionManager:
             writer=writer,
             project_id=project_id,
             device_db_id=device_db_id,
+            script_policy_required=script_policy_required,
         )
 
         async with self._lock:

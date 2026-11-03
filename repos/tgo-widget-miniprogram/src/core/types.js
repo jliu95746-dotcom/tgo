@@ -6,6 +6,7 @@
 var MSG_TYPE_TEXT = 1
 var MSG_TYPE_IMAGE = 2
 var MSG_TYPE_FILE = 3
+var MSG_TYPE_VOICE = 4
 var MSG_TYPE_MIXED = 12
 var MSG_TYPE_COMMAND = 99
 var MSG_TYPE_AI_LOADING = 100
@@ -50,6 +51,12 @@ function toPayloadFromAny(raw) {
   if (t === MSG_TYPE_FILE && typeof raw.url === 'string' && typeof raw.name === 'string') {
     return { type: MSG_TYPE_FILE, content: raw.content || '[文件]', url: raw.url, name: raw.name, size: raw.size || 0 }
   }
+  if (t === MSG_TYPE_VOICE) {
+    var voiceUrl = typeof raw.url === 'string' && raw.url ? raw.url : raw.content
+    if (typeof voiceUrl === 'string' && voiceUrl) {
+      return { type: MSG_TYPE_VOICE, url: voiceUrl, content: typeof raw.content === 'string' ? raw.content : '' }
+    }
+  }
   if (t === MSG_TYPE_MIXED && typeof raw.content === 'string' && Array.isArray(raw.images)) {
     var images = raw.images
       .filter(function (i) { return i && typeof i.url === 'string' })
@@ -60,7 +67,9 @@ function toPayloadFromAny(raw) {
     return { type: MSG_TYPE_COMMAND, cmd: raw.cmd, param: raw.param || {} }
   }
   if (t === MSG_TYPE_AI_LOADING) {
-    return { type: MSG_TYPE_AI_LOADING }
+    return raw.sender_kind === 'ai'
+      ? { type: MSG_TYPE_AI_LOADING, sender_kind: 'ai' }
+      : { type: MSG_TYPE_AI_LOADING }
   }
   if (isSystemMessageType(t) && typeof raw.content === 'string') {
     return { type: t, content: raw.content, extra: Array.isArray(raw.extra) ? raw.extra : undefined }
@@ -154,11 +163,13 @@ function mapHistoryToChatMessage(m, myUid) {
     displayContent = streamContent
   }
 
+  var anchorPayload = toPayloadFromAny(m && m.payload)
+  var isAiReply = anchorPayload.type === MSG_TYPE_AI_LOADING && anchorPayload.sender_kind === 'ai'
   var payload
   if (displayContent) {
     payload = { type: MSG_TYPE_TEXT, content: displayContent }
   } else {
-    payload = toPayloadFromAny(m && m.payload)
+    payload = anchorPayload
   }
 
   var errorMessage = m && m.error ? String(m.error) : undefined
@@ -176,6 +187,7 @@ function mapHistoryToChatMessage(m, myUid) {
     errorMessage: errorMessage
   }
   if (uiParts) result.uiParts = uiParts
+  if (isAiReply) result.senderKind = 'ai'
   return result
 }
 
@@ -183,6 +195,7 @@ module.exports = {
   MSG_TYPE_TEXT: MSG_TYPE_TEXT,
   MSG_TYPE_IMAGE: MSG_TYPE_IMAGE,
   MSG_TYPE_FILE: MSG_TYPE_FILE,
+  MSG_TYPE_VOICE: MSG_TYPE_VOICE,
   MSG_TYPE_MIXED: MSG_TYPE_MIXED,
   MSG_TYPE_COMMAND: MSG_TYPE_COMMAND,
   MSG_TYPE_AI_LOADING: MSG_TYPE_AI_LOADING,

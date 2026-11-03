@@ -63,7 +63,7 @@ def _internalize_url(url: str) -> str:
 
 class SendMessageRequest(BaseModel):
     platform_api_key: str = Field(..., description="Per-platform API key")
-    from_uid: str = Field(..., description="Sender user id (for logging)")
+    from_uid: str = Field(..., description="Sender user id")
     channel_id: str = Field(..., description="Channel id in format '{visitor_id}-vtr'")
     channel_type: int = Field(..., description="Channel type (e.g., 251)")
     payload: dict = Field(..., description="Message payload (see formats)")
@@ -178,11 +178,7 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 response = await client.post(callback_url, json=custom_payload)
                 response.raise_for_status()
 
-            logging.info(
-                "[SEND] client_msg_no=%s custom platform message sent to %s",
-                client_msg_no_generated,
-                callback_url
-            )
+            logging.info("[SEND] custom platform message sent")
             return {
                 "ok": True,
                 "client_msg_no": client_msg_no_generated,
@@ -202,11 +198,7 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 external_userid = await resolve_visitor_platform_open_id(visitor_id)
                 open_kfid = await resolve_wecom_open_kfid(visitor_id, platform.id, db)
             except RuntimeError as exc:
-                logging.warning(
-                    "[SEND] WeCom delivery context missing for visitor_id=%s: %s",
-                    visitor_id,
-                    exc,
-                )
+                logging.warning("[SEND] WeCom delivery context missing: %s", type(exc).__name__)
                 return error_response(
                     status.HTTP_409_CONFLICT,
                     code="WECOM_DELIVERY_CONTEXT_MISSING",
@@ -237,7 +229,7 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 )
                 adapter = await select_adapter_for_target(normalized_message, platform=platform)
                 await adapter.send_final({"text": content_text})
-                logging.info("[SEND] client_msg_no=%s wecom text sent to %s", client_msg_no, external_userid)
+                logging.info("[SEND] WeCom text sent")
                 return {"ok": True, "client_msg_no": client_msg_no, "message": "Message sent successfully"}
             elif msg_type == 2:
                 access_token = await wecom_get_access_token(corp_id, kf_secret)
@@ -247,7 +239,7 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                     return error_response(status.HTTP_400_BAD_REQUEST, code="INVALID_PAYLOAD", message="Image url is required", request_id=request_id)
                 # Download image
                 download_url = _internalize_url(url)
-                logging.info("[SEND] downloading image for wecom from: %s (original: %s)", download_url, url)
+                logging.debug("[SEND] WeCom image download started")
                 async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
                     r = await client.get(download_url)
                     r.raise_for_status()
@@ -261,7 +253,7 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 # Upload media and send
                 media_id = await wecom_upload_temp_media(access_token, file_bytes, media_type="image", filename=filename, content_type=content_type)
                 await wecom_kf_send_msg(access_token, open_kfid=open_kfid, external_userid=external_userid, msgtype="image", content={"media_id": media_id})
-                logging.info("[SEND] client_msg_no=%s wecom image sent to %s", client_msg_no, external_userid)
+                logging.info("[SEND] WeCom image sent")
                 return {"ok": True, "client_msg_no": client_msg_no, "message": "Message sent successfully"}
             else:
                 return error_response(status.HTTP_400_BAD_REQUEST, code="UNSUPPORTED_MESSAGE_TYPE", message=f"Unsupported payload type for WeCom: {msg_type}", request_id=request_id)
@@ -303,7 +295,7 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 subject="",
             )
             await adapter.send_final({"text": content_text})
-            logging.info("[SEND] client_msg_no=%s email sent to %s", client_msg_no, target_email)
+            logging.info("[SEND] email sent")
             return {"ok": True, "client_msg_no": client_msg_no, "message": "Message sent successfully"}
 
         if platform_type == "telegram":
@@ -346,13 +338,13 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 )
                 
                 if result.get("ok"):
-                    logging.info("[SEND] client_msg_no=%s telegram text sent to %s", client_msg_no, chat_id)
+                    logging.info("[SEND] Telegram text sent")
                     return {"ok": True, "client_msg_no": client_msg_no, "message": "Message sent successfully"}
                 else:
                     return error_response(
                         status.HTTP_502_BAD_GATEWAY,
                         code="TELEGRAM_ERROR",
-                        message=result.get("description", "Unknown Telegram error"),
+                        message="Telegram 渠道发送失败，请核对渠道配置后重试。",
                         request_id=request_id,
                     )
             elif msg_type == 2:
@@ -369,17 +361,17 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 # Download image first (Telegram servers might not be able to access local URLs)
                 try:
                     download_url = _internalize_url(url)
-                    logging.info("[SEND] downloading image for telegram from: %s (original: %s)", download_url, url)
+                    logging.debug("[SEND] Telegram image download started")
                     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
                         r = await client.get(download_url)
                         r.raise_for_status()
                         file_bytes = r.content
                 except Exception as e:
-                    logging.error("[SEND] failed to download image for telegram: %s", e)
+                    logging.error("[SEND] failed to download image for telegram: error_type=%s", type(e).__name__)
                     return error_response(
                         status.HTTP_400_BAD_REQUEST,
                         code="IMAGE_DOWNLOAD_FAILED",
-                        message=str(e),
+                        message="图片下载失败，请检查图片链接后重试。",
                         request_id=request_id,
                     )
                 
@@ -391,13 +383,13 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 )
                 
                 if result.get("ok"):
-                    logging.info("[SEND] client_msg_no=%s telegram photo sent to %s", client_msg_no, chat_id)
+                    logging.info("[SEND] Telegram image sent")
                     return {"ok": True, "client_msg_no": client_msg_no, "message": "Message sent successfully"}
                 else:
                     return error_response(
                         status.HTTP_502_BAD_GATEWAY,
                         code="TELEGRAM_ERROR",
-                        message=result.get("description", "Unknown Telegram error"),
+                        message="Telegram 渠道发送失败，请核对渠道配置后重试。",
                         request_id=request_id,
                     )
             else:
@@ -447,13 +439,13 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 )
                 
                 if result.get("ok"):
-                    logging.info("[SEND] client_msg_no=%s slack text sent to %s", client_msg_no, target_id)
+                    logging.info("[SEND] Slack text sent")
                     return {"ok": True, "client_msg_no": client_msg_no, "message": "Message sent successfully"}
                 else:
                     return error_response(
                         status.HTTP_502_BAD_GATEWAY,
                         code="SLACK_ERROR",
-                        message=result.get("error", "Unknown Slack error"),
+                        message="Slack 渠道发送失败，请核对渠道配置后重试。",
                         request_id=request_id,
                     )
             elif msg_type == 2:
@@ -470,17 +462,17 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 # Download image
                 try:
                     download_url = _internalize_url(url)
-                    logging.info("[SEND] downloading image for slack from: %s (original: %s)", download_url, url)
+                    logging.debug("[SEND] Slack image download started")
                     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
                         r = await client.get(download_url)
                         r.raise_for_status()
                         file_bytes = r.content
                 except Exception as e:
-                    logging.error("[SEND] failed to download image for slack: %s", e)
+                    logging.error("[SEND] failed to download image for slack: error_type=%s", type(e).__name__)
                     return error_response(
                         status.HTTP_400_BAD_REQUEST,
                         code="IMAGE_DOWNLOAD_FAILED",
-                        message=str(e),
+                        message="图片下载失败，请检查图片链接后重试。",
                         request_id=request_id,
                     )
                 
@@ -506,13 +498,13 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
                 )
                 
                 if result.get("ok"):
-                    logging.info("[SEND] client_msg_no=%s slack photo sent to %s", client_msg_no, target_id)
+                    logging.info("[SEND] Slack image sent")
                     return {"ok": True, "client_msg_no": client_msg_no, "message": "Message sent successfully"}
                 else:
                     return error_response(
                         status.HTTP_502_BAD_GATEWAY,
                         code="SLACK_ERROR",
-                        message=result.get("error", "Unknown Slack error"),
+                        message="Slack 渠道发送失败，请核对渠道配置后重试。",
                         request_id=request_id,
                     )
             else:
@@ -535,5 +527,5 @@ async def send_message(req_body: SendMessageRequest, request: Request, db: Async
         logging.error("[SEND] upstream request failed: %s platform_type=%s", type(e).__name__, platform_type)
         return error_response(status.HTTP_502_BAD_GATEWAY, code="PLATFORM_CONNECTION_FAILED", message="暂时无法连接渠道接口，请稍后重试。", request_id=request_id)
     except Exception as e:
-        logging.error("[SEND] error: %s", e)
-        return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="SEND_FAILED", message=str(e), request_id=request_id)
+        logging.error("[SEND] failed: error_type=%s", type(e).__name__)
+        return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="SEND_FAILED", message="发送失败，请稍后重试或联系管理员。", request_id=request_id)

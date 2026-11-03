@@ -24,14 +24,16 @@ function fixture(state, selection = null) {
   let closed = 0;
   let hook = 0;
   const exports = {};
-  const hooks = { ...React, useEffect() {}, useMemo: (fn) => fn(), useState: (initial) => {
+  const hooks = { ...React, useEffect() {}, useMemo: (fn) => fn(), useId: () => 'device-group-test', useState: (initial) => {
     const index = hook++;
     return [index === 1 ? selection : initial, () => {}];
   } };
   const dependencies = {
     react: hooks,
-    'react-router-dom': { useNavigate: () => () => {} },
+    'react-router-dom': { useNavigate: () => () => {},
+      Link: ({ to, ...props }) => React.createElement('a', { ...props, href: to }) },
     'react-i18next': { useTranslation: () => ({ t }) },
+    '@/hooks/useDialogFocus': { useDialogFocus: () => ({ current: null }) },
     '@/hooks/useDebouncedValue': { useDebouncedValue: (value) => value },
     '@/hooks/useToast': { useToast: () => ({ showToast() {} }) },
     '@/stores/deviceControlStore': { useDeviceControlStore: () => state },

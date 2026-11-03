@@ -57,9 +57,11 @@ export class WuKongIMService {
 
   async init(opts: IMInitOptions) {
     this._cfg = { ...opts, channelType: opts.channelType || 'person' }
+    const captured = this._cfg
     this._uid = opts.uid
     // Dynamically resolve ws address from HTTP route
     const wsAddr = await this._fetchRouteWsAddr(opts.apiBase, opts.uid, 10000)
+    if (this._cfg !== captured) throw new Error('当前客户会话已变化，旧连接已停止。')
     if (this._im && this._bound) {
       // avoid duplicate bindings on re-init (e.g., React StrictMode double effects)
       try { this._unbindInternalEvents() } catch {}
@@ -72,21 +74,27 @@ export class WuKongIMService {
 
   private _bindInternalEvents() {
     if (!this._im || this._bound) return
+    const connection = this._im
+    const configuration = this._cfg
+    const current = () => this._im === connection && this._cfg === configuration
 
     this._hConnect = (result: any) => {
+      if (!current()) return
       this._connected = true
       this._emitStatus('connected', result)
     }
     this._hDisconnect = (info: any) => {
+      if (!current()) return
       this._connected = false
       this._emitStatus('disconnected', info)
     }
     this._hError = (err: any) => {
+      if (!current()) return
       this._connected = false
       this._emitStatus('error', err)
     }
-    this._hMessage = (message: any) => { this._emitMessage(message as RecvMessage) }
-    this._hCustom = (ev: any) => { this._emitCustom(ev) }
+    this._hMessage = (message: any) => { if(current()) this._emitMessage(message as RecvMessage) }
+    this._hCustom = (ev: any) => { if(current()) this._emitCustom(ev) }
 
     this._im.on(WKIMEvent.Connect, this._hConnect as any)
     this._im.on(WKIMEvent.Disconnect, this._hDisconnect as any)
@@ -124,10 +132,15 @@ export class WuKongIMService {
   }
 
   async disconnect() {
-    if (!this._im) return
+    const connection = this._im
+    this._unbindInternalEvents()
+    this._im = null
+    this._cfg = null
+    this._uid = null
+    this._inited = false
     this._connected = false
-    if (typeof this._im.disconnect === 'function') {
-      try { await this._im.disconnect() } catch {}
+    if (connection && typeof connection.disconnect === 'function') {
+      try { await connection.disconnect() } catch {}
     }
   }
 

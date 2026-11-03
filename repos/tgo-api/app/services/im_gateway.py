@@ -255,9 +255,6 @@ class MessageRelay:
 
 
 async def serve_im_gateway(browser: WebSocket) -> None:
-    if not settings.SAAS_ENABLED:
-        await browser.close(code=1008)
-        return
     try:
         _, upstream_url = gateway_urls()
     except HTTPException:

@@ -6,7 +6,11 @@ REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
 is_port_open() {
-  lsof -i :"$1" -sTCP:LISTEN >/dev/null 2>&1
+  if command -v lsof >/dev/null 2>&1 &&
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; then
+    return 0
+  fi
+  (: > "/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
 }
 
 echo "=== Service Status ==="
@@ -14,7 +18,14 @@ echo ""
 
 # Infrastructure
 echo "Infrastructure:"
-for PAIR in "5432:PostgreSQL" "6379:Redis" "5001:WuKongIM-API" "5100:WuKongIM-TCP" "5200:WuKongIM-WS"; do
+if is_port_open "${POSTGRES_HOST_PORT:-15432}"; then
+  printf "  ✓ %-20s :%s\n" "PostgreSQL" "${POSTGRES_HOST_PORT:-15432}"
+elif is_port_open 5432; then
+  printf "  ✓ %-20s :%s\n" "PostgreSQL" 5432
+else
+  printf "  ✗ %-20s :%s\n" "PostgreSQL" "${POSTGRES_HOST_PORT:-15432}"
+fi
+for PAIR in "6379:Redis" "5001:WuKongIM-API" "5100:WuKongIM-TCP" "5200:WuKongIM-WS"; do
   PORT="${PAIR%%:*}"
   NAME="${PAIR#*:}"
   if is_port_open "$PORT"; then

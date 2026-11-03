@@ -65,6 +65,8 @@ export const useStaffDeliveryStore = create<StaffDeliveryState>((set, get) => {
         previous.request.channel_id !== request.channel_id
         || previous.request.channel_type !== request.channel_type
         || JSON.stringify(previous.request.payload) !== JSON.stringify(request.payload)
+        || (previous.request.source_message_id || null) !== (request.source_message_id || null)
+        || (previous.request.assist_draft_id || null) !== (request.assist_draft_id || null)
         || JSON.stringify(previous.request.training || null) !== JSON.stringify(request.training || null)
       )) throw new Error('STAFF_MESSAGE_IDENTITY_CONFLICT');
       const running = inFlight.get(key);

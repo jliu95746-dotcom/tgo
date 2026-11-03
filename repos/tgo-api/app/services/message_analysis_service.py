@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from typing import Literal
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -177,6 +178,7 @@ class MessageAnalysisService:
         platform: Platform,
         source_message_id: str,
         request: IntentResultUpsertRequest,
+        analysis_mode: Literal["active", "shadow"] = "active",
     ) -> MessageIntentResult:
         """Persist an intent result for a trusted in-process platform context."""
         self._require_active_platform(platform)
@@ -205,6 +207,7 @@ class MessageAnalysisService:
             platform_id=platform.id,
             visitor_id=request.visitor_id,
             source_message_id=source_message_id,
+            analysis_mode=analysis_mode,
             media_analysis_result_id=media_result_id,
             intent=request.intent.value,
             confidence=request.confidence,

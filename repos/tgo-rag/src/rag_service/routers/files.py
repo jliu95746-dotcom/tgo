@@ -231,7 +231,9 @@ async def upload_file(
         logger.info(f"Queued file {file_record.id} for processing with task {task.id}")
     except Exception as e:
         logger.warning(f"Failed to queue file for processing: {str(e)}")
-        # Continue anyway - file is uploaded, processing can be retried
+        file_record.status = "failed"
+        file_record.error_message = "解析任务提交失败，请重试。原文件已保留。"
+        await db.commit()
 
     return FileUploadResponse(
         id=file_record.id,

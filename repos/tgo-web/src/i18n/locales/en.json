@@ -1,4 +1,11 @@
 {
+  "mobileChat": {
+    "workspace": "Reception workspace",
+    "navigation": "Open navigation",
+    "closeNavigation": "Close navigation",
+    "actions": "More conversation actions",
+    "replyOptions": "Reply style settings"
+  },
   "mediaProbe": {
     "title": "模型样本测试",
     "hint": "仅测试当前模型，不修改用途，不发送给客户。已有密钥会自动使用，无需重复填写。",
@@ -403,6 +410,19 @@
       }
     },
     "profile": {
+      "edit": "Edit profile",
+      "avatar": "Avatar",
+      "changeAvatar": "Change avatar",
+      "cropAvatar": "Crop avatar",
+      "avatarHint": "JPG, PNG or WebP, up to 5MB",
+      "avatarTypeError": "Choose a JPG, PNG or WebP image",
+      "avatarSizeError": "Avatar must be smaller than 5MB",
+      "nickname": "Nickname",
+      "nicknameHint": "1–100 characters, shown on your profile and in chats",
+      "nicknameError": "Nickname must contain 1–100 characters",
+      "saving": "Saving…",
+      "saved": "Profile saved",
+      "saveError": "Could not save. Please try again",
       "title": "Profile",
       "subtitle": "View and manage your personal information",
       "loadError": "Failed to load profile",
@@ -589,6 +609,12 @@
         "dismiss": "Dismiss for now"
       },
       "notSupported": "Your browser does not support desktop notifications",
+      "wecom": {
+        "title": "WeCom embedded page",
+        "description": "Web desktop notification permission is not requested inside WeCom. Manage message alerts in the WeCom client's notification settings. Sound alerts can be configured below.",
+        "tip": "Application reminders are configured on the server for human handoffs, queued conversations and assist replies awaiting review. System banners and sounds also depend on WeCom and device settings.",
+        "desktopStatus": "Web desktop notifications are not enabled inside WeCom. Your browser notification preference is preserved."
+      },
       "permission": {
         "title": "Notification Permission",
         "granted": "Authorized",
@@ -599,7 +625,8 @@
         "deniedDesc": "Please allow notification permission in browser settings",
         "defaultDesc": "Click the button to request notification permission",
         "request": "Request Permission",
-        "requesting": "Requesting..."
+        "requesting": "Requesting...",
+        "incompleteDesc": "Permission has not been completed. Check the browser prompt or enable notifications in the site's settings."
       },
       "toggles": {
         "title": "Notification Settings",
@@ -1305,6 +1332,28 @@
   },
   "workflow": {
     "title": "Workflows",
+    "apiReadOnly": {
+      "message": "Only bodyless GET queries to a fixed HTTPS target on port 443 are available. Use a managed business connection for customer orders or logistics. Writes require approval and a durable idempotency receipt.",
+      "convert": "Use read-only GET"
+    },
+    "deviceAction": {
+      "title": "This employee's device action",
+      "device": "Bound device",
+      "loading": "Checking the current device policy…",
+      "error": "Device action status could not be checked. Retry.",
+      "refresh": "Check again",
+      "openDevices": "Open Device Control",
+      "openAgents": "Open AI employees",
+      "status": {
+        "not_bound": "This employee has no bound device. Connect one in AI employee settings.",
+        "ready": "The fixed file read policy and current connection test match. Execution checks again.",
+        "needs_rebind": "The device policy changed. Unbind and explicitly bind the employee again.",
+        "needs_test": "The current file read test has not passed. Test it in Device Control.",
+        "legacy_unverified": "This legacy device has no verifiable published file read policy. Configure and test one.",
+        "device_missing": "The bound device is missing or outside this project. Choose another device.",
+        "invalid_binding": "The saved device ID is invalid. Bind the device again."
+      }
+    },
     "management": {
       "title": "Workflow Management",
       "subtitle": "Orchestrate complex AI task flows"
@@ -1369,6 +1418,10 @@
         "label": "AI Agent",
         "description": "Call other AI agents"
       },
+      "approval": {
+        "label": "Human approval",
+        "description": "Wait for an assigned staff member before continuing a read-only workflow"
+      },
       "tool": {
         "label": "Tool",
         "description": "Execute tools"
@@ -1389,6 +1442,10 @@
         "label": "API Call",
         "description": "Execute external HTTP requests"
       },
+      "business_query": {
+        "label": "Governed Business Query",
+        "description": "Query orders or logistics after customer ownership checks"
+      },
       "classifier": {
         "label": "Question Classifier",
         "description": "Categorize input using LLM"
@@ -1398,6 +1455,19 @@
       "active": "Active",
       "draft": "Draft",
       "archived": "Archived"
+    },
+    "execution": {
+      "status": {
+        "pending": "Pending",
+        "running": "Running",
+        "waiting_approval": "Awaiting approval",
+        "pending_resume": "Awaiting resume",
+        "completed": "Completed",
+        "failed": "Failed",
+        "rejected": "Rejected",
+        "expired": "Approval expired",
+        "cancelled": "Cancelled"
+      }
     },
     "actions": {
       "create": "Create Workflow",
@@ -1417,6 +1487,14 @@
       "incomplete": "Execution incomplete",
       "streamInterrupted": "The debug connection was interrupted. Refresh to check the execution result.",
       "cancelFailed": "Cancellation could not be confirmed. Refresh and try again.",
+      "statusRefreshFailed": "Could not load the execution status. Refresh manually.",
+      "refreshStatus": "Refresh execution status",
+      "waitingApproval": "Waiting for approval",
+      "pendingResume": "Approved, waiting to resume",
+      "rejected": "Approval rejected",
+      "expired": "Approval expired",
+      "approvalHint": "This workflow is paused. The assigned reviewer can decide under My Approvals in workflow management. Refresh this status afterwards.",
+      "cancelWaiting": "Cancel this run",
       "input_variables": "Input Variables",
       "execution_status": "Execution Status",
       "final_output": "Final Output",
@@ -1437,6 +1515,10 @@
       "input": "Input",
       "output": "Output",
       "copy_json": "Copy JSON",
+      "historyTitle": "View execution record",
+      "historySubtitle": "Inspect saved steps and results",
+      "historyClose": "Close execution record",
+      "historyNote": "This view only displays the saved execution record. To test the current draft, close this record and select Debug.",
       "persistence_note": "Execution results in debug mode are for preview only and will not affect the online workflow version."
     },
     "fields": {
@@ -2213,7 +2295,21 @@
       "intent": "Intent",
       "insightSummary": "Insight Summary",
       "currentSatisfaction": "Current Satisfaction",
-      "currentEmotion": "Current Emotion"
+      "currentEmotion": "Current Emotion",
+      "historyTags": "Past inquiry tags",
+      "historyTagsHint": "Derived from past inquiry intents. Check the customer's messages before acting.",
+      "personaTags": {
+        "product_interest": "Product interest",
+        "price_sensitive": "Price and offers",
+        "order_support": "Order assistance",
+        "order_tracking": "Order inquiry",
+        "logistics_tracking": "Delivery inquiry",
+        "payment_support": "Payment inquiry",
+        "after_sales": "After-sales inquiry",
+        "complaint_risk": "Past complaint",
+        "high_intent": "Purchase interest",
+        "needs_human": "Requested an agent"
+      }
     },
     "activity": {
       "noActivity": "No activity yet",
@@ -2542,8 +2638,29 @@
       "endChat": "End Chat",
       "transfer": "Transfer",
       "transferTooltip": "Transfer to another agent",
+      "summaryButton": "Handoff notes",
+      "summaryTitle": "Current session excerpts",
+      "summaryScope": "Recent messages from this session only. Confirm outcomes in the full conversation and business system.",
+      "summaryQuestions": "Recent customer messages",
+      "summaryReplies": "Recent replies",
+      "summaryCustomer": "Customer",
+      "summaryStaff": "Agent",
+      "summaryAssistant": "AI employee",
+      "summaryEmpty": "No messages to show",
+      "summaryMore": "Older messages are available in the full conversation.",
+      "summaryLoading": "Loading messages…",
+      "summaryLoadError": "Could not load handoff notes",
+      "summaryRefresh": "Refresh notes",
+      "summaryClose": "Close notes",
       "transferSuccess": "Transferred to {{name}}",
       "transferError": "Transfer failed",
+      "commandPending": "The operation result is unconfirmed. Check its status before starting another operation.",
+      "commandPendingLabel": "Result unconfirmed",
+      "checkCommand": "Check result",
+      "retryCommand": "Retry original operation",
+      "commandCommitted": "Original operation completed",
+      "commandStillPending": "The original result is not available yet. Check again later.",
+      "recoveryTitle": "Unconfirmed session operations",
       "transferTo": "Transfer to",
       "noStaffAvailable": "No staff available",
       "loadingStaff": "Loading...",
@@ -2570,6 +2687,8 @@
     "messages": {
       "sending": "Sending...",
       "sendFailedTitle": "Send Failed",
+      "aiSender": "AI customer service",
+      "nativeStaffSender": "WeCom human support",
       "image": {
         "previewAria": "Preview image",
         "alt": "Image",
@@ -4286,6 +4405,42 @@
     }
   },
   "deviceControl": {
+    "business": {
+      "toggle": "Business setup and execution",
+      "loading": "Loading business status…",
+      "error": "Could not load business status. Try again.",
+      "purpose": "Purpose",
+      "system": "Business system",
+      "action": "Policy action",
+      "policy": "Policy status",
+      "lastRun": "Last execution",
+      "lastTest": "Last action test",
+      "noTest": "No records yet",
+      "testStatus": {
+        "passed": "Passed",
+        "failed": "Failed",
+        "unknown": "Result unavailable"
+      },
+      "agents": "Linked AI agents",
+      "workflows": "Referencing workflows",
+      "workflowCount": "{{count}} total",
+      "noWorkflows": "None",
+      "workflowSource": {
+        "draft": "Draft",
+        "published": "Published",
+        "both": "Published and draft"
+      },
+      "agentCount": "{{count}} total",
+      "noAgents": "None",
+      "agentSeparator": ", ",
+      "unconfigured": "Not configured",
+      "adminOnly": "Visible to admins only",
+      "pending": "Awaiting device acknowledgement",
+      "untested": "Applied, test required",
+      "tested": "Applied and tested",
+      "noRuns": "No records yet",
+      "configure": "Configure file scenario"
+    },
     "sessions": {
       "title": "Execution history",
       "subtitle": "View AI device tasks and recorded steps",
@@ -4299,6 +4454,7 @@
       "failedActions": "Failed or interrupted",
       "screenshots": "Images returned",
       "executionId": "Execution ID",
+      "workflowExecutionId": "Parent workflow run ID",
       "started": "Started",
       "ended": "Ended",
       "steps": "Steps (newest first)",

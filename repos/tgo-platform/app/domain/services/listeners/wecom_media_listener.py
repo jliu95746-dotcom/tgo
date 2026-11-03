@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -540,6 +541,9 @@ class WeComMediaListener:
         message: str,
         retryable: bool,
     ) -> None:
+        # Provider messages may contain URL query credentials or customer data.
+        # Keep only a bounded diagnostic code in all three persisted rows.
+        safe_code = code if re.fullmatch(r"[a-z][a-z0-9_-]{0,79}", code) else "processing_error"
         retry_count = claimed.retry_count + 1
         dead = not retryable or retry_count >= claimed.max_attempts
         now = datetime.now(timezone.utc)
@@ -563,8 +567,8 @@ class WeComMediaListener:
                     processing_started_at=None,
                     lease_expires_at=None,
                     next_attempt_at=next_attempt_at,
-                    error_code=code,
-                    error_message=message[:2000],
+                    error_code=safe_code,
+                    error_message=safe_code,
                 )
                 .returning(MediaProcessingJob.id)
             )
@@ -576,8 +580,8 @@ class WeComMediaListener:
                 .where(MessageMedia.id == claimed.media_id)
                 .values(
                     status="failed" if dead else "retrying",
-                    error_code=code,
-                    error_message=message[:2000],
+                    error_code=safe_code,
+                    error_message=safe_code,
                 )
             )
             await session.execute(
@@ -585,7 +589,7 @@ class WeComMediaListener:
                 .where(WeComInbox.id == claimed.inbox_id)
                 .values(
                     status="media_failed" if dead else "pending_media",
-                    error_message=message[:2000],
+                    error_message=safe_code,
                 )
             )
             await session.commit()

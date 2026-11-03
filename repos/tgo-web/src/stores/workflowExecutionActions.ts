@@ -7,6 +7,7 @@ import i18n from '@/i18n';
 interface ExecutionState {
   currentWorkflow: Workflow | null;
   currentExecution: WorkflowExecution | null;
+  executionPanelMode: 'debug' | 'history';
   isExecuting: boolean;
   executionError: string | null;
   nodeExecutionMap: Record<string, NodeExecution>;
@@ -27,19 +28,61 @@ function stoppedNodes(nodes: Record<string, NodeExecution>) {
   ]));
 }
 
+function executionNodes(execution: WorkflowExecution): Record<string, NodeExecution> {
+  return Object.fromEntries(execution.node_executions.map(node => [node.node_id, node]));
+}
+
+function isTerminal(status: WorkflowExecution['status']): boolean {
+  return ['completed', 'failed', 'rejected', 'expired', 'cancelled'].includes(status);
+}
+
 export function createWorkflowExecutionActions(
   set: SetExecutionState, get: () => ExecutionState,
 ) {
   return {
     startExecution: async (input: Record<string, WorkflowJsonValue>) => {
-      const { currentWorkflow, executionAbortController } = get();
-      if (!currentWorkflow) return;
+      const { currentWorkflow, executionAbortController, executionPanelMode } = get();
+      if (!currentWorkflow || executionPanelMode === 'history') return;
       executionAbortController?.abort();
       const controller = new AbortController();
       set({ isExecuting: true, executionError: null, nodeExecutionMap: {},
         currentExecution: null, executionAbortController: controller,
       }, false, 'startExecution:start');
       try {
+        if (currentWorkflow.definition.nodes.some(node => node.type === 'approval')) {
+          const isCurrent = () => get().executionAbortController === controller
+            && !controller.signal.aborted;
+          const updateFromServer = (execution: WorkflowExecution) => {
+            if (!isCurrent()) return false;
+            const stillRunning = execution.status === 'pending' || execution.status === 'running';
+            set({
+              currentExecution: execution,
+              nodeExecutionMap: executionNodes(execution),
+              isExecuting: stillRunning,
+              executionAbortController: stillRunning ? controller : null,
+            }, false, 'startExecution:asyncStatus');
+            return stillRunning;
+          };
+          const initial = await WorkflowApiService.executeWorkflowAsync(currentWorkflow.id, input, controller.signal);
+          if (!updateFromServer(initial)) return;
+          void (async () => {
+            try {
+              while (isCurrent()) {
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                if (!isCurrent()) break;
+                const latest = await WorkflowApiService.getExecution(initial.id, controller.signal);
+                if (!updateFromServer(latest)) break;
+              }
+            } catch (error: unknown) {
+              if (!isCurrent()) return;
+              set({ isExecuting: false, executionAbortController: null,
+                executionError: error instanceof Error ? error.message
+                  : i18n.t('workflow.debug.statusRefreshFailed', '运行状态读取失败，请手动刷新。'),
+              }, false, 'startExecution:asyncPollError');
+            }
+          })();
+          return;
+        }
         await WorkflowApiService.executeWorkflowStream(currentWorkflow.id, input, event => {
           if (get().executionAbortController !== controller || controller.signal.aborted) return;
           if (event.event === 'workflow_started') {
@@ -91,7 +134,25 @@ export function createWorkflowExecutionActions(
       }
     },
 
+    refreshExecution: async () => {
+      const executionId = get().currentExecution?.id;
+      if (!executionId) return;
+      try {
+        const latest = await WorkflowApiService.getExecution(executionId);
+        if (get().currentExecution?.id !== executionId) return;
+        set({ currentExecution: latest, nodeExecutionMap: executionNodes(latest),
+          executionError: null,
+        }, false, 'refreshExecution:success');
+      } catch (error: unknown) {
+        if (get().currentExecution?.id !== executionId) return;
+        set({ executionError: error instanceof Error ? error.message
+          : i18n.t('workflow.debug.statusRefreshFailed', '运行状态读取失败，请手动刷新。'),
+        }, false, 'refreshExecution:error');
+      }
+    },
+
     cancelExecution: async () => {
+      if (get().executionPanelMode === 'history') return;
       const { currentExecution, executionAbortController } = get();
       executionAbortController?.abort();
       set({ isExecuting: false, executionAbortController: null,
@@ -114,9 +175,9 @@ export function createWorkflowExecutionActions(
         try {
           const latest = await WorkflowApiService.getExecution(currentExecution.id);
           if (!sameRun()) return;
-          if (!['pending', 'running'].includes(latest.status)) {
+          if (isTerminal(latest.status)) {
             set({ currentExecution: latest, executionError: null,
-              nodeExecutionMap: Object.fromEntries(latest.node_executions.map(node => [node.node_id, node])),
+              nodeExecutionMap: executionNodes(latest),
             }, false, 'cancelExecution:reconciled');
             return;
           }
@@ -130,7 +191,7 @@ export function createWorkflowExecutionActions(
     clearExecution: () => {
       get().executionAbortController?.abort();
       set({ currentExecution: null, isExecuting: false, executionError: null,
-        nodeExecutionMap: {}, executionAbortController: null,
+        nodeExecutionMap: {}, executionAbortController: null, executionPanelMode: 'debug',
       }, false, 'clearExecution');
     },
   };

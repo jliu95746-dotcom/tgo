@@ -28,6 +28,14 @@ export type FileMessagePayload = {
   size: number
 }
 
+export type VoiceMessagePayload = {
+  type: 4
+  url: string
+  content?: string
+  file_id?: string
+  mime_type?: string
+}
+
 
 export type MixedMessagePayload = {
   type: 12
@@ -54,6 +62,7 @@ export type CommandMessagePayload = {
 // AI Loading indicator (shown while AI is thinking/preparing response)
 export type AILoadingMessagePayload = {
   type: 100
+  sender_kind?: 'ai'
 }
 
 // System message (type 1000-2000), e.g. "您已接入人工客服，客服{0} 将为您服务"
@@ -101,7 +110,7 @@ export function formatSystemMessageContent(content: string, extra?: SystemMessag
 }
 
 // Regular message payloads (non-system)
-export type RegularMessagePayload = TextMessagePayload | ImageMessagePayload | FileMessagePayload | MixedMessagePayload | CommandMessagePayload | AILoadingMessagePayload
+export type RegularMessagePayload = TextMessagePayload | ImageMessagePayload | FileMessagePayload | VoiceMessagePayload | MixedMessagePayload | CommandMessagePayload | AILoadingMessagePayload
 
 // All message payloads including system messages
 export type MessagePayload = RegularMessagePayload | SystemMessagePayload
@@ -132,6 +141,7 @@ export interface StreamEventMeta {
 export type ChatMessage = {
   id: string
   role: 'agent' | 'user'
+  senderKind?: 'ai'
   payload: MessagePayload
   time: Date
   // Align with RecvMessage

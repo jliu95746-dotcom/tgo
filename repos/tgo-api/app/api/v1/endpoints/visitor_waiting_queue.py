@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
@@ -29,7 +30,8 @@ from app.schemas.visitor_waiting_queue import (
     QueueUrgencyEnum,
 )
 from app.services.transfer_service import transfer_to_staff
-from app.services.queue_lifecycle import cancel_entry
+from app.services.staff_queue_access import begin_queue_change, commit_queue_cancel
+from app.api.current_access_route import CurrentAccessRoute
 from app.services.staff_conversation_scope import restricted_staff
 from app.utils.encoding import build_visitor_channel_id
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
@@ -41,7 +43,8 @@ def enforce_queue_scope(request: Request, actor: Staff = Depends(require_permiss
         raise HTTPException(403, "请通过公共待接待队列领取访客，领取前仅可查看接待摘要")
 
 
-router = APIRouter(dependencies=[Depends(enforce_queue_scope)])
+router = APIRouter(dependencies=[Depends(enforce_queue_scope)], route_class=CurrentAccessRoute)
+original_bearer = HTTPBearer(auto_error=False)
 
 
 def _build_visitor_brief(visitor: Visitor) -> VisitorBriefResponse:
@@ -316,8 +319,10 @@ async def get_queue_entry(
 )
 async def accept_visitor(
     request: AcceptVisitorRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
+    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
 ) -> AcceptVisitorResponse:
     """
     客服接入访客。
@@ -345,6 +350,7 @@ async def accept_visitor(
             detail="No waiting queue entry found for this visitor",
         )
     
+    scope = begin_queue_change(db, credentials, current_user, entry.id)
     # Calculate wait duration before transfer
     wait_duration = entry.wait_duration_seconds
     visitor = entry.visitor
@@ -363,6 +369,9 @@ async def accept_visitor(
         ai_disabled=entry.ai_disabled,
         add_to_queue_if_no_staff=False,
         expected_queue_entry_id=entry.id,
+        expected_unassigned=True,
+        mutation_scope=scope.customer,
+        queue_scope=scope,
         notes=f"Accepted from waiting queue. {request.notes or ''}".strip(),
     )
     
@@ -371,6 +380,10 @@ async def accept_visitor(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result.message,
         )
+
+    assert result.operation_guard is not None
+    result.operation_guard.check()
+    http_request.state.operation_guard = result.operation_guard
     
     # Update queue entry status to assigned
     # Queue transition was committed atomically by transfer_to_staff.
@@ -412,10 +425,12 @@ async def accept_visitor(
 )
 async def cancel_queue_entry(
     entry_id: UUID,
+    request: Request,
     reason: Optional[str] = Query(None, max_length=255, description="取消原因"),
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
-) -> dict:
+    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
+) -> dict[str, bool | str]:
     """
     取消队列条目。
     
@@ -438,11 +453,10 @@ async def cancel_queue_entry(
             detail=f"Queue entry is not in waiting status (current: {entry.status})",
         )
     
-    # Update status
-    if not cancel_entry(db, entry.id, current_user.project_id, reason):
-        raise HTTPException(409, "Queue entry is no longer waiting")
-    
-    db.commit()
+    scope = begin_queue_change(db, credentials, current_user, entry.id, accepting=False)
+    output = commit_queue_cancel(db, scope, reason)
+    request.state.operation_guard = output.guard()
+    output.guard().check()
     
     logger.info(
         f"Queue entry {entry_id} cancelled",

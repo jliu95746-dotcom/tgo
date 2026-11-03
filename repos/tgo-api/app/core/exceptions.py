@@ -243,13 +243,54 @@ async def validation_exception_handler(
     # Keep field locations and error types, but never log or echo those inputs.
     if request.url.path.rstrip("/") in {
         "/v1/ops/login", "/v1/staff/login", "/v1/staff/register",
+        "/v1/visitors/register",
+        "/v1/visitors/access/end",
+        "/internal/channel-visitors/register",
         "/v1/ops/model-policy",
-    }:
+    } or request.url.path.startswith(("/v1/business-scenarios/", "/internal/ai/activation/", "/v1/business-connections", "/internal/business-connections")) or (
+        request.url.path.startswith("/v1/ai/agents/")
+        and any(
+            part in request.url.path
+            for part in (
+                "/trials", "/activation-policies", "/activation-requests",
+                "/device-script-binding", "/device-script-trials",
+                "/device-script-cases",
+            )
+        )
+    ) or (
+        request.url.path.startswith("/v1/ai/workflows/")
+        and request.url.path.rstrip("/").endswith("/event-tests")
+    ) or (
+        "/device-control/devices/" in request.url.path
+        and request.url.path.rstrip("/").endswith((
+            "/script-policy", "/script-policy/revoke",
+        ))
+    ):
         error_list = [
             {"type": item.get("type"), "loc": item.get("loc", []),
              "msg": "Invalid field value"}
             for item in error_list
         ]
+
+    if (
+        request.url.path.startswith("/v1/ai/agents/")
+        and any(part in request.url.path for part in (
+            "/device-script-trials", "/device-script-cases",
+        ))
+    ):
+        # User-controlled map keys and extra-field names are private too.
+        known_fields = {
+            "request_id", "binding_id", "binding_revision",
+            "parameters", "expected_fields", "agent_id", "report_id",
+            "case_id", "expected_revision", "title", "version_id",
+        }
+        for item in error_list:
+            location = item.get("loc", [])
+            item["loc"] = (
+                location[:2]
+                if len(location) > 1 and location[1] in known_fields
+                else ["body"]
+            )
 
     logger.warning(
         "Validation Exception",

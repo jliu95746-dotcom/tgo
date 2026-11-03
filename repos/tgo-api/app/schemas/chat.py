@@ -8,6 +8,8 @@ from pydantic import ConfigDict, Field
 
 from app.schemas.base import BaseSchema
 from app.schemas.humanization import ConversationTurn
+from app.schemas.assist_trace import AssistRunTrace
+from app.schemas.business_execution_context import BusinessCustomerSessionInput
 from app.utils.const import MessageType
 
 
@@ -37,6 +39,7 @@ class AssistDraftRequest(BaseSchema):
     customer_message: str = Field(..., min_length=1, max_length=10000)
     humanization_skill_name: Optional[str] = Field(default=None, max_length=64)
     source_message_id: Optional[str] = Field(default=None, max_length=255)
+    source_client_msg_no: Optional[str] = Field(default=None, max_length=100)
     message_type: Literal[1, 2, 4] = 1
     media_file_id: UUID | None = None
 
@@ -45,10 +48,12 @@ class AssistDraftResponse(BaseSchema):
     """Unsent draft returned only to the authenticated staff UI."""
 
     draft: str
+    draft_id: UUID | None = None
     humanization_skill_name: Optional[str] = None
     source_message_id: Optional[str] = None
     recent_messages: list[ConversationTurn] = Field(default_factory=list)
     customer_message: str | None = None
+    generation_trace: list[AssistRunTrace] = Field(default_factory=list)
 
 
 class ChatFileUploadResponse(BaseSchema):
@@ -67,6 +72,9 @@ class ChatFileUploadResponse(BaseSchema):
 
 class ChatCompletionRequest(BaseSchema):
     """流式聊天请求参数。"""
+    customer_sessions: list[BusinessCustomerSessionInput] = Field(
+        default_factory=list, max_length=20, repr=False, exclude=True,
+        description="商户签名交换得到的客户会话；只用于服务端业务身份核验")
 
     api_key: str = Field(
         ...,

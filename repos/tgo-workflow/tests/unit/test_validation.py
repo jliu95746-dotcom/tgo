@@ -5,7 +5,7 @@ def test_validate_valid_workflow():
     definition = {
         "nodes": [
             {"id": "n1", "type": "input", "data": {"label": "Input", "reference_key": "input"}},
-            {"id": "n2", "type": "answer", "data": {"label": "Answer", "reference_key": "answer", "output_type": "template"}}
+            {"id": "n2", "type": "answer", "data": {"label": "Answer", "reference_key": "answer", "output_type": "template", "output_template": "{{input.question}}"}}
         ],
         "edges": [
             {"source": "n1", "target": "n2"}

@@ -3,6 +3,7 @@
 
 import { requireApiKeyOrThrow } from '../utils/url'
 import type { StreamEventMeta } from '../types/chat'
+import {captureVisitorDataAccess} from './visitorDataAccess'
 
 export type PullMode = 0 | 1 // 0=down (older), 1=up (newer)
 
@@ -50,6 +51,7 @@ export type WuKongIMChannelMessageSyncResponse = {
 
 export async function syncVisitorMessages(params: {
   apiBase: string
+  platformApiKey?: string
   channelId: string
   channelType: number
   startSeq?: number | null
@@ -59,7 +61,8 @@ export async function syncVisitorMessages(params: {
   signal?: AbortSignal
 }): Promise<WuKongIMChannelMessageSyncResponse> {
   const { apiBase, channelId, channelType, startSeq, endSeq, limit, pullMode, signal } = params
-  const apiKey = requireApiKeyOrThrow()
+  const apiKey = params.platformApiKey || requireApiKeyOrThrow()
+  const access = captureVisitorDataAccess({apiBase,platformApiKey:apiKey,channelId})
   const url = `${apiBase.replace(/\/$/, '')}/v1/visitors/messages/sync`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 10000)
@@ -76,17 +79,18 @@ export async function syncVisitorMessages(params: {
     const res = await fetch(url, {
       method: 'POST',
       headers: {
+        ...access.headers,
         'Content-Type': 'application/json',
         'X-Platform-API-Key': apiKey,
       },
       body: JSON.stringify(body),
       signal: signal ?? controller.signal,
     })
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw new Error(`[History] sync failed: ${res.status} ${res.statusText} ${text}`)
-    }
+    access.assertCurrent()
+    if (!res.ok) throw new Error(`历史读取失败（HTTP ${res.status}），请重新连接后重试。`)
     const data = (await res.json()) as WuKongIMChannelMessageSyncResponse
+    access.assertCurrent()
+    access.assertSafeValue(data)
     if (!data || !Array.isArray(data.messages)) {
       throw new Error('[History] invalid response')
     }

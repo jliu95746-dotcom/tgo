@@ -145,8 +145,10 @@ const OnboardingWelcome: React.FC = () => {
     getNextIncompleteStep,
   } = useOnboardingStore();
 
-  // Don't render if completed or modal is closed
-  if (!showWelcomeModal || isCompleted || steps.length === 0) {
+  const incompleteSteps = steps.filter(step => !step.is_completed);
+
+  // Show only setup that still needs the customer's attention.
+  if (!showWelcomeModal || isCompleted || incompleteSteps.length === 0) {
     return null;
   }
 
@@ -250,7 +252,7 @@ const OnboardingWelcome: React.FC = () => {
         {/* Step timeline */}
         <div className="px-8 py-6">
           <div className="flex items-start justify-between">
-            {steps.map((step, index) => (
+            {incompleteSteps.map((step, index) => (
               <React.Fragment key={step.step_number}>
                 <StepNode
                   step={step}
@@ -258,7 +260,7 @@ const OnboardingWelcome: React.FC = () => {
                   onClick={() => handleStepClick(step)}
                   language={i18n.language}
                 />
-                {index < steps.length - 1 && (
+                {index < incompleteSteps.length - 1 && (
                   <StepConnector completed={step.is_completed} />
                 )}
               </React.Fragment>

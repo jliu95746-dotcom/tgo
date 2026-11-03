@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
@@ -31,6 +32,51 @@ def claimed_job() -> _ClaimedMediaJob:
         corp_id="corp-id",
         app_secret="app-secret",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code,expected_code",
+    (("network_error", "network_error"), ("private@example.com", "processing_error")),
+)
+async def test_media_failure_does_not_persist_untrusted_error_text(
+    code: str, expected_code: str
+) -> None:
+    claimed = claimed_job()
+    statements: list[object] = []
+
+    class FakeSession:
+        async def __aenter__(self) -> FakeSession:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def scalar(self, statement: object) -> object:
+            statements.append(statement)
+            return claimed.job_id
+
+        async def execute(self, statement: object) -> None:
+            statements.append(statement)
+
+        async def commit(self) -> None:
+            pass
+
+    listener = object.__new__(WeComMediaListener)
+    listener._session_factory = lambda: FakeSession()
+
+    await listener._finalize_failure(
+        claimed,
+        code=code,
+        message="private@example.com access-token",
+        retryable=True,
+    )
+
+    assert len(statements) == 3
+    parameters = [statement.compile().params for statement in statements]
+    assert all("private@example.com" not in str(item) for item in parameters)
+    assert all("access-token" not in str(item) for item in parameters)
+    assert all(item["error_message"] == expected_code for item in parameters)
 
 
 class SuccessfulDownloader:
@@ -343,6 +389,92 @@ async def test_cleanup_cycle_metrics_and_logs_are_identifier_free(
     assert "error_type=RuntimeError" in caplog.text
     for forbidden in forbidden_values.split():
         assert forbidden not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_temporary_cleanup_failure_keeps_database_cleanup_running(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    calls: list[str] = []
+
+    class FailingTemporaryCleaner:
+        async def cleanup_expired_temporary_objects(
+            self, *, older_than: datetime, limit: int
+        ) -> int:
+            assert older_than.tzinfo is not None
+            assert limit > 0
+            raise RuntimeError("private/customer/object-key")
+
+    metrics = InMemoryMediaMetrics(concurrency_limit=1)
+    cleanup = MediaCleanupListener(
+        session_factory=None,  # type: ignore[arg-type]
+        object_deleter=SuccessfulStorage(),
+        temporary_cleaner=FailingTemporaryCleaner(),
+        metrics=metrics,
+    )
+
+    async def record_staging() -> None:
+        calls.append("staging")
+
+    async def record_retention() -> None:
+        calls.append("retention")
+
+    async def stop_after_cycle(_: float) -> None:
+        cleanup._stop_event.set()
+
+    monkeypatch.setattr(cleanup, "_cleanup_staging_objects", record_staging)
+    monkeypatch.setattr(cleanup, "_cleanup_expired_media", record_retention)
+    monkeypatch.setattr(
+        "app.domain.services.listeners.media_cleanup_listener.asyncio.sleep",
+        stop_after_cycle,
+    )
+
+    with caplog.at_level(logging.ERROR):
+        await cleanup._consumer_loop()
+
+    assert calls == ["staging", "retention"]
+    assert (
+        metrics.snapshot().count(event="cleanup_failed", cleanup_kind="temporary") == 1
+    )
+    assert (
+        metrics.snapshot().count(event="cleanup_failed", cleanup_kind="cycle") == 1
+    )
+    assert "private/customer/object-key" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_cleanup_listener_start_and_stop_runs_temporary_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    temporary_cleanup_started = asyncio.Event()
+
+    class RecordingTemporaryCleaner:
+        async def cleanup_expired_temporary_objects(
+            self, *, older_than: datetime, limit: int
+        ) -> int:
+            temporary_cleanup_started.set()
+            return 0
+
+    cleanup = MediaCleanupListener(
+        session_factory=None,  # type: ignore[arg-type]
+        object_deleter=SuccessfulStorage(),
+        temporary_cleaner=RecordingTemporaryCleaner(),
+    )
+
+    async def no_database_cleanup() -> None:
+        return None
+
+    monkeypatch.setattr(cleanup, "_cleanup_staging_objects", no_database_cleanup)
+    monkeypatch.setattr(cleanup, "_cleanup_expired_media", no_database_cleanup)
+
+    await cleanup.start()
+    try:
+        await asyncio.wait_for(temporary_cleanup_started.wait(), timeout=1)
+    finally:
+        await cleanup.stop()
+
+    assert cleanup._consumer_task is None
 
 
 @pytest.mark.asyncio

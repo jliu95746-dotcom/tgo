@@ -2,6 +2,8 @@
 
 import httpx
 import pytest
+from pydantic import SecretStr
+from app.core.config import settings
 
 from app.domain.entities import ChatCompletionRequest, StreamEvent
 from app.domain.services import dispatcher
@@ -11,7 +13,8 @@ from tests.test_wecom_dispatcher_contract import FakeAdapter, FakeSession, FakeS
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("code,paused", [("SUBSCRIPTION_EXPIRED", True), ("AI_QUOTA_EXHAUSTED", False)])
-async def test_only_subscription_expiry_becomes_pause_notice(code, paused):
+async def test_only_subscription_expiry_becomes_pause_notice(code, paused, monkeypatch):
+    monkeypatch.setattr(settings, "saas_internal_token", SecretStr("owned-peer-test"))
     client = HttpxTgoApiClient("https://synthetic.invalid")
     await client.aclose()
     client._client = httpx.AsyncClient(base_url="https://synthetic.invalid", transport=httpx.MockTransport(lambda _: httpx.Response(402, json={"error": {"code": code}})))

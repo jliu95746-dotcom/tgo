@@ -5,6 +5,57 @@
 
 export type DeviceType = 'desktop' | 'mobile';
 export type DeviceStatus = 'online' | 'offline';
+export type DeviceScenarioId = 'files' | 'report';
+
+/** A saved draft records intent. It does not authorize device execution. */
+export interface DeviceScenarioDraft {
+  device_id: string;
+  project_id: string;
+  scenario: DeviceScenarioId;
+  purpose: string;
+  business_system: string | null;
+  target_directory: string | null;
+  revision: number;
+  status: 'draft';
+  updated_at: string;
+}
+
+export interface DeviceScenarioDraftWrite {
+  expected_revision: number;
+  purpose: string;
+  business_system: string | null;
+  target_directory: string | null;
+}
+
+export interface DeviceReadPolicy {
+  device_id: string;
+  project_id: string;
+  revision: number;
+  tool_name: 'fs_read';
+  allowed_directory: string;
+  max_lines: number;
+  max_offset: number;
+  digest: string;
+  status: 'active' | 'pending' | 'revoked';
+  verified: boolean;
+  last_tested_at: string | null;
+  last_test_status: 'passed' | 'failed' | null;
+  updated_at: string;
+  revoked_at?: string | null;
+}
+
+export interface DeviceReadPolicyPublish {
+  expected_draft_revision: number;
+  expected_policy_revision: number;
+  max_lines: number;
+  max_offset: number;
+}
+
+export interface DeviceReadPolicyTest {
+  path: string;
+  expected_text: string;
+  limit: number;
+}
 
 /**
  * Device information
@@ -76,6 +127,7 @@ export interface DeviceSession {
   device_name: string;
   agent_id: string | null;
   agent_name: string | null;
+  workflow_execution_id: string | null;
   status: DeviceSessionStatus;
   started_at: string;
   ended_at: string | null;
@@ -103,6 +155,7 @@ export interface DeviceSessionListResponse {
 }
 export interface DeviceSessionListParams {
   device_id?: string;
+  workflow_execution_id?: string;
   skip?: number;
   limit?: number;
 }

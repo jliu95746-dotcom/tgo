@@ -17,14 +17,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+from uuid import UUID
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from app.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
 from app.models.device import DeviceStatus
+from app.models.device_read_policy import DeviceReadPolicy
+from app.models.device_script_policy import DeviceScriptPolicy
+from app.services.device_script_restore import restore_script_policy
 from app.schemas.tcp_rpc import JsonRpcErrorCode
 from app.services.device_service import DeviceService
+from app.services.device_read_policy import apply_read_policy, set_desired_policy
 from app.services.tcp_connection_manager import tcp_connection_manager
 
 if TYPE_CHECKING:
@@ -216,6 +221,18 @@ class TcpRpcServer:
                 self._message_reader_loop(reader, writer, connection, device_id)
             )
 
+            # Desired policy is loaded before this connection can be used for
+            # business calls. Older clients cannot acknowledge it and remain pending.
+            async with tcp_connection_manager.lifecycle_lock(device_id):
+                async with AsyncSessionLocal() as policy_db:
+                    if not await restore_script_policy(policy_db, connection):
+                        policy = await policy_db.get(
+                            DeviceReadPolicy, UUID(device_id)
+                        )
+                        if policy and str(policy.project_id) == project_id:
+                            set_desired_policy(connection, policy)
+                            await apply_read_policy(connection, policy)
+
             # Stop discovery immediately if the reader closes during startup.
             discovery_task = asyncio.create_task(connection.list_tools(timeout=30))
             await asyncio.wait(
@@ -280,6 +297,9 @@ class TcpRpcServer:
                 ):
                     return None
                 try:
+                    script_history = await db.get(
+                        DeviceScriptPolicy, UUID(device_id)
+                    )
                     connection = await tcp_connection_manager.register_connection(
                         agent_id=device_id,
                         name=name,
@@ -289,7 +309,15 @@ class TcpRpcServer:
                         writer=writer,
                         project_id=project_id,
                         device_db_id=device_id,
+                        script_policy_required=script_history is not None,
                     )
+                    desired_policy = await db.get(DeviceReadPolicy, UUID(device_id))
+                    if (
+                        desired_policy
+                        and desired_policy.project_id == device.project_id
+                        and not script_history
+                    ):
+                        set_desired_policy(connection, desired_policy)
                     await service.update_device_status(device.id, DeviceStatus.ONLINE)
                 except BaseException:
                     # Cancellation may occur after registration installed the new

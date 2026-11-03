@@ -202,6 +202,7 @@ services:
       <<: *backend-env
       REDIS_URL: redis://redis:6379/2
       AI_SERVICE_URL: http://tgo-ai:8081
+      API_INTERNAL_SERVICE_URL: http://tgo-api:8001
       ALLOWED_ORIGINS: '["*"]'
     volumes:
       - ./repos/tgo-workflow:/workspace
@@ -222,13 +223,29 @@ services:
       <<: *backend-env
       REDIS_URL: redis://redis:6379/2
       AI_SERVICE_URL: http://tgo-ai:8081
+      API_INTERNAL_SERVICE_URL: http://tgo-api:8001
       ALLOWED_ORIGINS: '["*"]'
     volumes:
       - ./repos/tgo-workflow:/workspace
     command:
       - /bin/sh
       - -lc
-      - /app/.venv/bin/celery -A celery_app.celery worker --loglevel=info -Q workflow
+      - /app/.venv/bin/celery -A celery_app.celery worker --loglevel=info
+
+  tgo-workflow-beat:
+    <<: *backend-dev
+    environment:
+      <<: *backend-env
+      REDIS_URL: redis://redis:6379/2
+      AI_SERVICE_URL: http://tgo-ai:8081
+      API_INTERNAL_SERVICE_URL: http://tgo-api:8001
+      ALLOWED_ORIGINS: '["*"]'
+    volumes:
+      - ./repos/tgo-workflow:/workspace
+    command:
+      - /bin/sh
+      - -lc
+      - exec /app/.venv/bin/celery -A celery_app.celery beat --loglevel=info --schedule=/tmp/tgo-workflow-celerybeat-schedule
 
   tgo-api:
     <<: *backend-dev

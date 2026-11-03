@@ -26,6 +26,7 @@ function PlatformStore() {
     _platformApiKey: ''
   }
   this._listeners = []
+  this._revision = 0
 }
 
 PlatformStore.prototype.getState = function () {
@@ -58,9 +59,11 @@ PlatformStore.prototype.markWelcomeInjected = function () {
 
 PlatformStore.prototype.init = function (apiBase, platformApiKey) {
   if (!apiBase || !platformApiKey) return Promise.resolve()
-  if (this._state.loading) return Promise.resolve()
+  if (this._state.loading && this._state._apiBase === apiBase && this._state._platformApiKey === platformApiKey) return Promise.resolve()
   var self = this
-  this._setState({ loading: true, error: null, _apiBase: apiBase, _platformApiKey: platformApiKey })
+  var revision = ++this._revision
+  this._setState({loading:true,error:null,_apiBase:apiBase,_platformApiKey:platformApiKey,
+    config:Object.assign({},defaultConfig),welcomeInjected:false})
 
   // Read welcome injected from storage
   try {
@@ -72,13 +75,16 @@ PlatformStore.prototype.init = function (apiBase, platformApiKey) {
     apiBase: apiBase,
     platformApiKey: platformApiKey
   }).then(function (info) {
+    if (revision !== self._revision) return
     var cfg = (info && info.config) || {}
     self._setState({
       config: Object.assign({}, self._state.config, cfg)
     })
   }).catch(function (e) {
+    if (revision !== self._revision) return
     self._setState({ error: e && e.message ? e.message : String(e) })
   }).then(function () {
+    if (revision !== self._revision) return
     self._setState({ loading: false })
   })
 }

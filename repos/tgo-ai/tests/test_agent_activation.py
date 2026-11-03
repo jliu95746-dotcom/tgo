@@ -51,18 +51,24 @@ async def test_creation_persists_requested_activation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_status_only_update_keeps_all_existing_resources() -> None:
+async def test_status_only_update_keeps_all_existing_resources(db_session, test_project) -> None:
+    from app.models.agent import AgentToolAssociation
+    from app.exceptions import AuthorizationError
     agent, tool = bound_agent()
-    database = Mock(commit=AsyncMock(), refresh=AsyncMock(), execute=AsyncMock())
-    service = AgentService(cast(AsyncSession, database))
-    service.get_agent = AsyncMock(return_value=agent)
-    for enabled in (False, True):
-        updated = await service.update_agent(
-            agent.project_id, agent.id, AgentUpdate(is_active=enabled)
-        )
-        assert updated.is_active is enabled
-        assert updated.tools == [tool]
-    assert database.commit.await_count == 2
+    agent.project_id = tool.project_id = test_project.id
+    agent.is_active = True
+    db_session.add_all([agent, tool])
+    await db_session.flush()
+    db_session.add(AgentToolAssociation(agent_id=agent.id, tool_id=tool.id, enabled=True))
+    await db_session.commit()
+    service = AgentService(db_session)
+    updated = await service.update_agent(test_project.id, agent.id, AgentUpdate(is_active=False), enrich_resources=False)
+    assert not updated.is_active and [row.id for row in updated.tools] == [tool.id]
+    identifier = updated.id
+    with pytest.raises(AuthorizationError):
+        await service.update_agent(test_project.id, identifier, AgentUpdate(is_active=True), enrich_resources=False)
+    stored = await service.get_agent(test_project.id, identifier, enrich_resources=False)
+    assert not stored.is_active and [row.id for row in stored.tools] == [tool.id]
 
 
 def test_activation_cannot_be_null() -> None:

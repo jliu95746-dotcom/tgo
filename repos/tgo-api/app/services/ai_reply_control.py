@@ -15,6 +15,7 @@ from pydantic import JsonValue
 from app.core.logging import get_logger
 from app.schemas.ai_runs import ReplyFailure, ReplyRun
 from app.schemas.reply_phase import ReplyPhaseIdentity
+from app.services.visitor_chat_access import check_current_chat_access
 from app.services.run_registry import (
     RegistryConflict,
     RegistryUnavailable,
@@ -46,6 +47,7 @@ _current: ContextVar[ReplyControl | None] = ContextVar("reply_control", default=
 
 
 async def begin_ai_phase() -> ReplyPhaseIdentity | None:
+    check_current_chat_access()
     control = _current.get()
     if control is None:
         return None
@@ -57,6 +59,7 @@ async def begin_ai_phase() -> ReplyPhaseIdentity | None:
         proof=uuid4(),
     )
     item = await run_registry.start_phase(control.identity, phase)
+    check_current_chat_access()
     if item is not None and item.status == "cancel_requested":
         control.cancel_requested = True
         raise ReplyStopped("本次回复已停止")
@@ -111,10 +114,12 @@ async def wait_for_phase_end(control: ReplyControl) -> bool:
 
 
 async def begin_reply_publication() -> None:
+    check_current_chat_access()
     control = _current.get()
     if control is None:
         raise RegistryUnavailable("Reply has no publication owner")
     item = await run_registry.begin_publication(control.identity)
+    check_current_chat_access()
     if item is None:
         raise RegistryUnavailable("Reply publication ownership expired")
     if item.status == "cancel_requested":
@@ -131,9 +136,11 @@ async def tracked_ai_stream(
 ) -> AsyncGenerator[tuple[str, ReplyEvent], None]:
     phase = await begin_ai_phase()
     control = _current.get()
+    check_current_chat_access()
     source = source_factory(phase)
     async with aclosing(source):
         async for event, data in source:
+            check_current_chat_access()
             event_type = data.get("event_type") or event
             if not isinstance(event_type, str):
                 event_type = event
@@ -162,6 +169,7 @@ async def controlled_reply(
     stop_upstream: Callable[[str], Awaitable[bool]],
 ) -> AsyncGenerator[ReplyEvent, None]:
     """Use an owned producer so stop never cancels the HTTP consumer task."""
+    check_current_chat_access()
     try:
         await run_registry.start(identity)
     except (RegistryUnavailable, RegistryConflict):
@@ -169,6 +177,8 @@ async def controlled_reply(
         await publish_error(message)
         yield {"event_type": "workflow_failed", "data": {"error_message": message}}
         return
+
+    check_current_chat_access()
 
     control = ReplyControl(identity)
     queue: asyncio.Queue[ReplyEvent | None] = asyncio.Queue()
@@ -182,9 +192,11 @@ async def controlled_reply(
         failure_reason: ReplyFailure | None = None
         message = "回复任务已中断，请重试。"
         try:
+            check_current_chat_access()
             source = source_factory()
             async with aclosing(source):
                 async for event in source:
+                    check_current_chat_access()
                     completed |= event.get("event_type") in {"workflow_completed", "human_handoff"}
                     failed |= event.get("event_type") == "workflow_failed"
                     queue.put_nowait(event)
@@ -263,7 +275,9 @@ async def controlled_reply(
     async def watch(task: asyncio.Task[None]) -> None:
         try:
             while not task.done() and not control.finishing:
+                check_current_chat_access()
                 item = await run_registry.heartbeat(identity)
+                check_current_chat_access()
                 if item is None:
                     raise RegistryUnavailable("Reply ownership expired")
                 if item.status == "cancel_requested":
@@ -285,6 +299,7 @@ async def controlled_reply(
             event = await queue.get()
             if event is None:
                 break
+            check_current_chat_access()
             yield event
         await producer
     finally:

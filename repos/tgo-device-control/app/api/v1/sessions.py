@@ -25,12 +25,15 @@ router = APIRouter()
 async def list_sessions(
     project: UUID = Depends(require_management_project),
     device_id: UUID | None = None,
+    workflow_execution_id: UUID | None = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_async_db),
 ) -> SessionList:
     return await DeviceSessionService(db).list(
-        project, device_id=device_id, skip=skip, limit=limit
+        project, device_id=device_id,
+        workflow_execution_id=workflow_execution_id,
+        skip=skip, limit=limit
     )
 
 

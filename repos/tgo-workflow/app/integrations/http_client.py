@@ -1,9 +1,18 @@
 import httpx
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from app.core.logging import logger
 
 
 class HttpClient:
     _client: httpx.AsyncClient | None = None
+
+    @classmethod
+    @asynccontextmanager
+    async def internal_client(cls) -> AsyncIterator[httpx.AsyncClient]:
+        # Each Celery task owns its loop and must close its private HTTP pool.
+        async with httpx.AsyncClient(trust_env=False, timeout=5.0) as client:
+            yield client
 
     @classmethod
     async def get_client(cls) -> httpx.AsyncClient:
@@ -12,8 +21,9 @@ class HttpClient:
             cls._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(30.0),
                 limits=httpx.Limits(
-                    max_keepalive_connections=20, max_connections=100,
-                )
+                    max_keepalive_connections=20,
+                    max_connections=100,
+                ),
             )
         return cls._client
 

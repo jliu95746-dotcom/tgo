@@ -11,6 +11,7 @@ from app.schemas.base import BaseSchema
 from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.knowledge_evidence import KnowledgeEvidence
 from app.schemas.reply_phase import ReplyPhaseIdentity
+from app.schemas.agent_execution import AgentExecutionReference
 
 
 class SupervisorRunRequest(BaseSchema):
@@ -87,9 +88,17 @@ class SupervisorRunRequest(BaseSchema):
         default=None,
         description="Require the resolved agent's device binding to match; never overrides the binding",
     )
+    expected_device_policy_digest: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$",
+        description="Require the resolved agent's verified device policy to match",
+    )
     disable_tools: bool = Field(
         default=False,
         description="Disable every RAG, workflow, MCP, and skill tool for this run",
+    )
+    knowledge_only: bool = Field(
+        default=False,
+        description="Retrieve governed knowledge, then generate without actions or memory",
     )
     response_purpose: Literal["standard", "expression"] = "standard"
     require_current_knowledge: bool = False
@@ -122,6 +131,20 @@ class SupervisorRunRequest(BaseSchema):
     def require_owned_reply_phase(self) -> "SupervisorRunRequest":
         if self.reply_phase is not None and not self.cancel_on_disconnect:
             raise ValueError("Reply phase requires cancel_on_disconnect")
+        if self.expected_device_policy_digest is not None and self.expected_device_id is None:
+            raise ValueError("Device policy pin requires expected_device_id")
+        if self.knowledge_only and (
+            not self.require_current_knowledge
+            or self.knowledge_channel is None
+            or self.stream
+            or self.reply_phase is not None
+            or self.disable_tools
+            or self.response_purpose != "standard"
+            or self.mcp_url is not None
+            or self.expected_device_id is not None
+            or self.ui_mode != "text"
+        ):
+            raise ValueError("Knowledge-only run requires governed, action-free non-streaming context")
         return self
 
 
@@ -165,6 +188,15 @@ class AgentRunMetadata(BaseSchema):
         default=None,
         description="Conversation session ID for this run",
     )
+    model_name: str | None = Field(
+        default=None,
+        description="Configured local model selected for this execution",
+    )
+    configured_prompt_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="Hash of local agent instructions and additional context",
+    )
 
     model_config = ConfigDict(extra="allow")
 
@@ -178,6 +210,9 @@ class SupervisorRunResponse(BaseSchema):
     success: bool = Field(
         default=True,
         description="Whether the request was successful",
+    )
+    execution_id: uuid.UUID | None = Field(
+        default=None, description="Stable ID shared by the agent run and its device session",
     )
     message: str = Field(description="Human-readable status message")
     result: Optional[AgentExecutionResult] = Field(
@@ -196,3 +231,4 @@ class SupervisorRunResponse(BaseSchema):
 
     model_config = ConfigDict(extra="allow")
     knowledge_evidence: KnowledgeEvidence | None = None
+    execution_reference: AgentExecutionReference | None = None

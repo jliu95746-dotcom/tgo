@@ -99,6 +99,7 @@ async def test_semantic_audit_receives_current_evidence_separately_from_draft():
         knowledge_evidence=evidence(),
     )
     assert issues == ["outdated_policy"]
+    assert client.run_supervisor_agent.call_args.kwargs["knowledge_channel"] == "wecom_kf"
     import json
 
     payload = json.loads(
@@ -131,6 +132,8 @@ async def test_rewrite_corrects_stale_draft_and_ignores_old_style_example():
     assert "299" in reply and "十五天" in reply
     assert client.run_supervisor_agent.await_count == 2
     generation = client.run_supervisor_agent.await_args_list[0].kwargs
+    assert generation["knowledge_channel"] == "wecom_kf"
+    assert client.run_supervisor_agent.await_args_list[1].kwargs["knowledge_channel"] == "wecom_kf"
     assert "只能来自本轮业务答复" not in generation["system_message"]
     assert "待校正的业务初稿" in generation["message"]
 
@@ -218,6 +221,12 @@ async def test_missing_evidence_completes_customer_reply_without_leaking_interna
     monkeypatch, stream
 ):
     from app.services import chat_service
+    from uuid import uuid4
+    from app.schemas.agent_execution import AgentExecutionCheckReceipt, AgentExecutionReference
+    reference = AgentExecutionReference(project_id=uuid4(), agent_id=uuid4(), channel="wecom_kf",
+        configuration_fingerprint="a" * 64, policy_revision="b" * 64)
+    monkeypatch.setattr(chat_service.ai_client, "verify_agent_execution", AsyncMock(return_value=AgentExecutionCheckReceipt(
+        reference=reference, checked_at=datetime.now(timezone.utc))))
 
     async def events(**kwargs):
         assert kwargs["require_current_knowledge"] is True
@@ -225,6 +234,7 @@ async def test_missing_evidence_completes_customer_reply_without_leaking_interna
             "data": {
                 "success": True,
                 "final_content": "旧价格199元。已转人工。",
+                "execution_reference": reference.model_dump(mode="json"),
             }
         }
         yield "workflow_completed", {"data": {"success": True}}
@@ -235,10 +245,12 @@ async def test_missing_evidence_completes_customer_reply_without_leaking_interna
     monkeypatch.setattr(
         chat_service, "recent_customer_messages", AsyncMock(return_value=[])
     )
+    monkeypatch.setattr(chat_service, "ensure_customer_auto_reply", AsyncMock())
+    monkeypatch.setattr(chat_service, "begin_reply_publication", AsyncMock())
     forward = AsyncMock()
     monkeypatch.setattr(chat_service, "forward_ai_event_to_wukongim", forward)
     kwargs = dict(
-        project_id="project",
+        project_id=str(reference.project_id),
         message="产品多少钱？",
         channel_id="private-vtr",
         channel_type=251,

@@ -69,16 +69,22 @@ if [ ! -f "$HOME/.tgo-widget/config.json" ]; then
 fi
 
 # Check server reachability
-TGO_SERVER=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('$HOME/.tgo/config.json','utf8')).server||'')}catch{console.log('')}" 2>/dev/null || echo "")
+CONFIGURED_SERVER=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('$HOME/.tgo/config.json','utf8')).server||'')}catch{console.log('')}" 2>/dev/null || echo "")
+TGO_SERVER="${TGO_VERIFICATION_SERVER:-$CONFIGURED_SERVER}"
+if [ -n "${TGO_VERIFICATION_SERVER:-}" ] && [ "$TGO_CONFIGURED" = true ] && [ "$CONFIGURED_SERVER" != "$TGO_SERVER" ]; then
+  echo "✗ Verification server differs from the configured staff CLI server; use a matching isolated CLI configuration."
+  exit 1
+fi
+if [ -z "$TGO_SERVER" ]; then
+  TGO_SERVER="http://127.0.0.1:8000"
+fi
 SERVER_UP=false
 
-if [ -n "$TGO_SERVER" ]; then
-  if curl -sf "${TGO_SERVER}/api/v1/health" >/dev/null 2>&1 || curl -sf "${TGO_SERVER}/health" >/dev/null 2>&1; then
-    SERVER_UP=true
-    echo "✓ Server reachable at $TGO_SERVER"
-  else
-    echo "⚠ Server not reachable at $TGO_SERVER — start with: make dev-all"
-  fi
+if curl -sf "${TGO_SERVER}/api/v1/health" >/dev/null 2>&1 || curl -sf "${TGO_SERVER}/health" >/dev/null 2>&1; then
+  SERVER_UP=true
+  echo "✓ Server reachable at $TGO_SERVER"
+else
+  echo "⚠ Server not reachable at $TGO_SERVER — start with: make dev-all"
 fi
 
 if [ "$TGO_CLI_OK" = false ] && [ "$WIDGET_CLI_OK" = false ]; then
@@ -205,7 +211,11 @@ if [ "$FAILED" -gt 0 ]; then
   echo ""
   echo "✗ Some checks FAILED"
   exit 1
+elif [ "$PASSED" -eq 0 ]; then
+  echo ""
+  echo "⚠ No CLI functional checks ran"
+  exit 2
 else
   echo ""
-  echo "✓ All checks passed"
+  echo "✓ Executed checks passed; skipped checks remain unverified"
 fi

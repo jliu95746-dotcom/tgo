@@ -3,6 +3,10 @@
  */
 var locales = {
   zh: {
+    'customerService.aiDisclosure': '本窗口支持 AI 客服回复，您也可以请求人工服务。',
+    'customerService.requestHuman': '转人工',
+    'customerService.requestingHuman': '请求中…',
+    'messageList.aiLabel': 'AI 客服',
     'common.retry': '重试',
     'common.cancel': '取消',
     'common.loading': '加载中…',
@@ -13,6 +17,9 @@ var locales = {
     'messageList.noMoreMessages': '没有更多消息',
     'messageList.sending': '发送中…',
     'messageList.uploading': '上传中…',
+    'voice.play': '播放语音',
+    'voice.stop': '停止播放',
+    'voice.unavailable': '语音暂时无法播放，请重试。',
     'errors.authFail': '认证失败，无法发送消息',
     'errors.networkError': '网络异常或超时，请检查网络后重试',
     'errors.systemError': '系统错误，请稍后重试',
@@ -22,6 +29,10 @@ var locales = {
     'system.sessionClosedNoAgent': '会话已结束。'
   },
   en: {
+    'customerService.aiDisclosure': 'AI support may reply in this chat. You can request a human agent.',
+    'customerService.requestHuman': 'Human agent',
+    'customerService.requestingHuman': 'Requesting…',
+    'messageList.aiLabel': 'AI support',
     'common.retry': 'Retry',
     'common.cancel': 'Cancel',
     'common.loading': 'Loading...',
@@ -32,6 +43,9 @@ var locales = {
     'messageList.noMoreMessages': 'No more messages',
     'messageList.sending': 'Sending...',
     'messageList.uploading': 'Uploading...',
+    'voice.play': 'Play voice',
+    'voice.stop': 'Stop playback',
+    'voice.unavailable': 'Voice is unavailable. Please try again.',
     'errors.authFail': 'Authentication failed, cannot send message',
     'errors.networkError': 'Network error or timeout, please check your connection',
     'errors.systemError': 'System error, please try again later',

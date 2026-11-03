@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { deliveryKey, useStaffDeliveryStore } from '@/stores/staffDeliveryStore';
 
 interface Props { staffId: string; clientMsgNo: string }
+const STATUS_POLL_INTERVAL_MS = 15_000;
+const MAX_STATUS_POLL_ATTEMPTS = 24;
 
 export default function StaffDeliveryStatus({ staffId, clientMsgNo }: Props) {
   const { t } = useTranslation();
@@ -18,9 +20,9 @@ export default function StaffDeliveryStatus({ staffId, clientMsgNo }: Props) {
     // Bounded visible polling, never a retry of the customer channel.
     let attempts = 0;
     const timer = window.setInterval(() => {
-      if (++attempts > 12) { window.clearInterval(timer); return; }
+      if (++attempts > MAX_STATUS_POLL_ATTEMPTS) { window.clearInterval(timer); return; }
       void useStaffDeliveryStore.getState().refresh(staffId, clientMsgNo);
-    }, 5000);
+    }, STATUS_POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [staffId, clientMsgNo, status, history, training, hasEntry]);
 

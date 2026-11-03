@@ -25,9 +25,8 @@ from app.services.platform_knowledge import platform_knowledge_availability
 from app.schemas.knowledge_availability import AgentKnowledgeAvailability
 from app.models.platform import PlatformType
 from app.services.platform_configuration import is_platform_configured
-from app.services.wechat_local_bridge import (
-    WeChatLocalHeartbeat, WeChatLocalStatus, bridge_status, require_bridge_visitor,
-)
+from app.services.visitor_data_access import require_visitor_data_access
+from app.services.wechat_local_bridge import WeChatLocalStatus, bridge_status
 from app.schemas import (
     PlatformAPIKeyResponse,
     PlatformCreate,
@@ -415,7 +414,6 @@ async def get_wechat_local_status(
 @router.post("/{platform_id}/wechat-local/heartbeat", response_model=WeChatLocalStatus)
 async def wechat_local_heartbeat(
     platform_id: UUID,
-    payload: WeChatLocalHeartbeat,
     db: Session = Depends(get_db),
     api_key: str = Header("", alias="X-Platform-API-Key"),
     credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
@@ -429,7 +427,7 @@ async def wechat_local_heartbeat(
     ).first()
     if platform is None:
         raise HTTPException(401, "Invalid platform API key")
-    require_bridge_visitor(db, platform, payload.channel_id, 251, credentials)
+    require_visitor_data_access(db, platform, credentials)
     return await bridge_status(platform, heartbeat=True)
 
 
@@ -497,6 +495,10 @@ async def update_platform(
 
     # Update fields
     update_data = platform_data.model_dump(exclude_unset=True)
+    if platform.type == "wecom" and isinstance(update_data.get("config"), dict):
+        from app.services.wecom_native_context import preserve_native_config
+
+        update_data["config"] = preserve_native_config(platform.config or {}, update_data["config"])
     for field, value in update_data.items():
         setattr(platform, field, value)
 

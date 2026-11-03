@@ -119,6 +119,7 @@ export const transformFileToKnowledgeFile = (file: FileResponse): KnowledgeFile 
     type: extractFileType(file.content_type, file.original_filename),
     uploadDate,
     status: transformFileStatus(file.status),
+    processing_status: file.status,
     statusType: transformFileStatusType(file.status),
     error_message: file.error_message,
     knowledgeBaseId: file.collection_id || '',

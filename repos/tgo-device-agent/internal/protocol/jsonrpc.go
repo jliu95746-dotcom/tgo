@@ -111,10 +111,10 @@ const (
 	ErrInternalError  = -32603
 
 	// Custom error codes (matching tgo-device-control)
-	ErrAuthFailed         = -32001
-	ErrToolNotFound       = -32002
-	ErrToolExecFailed     = -32003
-	ErrConnectionClosed   = -32004
+	ErrAuthFailed       = -32001
+	ErrToolNotFound     = -32002
+	ErrToolExecFailed   = -32003
+	ErrConnectionClosed = -32004
 )
 
 // IsResponse returns true if the raw JSON contains "result" or "error" keys

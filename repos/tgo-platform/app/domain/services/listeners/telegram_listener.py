@@ -8,6 +8,7 @@ This module implements a polling-based approach for Telegram messages:
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ from app.infra.visitor_client import VisitorService
 from app.api.telegram_utils import telegram_get_file, telegram_download_file
 
 TELEGRAM_API_BASE = "https://api.telegram.org"
+logger = logging.getLogger(__name__)
 
 
 class TelegramPlatformConfig(BaseModel):
@@ -74,7 +76,7 @@ class TelegramChannelListener:
         self._stop_event = asyncio.Event()
         self._consumer_task: asyncio.Task | None = None
         self._visitor_service = VisitorService(
-            base_url=settings.api_base_url,
+            base_url=settings.api_internal_service_url,
             cache_ttl_seconds=300,
             redis_url=settings.redis_url,
         )
@@ -108,7 +110,7 @@ class TelegramChannelListener:
             try:
                 cfg = TelegramPlatformConfig(**(cfg_dict or {}))
                 if not cfg.bot_token:
-                    print(f"[TELEGRAM] Skip platform {pid}: missing bot_token")
+                    logger.warning("Telegram platform skipped: missing bot token")
                     continue
                 # Get last_update_id from memory or start at 0
                 last_id = self._platform_offsets.get(pid, 0)
@@ -120,7 +122,7 @@ class TelegramChannelListener:
                     last_update_id=last_id,
                 ))
             except Exception as e:
-                print(f"[TELEGRAM] Skip platform {pid}: invalid config: {e}")
+                logger.error("Telegram platform config invalid: %s", type(e).__name__)
         return platforms
 
     async def _delete_webhook_if_exists(self, bot_token: str) -> None:
@@ -131,9 +133,9 @@ class TelegramChannelListener:
                 resp = await client.post(url)
                 result = resp.json()
                 if result.get("ok"):
-                    print(f"[TELEGRAM] Webhook deleted, switching to polling mode")
+                    logger.info("Telegram webhook deleted; polling enabled")
         except Exception as e:
-            print(f"[TELEGRAM] Warning: Could not delete webhook: {e}")
+            logger.warning("Telegram webhook deletion failed: %s", type(e).__name__)
 
     async def _get_updates(
         self,
@@ -157,14 +159,13 @@ class TelegramChannelListener:
                 if result.get("ok"):
                     return result.get("result", [])
                 else:
-                    error_desc = result.get("description", "Unknown error")
-                    print(f"[TELEGRAM] getUpdates error: {error_desc}")
+                    logger.warning("Telegram getUpdates returned an error")
                     return []
         except httpx.TimeoutException:
             # Normal for long polling when no messages
             return []
         except Exception as e:
-            print(f"[TELEGRAM] getUpdates request failed: {e}")
+            logger.error("Telegram getUpdates failed: %s", type(e).__name__)
             return []
 
     def _extract_message_data(self, update: dict[str, Any]) -> dict[str, Any] | None:
@@ -302,7 +303,7 @@ class TelegramChannelListener:
                 avatar_url = cached.avatar_url
                 return cached, display_name, avatar_url
         except Exception as e:
-            print(f"[TELEGRAM] Visitor cache lookup failed for {platform.id}: {e}")
+            logger.warning("Telegram visitor cache lookup failed: %s", type(e).__name__)
 
         # Register or get visitor via tgo-api
         if platform.api_key:
@@ -316,7 +317,7 @@ class TelegramChannelListener:
                     avatar_url=avatar_url,
                 )
             except Exception as e:
-                print(f"[TELEGRAM] Visitor registration failed for {platform.id}: {e}")
+                logger.error("Telegram visitor registration failed: %s", type(e).__name__)
 
         return visitor, display_name, avatar_url
 
@@ -330,7 +331,7 @@ class TelegramChannelListener:
         if not msg_data:
             return
         
-        print(f"[TELEGRAM] Processing message from {msg_data['from_display_name']} in {msg_data['chat_type']}: {msg_data['content'][:50]}...")
+        logger.debug("Telegram customer message received")
 
         async with self._session_factory() as db:
             try:
@@ -352,7 +353,7 @@ class TelegramChannelListener:
                                 upload_url = f"{settings.api_base_url.rstrip('/')}/v1/chat/upload"
                                 channel_id = visitor.channel_id or f"{visitor.id}-vtr"
                                 
-                                print(f"[TELEGRAM] Uploading image for visitor {visitor.id}, channel {channel_id}...")
+                                logger.debug("Telegram customer image upload started")
                                 async with httpx.AsyncClient(timeout=60) as client:
                                     files = {"file": ("image.jpg", file_bytes, "image/jpeg")}
                                     data = {
@@ -367,13 +368,13 @@ class TelegramChannelListener:
                                         new_url = upload_result.get("file_url") or upload_result.get("url")
                                         if new_url:
                                             msg_data["content"] = new_url
-                                            print(f"[TELEGRAM] Image uploaded successfully: {msg_data['content']}")
+                                            logger.debug("Telegram customer image uploaded")
                                         else:
-                                            print(f"[TELEGRAM] Image upload response missing URL: {upload_result}")
+                                            logger.warning("Telegram image upload response missing URL")
                                     else:
-                                        print(f"[TELEGRAM] Failed to upload image to tgo-api (status {resp.status_code}): {resp.text}")
+                                        logger.warning("Telegram image upload failed: status=%s", resp.status_code)
                     except Exception as e:
-                        print(f"[TELEGRAM] Error handling image from Telegram: {e}")
+                        logger.error("Telegram image transfer failed: %s", type(e).__name__)
                 # Store to inbox for audit
                 record = await self._store_to_inbox(db, platform, msg_data)
                 
@@ -401,10 +402,10 @@ class TelegramChannelListener:
                 record.processed_at = datetime.now(timezone.utc)
                 await db.commit()
                 
-                print(f"[TELEGRAM] Reply sent to {msg_data['chat_id']}")
+                logger.debug("Telegram reply processing completed")
                 
             except Exception as e:
-                print(f"[TELEGRAM] Processing failed: {e}")
+                logger.error("Telegram message processing failed: %s", type(e).__name__)
                 await db.rollback()
 
     async def _poll_platform(self, platform: _PlatformEntry) -> int:
@@ -423,13 +424,13 @@ class TelegramChannelListener:
             try:
                 await self._process_update(platform, update)
             except Exception as e:
-                print(f"[TELEGRAM] Error processing update {update_id}: {e}")
+                logger.error("Telegram update failed: %s", type(e).__name__)
         
         return new_offset
 
     async def _consumer_loop(self) -> None:
         """Main consumer loop - polls all active Telegram platforms."""
-        print("[TELEGRAM] Consumer loop started (polling mode)")
+        logger.info("Telegram consumer polling started")
         
         # Initial load and delete webhooks
         platforms = await self._load_active_telegram_platforms()
@@ -462,7 +463,7 @@ class TelegramChannelListener:
                 await asyncio.sleep(max(0.5, interval))
                 
             except Exception as e:
-                print(f"[TELEGRAM] Consumer loop error: {e}")
+                logger.error("Telegram consumer loop failed: %s", type(e).__name__)
                 await asyncio.sleep(5)
         
-        print("[TELEGRAM] Consumer loop stopped")
+        logger.info("Telegram consumer polling stopped")

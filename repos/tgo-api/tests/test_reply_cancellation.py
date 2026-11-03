@@ -118,11 +118,18 @@ async def test_publication_already_started_cannot_claim_to_cancel(
     monkeypatch, pipeline
 ):
     registry, arguments, forward, stop = pipeline
+    from datetime import UTC, datetime
+    from uuid import UUID
+    from app.schemas.agent_execution import AgentExecutionCheckReceipt, AgentExecutionReference
+    reference = AgentExecutionReference(project_id=UUID(arguments["project_id"]), agent_id=uuid4(), channel="internal",
+        configuration_fingerprint="a" * 64, policy_revision="b" * 64)
+    monkeypatch.setattr(chat_service.ai_client, "verify_agent_execution", AsyncMock(return_value=AgentExecutionCheckReceipt(
+        reference=reference, checked_at=datetime.now(UTC))))
     publishing, release = asyncio.Event(), asyncio.Event()
 
     async def events(**kwargs):
         yield "agent_response_complete", {
-            "data": {"success": True, "final_content": "有绿色。"}
+            "data": {"success": True, "final_content": "有绿色。", "execution_reference": reference.model_dump(mode="json")}
         }
         yield "workflow_completed", {"data": {}}
 

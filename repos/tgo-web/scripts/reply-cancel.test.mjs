@@ -8,6 +8,7 @@ function service(response) {
   const source = readFileSync(new URL('../src/services/aiRunsApi.ts', import.meta.url), 'utf8');
   const scope = { exports: {}, require: name => {
     if (name.includes('BaseApiService')) return { BaseApiService: class { async post() { return response; } } };
+    if (name === './api') return { default: {} };
     if (name === '@/i18n') return { default: { t: key => key } };
     throw new Error(name);
   } };
@@ -39,7 +40,15 @@ for (const kind of ['widget', 'mini']) {
       const response = { ok: true, json: async () => reply };
       const scope = { exports: {}, module: { exports: {} }, AbortSignal,
         fetch: async () => response,
-        require: () => ({ request: async () => response }) };
+        require: name => {
+          if (name.includes('visitorDataAccess')) return { captureVisitorDataAccess: () => ({
+            headers: { Authorization: 'Bearer fixture' },
+            assertCurrent() {}, assertSafeValue() {},
+          }) };
+          if (name.includes('adapters/request')) return { request: async () => response };
+          if (name.includes('businessCustomerSession')) return {};
+          throw new Error(name);
+        } };
       const code = kind === 'widget' ? ts.transpileModule(widgetService, {
         compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
       }).outputText : miniService;
@@ -98,13 +107,16 @@ for (const kind of ['widget', 'mini']) {
       const end = () => set({ isStreaming: false, streamCanceling: false, streamingClientMsgNo: '' });
       const scope = { console: { warn() {} },
         get: () => ({ ...state, markStreamingEnd: end }), set,
+        guardVisitorAction: () => ({ get: () => ({ ...state, markStreamingEnd: end }), set }),
         resolveApiKey: () => 'fixture', requestReplyCancellation: request,
         i18n: { t: key => key }, chatService: { cancelStreaming: request },
       };
       const path = kind === 'widget' ? '../../tgo-widget-js/src/store/chatStore.ts' : '../../tgo-widget-miniprogram/src/core/chatStore.js';
       vm.runInNewContext(propertyAction(path, 'cancelStreaming'), scope);
-      const owner = { get _state() { return state; }, _setState: set, markStreamingEnd: end };
+      const owner = { get _state() { return state; }, _setState: set, markStreamingEnd: end,
+        _captureAction: () => ({ guard: callback => callback }) };
       const pending = scope.action.call(owner, 'fixture');
+      while (!finish) await Promise.resolve();
       if (outcome === 'newer') set({ streamingClientMsgNo: 'new', streamCanceling: false });
       if (outcome === 'failed') fail(new Error('HTTP 503')); else finish();
       await pending;

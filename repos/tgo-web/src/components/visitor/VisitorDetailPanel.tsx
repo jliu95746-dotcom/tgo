@@ -103,6 +103,8 @@ const toExtendedVisitorFromChannel = (extra: ChannelVisitorExtra): ExtendedVisit
     recentActivity: [],
     relatedTickets: [],
     aiPersonaTags: [],
+    analysisInsights: extra.ai_insights ?? null,
+    aiProfile: extra.ai_profile ?? null,
   };
 };
 
@@ -162,6 +164,8 @@ const toExtendedVisitorFromResponse = (response: VisitorResponse): ExtendedVisit
     recentActivity: [],
     relatedTickets: [],
     aiPersonaTags: [],
+    analysisInsights: response.ai_insights ?? null,
+    aiProfile: response.ai_profile ?? null,
   };
 };
 
@@ -276,12 +280,6 @@ const VisitorDetailPanel: React.FC<VisitorDetailPanelProps> = ({
   const systemInfo = useMemo(() => {
     const extra = channelInfo?.extra as ChannelVisitorExtra | undefined;
     return extra?.system_info || null;
-  }, [channelInfo]);
-
-  // Derive AI insights from channel extra
-  const aiInsights = useMemo(() => {
-    const extra = channelInfo?.extra as ChannelVisitorExtra | undefined;
-    return extra?.ai_insights ?? null;
   }, [channelInfo]);
 
   // 频道模式：从 channelStore 获取数据
@@ -800,7 +798,7 @@ const VisitorDetailPanel: React.FC<VisitorDetailPanelProps> = ({
 
       const response = await visitorApiService.uploadAvatar(visitor.id, file);
       
-      const avatarUrlWithCacheBust = `${response.avatar_url}?t=${Date.now()}`;
+      const avatarUrlWithCacheBust = `${response.avatar_url}${response.avatar_url.includes('?') ? '&' : '?'}t=${Date.now()}`;
       setVisitor((prev: ExtendedVisitor | null) => prev ? {
         ...prev,
         avatar: avatarUrlWithCacheBust,
@@ -1099,10 +1097,11 @@ const VisitorDetailPanel: React.FC<VisitorDetailPanelProps> = ({
             case 'ai_insights':
               return wrapWithIndicator(
         <AIInsightsSection
-          satisfactionScore={aiInsights?.satisfaction_score ?? null}
-          emotionScore={aiInsights?.emotion_score ?? null}
-          intent={aiInsights?.intent ?? null}
-          insightSummary={aiInsights?.insight_summary ?? null}
+          satisfactionScore={visitor.analysisInsights?.satisfaction_score ?? null}
+          emotionScore={visitor.analysisInsights?.emotion_score ?? null}
+          intent={visitor.analysisInsights?.intent ?? null}
+          insightSummary={visitor.analysisInsights?.insight_summary ?? null}
+          personaTagCodes={visitor.aiProfile?.persona_tags ?? []}
                   draggable
                   className={sectionClassName}
                   expanded={expandedSections.ai_insights}

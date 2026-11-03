@@ -3,6 +3,7 @@
 import json
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
@@ -27,6 +28,8 @@ class StaffDeliveryRequest(BaseModel):
     channel_id: str = Field(min_length=1, max_length=255)
     channel_type: Literal[251] = 251
     client_msg_no: str = Field(min_length=1, max_length=100)
+    source_message_id: str | None = Field(default=None, min_length=1, max_length=255)
+    assist_draft_id: UUID | None = None
     payload: dict[str, JsonValue]
     retry_failed: bool = False
     training: AssistTrainingIntent | None = None

@@ -29,11 +29,12 @@ async def test_publication_respects_current_mode(
         project_id=project_id,
         platform_id=uuid4(),
         deleted_at=None,
+        access_retired_at=None,
         service_mode=mode,
         ai_disabled=disabled,
     )
     platform = SimpleNamespace(
-        project_id=project_id, deleted_at=None, ai_mode="auto"
+        project_id=project_id, deleted_at=None, ai_mode="auto", is_active=True
     )
     install_session(monkeypatch, visitor, platform)
     if blocked:
@@ -77,11 +78,12 @@ async def test_missing_or_foreign_context_cannot_publish(monkeypatch, invalid):
         project_id=project_id,
         platform_id=uuid4(),
         deleted_at=None,
+        access_retired_at=None,
         service_mode="auto",
         ai_disabled=False,
     )
     platform = SimpleNamespace(
-        project_id=project_id, deleted_at=None, ai_mode="auto"
+        project_id=project_id, deleted_at=None, ai_mode="auto", is_active=True
     )
     if invalid == "deleted":
         visitor.deleted_at = object()

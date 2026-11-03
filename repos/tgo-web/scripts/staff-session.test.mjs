@@ -119,6 +119,7 @@ function loadStore() {
         if (name === '@/constants') return { STORAGE_KEYS: { AUTH: 'auth-state' } };
         if (name === '@/services/api') return api;
         if (name === '@/services/staffSession') return { tokenNeedsRefresh: () => true };
+        if (name === '@/utils/sessionCommandRecovery') return { clearAllSessionCommandRecoveries() {} };
         if (name === '@/services/wukongimWebSocket') return { wukongimWebSocketService: { safeDisconnect() {} } };
         if (name === './chatStore') return { useChatStore: { getState: () => ({ clearStore() {} }) } };
         throw new Error(name);
@@ -130,6 +131,32 @@ function loadStore() {
   return { store: exports.useAuthStore, pending, localStorage, user,
     clientToken: () => clientToken, prepare: () => prepare() };
 }
+
+test('profile edits persist immediately without changing credentials or reception settings', () => {
+  const app = loadStore();
+  const before = app.store.getState();
+  before.updateUserProfile({ ...app.user, nickname: '客服小月', avatar_url: '/avatar/new.png',
+    updated_at: '2026-10-10', role: 'user', username: 'changed@example.com' });
+  const after = app.store.getState();
+  assert.equal(after.user.nickname, '客服小月');
+  assert.equal(after.user.avatar_url, '/avatar/new.png');
+  assert.equal(after.user.role, before.user.role);
+  assert.equal(after.user.username, before.user.username);
+  assert.equal(after.token, before.token);
+  assert.equal(JSON.parse(app.localStorage.getItem('auth-state')).state.user.nickname, '客服小月');
+});
+
+test('a late profile response cannot overwrite another company account or a logged out session', () => {
+  const app = loadStore();
+  const before = app.store.getState().user;
+  for (const other of [{ ...app.user, id: 'another' }, { ...app.user, project_id: 'another' }]) {
+    app.store.getState().updateUserProfile({ ...other, nickname: '不可覆盖', avatar_url: null });
+    assert.equal(app.store.getState().user, before);
+  }
+  app.store.setState({ isAuthenticated: false, user: null });
+  app.store.getState().updateUserProfile({ ...app.user, nickname: '不可恢复', avatar_url: null });
+  assert.equal(app.store.getState().user, null);
+});
 
 test('reopening the browser restores persisted auth and parallel requests share one refresh', async () => {
   const app = loadStore();

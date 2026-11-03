@@ -3,7 +3,7 @@ import { createMixedStreamParser, type MixedStreamParser } from '@json-render/co
 import IMService from '../services/wukongim'
 import type { ChatMessage, MessagePayload, MixedPart, JSONRenderPatchPart } from '../types/chat'
 import { isSystemMessageType } from '../types/chat'
-import { refreshVisitorSession } from '../services/visitor'
+import { refreshVisitorSession, loadCachedVisitor } from '../services/visitor'
 import { resolveApiKey } from '../utils/url'
 import { ReasonCode } from 'easyjssdk'
 import { syncVisitorMessages, type WuKongIMMessage } from '../services/messageHistory'
@@ -12,6 +12,10 @@ import type { StaffInfo } from '../services/channel'
 import { uploadChatFile, readImageDimensions } from '../services/upload'
 import { requestMediaReply } from '../services/mediaReply'
 import { requestReplyCancellation } from '../services/replyCancellation'
+import { acquireBusinessCustomerSessions } from '../services/businessCustomerSession'
+import { guardVisitorAction, invalidateVisitorGeneration } from '../services/visitorGeneration'
+import { endCachedVisitorAccess, retryPendingVisitorEnds, type VisitorEndOutcome } from '../services/visitorLifecycle'
+import { sendTextCompletion } from '../services/chatCompletion'
 import { collectVisitorSystemInfo } from '../utils/systemInfo'
 import { playNotificationSound, showBrowserNotification, requestNotificationPermission } from '../utils/notification'
 import usePlatformStore from './platformStore'
@@ -47,7 +51,12 @@ export type ChatState = {
   earliestSeq: number | null
   // channel / identity
   apiBase?: string
+  platformApiKey?: string
+  sessionRevision: number
   myUid?: string
+  visitorId?: string
+  projectId?: string
+  platformId?: string
   channelId?: string
   channelType?: number
   // staff info cache
@@ -55,6 +64,7 @@ export type ChatState = {
   fetchStaffInfo: (uid: string) => Promise<void>
   // actions
   initIM: (cfg: ChatConfig) => Promise<void>
+  endSession: () => Promise<VisitorEndOutcome | undefined>
   sendMessage: (text: string) => Promise<void>
   // uploads
   uploadFiles: (files: FileList | File[]) => Promise<void>
@@ -118,6 +128,16 @@ function toPayloadFromAny(raw: any): MessagePayload {
   if (t === 3 && typeof raw?.url === 'string' && typeof raw?.name === 'string' && typeof raw?.size === 'number') {
     return { type: 3, content: (typeof raw?.content === 'string' && raw.content) ? raw.content : '[文件]', url: raw.url, name: raw.name, size: raw.size }
   }
+  if (t === 4) {
+    const url = typeof raw?.url === 'string' && raw.url ? raw.url : raw?.content
+    if (typeof url === 'string' && url) {
+      return { type: 4, url,
+        ...(typeof raw?.content === 'string' ? { content: raw.content } : {}),
+        ...(typeof raw?.file_id === 'string' ? { file_id: raw.file_id } : {}),
+        ...(typeof raw?.mime_type === 'string' ? { mime_type: raw.mime_type } : {}),
+      }
+    }
+  }
   if (t === 12 && typeof raw?.content === 'string' && Array.isArray(raw?.images)) {
     const images = raw.images
       .filter((i: any) => i && typeof i.url === 'string' && typeof i.width === 'number' && typeof i.height === 'number')
@@ -129,7 +149,8 @@ function toPayloadFromAny(raw: any): MessagePayload {
     return file ? { type: 12, content: raw.content, images, file } : { type: 12, content: raw.content, images }
   }
   if (t === 99 && typeof raw?.cmd === 'string') return { type: 99, cmd: raw.cmd, param: raw?.param ?? {} }
-  if (t === 100) return { type: 100 }
+  if (t === 100) return raw?.sender_kind === 'ai'
+    ? { type: 100, sender_kind: 'ai' } : { type: 100 }
   // System message (type 1000-2000)
   if (typeof t === 'number' && isSystemMessageType(t) && typeof raw?.content === 'string') {
     return { type: t, content: raw.content, extra: Array.isArray(raw?.extra) ? raw.extra : undefined }
@@ -211,14 +232,17 @@ function mapHistoryToChatMessage(m: WuKongIMMessage, myUid?: string): ChatMessag
     ? uiParts.filter(p => p.type === 'text').map(p => p.text || '').join('')
     : streamContent
 
+  const anchorPayload = toPayloadFromAny(m?.payload)
+  const isAiReply = anchorPayload.type === 100 && 'sender_kind' in anchorPayload && anchorPayload.sender_kind === 'ai'
   const payload: MessagePayload = displayContent
     ? { type: 1, content: displayContent }
-    : toPayloadFromAny(m?.payload)
+    : anchorPayload
   // 检查消息的 error 字段（与 payload 平级）
   const errorMessage = m?.error ? String(m.error) : undefined
   return {
     id: m.message_id_str ?? m.client_msg_no ?? `h-${m.message_seq}`,
     role: m.from_uid && myUid && m.from_uid === myUid ? 'user' : 'agent',
+    ...(isAiReply ? { senderKind: 'ai' as const } : {}),
     payload,
     time: new Date((m.timestamp || 0) * 1000),
     messageSeq: typeof m.message_seq === 'number' ? m.message_seq : undefined,
@@ -281,6 +305,7 @@ const inflightStaff = new Set<string>()
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: initialMessages,
+  sessionRevision: 0,
   online: false,
   initializing: false,
   error: null,
@@ -295,7 +320,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   unreadCount: 0,
   staffInfoCache: {},
   fetchStaffInfo: async (uid: string) => {
-    const st = get()
+    const action = guardVisitorAction(set, get)
+    const st = action.get()
     if (!uid) return
     if (st.staffInfoCache[uid]) return
     if (inflightStaff.has(uid)) return
@@ -311,9 +337,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         channelId: uid,
         channelType: 1,
       })
-      const name = info?.name || (info?.extra?.name ?? info?.extra?.nickname) || uid
-      const avatar = info?.avatar || info?.extra?.avatar_url
-      set(s => ({ staffInfoCache: { ...s.staffInfoCache, [uid]: { name, avatar } } }))
+      const name = info?.name || uid
+      const avatar = info?.avatar
+      action.set(s => ({ staffInfoCache: { ...s.staffInfoCache, [uid]: { name, avatar } } }))
     } catch (e) {
       // swallow errors; keep cache empty to allow retry in future if desired
     } finally {
@@ -321,16 +347,41 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  endSession: async () => {
+    const original = get()
+    const sessionRevision = invalidateVisitorGeneration()
+    for (const off of [offMsg,offStatus,offCustom]) { try { off?.() } catch {} }
+    offMsg = offStatus = offCustom = null
+    if (streamTimer) clearTimeout(streamTimer)
+    streamTimer = null
+    activeParsers.clear()
+    for (const controller of uploadControllers.values()) controller.abort()
+    uploadControllers.clear();pendingFiles.clear();inflightStaff.clear()
+    set({sessionRevision,messages:[],online:false,initializing:false,error:null,historyLoading:false,
+      historyHasMore:true,historyError:null,earliestSeq:null,myUid:undefined,visitorId:undefined,
+      projectId:undefined,platformId:undefined,channelId:undefined,channelType:undefined,
+      staffInfoCache:{},isStreaming:false,streamCanceling:false,streamingClientMsgNo:undefined,unreadCount:0})
+    const ending = original.apiBase && original.platformApiKey
+      ? endCachedVisitorAccess({apiBase:original.apiBase,platformApiKey:original.platformApiKey}).catch(() => ({
+        accessEnded:false,upstreamStopStatus:'pending' as const,imDisconnectStatus:'pending' as const,
+      })) : Promise.resolve(undefined)
+    await IMService.disconnect()
+    return ending
+  },
+
   initIM: async (cfg: ChatConfig) => {
+    const action = guardVisitorAction(set, get)
     if (!cfg?.apiBase) return
-    const st = get()
+    const st = action.get()
     if (st.initializing || IMService.isReady) return
-    set({ initializing: true, error: null })
+    action.set({ initializing: true, error: null })
     try {
       // remember apiBase for history API
-      set({ apiBase: cfg.apiBase })
+      action.set({ apiBase: cfg.apiBase })
       // Resolve platform API key from URL (?apiKey=...) on the control iframe URL
       const platformApiKey = resolveApiKey() || ''
+      action.set({platformApiKey})
+      void retryPendingVisitorEnds({apiBase:cfg.apiBase,platformApiKey}).catch(()=>{})
       if (!platformApiKey) throw new Error('[Visitor] Missing apiKey in URL (?apiKey=...). Ensure the SDK injects it into the control iframe URL via history.replaceState.')
 
       // Request notification permission
@@ -341,11 +392,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const cached = await refreshVisitorSession({
         apiBase: cfg.apiBase,
         platformApiKey,
+        assertCurrent: action.assertCurrent,
         extra: {
           ...(sys ? { system_info: sys } : {}),
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
         },
       })
+      action.assertCurrent()
 
       // WuKongIM 连接要求：使用 visitor_id + "-vtr" 作为 uid
       const uid = String(cached.id || '')
@@ -357,30 +410,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
       console.log('[Chat] Initializing IM with:', { uid: uidForIM, target, channelType, hasToken: !!token })
 
       // persist identity/channel info into store for history sync
-      set({ myUid: uidForIM, channelId: target, channelType: cached.channel_type ?? 251 })
+      action.set({ myUid: uidForIM, visitorId: cached.id, projectId: cached.project_id,
+        platformId: cached.platform_id, channelId: target, channelType: cached.channel_type ?? 251 })
 
       if (!token) {
         throw new Error('[Chat] Missing im_token from visitor registration. Please check that the /v1/visitors/register API returns im_token field.')
       }
 
       await IMService.init({ apiBase: cfg.apiBase, uid: uidForIM, token, target, channelType })
+      action.assertCurrent()
       // status events (de-duped)
       if (offStatus) { try { offStatus() } catch {} ; offStatus = null }
       offStatus = IMService.onStatus((s) => {
-        set({ online: s === 'connected' })
+        if (!action.isCurrent()) return
+        action.set({ online: s === 'connected' })
       })
       // message events (de-duped)
       if (offMsg) { try { offMsg() } catch {} ; offMsg = null }
       offMsg = IMService.onMessage((m) => {
+        if (!action.isCurrent()) return
         // skip self echoes
         if (!m.fromUid || m.fromUid === uidForIM) return
         const payload = toPayloadFromAny(m?.payload)
         if (payload.type === 99) return
         // prefetch staff info by sender uid (personal channel)
-        try { void get().fetchStaffInfo(m.fromUid) } catch {}
+        try { void action.get().fetchStaffInfo(m.fromUid) } catch {}
         const chat: ChatMessage = {
           id: String(m.messageId),
           role: 'agent',
+          ...(payload.type === 100 && 'sender_kind' in payload && payload.sender_kind === 'ai' ? { senderKind: 'ai' as const } : {}),
           payload,
           time: new Date(m.timestamp * 1000),
           messageSeq: typeof m.messageSeq === 'number' ? m.messageSeq : undefined,
@@ -390,14 +448,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           channelType: m.channelType,
         }
         // Check if message already exists (de-duplicate)
-        const currentState = get()
+        const currentState = action.get()
         if (currentState.messages.some(x => x.id === chat.id)) return
         if (payload.type === 100 && chat.clientMsgNo) {
           // A delayed start must not overwrite an already reconciled answer.
           const completed = currentState.messages.some(x => x.clientMsgNo === chat.clientMsgNo
             && x.payload.type === 1 && Boolean(x.payload.content?.trim()))
           if (completed) return
-          if (currentState.streamingClientMsgNo !== chat.clientMsgNo) get().markStreamingStart(chat.clientMsgNo)
+          if (currentState.streamingClientMsgNo !== chat.clientMsgNo) action.get().markStreamingStart(chat.clientMsgNo)
         }
 
         // New message received: play sound and show notification
@@ -408,6 +466,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (chat.payload.type === 1) content = chat.payload.content
         else if (chat.payload.type === 2) content = '[图片]'
         else if (chat.payload.type === 3) content = '[文件]'
+        else if (chat.payload.type === 4) content = i18n.t('voice.label')
         
         if (content) {
           void showBrowserNotification(title, {
@@ -417,9 +476,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
 
         // Increment unread count (outside of set to avoid nested updates)
-        get().incrementUnreadCount()
+        action.get().incrementUnreadCount()
 
-        set(state => {
+        action.set(state => {
           // If there is a streaming placeholder with the same clientMsgNo, merge into it
           if (chat.clientMsgNo) {
             const idx = state.messages.findIndex(x => x.clientMsgNo && x.clientMsgNo === chat.clientMsgNo)
@@ -436,6 +495,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Supports both legacy event format and new Stream API v2 format
       if (offCustom) { try { offCustom() } catch {} ; offCustom = null }
       offCustom = IMService.onCustom((ev: unknown) => {
+        if (!action.isCurrent()) return
         try {
           if (!ev) return
           const customEvent = ev as { type?: string; id?: unknown; data?: unknown; dataJson?: any }
@@ -457,7 +517,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (newEventType === 'stream.delta') {
             if (!clientMsgNo) return
             // The line parser may buffer text before its first newline.
-            if (!get().isStreaming) get().markStreamingStart(clientMsgNo)
+            if (!action.get().isStreaming) action.get().markStreamingStart(clientMsgNo)
             const payload = eventData?.payload
             const delta = payload?.delta
             if (delta) {
@@ -467,10 +527,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 parser = createMixedStreamParser({
                   onText: (text) => {
                     // Append '\n' stripped by line-based parser so merged text keeps line breaks
-                    get().appendMixedPart(clientMsgNo, { type: 'text', text: text + '\n' })
+                    action.get().appendMixedPart(clientMsgNo, { type: 'text', text: text + '\n' })
                   },
                   onPatch: (patch) => {
-                    get().appendMixedPart(clientMsgNo, { type: 'data-spec', data: { type: 'patch', patch } })
+                    action.get().appendMixedPart(clientMsgNo, { type: 'data-spec', data: { type: 'patch', patch } })
                   },
                 })
                 activeParsers.set(clientMsgNo, parser)
@@ -485,7 +545,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (!clientMsgNo) return
             // Flush parser before finalizing
             const closeParser = activeParsers.get(clientMsgNo)
-            const reconciledMessage = get().messages.find(
+            const reconciledMessage = action.get().messages.find(
               message => message.clientMsgNo === clientMsgNo,
             )
             const alreadyReconciled = Boolean(
@@ -499,8 +559,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
             const errorMessage = eventData?.payload?.end_reason > 0 ? '流异常结束' : undefined
             console.log('[Chat] Stream closed for message:', clientMsgNo, errorMessage ? `error: ${errorMessage}` : '')
-            get().finalizeStreamMessage(clientMsgNo, errorMessage)
-            try { get().markStreamingEnd(clientMsgNo) } catch {}
+            action.get().finalizeStreamMessage(clientMsgNo, errorMessage)
+            try { action.get().markStreamingEnd(clientMsgNo) } catch {}
             return
           }
 
@@ -510,8 +570,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (errParser) { errParser.flush(); activeParsers.delete(clientMsgNo) }
             const errorMessage = eventData?.payload?.error || '未知错误'
             console.log('[Chat] Stream error for message:', clientMsgNo, errorMessage)
-            get().finalizeStreamMessage(clientMsgNo, errorMessage)
-            try { get().markStreamingEnd(clientMsgNo) } catch {}
+            action.get().finalizeStreamMessage(clientMsgNo, errorMessage)
+            try { action.get().markStreamingEnd(clientMsgNo) } catch {}
             return
           }
 
@@ -520,8 +580,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const cancelParser = activeParsers.get(clientMsgNo)
             if (cancelParser) { cancelParser.flush(); activeParsers.delete(clientMsgNo) }
             console.log('[Chat] Stream cancelled for message:', clientMsgNo)
-            get().finalizeStreamMessage(clientMsgNo)
-            try { get().markStreamingEnd(clientMsgNo) } catch {}
+            action.get().finalizeStreamMessage(clientMsgNo)
+            try { action.get().markStreamingEnd(clientMsgNo) } catch {}
             return
           }
 
@@ -547,9 +607,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             })
 
             // Increment unread count for AI start
-            get().incrementUnreadCount()
+            action.get().incrementUnreadCount()
 
-            try { get().markStreamingStart(id) } catch {}
+            try { action.get().markStreamingStart(id) } catch {}
             return
           }
 
@@ -559,7 +619,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (!id) return
             const chunk = typeof customEvent.data === 'string' ? customEvent.data : (customEvent.data!=null ? String(customEvent.data) : '')
             if (!chunk) return
-            get().appendStreamData(id, chunk)
+            action.get().appendStreamData(id, chunk)
             return
           }
 
@@ -578,7 +638,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             })()
             const patches = normalizeJSONRenderPatches(parsedData?.patches)
             if (patches.length === 0) return
-            get().attachJSONRenderPatches(id, patches)
+            action.get().attachJSONRenderPatches(id, patches)
             return
           }
 
@@ -589,8 +649,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             // 如果 data 字段有值，则认为是错误信息
             const errorMessage = customEvent?.data ? String(customEvent.data) : undefined
             console.log('[Chat] Stream ended for message:', id, errorMessage ? `error: ${errorMessage}` : '')
-            get().finalizeStreamMessage(id, errorMessage)
-            try { get().markStreamingEnd(id) } catch {}
+            action.get().finalizeStreamMessage(id, errorMessage)
+            try { action.get().markStreamingEnd(id) } catch {}
             return
           }
         } catch (err) {
@@ -598,29 +658,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       })
       await IMService.connect()
+      action.assertCurrent()
       // initial history load (latest N)
-      await get().loadInitialHistory(20)
+      await action.get().loadInitialHistory(20)
     } catch (e: any) {
       const errMsg = e?.message || String(e)
       console.error('[Chat] IM initialization failed:', errMsg, e)
-      set({ error: errMsg, online: false })
+      action.set({ error: errMsg, online: false })
     } finally {
-      set({ initializing: false })
+      action.set({ initializing: false })
     }
   },
 
   sendMessage: async (text: string) => {
+    const action = guardVisitorAction(set, get)
     const v = (text || '').trim(); if (!v) return
     const clientMsgNo = (typeof crypto !== 'undefined' && (crypto as any)?.randomUUID) ? (crypto as any).randomUUID() : `cmn-${Date.now()}-${Math.random().toString(36).slice(2,8)}`
     const id = 'u-' + Date.now()
     const you: ChatMessage = { id, role: 'user', payload: { type: 1, content: v }, time: new Date(), status: 'sending', clientMsgNo }
 
     // 1. 先渲染消息到消息列表（发送中状态）
-    set(state => ({ messages: [...state.messages, you] }))
+    action.set(state => ({ messages: [...state.messages, you] }))
 
     let deliveryConfirmed = false
     try {
-      const st = get()
+      const st = action.get()
       const apiBase = st.apiBase
       const platformApiKey = resolveApiKey() || ''
       const myUid = st.myUid
@@ -631,20 +693,50 @@ export const useChatStore = create<ChatState>((set, get) => ({
         throw new Error('Cannot send message: missing apiBase, apiKey, or myUid')
       }
 
-      // If a previous stream is ongoing, auto-cancel it before sending a new one
-      if (st.isStreaming) { try { await get().cancelStreaming('auto_cancel_on_new_send') } catch {} }
+      // Finish the previous reply before asking the merchant for a new identity.
+      if (st.isStreaming) {
+        await action.get().cancelStreaming('auto_cancel_on_new_send')
+        if (action.get().isStreaming) throw new Error('上一条回复尚未确认停止，请稍后重试。')
+      }
+      const possession = loadCachedVisitor(apiBase, platformApiKey)
+      // A direct human request needs no merchant business credential. Keep it
+      // available when the optional business identity provider is unavailable.
+      const customer = v === '转人工'
+        ? { sessions: undefined, assertCurrent: () => {} }
+        : await acquireBusinessCustomerSessions({ visitorId: st.visitorId || '',
+          projectId: st.projectId || '', platformId: st.platformId || '', sourceMessageId: clientMsgNo },
+          possession && possession.visitor_id === st.visitorId && possession.visitor_access_token ? {
+            apiBase,visitorAccessToken:possession.visitor_access_token,
+            assertCurrent: () => {
+              const current = loadCachedVisitor(apiBase,platformApiKey)
+              if (current?.visitor_id !== possession.visitor_id || current.visitor_access_token !== possession.visitor_access_token) {
+                throw new Error('聊天身份已变化，请重新发送。')
+              }
+            }
+          } : undefined)
+      const assertIdentity = () => {
+        customer.assertCurrent()
+        const latest = action.get()
+        if (latest.apiBase !== apiBase || latest.myUid !== myUid || resolveApiKey() !== platformApiKey
+          || latest.channelId !== channelId || latest.channelType !== channelType
+          || latest.visitorId !== st.visitorId || latest.projectId !== st.projectId || latest.platformId !== st.platformId) {
+          throw new Error('聊天身份已变化，请重新发送。')
+        }
+      }
+      assertIdentity()
 
       // 2. 先通过 websocket 发送
       // 确保 IM 已就绪
       if (!IMService.isReady) {
         if (!st.initializing && st.apiBase) {
           console.log('[Chat] IM not ready, attempting to initialize...')
-          try { void get().initIM({ apiBase: st.apiBase }) } catch {}
+          try { void action.get().initIM({ apiBase: st.apiBase }) } catch {}
         }
         const start = Date.now()
         const timeout = 10000
         while (!IMService.isReady && (Date.now() - start) < timeout) {
           await new Promise(r => setTimeout(r, 120))
+          action.assertCurrent()
         }
         if (!IMService.isReady) {
           throw new Error('Cannot send message: IM service is not ready after waiting.')
@@ -652,83 +744,57 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       console.log('[Chat] WebSocket sending...')
+      assertIdentity()
       const result = await IMService.sendText(v, { clientMsgNo })
       console.log('[Chat] WebSocket send result:', result)
 
       // 只有 WebSocket 发送成功（reasonCode 为 Success）才继续调用 completion 接口
       if (result.reasonCode !== ReasonCode.Success) {
         console.warn('[Chat] WebSocket send did not return Success, skipping completion API.', result.reasonCode)
-        set(state => ({
+        action.set(state => ({
           messages: state.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: result.reasonCode } : m)
         }))
         return
       }
 
       deliveryConfirmed = true
-      set(state => ({
+      action.set(state => ({
         messages: state.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: result.reasonCode } : m)
       }))
 
       // 3. WebSocket 发送成功后，再调用 /v1/chat/completion 接口（stream=false）
-      const url = `${apiBase.replace(/\/$/, '')}/v1/chat/completion`
-      const payload: Record<string, any> = {
-        api_key: platformApiKey,
-        message: v,
-        from_uid: myUid,
-        wukongim_only: true,
-        forward_user_message_to_wukongim: false,
-        source_message_id: clientMsgNo,
-        stream: false,
-      }
-      if (channelId) payload.channel_id = channelId
-      if (channelType != null) payload.channel_type = channelType
-
-      console.log('[Chat] Calling /v1/chat/completion:', { url, payload: { ...payload, api_key: '***' } })
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-
-      // 解析响应 JSON
-      const resJson = await res.json().catch(() => ({}))
-      console.log('[Chat] /v1/chat/completion response:', resJson)
-
-      // 检查 event_type 是否为 error
-      if (resJson.event_type === 'error') {
-        const errMsg = resJson.message || resJson.detail || 'Unknown error'
-        throw new Error(errMsg)
-      }
-
-      if (!res.ok) {
-        const errMsg = resJson.message || resJson.detail || `${res.status} ${res.statusText}`
-        throw new Error(`/v1/chat/completion failed: ${errMsg}`)
-      }
+      assertIdentity()
+      const completion = await sendTextCompletion({ apiBase, platformApiKey, message: v, fromUid: myUid,
+        channelId, channelType, sourceMessageId: clientMsgNo, customerSessions: customer.sessions })
 
       console.log('[Chat] /v1/chat/completion success')
 
-      set(state => ({
+      action.set(state => ({
         messages: state.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: result.reasonCode } : m)
       }))
+
+      const completionEvent = completion && typeof completion === 'object' && 'event_type' in completion
+        ? (completion as { event_type: unknown }).event_type : undefined
+      if (['human_handoff', 'queued', 'ai_disabled', 'assist_mode'].includes(String(completionEvent))) return
 
       // WuKongIM custom stream notifications can be missed by a reconnecting
       // browser. Reconcile the persisted stream snapshot until the matching AI
       // reply appears, so visitors never need to refresh the page manually.
       const lastKnownSequence = Math.max(
         0,
-        ...get().messages.map(message => message.messageSeq ?? 0),
+        ...action.get().messages.map(message => message.messageSeq ?? 0),
       )
       void (async () => {
         const maxAttempts = 20
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 1000 : 2000))
-          const current = get()
+          const current = action.get()
           if (!current.apiBase || !current.channelId || !current.channelType) return
 
           try {
             const history = await syncVisitorMessages({
               apiBase: current.apiBase,
+              platformApiKey: current.platformApiKey,
               channelId: current.channelId,
               channelType: current.channelType,
               startSeq: 0,
@@ -740,7 +806,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               .sort((left, right) => (left.message_seq || 0) - (right.message_seq || 0))
               .map(message => mapHistoryToChatMessage(message, current.myUid))
 
-            set(state => ({
+            action.set(state => ({
               messages: mergeHistoryMessages(state.messages, latest),
             }))
 
@@ -758,8 +824,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       })()
     } catch (e) {
       console.error('[Chat] Send failed:', e)
-      try { get().markStreamingEnd() } catch {}
-      set(state => ({
+      try { action.get().markStreamingEnd() } catch {}
+      action.set(state => ({
         messages: state.messages.map(m => m.id === id ? {
           ...m,
           status: undefined,
@@ -772,29 +838,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   uploadFiles: async (files: FileList | File[]) => {
+    const action = guardVisitorAction(set, get)
     const arr: File[] = Array.isArray(files as any) ? (files as any as File[]) : Array.from(files as FileList)
     for (const file of arr) {
       ;(async () => {
         try {
-          const st = get()
+          const st = action.get()
           if (!st.apiBase || !st.channelId || !st.channelType) {
-            set({ error: '[Upload] Not initialized' })
+            action.set({ error: '[Upload] Not initialized' })
             return
           }
           const isImage = (file?.type || '').startsWith('image/')
+          const isAudio = (file?.type || '').startsWith('audio/')
           const dimsPromise = isImage ? readImageDimensions(file) : Promise.resolve(null)
           const clientMsgNo = (typeof crypto !== 'undefined' && (crypto as any)?.randomUUID) ? (crypto as any).randomUUID() : `um-${Date.now()}-${Math.random().toString(36).slice(2,8)}`
           const id = `u-up-${Date.now()}-${Math.random().toString(36).slice(2,8)}`
           const placeholder: ChatMessage = {
             id,
             role: 'user',
-            payload: { type: 1, content: isImage ? '图片上传中…' : '文件上传中…' } as any,
+            payload: { type: 1, content: i18n.t(isImage ? 'messageList.uploadingImage' : isAudio ? 'messageList.uploadingVoice' : 'messageList.uploadingFile') } as MessagePayload,
             time: new Date(),
             status: 'uploading',
             uploadProgress: 0,
             clientMsgNo,
           }
-          set(s => ({ messages: [...s.messages, placeholder] }))
+          action.set(s => ({ messages: [...s.messages, placeholder] }))
           pendingFiles.set(id, file)
           const controller = new AbortController()
           uploadControllers.set(id, controller)
@@ -802,40 +870,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
           try {
             const res = await uploadChatFile({
               apiBase: st.apiBase,
+              platformApiKey: st.platformApiKey,
               channelId: st.channelId,
               channelType: st.channelType,
               file,
               signal: controller.signal,
               onProgress: (p) => {
-                set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, uploadProgress: p } : m) }))
+                action.set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, uploadProgress: p } : m) }))
               },
             })
 
             const dims = await dimsPromise
+            action.assertCurrent()
             if (isImage) {
               const w = Math.max(1, dims?.width ?? 1)
               const h = Math.max(1, dims?.height ?? 1)
               const fileUrl = res.file_url
               const payload: MessagePayload = { type: 2, url: fileUrl, width: w, height: h, file_id: res.file_id }
-              set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
+              action.set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
               const result = await IMService.sendPayload(payload, { clientMsgNo })
+              action.assertCurrent()
               void requestMediaReply({ apiBase: st.apiBase, apiKey: resolveApiKey() || '', fromUid: st.myUid || '',
                 channelId: st.channelId, channelType: st.channelType, sourceMessageId: clientMsgNo,
                 upload: res, deliveryConfirmed: result.reasonCode === ReasonCode.Success }).catch(() => {
-                set({ error: i18n.t('errors.mediaReplyFailed') })
+                action.set({ error: i18n.t('errors.mediaReplyFailed') })
               })
-              set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
+              action.set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
             } else {
               const fileUrl = res.file_url
-              const payload: MessagePayload = { type: 3, content: file.name || '[文件]', url: fileUrl, name: res.file_name || file.name, size: res.file_size ?? file.size, file_id: res.file_id, mime_type: res.file_type }
-              set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
+              const payload: MessagePayload = res.file_type.toLowerCase().startsWith('audio/')
+                ? { type: 4, url: fileUrl, content: fileUrl, file_id: res.file_id, mime_type: res.file_type }
+                : { type: 3, content: file.name || '[文件]', url: fileUrl, name: res.file_name || file.name, size: res.file_size ?? file.size, file_id: res.file_id, mime_type: res.file_type }
+              action.set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
               const result = await IMService.sendPayload(payload, { clientMsgNo })
+              action.assertCurrent()
               void requestMediaReply({ apiBase: st.apiBase, apiKey: resolveApiKey() || '', fromUid: st.myUid || '',
                 channelId: st.channelId, channelType: st.channelType, sourceMessageId: clientMsgNo,
                 upload: res, deliveryConfirmed: result.reasonCode === ReasonCode.Success }).catch(() => {
-                set({ error: i18n.t('errors.mediaReplyFailed') })
+                action.set({ error: i18n.t('errors.mediaReplyFailed') })
               })
-              set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
+              action.set(s => ({ messages: s.messages.map(m => m.id === id ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
             }
             // success: cleanup retained file/controller
             uploadControllers.delete(id)
@@ -844,72 +918,80 @@ export const useChatStore = create<ChatState>((set, get) => ({
             // error
             uploadControllers.delete(id)
             const aborted = err?.name === 'AbortError'
-            set(s => ({
+            action.set(s => ({
               messages: s.messages.map(m => m.id === id ? { ...m, status: undefined, uploadError: aborted ? '已取消' : (err?.message || '上传失败') } : m),
               error: aborted ? s.error : (err?.message || String(err))
             }))
             // keep pendingFiles for retry on failure
           }
         } catch (e) {
-          set({ error: (e as any)?.message || String(e) })
+          action.set({ error: (e as any)?.message || String(e) })
         }
       })()
     }
   },
 
   retryUpload: async (messageId: string) => {
+    const action = guardVisitorAction(set, get)
     const file = pendingFiles.get(messageId)
     if (!file) return
-    const st = get()
+    const st = action.get()
     if (!st.apiBase || !st.channelId || !st.channelType) return
     const isImage = (file?.type || '').startsWith('image/')
+    const isAudio = (file?.type || '').startsWith('audio/')
     const dimsPromise = isImage ? readImageDimensions(file) : Promise.resolve(null)
     const clientMsgNo = (typeof crypto !== 'undefined' && (crypto as any)?.randomUUID) ? (crypto as any).randomUUID() : `um-${Date.now()}-${Math.random().toString(36).slice(2,8)}`
     // reset state
-    set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, payload: { type: 1, content: isImage ? '图片上传中…' : '文件上传中…' } as any, status: 'uploading', uploadProgress: 0, uploadError: undefined, clientMsgNo } : m) }))
+    action.set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, payload: { type: 1, content: i18n.t(isImage ? 'messageList.uploadingImage' : isAudio ? 'messageList.uploadingVoice' : 'messageList.uploadingFile') } as MessagePayload, status: 'uploading', uploadProgress: 0, uploadError: undefined, clientMsgNo } : m) }))
     const controller = new AbortController()
     uploadControllers.set(messageId, controller)
     try {
       const res = await uploadChatFile({
         apiBase: st.apiBase,
+        platformApiKey: st.platformApiKey,
         channelId: st.channelId,
         channelType: st.channelType,
         file,
         signal: controller.signal,
-        onProgress: (p) => set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, uploadProgress: p } : m) })),
+        onProgress: (p) => action.set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, uploadProgress: p } : m) })),
       })
       const dims = await dimsPromise
+      action.assertCurrent()
       if (isImage) {
         const w = Math.max(1, dims?.width ?? 1)
         const h = Math.max(1, dims?.height ?? 1)
         const fileUrl = res.file_url
         const payload: MessagePayload = { type: 2, url: fileUrl, width: w, height: h, file_id: res.file_id }
-        set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
+        action.set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
         const result = await IMService.sendPayload(payload, { clientMsgNo })
+              action.assertCurrent()
         void requestMediaReply({ apiBase: st.apiBase, apiKey: resolveApiKey() || '', fromUid: st.myUid || '',
           channelId: st.channelId, channelType: st.channelType, sourceMessageId: clientMsgNo,
           upload: res, deliveryConfirmed: result.reasonCode === ReasonCode.Success }).catch(() => {
-          set({ error: i18n.t('errors.mediaReplyFailed') })
+          action.set({ error: i18n.t('errors.mediaReplyFailed') })
         })
-        set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
+        action.set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
       } else {
         const fileUrl = res.file_url
-        const payload: MessagePayload = { type: 3, content: file.name || '[文件]', url: fileUrl, name: res.file_name || file.name, size: res.file_size ?? file.size, file_id: res.file_id, mime_type: res.file_type }
-        set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
+        const payload: MessagePayload = res.file_type.toLowerCase().startsWith('audio/')
+          ? { type: 4, url: fileUrl, content: fileUrl, file_id: res.file_id, mime_type: res.file_type }
+          : { type: 3, content: file.name || '[文件]', url: fileUrl, name: res.file_name || file.name, size: res.file_size ?? file.size, file_id: res.file_id, mime_type: res.file_type }
+        action.set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, payload, status: 'sending', uploadProgress: undefined, uploadError: undefined } : m) }))
         const result = await IMService.sendPayload(payload, { clientMsgNo })
+              action.assertCurrent()
         void requestMediaReply({ apiBase: st.apiBase, apiKey: resolveApiKey() || '', fromUid: st.myUid || '',
           channelId: st.channelId, channelType: st.channelType, sourceMessageId: clientMsgNo,
           upload: res, deliveryConfirmed: result.reasonCode === ReasonCode.Success }).catch(() => {
-          set({ error: i18n.t('errors.mediaReplyFailed') })
+          action.set({ error: i18n.t('errors.mediaReplyFailed') })
         })
-        set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
+        action.set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: undefined, reasonCode: (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode } : m) }))
       }
       uploadControllers.delete(messageId)
       pendingFiles.delete(messageId)
     } catch (err: any) {
       uploadControllers.delete(messageId)
       const aborted = err?.name === 'AbortError'
-      set(s => ({
+      action.set(s => ({
         messages: s.messages.map(m => m.id === messageId ? { ...m, status: undefined, uploadError: aborted ? '已取消' : (err?.message || '上传失败') } : m),
         error: aborted ? s.error : (err?.message || String(err))
       }))
@@ -928,17 +1010,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   retryMessage: async (messageId: string) => {
-    const state = get()
+    const action = guardVisitorAction(set, get)
+    const state = action.get()
     const msg = state.messages.find(m => m.id === messageId)
     if (!msg || msg.role !== 'user' || msg.reasonCode === ReasonCode.Success) return
     // set to sending
-    set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: 'sending', reasonCode: undefined } : m) }))
+    action.set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: 'sending', reasonCode: undefined } : m) }))
     try {
       const result = await IMService.sendPayload(msg.payload)
       const code: ReasonCode = (result?.reasonCode ?? ReasonCode.Unknown) as ReasonCode
-      set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: undefined, reasonCode: code } : m) }))
+      action.set(s => ({ messages: s.messages.map(m => m.id === messageId ? { ...m, status: undefined, reasonCode: code } : m) }))
     } catch (e) {
-      set(s => ({
+      action.set(s => ({
         messages: s.messages.map(m => m.id === messageId ? { ...m, status: undefined, reasonCode: ReasonCode.Unknown } : m),
         error: (e as any)?.message || String(e)
       }))
@@ -950,13 +1033,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   loadInitialHistory: async (limit = 20) => {
-    const st = get()
+    const action = guardVisitorAction(set, get)
+    const st = action.get()
     if (!st.channelId || !st.channelType) return
     if (st.historyLoading) return
-    set({ historyLoading: true, historyError: null })
+    action.set({ historyLoading: true, historyError: null })
     try {
       const res = await syncVisitorMessages({
         apiBase: st.apiBase || '', // not in state; use last cfg via closure if needed
+        platformApiKey: st.platformApiKey,
         channelId: st.channelId,
         channelType: st.channelType,
         startSeq: 0,
@@ -972,11 +1057,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // prefetch staff names for agent messages
       try {
         const uids = Array.from(new Set(list.filter(x => x.role==='agent' && x.fromUid).map(x => String(x.fromUid))))
-        uids.forEach(u => { try { void get().fetchStaffInfo(u) } catch {} })
+        uids.forEach(u => { try { void action.get().fetchStaffInfo(u) } catch {} })
       } catch {}
 
       // dedup by seq or id, then prepend
-      set(s => {
+      action.set(s => {
         const existingSeqs = new Set<number>()
         s.messages.forEach(m => { if (typeof m.messageSeq === 'number') existingSeqs.add(m.messageSeq) })
         const existingIds = new Set(s.messages.map(m => m.id))
@@ -989,21 +1074,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       })
     } catch (e:any) {
-      set({ historyError: e?.message || String(e) })
+      action.set({ historyError: e?.message || String(e) })
     } finally {
-      set({ historyLoading: false })
+      action.set({ historyLoading: false })
     }
   },
 
   loadMoreHistory: async (limit = 20) => {
-    const st = get()
+    const action = guardVisitorAction(set, get)
+    const st = action.get()
     if (!st.channelId || !st.channelType) return
     if (st.historyLoading) return
     const start = st.earliestSeq ?? 0
-    set({ historyLoading: true, historyError: null })
+    action.set({ historyLoading: true, historyError: null })
     try {
       const res = await syncVisitorMessages({
         apiBase: st.apiBase || '',
+        platformApiKey: st.platformApiKey,
         channelId: st.channelId,
         channelType: st.channelType,
         startSeq: start,
@@ -1020,10 +1107,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // prefetch staff names for agent messages
       try {
         const uids = Array.from(new Set(listAsc.filter(x => x.role==='agent' && x.fromUid).map(x => String(x.fromUid))))
-        uids.forEach(u => { try { void get().fetchStaffInfo(u) } catch {} })
+        uids.forEach(u => { try { void action.get().fetchStaffInfo(u) } catch {} })
       } catch {}
 
-      set(s => {
+      action.set(s => {
         const existingSeqs = new Set<number>()
         s.messages.forEach(m => { if (typeof m.messageSeq === 'number') existingSeqs.add(m.messageSeq) })
         const existingIds = new Set(s.messages.map(m => m.id))
@@ -1036,9 +1123,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       })
     } catch (e:any) {
-      set({ historyError: e?.message || String(e) })
+      action.set({ historyError: e?.message || String(e) })
     } finally {
-      set({ historyLoading: false })
+      action.set({ historyLoading: false })
     }
   },
   // mark streaming start and auto-timeout
@@ -1065,25 +1152,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // interrupt API integration
   cancelStreaming: async (reason?: string) => {
-    const st = get()
+    const action = guardVisitorAction(set, get)
+    const st = action.get()
     if (st.streamCanceling) return
     const apiBase = st.apiBase
     const clientMsgNo = st.streamingClientMsgNo
     const platformApiKey = resolveApiKey() || ''
-    set({ streamCanceling: true })
+    action.set({ streamCanceling: true })
     try {
       if (!apiBase || !clientMsgNo || !platformApiKey) throw new Error('Missing reply identity')
       await requestReplyCancellation({ apiBase, clientMsgNo, platformApiKey, reason })
-      if (get().streamingClientMsgNo === clientMsgNo && resolveApiKey() === platformApiKey) {
-        get().markStreamingEnd(clientMsgNo)
+      if (action.get().streamingClientMsgNo === clientMsgNo && resolveApiKey() === platformApiKey) {
+        action.get().markStreamingEnd(clientMsgNo)
       }
     } catch (e) {
       console.warn('[Chat] Cancel streaming error:', e)
-      if (get().streamingClientMsgNo === clientMsgNo) {
-        set({ error: i18n.t('errors.replyStopUnconfirmed') })
+      if (action.get().streamingClientMsgNo === clientMsgNo) {
+        action.set({ error: i18n.t('errors.replyStopUnconfirmed') })
       }
     } finally {
-      if (get().streamingClientMsgNo === clientMsgNo) set({ streamCanceling: false })
+      if (action.get().streamingClientMsgNo === clientMsgNo) action.set({ streamCanceling: false })
     }
   },
 

@@ -12,10 +12,13 @@ import {
   Loader2,
   PhoneOff,
   Phone,
+  Pencil,
 } from 'lucide-react';
 import { staffApi, StaffRole, StaffStatus } from '@/services/staffApi';
 import { StaffResponse } from '@/services/api';
 import { useToast } from '@/hooks/useToast';
+import { useAuthStore } from '@/stores/authStore';
+import ProfileEditDialog from './ProfileEditDialog';
 
 // Role configuration for display (colors only, labels from i18n)
 const roleStyleConfig: Record<StaffRole, { bgColor: string; textColor: string }> = {
@@ -40,6 +43,14 @@ const ProfileSettings: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isToggling, setIsToggling] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+
+  const handleProfileSaved = (updated: StaffResponse) => {
+    useAuthStore.getState().updateUserProfile(updated);
+    setProfile(updated);
+    setIsEditing(false);
+    showSuccess(t('settings.profile.saved'));
+  };
 
   // Load profile
   const loadProfile = useCallback(async () => {
@@ -48,9 +59,9 @@ const ProfileSettings: React.FC = () => {
     try {
       const data = await staffApi.getMe();
       setProfile(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load profile:', err);
-      setLoadError(err?.message || t('settings.profile.loadError', '加载个人资料失败'));
+      setLoadError(err instanceof Error ? err.message : t('settings.profile.loadError', '加载个人资料失败'));
     } finally {
       setIsLoading(false);
     }
@@ -75,9 +86,9 @@ const ProfileSettings: React.FC = () => {
           ? t('settings.profile.servicePaused', '已暂停接待服务')
           : t('settings.profile.serviceResumed', '已恢复接待服务')
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to toggle service:', err);
-      showError(err?.message || t('settings.profile.toggleError', '切换服务状态失败'));
+      showError(err instanceof Error ? err.message : t('settings.profile.toggleError', '切换服务状态失败'));
     } finally {
       setIsToggling(false);
     }
@@ -151,11 +162,11 @@ const ProfileSettings: React.FC = () => {
 
         {/* Profile Card */}
         <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-start gap-6">
+          <div className="flex flex-wrap items-start gap-4 sm:gap-6">
             {/* Avatar */}
             <div className="w-20 h-20 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 shrink-0">
               {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                <img src={profile.avatar_url} alt={t('settings.profile.avatar')} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-gray-600 dark:text-gray-300 font-bold text-2xl">
                   {(profile?.nickname || profile?.username || 'U').slice(0, 1).toUpperCase()}
@@ -196,6 +207,10 @@ const ProfileSettings: React.FC = () => {
                 )}
               </div>
             </div>
+            <button onClick={() => setIsEditing(true)} disabled={!profile || isToggling}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 text-sm shrink-0">
+              <Pencil className="w-4 h-4" />{t('settings.profile.edit')}
+            </button>
           </div>
         </section>
 
@@ -269,6 +284,7 @@ const ProfileSettings: React.FC = () => {
           </div>
         </section>
       </div>
+      {isEditing && profile && <ProfileEditDialog profile={profile} onCancel={() => setIsEditing(false)} onSaved={handleProfileSaved} />}
     </div>
   );
 };

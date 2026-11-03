@@ -135,6 +135,41 @@ def test_route_never_returns_direct_im_address_in_saas(gateway):
     connector.assert_not_called()
 
 
+def test_visitor_route_uses_private_gateway_without_saas(gateway, monkeypatch):
+    client, _, _, (_, _, _, _, visitors) = gateway
+    monkeypatch.setattr(settings, "SAAS_ENABLED", False)
+    result = client.get("/v1/wukongim/route", params={"uid": f"{visitors[0].id}-vtr"})
+    assert result.status_code == 200
+    assert result.json()["ws_addr"] == settings.SAAS_IM_PUBLIC_URL
+    assert result.json()["tcp_addr"] == ""
+
+
+@pytest.mark.parametrize("saas", [True, False])
+@pytest.mark.parametrize("direction", ["send", "receive"])
+def test_gateway_rechecks_retirement_between_frames(gateway, monkeypatch, saas, direction):
+    from datetime import datetime, timezone
+
+    client, upstream, _, (db, _, _, _, visitors) = gateway
+    monkeypatch.setattr(settings, "SAAS_ENABLED", saas)
+    visitor = visitors[0]
+    uid, token = f"{visitor.id}-vtr", visitor_token(visitor)
+    with client.websocket_connect("/v1/wukongim/ws") as socket:
+        assert login(socket, uid, token)["result"]["reasonCode"] == 1
+        assert upstream.sent[0]["params"]["token"] != token
+        visitor.access_retired_at = datetime.now(timezone.utc)
+        db.commit()
+        with pytest.raises(WebSocketDisconnect):
+            if direction == "send":
+                send(socket, uid, 251)
+            else:
+                upstream.responses.put_nowait(json.dumps({"method": "recv", "params": {
+                    "channelId": uid, "channelType": 251, "messageId": "closed-result",
+                    "messageSeq": 1, "header": {}, "payload": "e30=",
+                }}))
+                socket.receive_json()
+    assert not any(item["method"] == "send" for item in upstream.sent)
+
+
 def test_forged_connect_does_not_reach_upstream(gateway, caplog):
     client, _, connector, (_, _, staff, _, _) = gateway
     token = staff_token(staff[0])
@@ -310,11 +345,15 @@ async def test_registration_returns_credential_registered_with_im(
     from app.schemas.visitor import VisitorRegisterRequest
     from app.services.im_access import authenticate_im_actor
     from app.models import VisitorAIProfile, VisitorSystemInfo, VisitorTag
-    from uuid import UUID
+    from app.models.business_customer_identity import BusinessCustomerBinding
+    from app.models.visitor_business_scope import VisitorBusinessScope
+    from app.schemas.visitor_access import VisitorAccessInput
+    from app.services.visitor_access import registration_access
+    from starlette.responses import Response
 
     db, _, _, platforms, visitors = records
-    for model in (VisitorTag, VisitorAIProfile, VisitorSystemInfo):
-        model.__table__.create(db.get_bind())
+    for model in (VisitorTag, VisitorAIProfile, VisitorSystemInfo, BusinessCustomerBinding, VisitorBusinessScope):
+        model.__table__.create(db.get_bind(), checkfirst=True)
     monkeypatch.setattr(settings, "SAAS_ENABLED", saas)
     monkeypatch.setattr(
         endpoint, "notify_visitor_profile_updated", AsyncMock()
@@ -332,21 +371,22 @@ async def test_registration_returns_credential_registered_with_im(
         Mock(return_value=False),
     )
     request = Request({"type": "http", "headers": []})
+    secret, _ = registration_access(db, visitors[0], VisitorAccessInput(), new=True)
+    db.commit()
     response = await endpoint.register_visitor(
         request=request,
+        response=Response(),
         req=VisitorRegisterRequest(
             platform_api_key=platforms[0].api_key,
             platform_open_id=visitors[0].platform_open_id,
+            visitor_access_token=secret,
         ),
         db=db,
         user_language="zh",
     )
     uid = f"{visitors[0].id}-vtr"
-    register.assert_awaited_once_with(uid=uid, token=response.im_token)
-    if saas:
-        assert (
-            authenticate_im_actor(db, uid, response.im_token).id
-            == visitors[0].id
-        )
-    else:
-        assert UUID(response.im_token).version == 4
+    register.assert_awaited_once_with(uid=uid, token=response.im_token.get_secret_value())
+    assert (
+        authenticate_im_actor(db, uid, response.im_token.get_secret_value()).id
+        == visitors[0].id
+    )

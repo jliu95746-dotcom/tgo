@@ -20,9 +20,9 @@ type ToolCallParams struct {
 
 // ContentItem is one piece of content in a tool call result.
 type ContentItem struct {
-	Type     string `json:"type"`               // "text" or "image"
+	Type     string `json:"type"` // "text" or "image"
 	Text     string `json:"text,omitempty"`
-	Data     string `json:"data,omitempty"`      // base64 for images
+	Data     string `json:"data,omitempty"` // base64 for images
 	MimeType string `json:"mimeType,omitempty"`
 }
 

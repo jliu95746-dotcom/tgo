@@ -25,6 +25,9 @@ from app.runtime.core.exceptions import MCPToolError
 from app.schemas.agent import AgentCreate, AgentToolCreate, AgentUpdate
 from app.services.agent_service import AgentService
 from app.models.internal import AgentTool
+from app.services.agent_activation_readiness import AgentActivationReadinessService
+from tests.test_account_agent_activation import proof
+from unittest.mock import AsyncMock
 
 
 @pytest.fixture
@@ -85,11 +88,19 @@ def mcp_targets():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("transport", ["http", "sse"])
 @pytest.mark.parametrize("protected", [False, True])
-async def test_mcp_saved_endpoint_matches_direct_and_agent_execution(db_session, mcp_targets, transport, protected):
+async def test_mcp_saved_endpoint_matches_direct_and_agent_execution(db_session, mcp_targets, transport, protected, monkeypatch):
     start, calls = mcp_targets
     first_url = start("original", transport, protected)
     edited_url = start("edited", transport, protected)
     project_id = uuid4()
+    actor = uuid4()
+    # This suite exercises saved transport behavior. Full activation evidence
+    # is a separate dependency fixture, not proof that these tools passed D2.
+    async def transport_fixture_proof(project, reviewer, identifier):
+        result = proof(project, reviewer, identifier)
+        result.channels[0].template_id = "assistant"
+        return result
+    monkeypatch.setattr(AgentActivationReadinessService, "read", AsyncMock(side_effect=transport_fixture_proof))
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
 
     async def session_dependency():
@@ -131,6 +142,8 @@ async def test_mcp_saved_endpoint_matches_direct_and_agent_execution(db_session,
                 tools=[AgentToolCreate(tool_id=tool_id)],
             ))
             agent_id = agent.id
+            await AgentService(session).update_agent(project_id, agent_id, AgentUpdate(is_active=True),
+                requested_by=actor, enrich_resources=False)
         assert await runtime(agent_id, "AGENT-BEFORE") == {
             "version": "original", "tracking_no": "AGENT-BEFORE",
         }
@@ -171,15 +184,22 @@ async def test_mcp_saved_endpoint_matches_direct_and_agent_execution(db_session,
             await AgentService(session).set_tool_enabled(project_id, agent_id, tool_id, False)
         assert await runtime(agent_id) == 0
         async with factory() as session:
+            await AgentService(session).update_agent(project_id, agent_id, AgentUpdate(is_active=False), enrich_resources=False)
             await AgentService(session).set_tool_enabled(project_id, agent_id, tool_id, True)
+            await AgentService(session).update_agent(project_id, agent_id, AgentUpdate(is_active=True),
+                requested_by=actor, enrich_resources=False)
         assert await runtime(agent_id) == 1
         async with factory() as session:
-            await AgentService(session).update_agent(project_id, agent_id, AgentUpdate(tools=[]))
+            await AgentService(session).update_agent(project_id, agent_id, AgentUpdate(is_active=False, tools=[]), enrich_resources=False)
+            await AgentService(session).update_agent(project_id, agent_id, AgentUpdate(is_active=True),
+                requested_by=actor, enrich_resources=False)
         assert await runtime(agent_id) == 0
         async with factory() as session:
             await AgentService(session).update_agent(
-                project_id, agent_id, AgentUpdate(tools=[AgentToolCreate(tool_id=tool_id)]),
+                project_id, agent_id, AgentUpdate(is_active=False, tools=[AgentToolCreate(tool_id=tool_id)]), enrich_resources=False,
             )
+            await AgentService(session).update_agent(project_id, agent_id, AgentUpdate(is_active=True),
+                requested_by=actor, enrich_resources=False)
         removed = await client.delete(f"/tools/{tool_id}", params={"project_id": str(project_id)})
         assert removed.status_code == 200
         assert await runtime(agent_id) == 0

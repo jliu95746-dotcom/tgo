@@ -1,7 +1,7 @@
 param(
     [switch]$SkipRagWorker, [switch]$SkipMigrations,
-    [ValidateSet('tgo-rag-worker', 'tgo-workflow-worker', 'tgo-plugin-runtime')]
-    [string[]]$ServiceNames = @('tgo-rag-worker', 'tgo-workflow-worker', 'tgo-plugin-runtime')
+    [ValidateSet('tgo-rag-worker', 'tgo-workflow-worker', 'tgo-workflow-beat', 'tgo-plugin-runtime')]
+    [string[]]$ServiceNames = @('tgo-rag-worker', 'tgo-workflow-worker', 'tgo-workflow-beat', 'tgo-plugin-runtime')
 )
 
 . (Join-Path $PSScriptRoot 'common.ps1')

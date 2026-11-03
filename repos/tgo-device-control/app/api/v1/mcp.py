@@ -21,7 +21,10 @@ logger = get_logger(__name__)
 
 
 @router.get("/tools/{device_id}")
-async def list_device_tools(device_id: UUID):
+async def list_device_tools(
+    device_id: UUID,
+    principal: DeviceServicePrincipal = Depends(require_service_principal),
+):
     """List available MCP tools from a specific device (REST helper).
 
     This fetches tools directly from the connected device via TCP RPC.
@@ -33,7 +36,9 @@ async def list_device_tools(device_id: UUID):
             detail=f"Device {device_id} is not connected",
         )
 
-    result = await mcp_proxy.handle_list_tools(str(device_id))
+    result = await mcp_proxy.handle_list_tools(str(device_id), principal)
+    if set(result) == {"error"}:
+        raise HTTPException(status_code=409, detail=result["error"]["message"])
     return result
 
 

@@ -1,5 +1,6 @@
 """Internal, server-owned evidence for a single business answer."""
 from datetime import datetime
+from uuid import UUID
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -18,6 +19,10 @@ class BusinessToolEvidence(BaseModel):
     name: str
     content: str
     success: bool
+    query_id: UUID | None = None
+    operation: Literal[
+        "order_query", "logistics_query", "customer_profile_query", "membership_query"
+    ] | None = None
 
 
 class KnowledgeEvidence(BaseModel):

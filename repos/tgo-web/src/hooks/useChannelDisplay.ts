@@ -3,6 +3,7 @@ import { useChannelStore } from '@/stores/channelStore';
 import type { ChannelInfo, ChannelExtra } from '@/types';
 import { getChannelKey } from '@/utils/channelUtils';
 import { generateDefaultAvatar, hasValidAvatar, type DefaultAvatar } from '@/utils/avatarUtils';
+import { resolveDisplayChannel, resolveDisplayProfile } from '@/utils/channelDisplayIdentity';
 
 /**
  * Props for useChannelDisplay hook
@@ -66,12 +67,13 @@ export interface UseChannelDisplayReturn {
  * });
  */
 export const useChannelDisplay = ({
-  channelId,
-  channelType,
+  channelId: requestedChannelId,
+  channelType: requestedChannelType,
   overrideName,
   overrideAvatar,
   skipFetch = false,
 }: UseChannelDisplayProps): UseChannelDisplayReturn => {
+  const { channelId, channelType } = resolveDisplayChannel(requestedChannelId, requestedChannelType);
   // Create stable selector for channel info
   // This ensures component re-renders when channels[key] changes
   const channelInfoSelector = useCallback(
@@ -126,21 +128,19 @@ export const useChannelDisplay = ({
     });
   }, [channelId, channelType, channelInfo, isLoading, hasError, skipFetch, ensureChannel]);
 
-  // Compute display values with priority:
-  // 1. Override values (from props, e.g., message.fromInfo)
-  // 2. Channel info from store
-  // 3. Fallback values
+  // Visitor messages and the list share the saved profile; staff retain overrides.
+  const profile = useMemo(() => resolveDisplayProfile(
+    channelId,
+    channelInfo,
+    overrideName,
+    overrideAvatar && hasValidAvatar(overrideAvatar) ? overrideAvatar : undefined,
+  ), [channelId, channelInfo, overrideName, overrideAvatar]);
   const name = useMemo(() => {
-    if (overrideName && overrideName.trim()) return overrideName;
-    if (channelInfo?.name) return channelInfo.name;
-    // Fallback: "访客" + last 4 chars of channelId
-    return `访客${(channelId || '').slice(-4)}`;
-  }, [overrideName, channelInfo?.name, channelId]);
+    if (profile.name) return profile.name;
+    return `访客${(channelId || '').replace(/-vtr$/, '').slice(-4)}`;
+  }, [profile.name, channelId]);
 
-  const avatar = useMemo(() => {
-    if (overrideAvatar && hasValidAvatar(overrideAvatar)) return overrideAvatar;
-    return channelInfo?.avatar || '';
-  }, [overrideAvatar, channelInfo?.avatar]);
+  const avatar = profile.avatar || '';
 
   const validAvatar = hasValidAvatar(avatar);
 

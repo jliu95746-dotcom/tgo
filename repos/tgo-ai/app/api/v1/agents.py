@@ -1,9 +1,10 @@
 """Agent management API endpoints."""
 
 import uuid
+import json
 from typing import Optional, Union
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -29,11 +30,25 @@ from app.schemas.base import PaginationMetadata
 from app.api.responses import build_error_responses
 from app.runtime.supervisor.application.service import SupervisorRuntimeService
 from app.services.agent_service import AgentService
+from app.api.v1.agent_mutation_principal import optional_mutation_actor
+from app.api.v1.agent_trials import TrialPrincipal, require_trial_principal
 from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.knowledge_availability import AgentKnowledgeAvailability
+from app.schemas.device_access import AgentDeviceActionReadiness
 from app.services.default_knowledge import agent_knowledge_availability
 
 from app.schemas.agent_run import SupervisorRunRequest, SupervisorRunResponse
+from app.schemas.workflow_release_audit import WorkflowReleaseAuditResponse
+from app.services.workflow_release_audit import list_unpinned_workflows
+from app.schemas.workflow_pin_transition import (
+    WorkflowPinTransitionCommand, WorkflowPinTransitionHistory,
+    WorkflowPinTransitionReceipt,
+)
+from app.services.workflow_pin_transition import WorkflowPinTransitionService
+from app.database import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.agent_execution_channel import trusted_execution_channel
+from app.services.workflow_parent_context import trusted_workflow_parent
 
 
 
@@ -243,9 +258,23 @@ async def run_supervisor_agent(
     extra_headers = {
         "X-Project-ID": str(project_id),
     }
-
-
-
+    channel = trusted_execution_channel(request, project_id)
+    workflow_parent = trusted_workflow_parent(request, channel)
+    if workflow_parent is not None:
+        extra_headers["X-Workflow-Parent-Execution-ID"] = str(workflow_parent.parent_execution_id)
+        extra_headers["X-Workflow-Lineage"] = json.dumps(workflow_parent.workflow_lineage)
+    business_context = request.headers.get("X-Business-Request-Context")
+    business_request = request.headers.get("X-Business-Request-ID")
+    if business_context is not None or business_request is not None:
+        if channel is None or not business_context or not business_request:
+            raise HTTPException(403, "业务客户上下文必须由业务服务确认")
+        extra_headers["X-Business-Request-Context"] = business_context
+        extra_headers["X-Business-Request-ID"] = business_request
+    if channel is not None:
+        if payload.knowledge_channel is not None and payload.knowledge_channel != channel:
+            raise HTTPException(403, "知识渠道与服务端执行渠道不一致")
+        extra_headers["X-Execution-Channel"] = channel.value
+        payload = payload.model_copy(update={"knowledge_channel": channel})
     if payload.rag_url is None:
         payload = payload.model_copy(update={"rag_url": settings.rag_service_url})
 
@@ -340,6 +369,60 @@ async def clear_session_memory(
 
 
 @router.get(
+    "/workflow-release-audit",
+    response_model=WorkflowReleaseAuditResponse,
+)
+async def get_workflow_release_audit(
+    project_id: uuid.UUID = Query(...),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> WorkflowReleaseAuditResponse:
+    """List local employee bindings that still lack a fixed release."""
+    return await list_unpinned_workflows(
+        db, project_id, limit=limit, offset=offset,
+    )
+
+
+@router.post(
+    "/{agent_id}/workflows/{workflow_id}/pin-legacy",
+    response_model=WorkflowPinTransitionReceipt,
+)
+async def pin_legacy_agent_workflow(
+    agent_id: uuid.UUID,
+    workflow_id: str,
+    command: WorkflowPinTransitionCommand,
+    project_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+    requested_by: uuid.UUID | None = Depends(optional_mutation_actor),
+) -> WorkflowPinTransitionReceipt:
+    if requested_by is None:
+        raise HTTPException(403, "旧工作流切换需要管理员身份")
+    return await WorkflowPinTransitionService(db).pin(
+        project_id, requested_by, agent_id, workflow_id, command,
+    )
+
+
+@router.get(
+    "/{agent_id}/workflow-pin-transitions",
+    response_model=WorkflowPinTransitionHistory,
+)
+async def get_workflow_pin_transitions(
+    agent_id: uuid.UUID,
+    project_id: uuid.UUID = Query(...),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    requested_by: uuid.UUID | None = Depends(optional_mutation_actor),
+) -> WorkflowPinTransitionHistory:
+    if requested_by is None:
+        raise HTTPException(403, "旧工作流切换记录需要管理员身份")
+    return await WorkflowPinTransitionService(db).history(
+        project_id, requested_by, agent_id, limit=limit, offset=offset,
+    )
+
+
+@router.get(
     "",
     response_model=AgentListResponse,
     responses=build_error_responses([]),
@@ -347,6 +430,7 @@ async def clear_session_memory(
 async def list_agents(
     model: Optional[str] = Query(default=None, description="Filter by model (provider:model_name, e.g., openai:gpt-4)"),
     is_default: Optional[bool] = Query(default=None, description="Filter by default agent status"),
+    bound_device_id: uuid.UUID | None = Query(default=None, description="Filter by bound device ID"),
     pagination: tuple[int, int] = Depends(get_pagination_params),
     project_id: uuid.UUID = Query(..., description="Project ID"),
     agent_service: AgentService = Depends(get_agent_service),
@@ -373,6 +457,7 @@ async def list_agents(
         project_id=project_id,
         model=model,
         is_default=is_default,
+        bound_device_id=bound_device_id,
         limit=limit,
         offset=offset,
     )
@@ -402,6 +487,7 @@ async def create_agent(
     agent_data: AgentCreate,
     project_id: uuid.UUID = Query(..., description="Project ID"),
     agent_service: AgentService = Depends(get_agent_service),
+    requested_by: uuid.UUID | None = Depends(optional_mutation_actor),
 ) -> AgentResponse:
     """
     Create a new AI agent for the authenticated project.
@@ -421,8 +507,23 @@ async def create_agent(
     - Project is provided explicitly via the project_id query parameter
     - Cross-service consistency is maintained
     """
-    agent = await agent_service.create_agent(project_id, agent_data)
+    agent = await agent_service.create_agent(project_id, agent_data, requested_by=requested_by)
     return AgentResponse.model_validate(agent)
+
+
+@router.get(
+    "/{agent_id}/device-action-readiness",
+    response_model=AgentDeviceActionReadiness,
+)
+async def get_device_action_readiness(
+    agent_id: uuid.UUID,
+    project_id: uuid.UUID = Query(...),
+    agent_service: AgentService = Depends(get_agent_service),
+    principal: TrialPrincipal = Depends(require_trial_principal),
+) -> AgentDeviceActionReadiness:
+    if principal.project_id != project_id:
+        raise HTTPException(403, "设备动作核验的企业身份不一致")
+    return await agent_service.device_action_readiness(project_id, agent_id)
 
 
 @router.get(
@@ -459,6 +560,7 @@ async def update_agent(
     agent_data: AgentUpdate,
     project_id: uuid.UUID = Query(..., description="Project ID"),
     agent_service: AgentService = Depends(get_agent_service),
+    requested_by: uuid.UUID | None = Depends(optional_mutation_actor),
 ) -> AgentResponse:
     """
     Update AI agent configuration, tools, or settings.
@@ -469,7 +571,7 @@ async def update_agent(
     - Change default agent status
     - Update agent-specific configuration
     """
-    agent = await agent_service.update_agent(project_id, agent_id, agent_data)
+    agent = await agent_service.update_agent(project_id, agent_id, agent_data, requested_by=requested_by)
     return AgentResponse.model_validate(agent)
 
 

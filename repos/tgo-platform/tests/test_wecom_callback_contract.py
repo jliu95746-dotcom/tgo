@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -18,6 +19,9 @@ class FakeRequest:
 
     async def body(self) -> bytes:
         return self._body
+
+    async def stream(self):
+        yield self._body
 
 
 class FakeSession:
@@ -220,6 +224,32 @@ async def test_non_duplicate_integrity_error_is_not_acknowledged() -> None:
 
 
 @pytest.mark.asyncio
+async def test_kf_event_storage_failure_does_not_log_event_token(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret_event_token = "private-event-token"
+    xml = f"""<xml>
+        <CreateTime>1710000000</CreateTime>
+        <MsgType>event</MsgType>
+        <Event>kf_msg_or_event</Event>
+        <Token>{secret_event_token}</Token>
+        <OpenKfId>wk-test</OpenKfId>
+    </xml>"""
+    session = FakeSession(
+        commit_error=RuntimeError(f"database failure with {secret_event_token}")
+    )
+
+    with caplog.at_level(logging.ERROR):
+        response = await callbacks._handle_wecom_webhook(
+            make_platform(), make_signed_request(xml), session
+        )
+
+    assert response.status_code == 500
+    assert session.rollbacks == 1
+    assert secret_event_token not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_callback_rejects_missing_timestamp_or_nonce() -> None:
     xml = "<xml><MsgType>text</MsgType><MsgId>message-1</MsgId></xml>"
     request = make_signed_request(xml, timestamp="", nonce="")
@@ -247,3 +277,39 @@ async def test_business_message_rejects_missing_message_id() -> None:
 
     assert response.status_code == 400
     assert session.added == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("sqlstate", "constraint_name", "expected_status"),
+    [
+        ("23505", "uq_wecom_inbox_platform_message", None),
+        ("23503", "wecom_inbox_platform_id_fkey", 500),
+        ("23505", "uq_other_table", 500),
+    ],
+)
+async def test_business_message_only_acknowledges_its_own_duplicate(
+    sqlstate: str,
+    constraint_name: str,
+    expected_status: int | None,
+) -> None:
+    xml = """<xml>
+        <CreateTime>1710000000</CreateTime>
+        <MsgType>text</MsgType>
+        <MsgId>message-1</MsgId>
+        <FromUserName>external-user</FromUserName>
+        <Content>hello</Content>
+    </xml>"""
+    session = FakeSession(commit_error=make_integrity_error(sqlstate, constraint_name))
+
+    response = await callbacks._handle_wecom_webhook(
+        make_platform(),
+        make_signed_request(xml),
+        session,
+    )
+
+    if expected_status is None:
+        assert response == {"ok": True}
+    else:
+        assert response.status_code == expected_status
+    assert session.rollbacks == 1

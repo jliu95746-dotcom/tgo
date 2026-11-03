@@ -174,7 +174,7 @@ export default function MessageInput({ onSend }: { onSend(text: string): void })
         <Actions>
           <Icons>
             <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={handleFilesSelected}
-                    accept={['image/*','application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/zip','application/x-zip-compressed','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','text/plain','text/markdown'].join(',')}
+                    accept={['image/*','audio/*','application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/zip','application/x-zip-compressed','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','text/plain','text/markdown'].join(',')}
             />
             <IconBtn aria-label={t('messageInput.attach')} onClick={handlePickFiles}><Paperclip size={18} /></IconBtn>
             <IconBtn ref={emojiBtnRef} active={emojiOpen} aria-label={t('messageInput.emoji')} onClick={()=>setEmojiOpen(v=>!v)}><Smile size={18} /></IconBtn>

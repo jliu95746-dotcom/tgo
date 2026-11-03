@@ -63,8 +63,6 @@ class IMService {
       throw Exception('Failed to get WebSocket address from route API');
     }
 
-    debugPrint('[IMService] Initializing with wsAddr: $wsAddr');
-
     // Initialize WuKongIM SDK with config
     _sdk = WuKongEasySDK.getInstance();
     final config = WuKongConfig(
@@ -85,20 +83,17 @@ class IMService {
     if (_sdk == null) return;
 
     // Connection events
-    _sdk!.addEventListener(WuKongEvent.connect, (result) {
-      debugPrint('[IMService] Connected: $result');
+    _sdk!.addEventListener(WuKongEvent.connect, (_) {
       _connected = true;
       _emitStatus(ConnectionStatus.connected);
     });
 
-    _sdk!.addEventListener(WuKongEvent.disconnect, (info) {
-      debugPrint('[IMService] Disconnected: $info');
+    _sdk!.addEventListener(WuKongEvent.disconnect, (_) {
       _connected = false;
       _emitStatus(ConnectionStatus.disconnected);
     });
 
-    _sdk!.addEventListener(WuKongEvent.error, (error) {
-      debugPrint('[IMService] Error: $error');
+    _sdk!.addEventListener(WuKongEvent.error, (_) {
       _emitStatus(ConnectionStatus.error);
     });
 
@@ -106,14 +101,12 @@ class IMService {
     _sdk!.addEventListener(WuKongEvent.message, (data) {
       if (data == null) return;
       if (data is Message) {
-        debugPrint('[IMService] Message received: ${data.messageId}');
         _emitMessage(data);
       }
     });
 
     // Custom events (streaming etc.)
     _sdk!.addEventListener(WuKongEvent.customEvent, (data) {
-      debugPrint('[IMService] Custom event received: $data');
       if (data == null) return;
 
       if (data is Map) {
@@ -131,8 +124,8 @@ class IMService {
             'timestamp': event.timestamp,
           };
           _emitCustomEvent(map);
-        } catch (e) {
-          debugPrint('[IMService] Failed to parse custom event: $e');
+        } catch (_) {
+          debugPrint('[IMService] Failed to parse custom event');
         }
       }
     });
@@ -148,8 +141,8 @@ class IMService {
 
     try {
       await _sdk!.connect();
-    } catch (e) {
-      debugPrint('[IMService] Connect error: $e');
+    } catch (_) {
+      debugPrint('[IMService] Connect failed');
       _emitStatus(ConnectionStatus.error);
       rethrow;
     }
@@ -197,8 +190,6 @@ class IMService {
       final base = apiBase.endsWith('/') ? apiBase : '$apiBase/';
       final url = '${base}v1/wukongim/route?uid=$uid';
 
-      debugPrint('[IMService] Fetching route: $url');
-
       final response = await _dio.get<Map<String, dynamic>>(url);
 
       final statusCode = response.statusCode ?? 0;
@@ -219,8 +210,8 @@ class IMService {
       }
 
       return addr;
-    } catch (e) {
-      debugPrint('[IMService] Route fetch error: $e');
+    } catch (_) {
+      debugPrint('[IMService] Route fetch failed');
       rethrow;
     }
   }
@@ -260,8 +251,8 @@ class IMService {
     for (final listener in _messageListeners) {
       try {
         listener(message);
-      } catch (e) {
-        debugPrint('[IMService] Message listener error: $e');
+      } catch (_) {
+        debugPrint('[IMService] Message listener failed');
       }
     }
   }
@@ -271,8 +262,8 @@ class IMService {
     for (final listener in _statusListeners) {
       try {
         listener(status);
-      } catch (e) {
-        debugPrint('[IMService] Status listener error: $e');
+      } catch (_) {
+        debugPrint('[IMService] Status listener failed');
       }
     }
   }
@@ -282,8 +273,8 @@ class IMService {
     for (final listener in _customEventListeners) {
       try {
         listener(event);
-      } catch (e) {
-        debugPrint('[IMService] Custom event listener error: $e');
+      } catch (_) {
+        debugPrint('[IMService] Custom event listener failed');
       }
     }
   }

@@ -85,6 +85,16 @@ function Set-ProcessEnv {
     [Environment]::SetEnvironmentVariable($Name, $Value, 'Process')
 }
 
+function Get-NativeRedisPort {
+    $containerPort = Get-EnvValue -Name 'REDIS_PORT' -DefaultValue '6379'
+    $nativePort = Get-EnvValue -Name 'NATIVE_REDIS_PORT' -DefaultValue $containerPort
+    $portNumber = 0
+    if (-not [int]::TryParse($nativePort, [ref]$portNumber) -or $portNumber -lt 1 -or $portNumber -gt 65535) {
+        throw 'NATIVE_REDIS_PORT must be an integer between 1 and 65535.'
+    }
+    return $portNumber
+}
+
 function Set-NativeEnvironment {
     param(
         [Parameter(Mandatory = $true)]
@@ -98,7 +108,7 @@ function Set-NativeEnvironment {
     $databasePassword = [Uri]::EscapeDataString((Get-EnvValue -Name 'POSTGRES_PASSWORD' -DefaultValue 'tgo'))
     $databaseName = [Uri]::EscapeDataString((Get-EnvValue -Name 'POSTGRES_DB' -DefaultValue 'tgo'))
     $databasePort = Get-EnvValue -Name 'NATIVE_POSTGRES_PORT' -DefaultValue '15432'
-    $redisPort = Get-EnvValue -Name 'REDIS_PORT' -DefaultValue '6379'
+    $redisPort = Get-NativeRedisPort
     $databaseUrl = "postgresql+asyncpg://${databaseUser}:${databasePassword}@127.0.0.1:${databasePort}/${databaseName}"
 
     Set-ProcessEnv -Name 'ENVIRONMENT' -Value 'development'
@@ -122,6 +132,8 @@ function Set-NativeEnvironment {
         Set-ProcessEnv -Name 'DEVICE_CONTROL_SERVICE_URL' -Value 'http://127.0.0.1:8085'
         Set-ProcessEnv -Name 'WUKONGIM_SERVICE_URL' -Value 'http://127.0.0.1:5001'
         Set-ProcessEnv -Name 'WUKONGIM_ENABLED' -Value 'true'
+        Set-ProcessEnv -Name 'SAAS_IM_PUBLIC_URL' -Value (Get-EnvValue -Name 'NATIVE_IM_PUBLIC_URL' -DefaultValue 'ws://127.0.0.1:18000/v1/wukongim/ws')
+        Set-ProcessEnv -Name 'SAAS_IM_UPSTREAM_URL' -Value (Get-EnvValue -Name 'NATIVE_IM_UPSTREAM_URL' -DefaultValue 'ws://127.0.0.1:5200')
     }
 
     if ($Service -eq 'ai') {
@@ -144,6 +156,7 @@ function Set-NativeEnvironment {
         $platformMediaDirectory = Join-Path $script:RepoRoot 'data\tgo-platform\media'
         Set-ProcessEnv -Name 'REDIS_URL' -Value "redis://127.0.0.1:${redisPort}/0"
         Set-ProcessEnv -Name 'API_BASE_URL' -Value 'http://127.0.0.1:18000'
+        Set-ProcessEnv -Name 'API_INTERNAL_SERVICE_URL' -Value 'http://127.0.0.1:18001'
         Set-ProcessEnv -Name 'MEDIA_STORAGE_PATH' -Value $platformMediaDirectory
         Set-ProcessEnv -Name 'VISION_AGENT_URL' -Value 'http://127.0.0.1:18085'
     }
@@ -167,10 +180,12 @@ function Set-NativeEnvironment {
         Set-ProcessEnv -Name 'CELERY_BROKER_URL' -Value "redis://127.0.0.1:${redisPort}/3"
         Set-ProcessEnv -Name 'CELERY_RESULT_BACKEND' -Value "redis://127.0.0.1:${redisPort}/3"
         Set-ProcessEnv -Name 'AI_SERVICE_URL' -Value 'http://127.0.0.1:8081'
+        Set-ProcessEnv -Name 'API_INTERNAL_SERVICE_URL' -Value 'http://127.0.0.1:18001'
         Set-ProcessEnv -Name 'ALLOWED_ORIGINS' -Value '["*"]'
     }
 
     if ($Service -eq 'plugin') {
+        Set-ProcessEnv -Name 'BUSINESS_CONNECTION_API_URL' -Value 'http://127.0.0.1:18001'
         Set-ProcessEnv -Name 'HOST' -Value '127.0.0.1'
         Set-ProcessEnv -Name 'PORT' -Value '8090'
         Set-ProcessEnv -Name 'AI_SERVICE_URL' -Value 'http://127.0.0.1:8081'

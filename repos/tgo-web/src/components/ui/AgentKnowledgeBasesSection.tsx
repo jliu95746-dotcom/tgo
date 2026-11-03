@@ -6,6 +6,7 @@ import AgentKnowledgeBaseRow from './AgentKnowledgeBaseRow';
 
 interface AgentKnowledgeBasesSectionProps {
   items: KnowledgeBaseItem[];
+  unresolvedCount?: number;
   disabled?: boolean;
   onAdd?: () => void;
   onRemove: (kbId: string) => void;
@@ -13,6 +14,7 @@ interface AgentKnowledgeBasesSectionProps {
 
 const AgentKnowledgeBasesSection: React.FC<AgentKnowledgeBasesSectionProps> = ({
   items,
+  unresolvedCount = 0,
   disabled = false,
   onAdd,
   onRemove,
@@ -23,11 +25,11 @@ const AgentKnowledgeBasesSection: React.FC<AgentKnowledgeBasesSectionProps> = ({
     <>
       <div className="flex items-center justify-between mb-4 gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-medium text-gray-700 truncate">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">
             {t('agents.knowledge_basesSection.selectedTitle', '已选择知识库')}
           </span>
           <span className="px-2 py-1 text-xs font-medium bg-teal-100 text-teal-800 rounded-full whitespace-nowrap">
-            {t('agents.knowledge_basesSection.selectedCount', '{{count}} 已选择', { count: items.length })}
+            {t('agents.knowledge_basesSection.selectedCount', '{{count}} 已选择', { count: items.length + unresolvedCount })}
           </span>
         </div>
         {onAdd && (
@@ -54,7 +56,8 @@ const AgentKnowledgeBasesSection: React.FC<AgentKnowledgeBasesSectionProps> = ({
           />
         ))}
 
-        {items.length === 0 && (
+        {unresolvedCount > 0 && <p className="rounded-xl bg-gray-50 p-3 text-xs leading-5 text-gray-500 dark:bg-gray-800 dark:text-gray-300">{t('businessScenarios.wizard.knowledgeNamesPending', { count: unresolvedCount })}</p>}
+        {items.length === 0 && unresolvedCount === 0 && (
           <div className="text-center py-8 text-gray-500">
             <FolderOpen className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p className="text-sm font-medium">

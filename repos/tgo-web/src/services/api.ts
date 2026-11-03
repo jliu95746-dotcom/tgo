@@ -242,8 +242,8 @@ class APIClient {
   }
 
   // GET request
-  async get<T>(endpoint: string, options: { signal?: AbortSignal } = {}): Promise<T> {
-    return this.request<T>(endpoint, { method: 'GET', signal: options.signal });
+  async get<T>(endpoint: string, options: { signal?: AbortSignal; cache?: RequestCache } = {}): Promise<T> {
+    return this.request<T>(endpoint, { method: 'GET', signal: options.signal, cache: options.cache });
   }
 
   // GET request with body (some APIs use this for complex queries)
@@ -255,10 +255,12 @@ class APIClient {
   }
 
   // POST request
-  async post<T>(endpoint: string, data?: any): Promise<T> {
+  async post<T>(endpoint: string, data?: unknown, options: { signal?: AbortSignal; headers?: Record<string, string> } = {}): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
+      signal: options.signal,
+      headers: options.headers,
     });
   }
 
@@ -443,6 +445,26 @@ class APIClient {
   }
 
   // GET raw response (e.g., for binary downloads)
+  async getPrivateImage(endpoint: string, expectedToken: string, signal?: AbortSignal): Promise<Blob> {
+    await this.prepareSession(endpoint);
+    const assertCurrent = () => {
+      if (!expectedToken || this.token !== expectedToken) throw new Error('Avatar session changed');
+    };
+    assertCurrent();
+    const response = await fetch(`${this.baseURL}${endpoint}`, {
+      method: 'GET', headers: { Authorization: `Bearer ${expectedToken}` },
+      credentials: 'omit', cache: 'no-store', redirect: 'error', signal,
+    });
+    assertCurrent();
+    if (!response.ok) throw new Error(`Avatar request failed: HTTP ${response.status}`);
+    const limit = 5 * 1024 * 1024;
+    if (Number(response.headers.get('content-length')) > limit) throw new Error('Avatar exceeds size limit');
+    const blob = await response.blob();
+    assertCurrent();
+    if (blob.size > limit || !/^image\/(png|jpeg|gif|webp)$/.test(blob.type)) throw new Error('Invalid avatar image');
+    return blob;
+  }
+
   async getResponse(endpoint: string, extraHeaders?: HeadersInit): Promise<Response> {
     await this.prepareSession(endpoint);
     const url = `${this.baseURL}${endpoint}`;
@@ -474,10 +496,11 @@ class APIClient {
   }
 
   // PUT request
-  async put<T>(endpoint: string, data: any): Promise<T> {
+  async put<T>(endpoint: string, data: unknown, options: { signal?: AbortSignal } = {}): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'PUT',
       body: JSON.stringify(data),
+      signal: options.signal,
     });
   }
 
@@ -490,8 +513,8 @@ class APIClient {
   }
 
   // DELETE request
-  async delete<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'DELETE' });
+  async delete<T>(endpoint: string, options: { signal?: AbortSignal } = {}): Promise<T> {
+    return this.request<T>(endpoint, { method: 'DELETE', signal: options.signal });
   }
 }
 

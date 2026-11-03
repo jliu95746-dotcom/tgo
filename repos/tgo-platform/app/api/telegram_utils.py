@@ -9,10 +9,9 @@ Docs: https://core.telegram.org/bots/api
 """
 from __future__ import annotations
 
-import hashlib
 import hmac
 import logging
-from typing import Any
+from typing import Any, Awaitable
 
 import httpx
 
@@ -22,6 +21,32 @@ logger = logging.getLogger(__name__)
 
 # Telegram Bot API base URL
 TELEGRAM_API_BASE = "https://api.telegram.org"
+
+
+async def _telegram_response(
+    pending_response: Awaitable[httpx.Response], method: str
+) -> httpx.Response:
+    """Preserve HTTP error categories without exposing token-bearing request URLs."""
+    status_code: int | None = None
+    try:
+        response = await pending_response
+        response.raise_for_status()
+        return response
+    except httpx.HTTPStatusError as error:
+        status_code = error.response.status_code
+    except httpx.RequestError:
+        pass
+
+    # Raise outside the handler so the original exception is not chained.
+    safe_request = httpx.Request(method, TELEGRAM_API_BASE)
+    if status_code is not None:
+        safe_response = httpx.Response(status_code, request=safe_request)
+        raise httpx.HTTPStatusError(
+            f"Telegram API returned HTTP {status_code}",
+            request=safe_request,
+            response=safe_response,
+        )
+    raise httpx.RequestError("Telegram API request failed", request=safe_request)
 
 
 async def telegram_send_text(
@@ -59,15 +84,11 @@ async def telegram_send_text(
     timeout_seconds = timeout or settings.request_timeout_seconds
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        response = await client.post(url, json=payload)
-        response.raise_for_status()
+        response = await _telegram_response(client.post(url, json=payload), "POST")
         result = response.json()
         
         if not result.get("ok"):
-            logger.error(
-                "[TELEGRAM] sendMessage failed: %s",
-                result.get("description", "Unknown error")
-            )
+            logger.error("[TELEGRAM] sendMessage failed")
         
         return result
 
@@ -109,20 +130,18 @@ async def telegram_send_photo(
         if isinstance(photo, bytes):
             # Send as file (multipart)
             files = {"photo": ("image.jpg", photo, "image/jpeg")}
-            response = await client.post(url, data=data, files=files)
+            response = await _telegram_response(
+                client.post(url, data=data, files=files), "POST"
+            )
         else:
             # Send as URL (string)
             data["photo"] = photo
-            response = await client.post(url, data=data)
-            
-        response.raise_for_status()
+            response = await _telegram_response(client.post(url, data=data), "POST")
+
         result = response.json()
         
         if not result.get("ok"):
-            logger.error(
-                "[TELEGRAM] sendPhoto failed: %s",
-                result.get("description", "Unknown error")
-            )
+            logger.error("[TELEGRAM] sendPhoto failed")
         
         return result
 
@@ -147,8 +166,7 @@ async def telegram_get_file(
     timeout_seconds = timeout or settings.request_timeout_seconds
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        response = await client.post(url, json=payload)
-        response.raise_for_status()
+        response = await _telegram_response(client.post(url, json=payload), "POST")
         result = response.json()
         return result
 
@@ -172,8 +190,7 @@ async def telegram_download_file(
     timeout_seconds = timeout or settings.request_timeout_seconds
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        response = await client.get(url)
-        response.raise_for_status()
+        response = await _telegram_response(client.get(url), "GET")
         return response.content
 
 
@@ -197,8 +214,7 @@ async def telegram_get_me(
     timeout_seconds = timeout or settings.request_timeout_seconds
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        response = await client.get(url)
-        response.raise_for_status()
+        response = await _telegram_response(client.get(url), "GET")
         return response.json()
 
 
@@ -235,20 +251,16 @@ async def telegram_set_webhook(
     if secret_token:
         payload["secret_token"] = secret_token
 
-    logger.info("[TELEGRAM] Setting webhook: %s", webhook_url)
+    logger.info("[TELEGRAM] Setting webhook")
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        response = await client.post(url, json=payload)
-        response.raise_for_status()
+        response = await _telegram_response(client.post(url, json=payload), "POST")
         result = response.json()
         
         if result.get("ok"):
             logger.info("[TELEGRAM] Webhook set successfully")
         else:
-            logger.error(
-                "[TELEGRAM] Failed to set webhook: %s",
-                result.get("description", "Unknown error")
-            )
+            logger.error("[TELEGRAM] Failed to set webhook")
         
         return result
 
@@ -274,8 +286,7 @@ async def telegram_delete_webhook(
     logger.info("[TELEGRAM] Deleting webhook")
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        response = await client.post(url)
-        response.raise_for_status()
+        response = await _telegram_response(client.post(url), "POST")
         return response.json()
 
 

@@ -51,9 +51,11 @@ from app.services.staff_browser_session import (
     refresh_browser_session,
     start_browser_session,
 )
+from app.api.v1.endpoints.staff_profile import router as profile_router
 
 logger = get_logger("endpoints.staff")
 router = APIRouter()
+router.include_router(profile_router)
 
 
 def _build_staff_response(staff: Staff, is_working: bool = None) -> StaffResponse:

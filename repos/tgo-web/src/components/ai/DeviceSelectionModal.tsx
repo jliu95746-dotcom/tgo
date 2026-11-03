@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useId } from 'react';
 import { X, Search, ExternalLink, Monitor, RefreshCw, Smartphone } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 import { useTranslation } from 'react-i18next';
 
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -25,7 +26,8 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
   selectedDeviceId,
   onConfirm,
 }) => {
-  const navigate = useNavigate();
+  const dialogRef = useDialogFocus<HTMLDivElement>(onClose, isOpen);
+  const deviceGroup = useId();
   const { devices, isLoading, hasLoadedDevices, loadError, loadDevices } = useDeviceControlStore();
   const { showToast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
@@ -92,14 +94,15 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="device-selection-title" className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <h3 id="device-selection-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {t('agents.deviceSelectModal.title', '选择设备')}
           </h3>
           <button
             onClick={onClose}
+            aria-label={t('common.close', '关闭')}
             className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -237,6 +240,9 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
                           </span>
                           <input
                             type="radio"
+                            name={deviceGroup}
+                            aria-label={device.device_name}
+                            onClick={event => event.stopPropagation()}
                             checked={isSelected}
                             onChange={() => handleDeviceClick(device)}
                             className="text-blue-600 dark:text-blue-500 focus:ring-blue-500 dark:bg-gray-700"
@@ -253,16 +259,12 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({
 
         {/* Device Management Link */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <button
+          <Link to="/ai/device-control" target="_blank" rel="noopener noreferrer"
             className="flex items-center space-x-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm"
-            onClick={() => {
-              navigate('/ai/device-control');
-              onClose();
-            }}
           >
             <span>{t('agents.deviceSelectModal.manageDevices', '管理设备')}</span>
             <ExternalLink className="w-4 h-4" />
-          </button>
+          </Link>
         </div>
 
         {/* Footer */}

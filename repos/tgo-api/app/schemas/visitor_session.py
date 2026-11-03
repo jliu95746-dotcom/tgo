@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import Field
@@ -79,3 +79,23 @@ class VisitorSessionListParams(BaseSchema):
     status: Optional[SessionStatus] = Field(None, description="Filter by status")
     limit: int = Field(default=20, ge=1, le=100, description="Page size")
     offset: int = Field(default=0, ge=0, description="Page offset")
+
+
+class SessionHandoffExcerpt(BaseSchema):
+    """A bounded, verbatim excerpt from a current session message."""
+
+    role: Literal["customer", "staff", "assistant"]
+    content: str
+    message_seq: int
+    timestamp: int
+
+
+class SessionHandoffSummary(BaseSchema):
+    """Recent message excerpts for staff handoff, not a business conclusion."""
+
+    session_id: UUID
+    visitor_id: UUID
+    sampled_message_count: int
+    has_earlier_messages: bool
+    latest_customer_messages: list[SessionHandoffExcerpt]
+    latest_replies: list[SessionHandoffExcerpt]

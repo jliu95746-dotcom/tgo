@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useCompactChatLayout } from '@/hooks/useCompactChatLayout';
+import { useReceptionModeSync } from '@/hooks/useReceptionModeSync';
+import { resolveReceptionMode } from '@/services/receptionModeSync';
 import { canApplyAssistDraft, getAssistSourceId, getAssistCustomerInput, type AssistDraftContext } from '@/utils/assistDraftContext';
 
 import { useTranslation } from 'react-i18next';
@@ -65,7 +68,7 @@ const getErrorMessage = (
 };
 
 interface MessageInputProps {
-  onSendMessage?: (message: string, training?: AssistTrainingIntent) => boolean | Promise<boolean>;
+  onSendMessage?: (message: string, training?: AssistTrainingIntent, sourceMessageId?: string, assistDraftId?: string) => boolean | Promise<boolean>;
   isSending?: boolean;
   onAcceptVisitor?: () => void;
   latestVisitorMessage?: Message;
@@ -81,6 +84,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   latestVisitorMessage,
 }) => {
   const { t } = useTranslation();
+  const compactLayout = useCompactChatLayout();
   const [message, setMessage] = useState<string>('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isComposing, setIsComposing] = useState<boolean>(false);
@@ -89,12 +93,16 @@ const MessageInput: React.FC<MessageInputProps> = ({
     const textarea = textareaRef.current;
     if (!textarea) return;
 
-    const maxHeight = Math.min(320, Math.max(96, Math.floor(window.innerHeight * 0.4)));
+    const viewport = window.visualViewport;
+    const visibleHeight = viewport && viewport.scale === 1 ? viewport.height : window.innerHeight;
+    const maxHeight = compactLayout
+      ? Math.max(72, Math.min(160, Math.floor(visibleHeight * 0.25)))
+      : Math.min(320, Math.max(96, Math.floor(window.innerHeight * 0.4)));
     textarea.style.height = 'auto';
     const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
-  }, []);
+  }, [compactLayout]);
 
   useLayoutEffect(() => {
     resizeTextarea();
@@ -102,7 +110,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
   useEffect(() => {
     window.addEventListener('resize', resizeTextarea);
-    return () => window.removeEventListener('resize', resizeTextarea);
+    window.visualViewport?.addEventListener('resize', resizeTextarea);
+    return () => {
+      window.removeEventListener('resize', resizeTextarea);
+      window.visualViewport?.removeEventListener('resize', resizeTextarea);
+    };
   }, [resizeTextarea]);
 
   const shouldMaintainFocus = useRef<boolean>(false);
@@ -128,6 +140,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
     clientMsgNo: string;
     payload: StaffDeliveryPayload;
     training?: AssistTrainingIntent;
+    sourceMessageId?: string;
+    assistDraftId?: string;
   } | null>(null);
 
 
@@ -155,8 +169,9 @@ const MessageInput: React.FC<MessageInputProps> = ({
       top = Math.min(window.innerHeight - TIP_HEIGHT - 10, rect.bottom + TIP_MARGIN);
     }
 
-    const centerLeft = rect.left + rect.width / 2 - TIP_WIDTH / 2;
-    const left = Math.min(Math.max(10, centerLeft), window.innerWidth - TIP_WIDTH - 10);
+    const tipWidth = Math.min(TIP_WIDTH, window.innerWidth - 20);
+    const centerLeft = rect.left + rect.width / 2 - tipWidth / 2;
+    const left = Math.max(10, Math.min(centerLeft, window.innerWidth - tipWidth - 10));
 
     setScreenshotTipPos({ top, left });
   }, []);
@@ -270,14 +285,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const isClosed = serviceStatus === 'closed';
   
   // Prefer the new three-state visitor mode and fall back to legacy fields.
-  const aiDisabledRaw = visitorExtra?.ai_disabled;
-  const aiMode = visitorExtra?.ai_settings?.ai_mode ?? 'auto';
-  const configuredServiceMode: VisitorServiceMode = visitorExtra?.service_mode
-    ?? ((aiDisabledRaw === null || aiDisabledRaw === undefined)
-      ? (aiMode === 'assist' ? 'assist' : aiMode === 'auto' ? 'auto' : 'manual')
-      : aiDisabledRaw ? 'manual' : 'auto');
-  const serviceMode: VisitorServiceMode = configuredServiceMode === 'auto' && aiDisabledRaw === true
-    ? 'manual' : configuredServiceMode;
+  const serviceMode: VisitorServiceMode = resolveReceptionMode(visitorExtra);
+  const { refreshForAction, beginMutation, endMutation } = useReceptionModeSync(channelId, channelType, visitorId);
   const isAssistMode = serviceMode === 'assist';
   
   // 获取分配坐席的频道信息（用于显示坐席名字）
@@ -310,6 +319,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const [humanizationSkills, setHumanizationSkills] = useState<SkillSummary[]>([]);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [assistDraft, setAssistDraft] = useState<string | null>(null);
+  const [assistDraftId, setAssistDraftId] = useState<string | null>(null);
   const [assistSourceMessageId, setAssistSourceMessageId] = useState<string | null>(null);
   const sendInFlightRef = useRef(false);
   const [assistTrainingSource, setAssistTrainingSource] = useState<{
@@ -625,20 +635,32 @@ const MessageInput: React.FC<MessageInputProps> = ({
     nextMode: VisitorServiceMode,
     skillName: string,
     humanizationEnabled: boolean,
+    preserveServerMode = false,
   ) => {
     if (!visitorId) return;
     setIsTogglingAI(true);
     try {
+      let effectiveMode = nextMode;
+      if (preserveServerMode && channelType === 251) {
+        const fresh = await refreshForAction();
+        if (!fresh) return;
+        effectiveMode = resolveReceptionMode(fresh.extra);
+      }
+      beginMutation();
+      try {
       const updated = await visitorApiService.updateServiceMode(visitorId, {
-        service_mode: nextMode,
+        service_mode: effectiveMode,
         humanization_skill_name: skillName || null,
-        humanization_skill_enabled: nextMode !== 'manual' && humanizationEnabled,
+        humanization_skill_enabled: effectiveMode !== 'manual' && humanizationEnabled,
       });
       patchVisitorSettings(updated);
+      } finally {
+        await endMutation().catch(() => undefined);
+      }
     } finally {
       setIsTogglingAI(false);
     }
-  }, [patchVisitorSettings, visitorId]);
+  }, [beginMutation, channelType, endMutation, patchVisitorSettings, refreshForAction, visitorId]);
 
   const handleServiceModeChange = useCallback(async (nextMode: VisitorServiceMode) => {
     if (nextMode === serviceMode) return;
@@ -667,6 +689,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
         serviceMode,
         skillName,
         Boolean(skillName) && isHumanizationEnabled,
+        true,
       );
     } catch (error) {
       showApiError(showToast, error);
@@ -682,7 +705,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       return;
     }
     try {
-      await updateVisitorMode(serviceMode, selectedHumanizationSkill, enabled);
+      await updateVisitorMode(serviceMode, selectedHumanizationSkill, enabled, true);
     } catch (error) {
       showApiError(showToast, error);
     }
@@ -709,11 +732,13 @@ const MessageInput: React.FC<MessageInputProps> = ({
           ? selectedHumanizationSkill
           : null,
         source_message_id: sourceId,
+        source_client_msg_no: latestVisitorMessage.clientMsgNo || null,
       });
       if (requestId !== assistRequestIdRef.current
         || !canApplyAssistDraft(requestContext, assistContextRef.current)) return;
       setMessage(result.draft);
       setAssistDraft(result.draft);
+      setAssistDraftId(result.draft_id || null);
       setAssistSourceMessageId(result.source_message_id || sourceId);
       setAssistTrainingSource({ customerMessage: result.customer_message || customerMessage,
         skillName: result.humanization_skill_name || null,
@@ -733,6 +758,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     assistRequestIdRef.current += 1;
     lastGeneratedSourceRef.current = null;
     setAssistDraft(null);
+    setAssistDraftId(null);
     setAssistSourceMessageId(null);
     setAssistTrainingSource(null);
     setIsGeneratingDraft(false);
@@ -816,6 +842,20 @@ const MessageInput: React.FC<MessageInputProps> = ({
     }
   }, [isStreamingInProgress, activeStreamingChannels, channelId, channelType, cancelStreamingMessage, showToast, t]);
 
+  const confirmReceptionMode = useCallback(async (): Promise<boolean> => {
+    if (isAIChat || channelType !== 251) return true;
+    try {
+      const fresh = await refreshForAction();
+      if (!fresh) return false;
+      const actualMode = resolveReceptionMode(fresh.extra);
+      if (actualMode === serviceMode && actualMode !== 'auto') return true;
+      showSuccess(showToast, t('chat.input.mode.changedTitle'), t(`chat.input.mode.${actualMode}Description`));
+    } catch (error) {
+      showApiError(showToast, error);
+    }
+    return false;
+  }, [channelType, isAIChat, refreshForAction, serviceMode, showToast, t]);
+
   const handleSend = async (): Promise<void> => {
     if (isManualDisabled) return;
     if (isSending || isSendingLocal || sendInFlightRef.current) return;
@@ -842,6 +882,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     sendInFlightRef.current = true;
     setIsSendingLocal(true);
     try {
+      if (!await confirmReceptionMode()) return;
       const finalReply = message.trim();
       const correction: AssistTrainingIntent | undefined = (
         isAssistMode && assistDraft && selectedHumanizationSkill && isHumanizationEnabled
@@ -856,17 +897,21 @@ const MessageInput: React.FC<MessageInputProps> = ({
       } : undefined;
       const durableTraining = channelType === 251;
       const training = durableTraining ? correction : undefined;
+      const sourceMessageId = isAssistMode && latestVisitorMessage?.type === 'visitor'
+        ? getAssistSourceId(latestVisitorMessage) || undefined : undefined;
+      const linkedDraftId = sourceMessageId && assistSourceMessageId === sourceMessageId
+        ? assistDraftId || undefined : undefined;
       let sent = false;
       if (hasImages && hasText) {
-        sent = await sendRichTextWithImages(training);
+        sent = await sendRichTextWithImages(training, sourceMessageId, linkedDraftId);
       } else if (hasFiles && hasText) {
-        sent = await sendRichTextWithFile(training);
+        sent = await sendRichTextWithFile(training, sourceMessageId, linkedDraftId);
       } else if (hasImages) {
         await sendImagesOnly();
       } else if (hasFiles) {
         await sendSelectedFilesOnly();
       } else if (hasText) {
-        sent = await onSendMessage?.(finalReply, training) === true;
+        sent = await onSendMessage?.(finalReply, training, sourceMessageId, linkedDraftId) === true;
       }
       if (hasText && sent) {
         setMessage(current => current.trim() === finalReply ? '' : current);
@@ -899,6 +944,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
           }
         }
         setAssistDraft(null);
+        setAssistDraftId(null);
         setAssistSourceMessageId(null);
         setAssistTrainingSource(null);
       }
@@ -1242,13 +1288,13 @@ const MessageInput: React.FC<MessageInputProps> = ({
   // Send rich text message with file attachment (text + file)
   const submitRichPayload = useCallback(async (
     signature: string, clientMsgNo: string, payload: StaffDeliveryPayload,
-    training?: AssistTrainingIntent,
+    training?: AssistTrainingIntent, sourceMessageId?: string, linkedDraftId?: string,
   ): Promise<boolean> => {
     if (!channelId || typeof channelType !== 'number') return false;
-    pendingRichSendRef.current = { signature, clientMsgNo, payload, training };
+    pendingRichSendRef.current = { signature, clientMsgNo, payload, training, sourceMessageId, assistDraftId: linkedDraftId };
     const sent = await sendCustomerMessage({
       staffId: user?.id || '', channelId, channelType, clientMsgNo, payload,
-      training,
+      training, sourceMessageId, assistDraftId: linkedDraftId,
       platformType: visitorExtra?.platform_type, isConnected, sendWsMessage,
       updateMessage: updateMessageByClientMsgNo,
     });
@@ -1256,7 +1302,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     return sent;
   }, [channelId, channelType, user?.id, visitorExtra?.platform_type, isConnected, sendWsMessage, updateMessageByClientMsgNo]);
 
-  const sendRichTextWithFile = useCallback(async (training?: AssistTrainingIntent): Promise<boolean> => {
+  const sendRichTextWithFile = useCallback(async (training?: AssistTrainingIntent, sourceMessageId?: string, linkedDraftId?: string): Promise<boolean> => {
     const textContent = message.trim();
     const fileItem = selectedFiles[0];
     if (!fileItem || !textContent) return false;
@@ -1269,10 +1315,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
       return false;
     }
 
-    const signature = JSON.stringify([channelId, textContent, fileItem.id]);
+    const signature = JSON.stringify([channelId, textContent, fileItem.id, sourceMessageId, linkedDraftId]);
     const cached = pendingRichSendRef.current;
     if (cached?.signature === signature) {
-      const sent = await submitRichPayload(signature, cached.clientMsgNo, cached.payload, cached.training);
+      const sent = await submitRichPayload(signature, cached.clientMsgNo, cached.payload, cached.training, cached.sourceMessageId, cached.assistDraftId);
       if (sent) setSelectedFiles(current => current.filter(item => item.id !== fileItem.id));
       return sent;
     }
@@ -1339,7 +1385,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       } as any;
 
       try {
-        const sent = await submitRichPayload(signature, nowId, payload, training);
+        const sent = await submitRichPayload(signature, nowId, payload, training, sourceMessageId, linkedDraftId);
         if (!sent) return false;
       } catch (err) {
         const errMsg = getErrorMessage(err, t, 'chat.input.errors.websocketFailed', 'WebSocket 发送失败，请检查网络连接');
@@ -1358,7 +1404,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     return true;
   }, [selectedFiles, message, channelId, channelType, user?.id, addMessage, updateConversationLastMessage, moveConversationToTop, updateMessageByClientMsgNo, showToast, showError, submitRichPayload, t]);
 
-  const sendRichTextWithImages = useCallback(async (training?: AssistTrainingIntent): Promise<boolean> => {
+  const sendRichTextWithImages = useCallback(async (training?: AssistTrainingIntent, sourceMessageId?: string, linkedDraftId?: string): Promise<boolean> => {
     const items = [...pastedItems];
     if (!items.length) return false;
     if (!channelId || typeof channelType !== 'number') {
@@ -1369,10 +1415,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
       return false;
     }
 
-    const signature = JSON.stringify([channelId, message.trim(), items.map(item => item.previewUrl)]);
+    const signature = JSON.stringify([channelId, message.trim(), items.map(item => item.previewUrl), sourceMessageId, linkedDraftId]);
     const cached = pendingRichSendRef.current;
     if (cached?.signature === signature) {
-      const sent = await submitRichPayload(signature, cached.clientMsgNo, cached.payload, cached.training);
+      const sent = await submitRichPayload(signature, cached.clientMsgNo, cached.payload, cached.training, cached.sourceMessageId, cached.assistDraftId);
       if (sent) setPastedItems(current => current.filter(item => !items.some(sentItem => sentItem.previewUrl === item.previewUrl)));
       return sent;
     }
@@ -1448,7 +1494,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     } as any;
 
     try {
-      const sent = await submitRichPayload(signature, nowId, payload, training);
+      const sent = await submitRichPayload(signature, nowId, payload, training, sourceMessageId, linkedDraftId);
       if (!sent) return false;
     } catch (err) {
       const errMsg = getErrorMessage(err, t, 'chat.input.errors.websocketFailed', 'WebSocket 发送失败，请检查网络连接');
@@ -1479,8 +1525,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
       textareaRef.current?.focus();
     };
 
-    const handleSendMessageAction = (e: any) => {
-      const { content } = e.detail;
+    const handleSendMessageAction = async (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail: unknown = event.detail;
+      if (!detail || typeof detail !== 'object' || !('content' in detail) || typeof detail.content !== 'string') return;
+      const content = detail.content;
+      if (!await confirmReceptionMode()) return;
       onSendMessage?.(content);
     };
 
@@ -1491,7 +1541,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       window.removeEventListener('tgo:insert_text', handleInsertText);
       window.removeEventListener('tgo:send_message', handleSendMessageAction);
     };
-  }, [onSendMessage]);
+  }, [confirmReceptionMode, onSendMessage]);
 
   // If visitor is in queued status, show accept button instead of input area
   if (isQueued && visitorId) {
@@ -1553,12 +1603,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
   }
 
   return (
-    <footer className="shrink-0 border-t border-gray-200/80 bg-white/80 p-4 backdrop-blur-lg dark:border-gray-700/80 dark:bg-gray-800/80">
+    <footer className="chat-composer min-w-0 shrink-0 border-t border-gray-200/80 bg-white/80 p-4 backdrop-blur-lg dark:border-gray-700/80 dark:bg-gray-800/80">
 
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
+      <div className="chat-composer-toolbar flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <div className="chat-composer-tools flex min-w-0 items-center space-x-3">
           <button
             ref={emojiBtnRef}
             onClick={() => { if (isManualDisabled) return; setShowEmoji(v => !v); }}
@@ -1617,7 +1667,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
         {/* 接待模式与拟人技能 - agent 会话时不显示 */}
         {!isAIChat && (
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="chat-composer-mode flex min-w-0 flex-wrap items-center gap-2">
             <div className="inline-flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
               {(['auto', 'assist', 'manual'] as VisitorServiceMode[]).map((mode) => {
                 const active = serviceMode === mode;
@@ -1644,7 +1694,9 @@ const MessageInput: React.FC<MessageInputProps> = ({
             </div>
 
             {serviceMode !== 'manual' && (
-              <>
+              <details className="chat-reply-options" open={compactLayout ? undefined : true}>
+                <summary className="text-gray-600 dark:text-gray-300">{t('mobileChat.replyOptions')}</summary>
+                <div className="chat-reply-options-content flex min-w-0 items-center gap-2">
                 <select
                   value={conversationSkill}
                   onChange={(event) => void handleHumanizationSkillChange(event.target.value)}
@@ -1676,7 +1728,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
                   {styleError ? t('employeeStyle.loadError') : conversationSkill ? t('employeeStyle.override')
                     : styleReady ? t('employeeStyle.following', { name: employeeStyle?.agent_name || t('employeeStyle.noDefault') }) : t('employeeStyle.loading')}
                 </span>
-              </>
+                </div>
+              </details>
             )}
           </div>
         )}
@@ -1698,7 +1751,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
           )}
           {createPortal(
             <div
-              className="fixed z-[1000] w-80 bg-white dark:bg-gray-900 rounded-md shadow-lg border border-gray-200 dark:border-gray-700"
+              className="fixed z-[1000] w-80 max-w-[calc(100vw-20px)] bg-white dark:bg-gray-900 rounded-md shadow-lg border border-gray-200 dark:border-gray-700"
               style={{ top: screenshotTipPos.top, left: screenshotTipPos.left, width: TIP_WIDTH }}
               role="dialog"
               aria-label={t('chat.input.screenshotTip.aria', '截图发送提示')}
@@ -1748,10 +1801,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
         <div className="mt-2">
           <ul className="space-y-2">
             {selectedFiles.map((sf) => (
-              <li key={sf.id} className="flex items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2">
+              <li key={sf.id} className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2">
                 <div className="flex items-center space-x-3 min-w-0">
                   {getFileIcon(sf.file.name, 'w-5 h-5')}
-                  <span className="text-sm text-gray-800 dark:text-gray-100 truncate max-w-[280px]">{sf.file.name}</span>
+                  <span className="min-w-0 text-sm text-gray-800 dark:text-gray-100 truncate max-w-[280px]">{sf.file.name}</span>
                   <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">{formatBytes(sf.file.size)}</span>
                 </div>
                 <button
@@ -1814,7 +1867,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       )}
 
       {isAssistMode && (
-        <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs dark:border-violet-900/70 dark:bg-violet-950/30">
+        <div className="mt-2 flex min-w-0 items-center justify-between gap-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs dark:border-violet-900/70 dark:bg-violet-950/30">
           <div className="flex min-w-0 items-center gap-2 text-violet-700 dark:text-violet-300">
             {isGeneratingDraft ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Sparkles className="h-4 w-4 shrink-0" />}
             <span className="truncate">
@@ -1869,18 +1922,18 @@ const MessageInput: React.FC<MessageInputProps> = ({
           onPaste={handlePaste}
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
-          readOnly={isSending || isSendingLocal || isManualDisabled}
+          readOnly={isManualDisabled}
           disabled={isManualDisabled}
           title={isManualDisabled ? t('chat.input.disabled.placeholder', 'AI助手已启用，无法手动输入') : undefined}
           className={`block min-h-[4.5rem] w-full resize-none overflow-y-hidden rounded-md border border-transparent bg-transparent p-2 text-sm leading-6 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:text-gray-200 dark:focus:ring-blue-400 ${
-            isSending || isSendingLocal || isManualDisabled ? 'opacity-50 cursor-not-allowed' : ''
+            isManualDisabled ? 'opacity-50 cursor-not-allowed' : ''
           }`}
         />
       </div>
 
       {/* Send controls */}
       <div className="flex justify-end mt-1">
-        <button className="text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 mr-2" title={isManualDisabled ? t('chat.input.disabled.tooltip', 'AI助手已启用，手动输入已禁用') : undefined}>
+        <button className="max-[899px]:hidden text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 mr-2" title={isManualDisabled ? t('chat.input.disabled.tooltip', 'AI助手已启用，手动输入已禁用') : undefined}>
           {t('chat.input.shortcuts.sendWithHint', 'Enter 发送 • {{hint}}', { hint: newlineHint })}
         </button>
         {isStreamingInProgress ? (

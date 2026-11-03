@@ -250,6 +250,8 @@
     try {
       const ctrlUrl = new URL('./index.html', baseUrl);
       if (opts && opts.apiKey) ctrlUrl.searchParams.set('apiKey', String(opts.apiKey));
+      if (opts && typeof opts.getBusinessCustomerSessions === 'function') ctrlUrl.searchParams.set('businessIdentity', '1');
+      ctrlUrl.searchParams.set('hostOrigin', window.location.origin);
       ctrl.src = ctrlUrl.toString();
     } catch (e) {
       console.error('[TGO SDK] Failed to create controller iframe', e);
@@ -267,8 +269,80 @@
     return ctrl;
   }
 
+  // Private sessions are requested per send; only the owned controller receives them.
+  function createBusinessSessionHost(getController, origin, provider){
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const pending = new Map();
+    let generation = 0;
+    let closed = false;
+    let current = typeof provider === 'function' ? provider : null;
+    function notify(){
+      const target = getController();
+      if (!closed && target) target.postMessage({ type:'TGO_BUSINESS_SESSION_STATE', enabled:!!current, generation }, origin);
+    }
+    function cancel(){
+      for (const controller of pending.values()) controller.abort();
+      pending.clear();
+    }
+    async function handle(event){
+      const target = getController();
+      if (closed || !target || event.source !== target || event.origin !== origin) return;
+      const data = event.data || {};
+      if (data.type === 'TGO_BUSINESS_SESSION_STATE_REQUEST') { notify(); return; }
+      if (data.type !== 'TGO_BUSINESS_SESSION_REQUEST' || !uuid.test(data.requestId || '')) return;
+      const context = data.context;
+      if (!context || typeof context !== 'object' || Array.isArray(context)
+        || ![context.visitorId, context.projectId, context.platformId].every(value => typeof value === 'string' && uuid.test(value))
+        || Object.keys(context).some(key => !['visitorId','projectId','platformId','sourceMessageId'].includes(key))
+        || (context.sourceMessageId !== undefined && (typeof context.sourceMessageId !== 'string' || context.sourceMessageId.length > 128))) return;
+      const requestId = data.requestId;
+      const version = generation;
+      const callback = current;
+      const controller = new AbortController();
+      if (pending.has(requestId) || pending.size >= 20) return;
+      pending.set(requestId, controller);
+      let timer;
+      let sessions = [];
+      let ok = false;
+      try {
+        sessions = callback ? await Promise.race([
+          Promise.resolve().then(() => callback(Object.freeze({...context}), { signal:controller.signal })),
+          new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('unavailable')); }, 7000); })
+        ]) : [];
+        if (!Array.isArray(sessions) || sessions.length > 20) throw new Error('unavailable');
+        const seen = new Set();
+        sessions = sessions.map(item => {
+          if (!item || typeof item !== 'object' || Object.keys(item).length !== 2
+            || typeof item.connection_id !== 'string' || !uuid.test(item.connection_id)) throw new Error('unavailable');
+          const field = Object.prototype.hasOwnProperty.call(item,'customer_session') ? 'customer_session' : 'merchant_assertion';
+          const maximum = field === 'customer_session' ? 8192 : 16384;
+          if (Object.keys(item).some(key => !['connection_id',field].includes(key)) || typeof item[field] !== 'string'
+            || !item[field].trim() || item[field].length > maximum) throw new Error('unavailable');
+          const connection = item.connection_id.toLowerCase();
+          if (seen.has(connection)) throw new Error('unavailable');
+          seen.add(connection);
+          return { connection_id:connection, [field]:item[field] };
+        });
+        ok = true;
+      } catch (_) { sessions = []; }
+      finally { clearTimeout(timer); pending.delete(requestId); }
+      if (!closed && !controller.signal.aborted && generation === version && getController() === target) {
+        try { target.postMessage({ type:'TGO_BUSINESS_SESSION_RESPONSE', requestId, context, generation:version, ok, sessions }, origin); } catch (_) {}
+      }
+    }
+    return {
+      handle, notify,
+      setProvider(value){
+        if (value != null && typeof value !== 'function') throw new Error('客户业务身份回调必须为函数或 null。');
+        generation += 1; cancel(); current = typeof value === 'function' ? value : null; notify();
+      },
+      dispose(){ cancel(); current = null; generation += 1; closed = true; }
+    };
+  }
+
   function inject(baseUrl, opts){
     const state = { uiContainer: null, uiIframe: null, ctrl: null, launcher: null, isOpen: false, pageForwardingInited: false };
+    const business = createBusinessSessionHost(() => state.ctrl?.contentWindow, new URL(baseUrl).origin, opts.getBusinessCustomerSessions);
 
     function applyOpen(open){
       if(!state.uiContainer) return;
@@ -555,6 +629,7 @@
 
       // Listen to controller messages (e.g., header close requests)
       window.addEventListener('message', (e)=>{
+        void business.handle(e);
         const d = e.data || {};
         if(d && d.type === 'tgo:hide') apiHide();
         if(d && d.type === 'tgo:show') apiShow();
@@ -605,12 +680,19 @@
       get ctrl(){ return state.ctrl; },
       show: apiShow,
       hide: apiHide,
+      setBusinessCustomerSessionProvider: business.setProvider,
+      disposeBusinessCustomerSessions: business.dispose,
       get isOpen(){ return state.isOpen; }
     };
   }
 
   function init(opts){
-    if (__tgo_lastInstance) return __tgo_lastInstance;
+    if (__tgo_lastInstance) {
+      if (opts && Object.prototype.hasOwnProperty.call(opts, 'getBusinessCustomerSessions')) {
+        __tgo_lastInstance.setBusinessCustomerSessionProvider(opts.getBusinessCustomerSessions);
+      }
+      return __tgo_lastInstance;
+    }
     const script = getCurrentScript();
     const base = dirnameFromScript(script);
     console.log('[TGO SDK] init', base);
@@ -619,6 +701,8 @@
   }
 
   function shutdown(){
+    __tgo_lastInstance?.disposeBusinessCustomerSessions?.();
+    __tgo_lastInstance = null;
     try {
       const container = document.getElementById(UI_CONTAINER_ID);
       container && container.parentNode && container.parentNode.removeChild(container);
@@ -646,6 +730,7 @@
     },
     show: function(){ if(!__tgo_lastInstance) init(); return __tgo_lastInstance?.show?.(); },
     hide: function(){ if(!__tgo_lastInstance) init(); return __tgo_lastInstance?.hide?.(); },
+    setBusinessCustomerSessionProvider: function(provider){ if(!__tgo_lastInstance) init(); __tgo_lastInstance?.setBusinessCustomerSessionProvider?.(provider); },
     track: function(){
       try {
         const arg0 = arguments[0];

@@ -5,8 +5,6 @@ Internal, unauthenticated endpoint to upsert per-project default AI model config
 
 from __future__ import annotations
 
-from typing import List, Sequence
-
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 

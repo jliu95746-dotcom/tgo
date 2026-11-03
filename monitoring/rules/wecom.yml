@@ -1,0 +1,56 @@
+groups:
+  - name: tgo-wecom-customer-service
+    rules:
+      - alert: TGOWeComMonitoringUnavailable
+        expr: up{job="tgo-platform-wecom"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 企业微信客服状态采集不可用
+          description: 平台服务或持久状态查询连续 2 分钟不可用；请先检查采集目标与数据库。
+
+      - alert: TGOWeComInboxTerminalFailure
+        expr: tgo_platform_wecom_inbox_records{state="terminal_failure"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 企业微信客服消息存在最终失败
+          description: 请在运营后台核查失败消息与人工兜底处理。
+
+      - alert: TGOWeComMediaTerminalFailure
+        expr: tgo_platform_wecom_media_jobs{state="terminal_failure"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 企业微信客服媒体任务存在最终失败
+          description: 请核查媒体处理和客户可见的失败提示。
+
+      - alert: TGOWeComLeaseExpired
+        expr: tgo_platform_wecom_inbox_stale_lease > 0 or tgo_platform_wecom_media_stale_lease > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 企业微信客服处理锁已过期
+          description: 请检查 Worker 状态及任务恢复情况。
+
+      - alert: TGOWeComMediaNoticeNeedsReview
+        expr: tgo_platform_wecom_failure_notices{state=~"unknown|needs_attention"} > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 企业微信媒体失败提示需人工核对
+          description: 发送结果未知时先核对企业微信实际结果，避免重复向客户发送。
+
+      - alert: TGOWeComQueueBacklog
+        expr: tgo_platform_wecom_inbox_records{state="queued"} > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 企业微信客服待处理消息积压
+          description: 待处理消息连续 10 分钟超过 100 条；请检查拉取、处理与回填链路。

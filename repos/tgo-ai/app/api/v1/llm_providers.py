@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
-from typing import List
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession

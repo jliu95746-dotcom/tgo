@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { X, Save, RotateCcw, Bot, Wrench, FolderOpen, XCircle, User, Briefcase, GitBranch, Sparkles, Layout, ChevronRight, Settings, ChevronDown, ChevronUp, Monitor } from 'lucide-react';
+import { X, Save, RotateCcw, Bot, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { useAIStore, useKnowledgeStore } from '@/stores';
@@ -7,10 +7,9 @@ import { useProjectToolsStore } from '@/stores/projectToolsStore';
 import { useDeviceControlStore } from '@/stores/deviceControlStore';
 
 import { useToast } from '@/hooks/useToast';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 import { transformAiToolResponseList } from '@/utils/projectToolsTransform';
-import Toggle from '@/components/ui/Toggle';
 // import { generateDefaultAvatar } from '@/utils/avatarUtils';
-import SectionHeader from '@/components/ui/SectionHeader';
 
 import ToolSelectionModal from './ToolSelectionModal';
 import KnowledgeBaseSelectionModal from './KnowledgeBaseSelectionModal';
@@ -18,15 +17,24 @@ import DeviceSelectionModal from './DeviceSelectionModal';
 import { WorkflowSelectionModal } from '@/components/workflow';
 import type { AiTool } from '@/types';
 import type { WorkflowSummary } from '@/types/workflow';
-import AgentToolsSection from '@/components/ui/AgentToolsSection';
-import AgentKnowledgeBasesSection from '@/components/ui/AgentKnowledgeBasesSection';
-import AgentWorkflowsSection from '@/components/ui/AgentWorkflowsSection';
-import AgentDeviceSection from '@/components/ui/AgentDeviceSection';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { useAgentForm } from '@/hooks/useAgentForm';
-import AgentHumanizationField from './AgentHumanizationField';
+import AgentBusinessFields from './AgentBusinessFields';
+import AgentSetupResources from '@/components/business/AgentSetupResources';
+import AgentSetupNavigation from '@/components/business/AgentSetupNavigation';
+import AgentRoleSelection from '@/components/business/AgentRoleSelection';
+import AgentSetupReview from '@/components/business/AgentSetupReview';
+import { useAgentActivationStore } from '@/stores/agentActivationStore';
+import { useScenarioDraftStore } from '@/stores/scenarioDraftStore';
+import { useAuthStore } from '@/stores/authStore';
+import { saveAgentSetupDraft } from '@/utils/agentSetupExperience';
+import { AGENT_SETUP_STEPS, agentDraftInput, agentStepProblem } from '@/utils/agentScenarioForm';
+import { useScenarioResourceStore } from '@/stores/scenarioResourceStore';
+import ScenarioDraftControls from '@/components/business/ScenarioDraftControls';
 import AIProvidersApiService from '@/services/aiProvidersApi';
 import { SYSTEM_DEFAULT_MODEL } from '@/services/aiAgentsApi';
+import { useScenarioAgentStore } from '@/stores/scenarioAgentStore';
+import { useAgentTrialStore } from '@/stores/agentTrialStore';
 
 
 /**
@@ -42,16 +50,28 @@ const CreateAgentModal: React.FC = () => {
     setShowCreateAgentModal,
     setCreateAgentFormData,
     resetCreateAgentForm,
-    validateCreateAgentForm,
-    createAgent,
-    refreshAgents,
-    setAgentsError
+    refreshAgents
   } = useAIStore();
 
   const { knowledgeBases } = useKnowledgeStore();
   const { aiTools } = useProjectToolsStore();
   const { t } = useTranslation();
   const { showToast } = useToast();
+  const { step, setStep, current, templates, busy: draftBusy, startNew } = useScenarioDraftStore();
+  const channel = useScenarioResourceStore(state => state.channel);
+  const setup = useScenarioAgentStore();
+  const activationBusy = useAgentActivationStore(state => Boolean(setup.receipt && (state.entries[setup.receipt.agent_id]?.enabling || state.entries[setup.receipt.agent_id]?.writing)));
+  const isSetupBusy = isCreatingAgent || draftBusy || setup.busy || activationBusy;
+  const isTrialPending = useAgentTrialStore(state => Boolean(state.pending) && state.agentId === setup.receipt?.agent_id);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [closeError, setCloseError] = useState('');
+  const currentUser = useAuthStore(state => state.user);
+  const stepIndex = AGENT_SETUP_STEPS.indexOf(step);
+  const nextStep = () => {
+    const problem = agentStepProblem(step, createAgentFormData);
+    if (problem) { showToast('error', t('agents.messages.validationFailed'), t(`businessScenarios.wizard.${problem}`)); return; }
+    setStep(AGENT_SETUP_STEPS[Math.min(stepIndex + 1, AGENT_SETUP_STEPS.length - 1)]);
+  };
 
   // Refs for auto-scrolling to the first invalid field on validation failure
   const nameInputRef = useRef<HTMLInputElement | null>(null);
@@ -74,15 +94,15 @@ const CreateAgentModal: React.FC = () => {
       try {
         const svc = new AIProvidersApiService();
         const res = await svc.listProjectModels({ model_type: 'chat', is_active: true });
-        const options = (res.data || []).map((m: any) => ({
+        const options = (res.data || []).map(m => ({
           value: `${m.provider_id}:${m.model_id}`,
           label: `${m.model_name} · ${m.provider_name}`,
         }));
         if (!cancelled) {
           setLlmOptions(options);
         }
-      } catch (e: any) {
-        if (!cancelled) setLlmError(e?.message || t('agents.create.models.error', '加载模型失败'));
+      } catch (e) {
+        if (!cancelled) setLlmError(e instanceof Error ? e.message : t('agents.create.models.error', '加载模型失败'));
       } finally {
         if (!cancelled) setLlmLoading(false);
       }
@@ -108,7 +128,6 @@ const CreateAgentModal: React.FC = () => {
   // Device selection modal state
   const [showDeviceSelectionModal, setShowDeviceSelectionModal] = useState(false);
 
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
   // Workflow store
   const { workflows, loadWorkflows } = useWorkflowStore();
@@ -132,7 +151,6 @@ const CreateAgentModal: React.FC = () => {
 
   // Shared form logic (controlled by store formData)
   const {
-    handleInputChange,
     removeTool,
     removeKnowledgeBase,
     removeDevice,
@@ -173,121 +191,78 @@ const CreateAgentModal: React.FC = () => {
     return workflows.filter(wf => createAgentFormData.workflows.includes(wf.id));
   }, [workflows, createAgentFormData.workflows]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const isValid = validateCreateAgentForm();
-    if (!isValid) {
-      // Global feedback
-      showToast(
-        'error',
-        t('agents.messages.validationFailed', '验证失败'),
-        t('agents.messages.fillRequired', '请填写所有必填字段')
-      );
-
-      // Scroll to the first invalid field and focus it
-      const scrollAndFocus = (el: HTMLElement | null) => {
-        if (!el) return;
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.focus({ preventScroll: true });
-      };
-
-      const trimmedName = createAgentFormData.name.trim();
-      const trimmedProfession = createAgentFormData.profession.trim();
-      const trimmedDescription = createAgentFormData.description.trim();
-      const hasModel = !!createAgentFormData.llmModel;
-
-      if (!trimmedName) {
-        scrollAndFocus(nameInputRef.current);
-      } else if (!trimmedProfession) {
-        scrollAndFocus(professionInputRef.current);
-      } else if (!hasModel) {
-        scrollAndFocus(llmSelectRef.current);
-      } else if (!trimmedDescription) {
-        scrollAndFocus(descriptionTextareaRef.current);
+  const prepareForTrial = async () => {
+    for (const previousStep of AGENT_SETUP_STEPS.slice(0, 3)) {
+      const problem = agentStepProblem(previousStep, createAgentFormData);
+      if (problem) {
+        setStep(previousStep);
+        showToast('error', t('agents.messages.validationFailed'), t(`businessScenarios.wizard.${problem}`));
+        return null;
       }
-
-      return;
     }
-
+    const template = templates.find(value => value.module === 'agents' && value.id === createAgentFormData.scenarioId);
+    if (!template) return null;
     try {
-      // Clear any previous errors
-      setAgentsError(null);
-
-      // Preflight: ensure every selected tool has name
-      const byId = new Map(aiTools.map(ts => [ts.id, ts] as const));
-      const missing = createAgentFormData.tools.filter(id => {
-        const s = byId.get(id);
-        return !s || !s.name;
-      });
-      if (missing.length > 0) {
-        const names = missing.join(t('common.separator', '、'));
-        showToast(
-          'error',
-          t('agents.create.tools.missingTitle', '工具信息缺失'),
-          t('agents.create.tools.missingDesc', '以下工具缺少名称：{{names}}，请重新选择后重试', { names })
-        );
-        return;
-      }
-
-      // Validate selected model and keep UI value (providerId:modelName)
-      const uiModel = createAgentFormData.llmModel;
-      if (!uiModel || (uiModel !== SYSTEM_DEFAULT_MODEL && !uiModel.includes(':'))) {
-        showToast(
-          'error',
-          t('agents.create.models.selectPlaceholder', '请选择模型'),
-          t('agents.create.models.invalid', '请选择一个有效的模型（需包含提供商）')
-        );
-        // Ensure the user sees the model field
-        if (llmSelectRef.current) {
-          llmSelectRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          llmSelectRef.current.focus({ preventScroll: true });
-        }
-        return;
-      }
-      // Pass UI model value directly; transform will extract ai_provider_id and pure model name
-      // Convert aiTools to ToolSummary format for compatibility with createAgent
-      const toolSummaries = aiTools.map(aiTool => ({
-        id: aiTool.id,
-        name: aiTool.name,
-        title: aiTool.name,
-        description: aiTool.description || null,
-        version: '1.0.0',
-        category: null,
-        tags: [],
-        status: 'ACTIVE' as const,
-        tool_source_type: 'Tool_SERVER' as const,
-        execution_count: null,
-        created_at: aiTool.created_at,
-        tool_server_id: null,
-        input_schema: {},
-        output_schema: null,
-        short_no: null,
-        is_installed: undefined,
-      }));
-      await createAgent({ ...createAgentFormData, llmModel: uiModel }, toolSummaries);
-      // Refresh list to ensure the just-created agent shows tools/collections immediately
-      await refreshAgents();
-
-      // Show success toast
-      showToast(
-        'success',
-        t('agents.messages.createSuccess', '创建成功'),
-        t('agents.messages.createSuccessDesc', 'AI员工 "{name}" 已成功创建', { name: createAgentFormData.name })
-      );
+      return await setup.prepare(agentDraftInput(createAgentFormData, template, channel, 'testing', current));
     } catch (error) {
-      console.error('创建AI员工失败:', error);
-      const errorMessage = error instanceof Error
-        ? error.message
-        : t('agents.messages.createFailed', '创建AI员工时发生未知错误');
-      showToast('error', t('agents.messages.createFailed', '创建失败'), errorMessage);
+      showToast('error', t('agents.messages.validationFailed'), t(error instanceof Error && error.message === 'toolConfig'
+        ? 'businessScenarios.drafts.toolConfig' : 'businessScenarios.wizard.saveEmployeeFailed'));
+      return null;
     }
   };
 
-  const handleClose = () => {
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isSetupBusy || isTrialPending || Object.values(useAgentActivationStore.getState().entries).some(entry => entry.enabling || entry.writing)) return;
+    if (step === 'scenario' || step === 'business') { nextStep(); return; }
+    const receipt = await prepareForTrial();
+    if (!receipt) return;
+    if (step === 'resources') { setStep('testing'); return; }
+    if (step === 'testing') { setStep('activation'); return; }
+    const employeeName = createAgentFormData.name;
+    discardAndClose();
+    showToast('success', t('agents.messages.createSuccess'), t('agents.messages.createSuccessDesc', { name: employeeName }));
+    // A refresh failure must not cause a second creation of the saved employee.
+    try { await refreshAgents(); } catch { /* Existing list error state provides retry. */ }
+  };
+
+  const discardAndClose = () => {
+    setup.cancel();
+    setConfirmClose(false);
     setShowCreateAgentModal(false);
     resetCreateAgentForm();
+    startNew();
   };
+  const handleClose = () => {
+    if (isSetupBusy) return;
+    setCloseError('');
+    const template = templates.find(value => value.module === 'agents' && value.id === createAgentFormData.scenarioId);
+    if (template && current?.template_id === template.id) {
+      try {
+        const input = agentDraftInput(createAgentFormData, template, channel, step, current);
+        if (JSON.stringify([input.business, input.bindings, input.agent_settings, input.step, input.channel]) === JSON.stringify([current.business, current.bindings, current.agent_settings, current.step, current.channel])) {
+          discardAndClose(); return;
+        }
+      } catch { /* Unsaved tool parameters require an explicit discard decision. */ }
+    }
+    if (createAgentFormData.scenarioId || createAgentFormData.name || createAgentFormData.description || createAgentFormData.companySummary) setConfirmClose(true);
+    else discardAndClose();
+  };
+  const saveAndClose = async () => {
+    if (isSetupBusy || isTrialPending) return;
+    setCloseError('');
+    try {
+      if (await saveAgentSetupDraft(createAgentFormData)) discardAndClose();
+      else setCloseError(t('businessScenarios.drafts.failed'));
+    } catch (error) {
+      setCloseError(t(error instanceof Error && error.message === 'toolConfig' ? 'businessScenarios.drafts.toolConfig' : 'businessScenarios.readiness.invalidModel'));
+    }
+  };
+
+  const dialogRef = useDialogFocus<HTMLDivElement>(handleClose, showCreateAgentModal);
+  const closeDialogRef = useDialogFocus<HTMLDivElement>(() => {
+    if (!isSetupBusy && !isTrialPending) setConfirmClose(false);
+  }, showCreateAgentModal && confirmClose);
 
   // 处理工具移除
   const handleToolRemove = (toolId: string) => {
@@ -317,7 +292,7 @@ const CreateAgentModal: React.FC = () => {
       />
 
       {/* Modal Container */}
-      <div className="relative bg-white dark:bg-gray-900 rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="create-agent-title" className="relative bg-white dark:bg-gray-900 rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
         {/* Header */}
         <div className="flex items-center justify-between px-8 py-6 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
           <div className="flex items-center gap-4">
@@ -325,373 +300,93 @@ const CreateAgentModal: React.FC = () => {
               <Bot className="w-7 h-7 text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold">{t('agents.modal.create.title', '创建AI员工')}</h2>
+              <h2 id="create-agent-title" className="text-xl font-bold">{t('agents.modal.create.title', '创建AI员工')}</h2>
               <p className="text-blue-100 text-xs mt-0.5 opacity-80">{t('agents.modal.create.subtitle', '定义一个具有专业技能的虚拟数字员工')}</p>
             </div>
           </div>
           <button
             onClick={handleClose}
+            aria-label={t('businessScenarios.wizard.closeWindow')}
             className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all"
-            disabled={isCreatingAgent}
+            disabled={isSetupBusy}
           >
             <X className="w-6 h-6" />
           </button>
         </div>
 
+        <AgentSetupNavigation step={step} disabled={isSetupBusy || isTrialPending} onChange={setStep} />
         {/* Content */}
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
           <div className="flex-1 overflow-y-auto custom-scrollbar bg-gray-50 dark:bg-gray-950">
-            <div className="p-8 space-y-8">
-              {/* 基本信息 Section */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 px-1">
-                  <User className="w-5 h-5 text-blue-600" />
-                  <h3 className="font-bold text-gray-900 dark:text-gray-100 uppercase tracking-tight text-sm">
-                    {t('agents.detail.basicInfo', '基本信息')}
-                  </h3>
-                </div>
-                <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* AI员工名称 */}
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-gray-500 dark:text-gray-400 ml-1 uppercase">
-                        {t('agents.form.name', 'AI员工名称')} <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        ref={nameInputRef}
-                        type="text"
-                        value={createAgentFormData.name}
-                        onChange={(e) => handleInputChange('name', e.target.value)}
-                        className={`w-full px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border rounded-2xl focus:ring-4 focus:ring-blue-500/10 transition-all outline-none ${
-                          createAgentErrors.name ? 'border-red-500 focus:border-red-500' : 'border-gray-100 dark:border-gray-700 focus:border-blue-500'
-                        }`}
-                        placeholder={t('agents.create.placeholders.name', '请输入AI员工名称')}
-                        disabled={isCreatingAgent}
-                      />
-                      {createAgentErrors.name && (
-                        <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1 ml-1">
-                          <XCircle className="w-3 h-3" /> {createAgentErrors.name}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* 职业/角色 */}
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-gray-500 dark:text-gray-400 ml-1 uppercase">
-                        {t('agents.form.profession', '职业/角色')} <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        ref={professionInputRef}
-                        type="text"
-                        value={createAgentFormData.profession}
-                        onChange={(e) => handleInputChange('profession', e.target.value)}
-                        className={`w-full px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border rounded-2xl focus:ring-4 focus:ring-blue-500/10 transition-all outline-none ${
-                          createAgentErrors.profession ? 'border-red-500 focus:border-red-500' : 'border-gray-100 dark:border-gray-700 focus:border-blue-500'
-                        }`}
-                        placeholder={t('agents.create.placeholders.profession', '例如：客服专员、技术支持')}
-                        disabled={isCreatingAgent}
-                      />
-                      {createAgentErrors.profession && (
-                        <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1 ml-1">
-                          <XCircle className="w-3 h-3" /> {createAgentErrors.profession}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 模型配置 Section */}
-              <div className="space-y-4">
-                  <div className="flex items-center gap-2 px-1">
-                    <Layout className="w-5 h-5 text-purple-600" />
-                    <h3 className="font-bold text-gray-900 dark:text-gray-100 uppercase tracking-tight text-sm">
-                      {t('agents.create.sections.modelConfig', '模型配置')}
-                    </h3>
-                  </div>
-                  <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-gray-500 dark:text-gray-400 ml-1 uppercase">
-                        {t('agents.form.llmModel', 'LLM模型')} <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <select
-                          ref={llmSelectRef}
-                          value={createAgentFormData.llmModel}
-                          onChange={(e) => handleInputChange('llmModel', e.target.value)}
-                          className={`w-full appearance-none px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border rounded-2xl focus:ring-4 focus:ring-purple-500/10 transition-all outline-none ${
-                            createAgentErrors.llmModel ? 'border-red-500 focus:border-red-500' : 'border-gray-100 dark:border-gray-700 focus:border-purple-500'
-                          }`}
-                          disabled={isCreatingAgent || llmLoading}
-                        >
-                          <option value={SYSTEM_DEFAULT_MODEL}>{t('modelSetup.agentFollow')}</option>
-                          {llmLoading ? (
-                            <option value="">{t('agents.create.models.loading', '正在加载模型...')}</option>
-                          ) : llmError ? (
-                            <option value="">{t('agents.create.models.error', '加载模型失败')}</option>
-                          ) : llmOptions.length === 0 ? (
-                            <option value="">{t('agents.create.models.empty', '暂无可用模型')}</option>
-                          ) : (
-                            <>
-                              {!createAgentFormData.llmModel && (
-                                <option value="">{t('agents.create.models.selectPlaceholder', '请选择模型')}</option>
-                              )}
-                              {llmOptions.map(option => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </>
-                          )}
-                        </select>
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                          <ChevronRight className="w-4 h-4 rotate-90" />
-                        </div>
-                      </div>
-                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('modelSetup.agentFollowHint')}</p>
-                      {createAgentErrors.llmModel && (
-                        <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1 ml-1">
-                          <XCircle className="w-3 h-3" /> {createAgentErrors.llmModel}
-                        </p>
-                      )}
-                      {llmError && (
-                        <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1 ml-1">
-                          <XCircle className="w-3 h-3" /> {t('agents.create.models.loadFailedInline', '模型加载失败: {{error}}', { error: llmError })}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-              <AgentHumanizationField
-                disabled={isCreatingAgent}
-                name={createAgentFormData.humanization_skill_name}
-                enabled={createAgentFormData.humanization_skill_enabled}
-                onChange={value => {
-                  handleInputChange('humanization_skill_name', value.humanization_skill_name);
-                  handleInputChange('humanization_skill_enabled', value.humanization_skill_enabled);
+            <div className="p-4 space-y-6 sm:p-8 sm:space-y-8">
+              <ScenarioDraftControls form={createAgentFormData} onResume={setCreateAgentFormData} />
+              {step === 'scenario' && <AgentRoleSelection form={createAgentFormData} onChange={setCreateAgentFormData} />}
+              {step === 'business' && <AgentBusinessFields form={createAgentFormData} errors={createAgentErrors} disabled={isSetupBusy} onChange={setCreateAgentFormData} nameInputRef={nameInputRef} professionInputRef={professionInputRef} descriptionTextareaRef={descriptionTextareaRef} />}
+              {step === 'resources' && <AgentSetupResources
+                form={createAgentFormData} errors={createAgentErrors} disabled={isSetupBusy} onChange={setCreateAgentFormData}
+                llmOptions={llmOptions} llmLoading={llmLoading} llmError={llmError} llmSelectRef={llmSelectRef}
+                knowledgeBases={addedKnowledgeBases} tools={addedAiTools} workflows={addedWorkflows} device={boundDevice}
+                onAdd={kind => {
+                  if (kind === 'knowledge') setShowKnowledgeBaseSelectionModal(true);
+                  else if (kind === 'tools') setShowToolSelectionModal(true);
+                  else if (kind === 'workflows') setShowWorkflowSelectionModal(true);
+                  else setShowDeviceSelectionModal(true);
                 }}
-              />
-
-              {/* 能力描述 Section */}
-              <div className="space-y-4">
-                  <div className="flex items-center gap-2 px-1">
-                    <Sparkles className="w-5 h-5 text-green-600" />
-                    <h3 className="font-bold text-gray-900 dark:text-gray-100 uppercase tracking-tight text-sm">
-                      {t('agents.create.sections.description', '能力描述')}
-                    </h3>
-                  </div>
-                  <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-gray-500 dark:text-gray-400 ml-1 uppercase">
-                        {t('agents.form.detailedDescription', '详细提示词/指令')} <span className="text-red-500">*</span>
-                      </label>
-                      <textarea
-                        ref={descriptionTextareaRef}
-                        value={createAgentFormData.description}
-                        onChange={(e) => handleInputChange('description', e.target.value)}
-                        rows={6}
-                        className={`w-full px-4 py-4 bg-gray-50 dark:bg-gray-800/50 border rounded-2xl focus:ring-4 focus:ring-green-500/10 transition-all outline-none resize-none ${
-                          createAgentErrors.description ? 'border-red-500 focus:border-red-500' : 'border-gray-100 dark:border-gray-700 focus:border-green-500'
-                        }`}
-                        placeholder={t('agents.create.placeholders.description', '请详细描述AI员工的功能、职责和特点...')}
-                        disabled={isCreatingAgent}
-                      />
-                      {createAgentErrors.description && (
-                        <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1 ml-1">
-                          <XCircle className="w-3 h-3" /> {createAgentErrors.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-              {/* Advanced Configuration Section */}
-              <div className="space-y-4">
-                  <button
-                    type="button"
-                    onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
-                    className="flex items-center justify-between w-full px-6 py-4 bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 hover:border-blue-500/50 transition-all group shadow-sm"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Settings className={`w-5 h-5 ${isAdvancedOpen ? 'text-blue-600' : 'text-gray-400'} transition-colors`} />
-                      <h3 className="font-bold text-gray-900 dark:text-gray-100 uppercase tracking-tight text-sm">
-                        {t('agents.config.advanced', '高级配置')}
-                      </h3>
-                    </div>
-                    {isAdvancedOpen ? (
-                      <ChevronUp className="w-5 h-5 text-gray-400" />
-                    ) : (
-                      <ChevronDown className="w-5 h-5 text-gray-400" />
-                    )}
-                  </button>
-
-                  {isAdvancedOpen && (
-                    <div className="p-6 bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-6 animate-in slide-in-from-top-2 duration-200">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Markdown */}
-                        <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-50 dark:border-gray-700">
-                          <div>
-                            <p className="text-sm font-bold text-gray-700 dark:text-gray-200">{t('config.markdown', 'Markdown 格式')}</p>
-                            <p className="text-xs text-gray-500">{t('config.markdownDesc', '使用 Markdown 格式化输出内容')}</p>
-                          </div>
-                          <Toggle
-                            checked={!!createAgentFormData.markdown}
-                            onChange={(checked) => handleInputChange('markdown', checked)}
-                          />
-                        </div>
-
-                        {/* Add Datetime */}
-                        <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-50 dark:border-gray-700">
-                          <div>
-                            <p className="text-sm font-bold text-gray-700 dark:text-gray-200">{t('config.addDatetime', '添加日期时间')}</p>
-                            <p className="text-xs text-gray-500">{t('config.addDatetimeDesc', '在上下文中包含当前日期时间')}</p>
-                          </div>
-                          <Toggle
-                            checked={!!createAgentFormData.add_datetime_to_context}
-                            onChange={(checked) => handleInputChange('add_datetime_to_context', checked)}
-                          />
-                        </div>
-
-                        {/* Skills Enabled */}
-                        <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-50 dark:border-gray-700">
-                          <div>
-                            <p className="text-sm font-bold text-gray-700 dark:text-gray-200">{t('config.skillsEnabled', '启用技能')}</p>
-                            <p className="text-xs text-gray-500">{t('config.skillsEnabledDesc', '允许 AI 员工自动发现并使用项目中的专业技能')}</p>
-                          </div>
-                          <Toggle
-                            checked={!!createAgentFormData.skills_enabled}
-                            onChange={(checked) => handleInputChange('skills_enabled', checked)}
-                          />
-                        </div>
-
-                        {/* History Runs */}
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-gray-500 dark:text-gray-400 ml-1 uppercase">
-                            {t('config.numHistoryRuns', '历史会话轮数')}
-                          </label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={20}
-                            value={createAgentFormData.num_history_runs}
-                            onChange={(e) => handleInputChange('num_history_runs', parseInt(e.target.value) || 0)}
-                            className="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
-                          />
-                        </div>
-
-                        {/* Tool Call Limit */}
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-gray-500 dark:text-gray-400 ml-1 uppercase">
-                            {t('config.toolCallLimit', '工具调用限制')}
-                          </label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={50}
-                            value={createAgentFormData.tool_call_limit}
-                            onChange={(e) => handleInputChange('tool_call_limit', parseInt(e.target.value) || 0)}
-                            className="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-              {/* 资源关联 Section */}
-              <div className="space-y-4">
-                  <div className="flex items-center gap-2 px-1">
-                    <Briefcase className="w-5 h-5 text-orange-600" />
-                    <h3 className="font-bold text-gray-900 dark:text-gray-100 uppercase tracking-tight text-sm">
-                      {t('agents.create.sections.resources', '资源关联')}
-                    </h3>
-                  </div>
-                  <div className="grid grid-cols-1 gap-6">
-                    {/* Tool工具 */}
-                    <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                      <SectionHeader icon={<Wrench className="w-4 h-4 text-orange-600" />} title={t('agents.create.sections.tools', 'Tool工具')} />
-                      <AgentToolsSection
-                        tools={addedAiTools}
-                        toolConfigs={createAgentFormData.toolConfigs}
-                        onAdd={() => setShowToolSelectionModal(true)}
-                        onRemove={handleToolRemove}
-                        disabled={isCreatingAgent}
-                      />
-                    </div>
-
-                    {/* 知识库 */}
-                    <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                      <SectionHeader icon={<FolderOpen className="w-4 h-4 text-teal-600" />} title={t('agents.form.knowledge_bases', '知识库')} />
-                      <AgentKnowledgeBasesSection
-                        items={addedKnowledgeBases}
-                        onAdd={() => setShowKnowledgeBaseSelectionModal(true)}
-                        onRemove={handleKnowledgeBaseRemove}
-                        disabled={isCreatingAgent}
-                      />
-                    </div>
-
-                    {/* 工作流 */}
-                    <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                      <SectionHeader icon={<GitBranch className="w-4 h-4 text-purple-600" />} title={t('workflow.title', '工作流')} />
-                      <AgentWorkflowsSection
-                        workflows={addedWorkflows}
-                        onAdd={() => setShowWorkflowSelectionModal(true)}
-                        onRemove={handleWorkflowRemove}
-                        disabled={isCreatingAgent}
-                      />
-                    </div>
-
-                    {/* 绑定设备 */}
-                    <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                      <SectionHeader icon={<Monitor className="w-4 h-4 text-purple-600" />} title={t('agents.deviceSection.title', '绑定设备')} />
-                      <AgentDeviceSection
-                        device={boundDevice}
-                        onAdd={() => setShowDeviceSelectionModal(true)}
-                        onRemove={removeDevice}
-                        disabled={isCreatingAgent}
-                      />
-                    </div>
-                  </div>
-                </div>
-
+                onRemoveKnowledge={handleKnowledgeBaseRemove} onRemoveTool={handleToolRemove} onRemoveWorkflow={handleWorkflowRemove} onRemoveDevice={removeDevice}
+              />}
+              {(step === 'testing' || step === 'activation') && <AgentSetupReview form={createAgentFormData} testing={step === 'testing'} onActivated={discardAndClose} onTrial={() => setStep('testing')} />}
             </div>
           </div>
 
           {/* Footer */}
-          <div className="px-8 py-6 border-t border-gray-100 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 backdrop-blur-md flex items-center justify-end gap-3 rounded-b-[2rem]">
+          {setup.failed && step !== 'testing' && <p role="alert" className="px-4 py-3 text-sm text-red-600 sm:px-8">{t('businessScenarios.wizard.saveEmployeeFailed')}</p>}
+          <div className="px-4 sm:px-8 py-4 border-t border-gray-100 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 backdrop-blur-md flex flex-wrap items-center justify-end gap-2 rounded-b-[2rem]">
             <button
               type="button"
               onClick={handleClose}
               className="flex items-center px-6 py-2.5 text-sm font-bold text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all"
-              disabled={isCreatingAgent}
+              disabled={isSetupBusy}
             >
               {t('common.cancel', '取消')}
             </button>
             <button
               type="button"
-              onClick={resetCreateAgentForm}
+              onClick={() => { resetCreateAgentForm(); startNew(); }}
               className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all"
-              disabled={isCreatingAgent}
+              disabled={isSetupBusy || isTrialPending}
             >
               <RotateCcw className="w-4 h-4" />
               {t('common.reset', '重置')}
             </button>
+            {stepIndex > 0 && <button type="button" disabled={isSetupBusy || isTrialPending} onClick={() => setStep(AGENT_SETUP_STEPS[stepIndex - 1])} className="rounded-xl px-4 py-2.5 text-sm font-bold text-blue-600 dark:text-blue-300">{t('businessScenarios.wizard.previous')}</button>}
             <button
               type="submit"
-              disabled={isCreatingAgent}
+              disabled={isSetupBusy || isTrialPending}
               className="flex items-center gap-2 px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl shadow-lg shadow-blue-200 dark:shadow-none transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isCreatingAgent ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
-                <Save className="w-4 h-4" />
+                step === 'activation' ? <Save className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />
               )}
-              {t('common.create', '立即创建')}
+              {t(`businessScenarios.wizard.${step === 'activation' ? 'finishSetup' : setup.busy ? 'savingEmployee' : step === 'resources' ? 'saveAndTrial' : step === 'testing' ? 'nextReview' : 'next'}`)}
             </button>
           </div>
         </form>
       </div>
+
+      {confirmClose && <div ref={closeDialogRef} role="alertdialog" aria-modal="true" aria-labelledby="agent-close-title" className="absolute inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4">
+        <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl dark:bg-gray-900">
+          <h3 id="agent-close-title" className="font-bold text-gray-900 dark:text-gray-100">{t('businessScenarios.wizard.closeTitle')}</h3>
+          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">{t('businessScenarios.wizard.closeHint')}</p>
+          {closeError && <p role="alert" className="mt-3 text-xs leading-6 text-red-600 dark:text-red-400">{closeError}</p>}
+          <div className="mt-5 flex flex-wrap justify-end gap-3">
+            <button type="button" disabled={isSetupBusy || isTrialPending} onClick={discardAndClose} className="rounded-xl px-3 py-2 text-xs text-red-600 disabled:opacity-50">{t('businessScenarios.wizard.closeDiscard')}</button>
+            <button type="button" disabled={isSetupBusy || isTrialPending} data-dialog-initial-focus onClick={() => setConfirmClose(false)} className="rounded-xl px-4 py-2 text-sm text-blue-600 disabled:opacity-50 dark:text-blue-300">{t('businessScenarios.wizard.closeKeep')}</button>
+            <button type="button" disabled={isSetupBusy || isTrialPending || currentUser?.role !== 'admin' || !templates.some(template => template.module === 'agents' && template.id === createAgentFormData.scenarioId)} onClick={() => void saveAndClose()} className="rounded-xl bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50">{t(isSetupBusy ? 'businessScenarios.drafts.loading' : 'businessScenarios.wizard.saveClose')}</button>
+          </div>
+        </div>
+      </div>}
 
       {/* Tool Tool Selection Modal */}
       <ToolSelectionModal

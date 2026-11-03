@@ -6,6 +6,8 @@ export interface CollectionAvailability {
   eligible_chunk_count: number;
   total_chunk_count: number;
   blocked_reasons: string[];
+  /** Missing revisions from an older owner remain unknown. */
+  resource_revision?: string | null;
 }
 
 export interface AgentKnowledgeAvailability {

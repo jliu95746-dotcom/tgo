@@ -1,11 +1,14 @@
+import { knowledgeOnboardingZh, knowledgeOnboardingEn } from './knowledgeOnboarding';
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
 
 // Import language resources
 
-import enTranslations from './locales/en.json';
-import zhTranslations from './locales/zh.json';
+import enBaseTranslations from './locales/en.json';
+import zhBaseTranslations from './locales/zh.json';
+import { workflowScheduleZh, workflowScheduleEn } from './workflowSchedule';
+import { workflowWebhookZh, workflowWebhookEn } from './workflowWebhook';
 import { logisticsProviderEn, logisticsProviderZh } from './logisticsProvider';
 import { operationsEn, operationsZh } from './operations';
 import { companyAccountEn, companyAccountZh } from './companyAccount';
@@ -18,18 +21,29 @@ import { billingSupportEn, billingSupportZh } from './billingSupport';
 import { launchGuideZh } from './launchGuide';
 import { sharedModelsZh, sharedModelsEn } from './sharedModels';
 import { operationsWorkspaceZh, operationsWorkspaceEn } from './operationsWorkspace';
+import { businessScenariosZh, businessScenariosEn } from './businessScenarios';
+import { devicePoliciesZh, devicePoliciesEn } from './devicePolicies';
+import { deviceScriptsZh, deviceScriptsEn } from './deviceScripts';
+import { agentDeviceScriptsZh, agentDeviceScriptsEn } from './agentDeviceScripts';
+import { businessConnectionsZh, businessConnectionsEn } from './businessConnections';
+import { shadowReviewZh, shadowReviewEn } from './shadowReview';
+import { hiddenShadowZh, hiddenShadowEn } from './hiddenShadow';
+import { workflowReleaseZh, workflowReleaseEn } from './workflowRelease';
+import { workflowEventsZh, workflowEventsEn } from './workflowEvents';
 
 
 /**
  * i18n Configuration for TGO Web
  * Supports Chinese (default) and English languages
  */
+const zhTranslations = { ...zhBaseTranslations, workflowSchedule: workflowScheduleZh, workflowWebhook: workflowWebhookZh, devicePolicies: devicePoliciesZh, deviceScripts: deviceScriptsZh, agentDeviceScripts: agentDeviceScriptsZh };
+const enTranslations = { ...enBaseTranslations, workflowSchedule: workflowScheduleEn, workflowWebhook: workflowWebhookEn, devicePolicies: devicePoliciesEn, deviceScripts: deviceScriptsEn, agentDeviceScripts: agentDeviceScriptsEn };
 const resources = {
   zh: {
-    translation: { ...zhTranslations, launchGuide: launchGuideZh, logisticsProvider: logisticsProviderZh, operations: operationsZh, companyAccount: companyAccountZh, trialActivation: trialActivationZh, companyMembers: companyMembersZh, billing: billingZh, operationsBilling: operationsBillingZh, product: productZh, billingSupport: billingSupportZh, sharedModels: sharedModelsZh, opsWorkspace: operationsWorkspaceZh }
+    translation: { ...zhTranslations, workflowEvents: workflowEventsZh, knowledgeOnboarding: knowledgeOnboardingZh, workflowRelease: workflowReleaseZh, shadowReview: shadowReviewZh, hiddenShadow: hiddenShadowZh, businessConnections: businessConnectionsZh, businessScenarios: businessScenariosZh, launchGuide: launchGuideZh, logisticsProvider: logisticsProviderZh, operations: operationsZh, companyAccount: companyAccountZh, trialActivation: trialActivationZh, companyMembers: companyMembersZh, billing: billingZh, operationsBilling: operationsBillingZh, product: productZh, billingSupport: billingSupportZh, sharedModels: sharedModelsZh, opsWorkspace: operationsWorkspaceZh }
   },
   en: {
-    translation: { ...enTranslations, logisticsProvider: logisticsProviderEn, operations: operationsEn, companyAccount: companyAccountEn, trialActivation: trialActivationEn, companyMembers: companyMembersEn, billing: billingEn, operationsBilling: operationsBillingEn, product: productEn, billingSupport: billingSupportEn, sharedModels: sharedModelsEn, opsWorkspace: operationsWorkspaceEn }
+    translation: { ...enTranslations, workflowEvents: workflowEventsEn, knowledgeOnboarding: knowledgeOnboardingEn, workflowRelease: workflowReleaseEn, shadowReview: shadowReviewEn, hiddenShadow: hiddenShadowEn, businessConnections: businessConnectionsEn, businessScenarios: businessScenariosEn, logisticsProvider: logisticsProviderEn, operations: operationsEn, companyAccount: companyAccountEn, trialActivation: trialActivationEn, companyMembers: companyMembersEn, billing: billingEn, operationsBilling: operationsBillingEn, product: productEn, billingSupport: billingSupportEn, sharedModels: sharedModelsEn, opsWorkspace: operationsWorkspaceEn }
   }
 };
 

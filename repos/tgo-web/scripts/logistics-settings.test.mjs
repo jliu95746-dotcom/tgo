@@ -24,6 +24,7 @@ const compiled = ts.transpileModule(`globalThis.run = ${callback.getText(tree)};
 test('actual test button uses the selected unsaved tool without writing settings', async () => {
   const calls = [];
   const scope = { testTrackingNo: ' SF1234567890 ', settings: { query_tool_id: 'new-tool' },
+    tools: [],
     setTesting() {}, setNotice() {},
     logisticsApi: { testTool: async (...args) => { calls.push(args); return { success: true, message: '已获取轨迹' }; },
       updateSettings: () => assert.fail('Testing is not saving configuration') },
@@ -55,6 +56,8 @@ test('logistics page only offers implemented controls and retains on-demand quer
       React.createElement('input', { type: 'checkbox', 'aria-label': label });
     if (name === '@/services/logisticsApi') return { logisticsApi: {} };
     if (name === '@/services/projectToolsApi') return {};
+    if (name === '@/components/ai/LogisticsProviderModal') return { default: () => null };
+    if (name === '@/services/logisticsProviderService') return {};
     return requireModule(name);
   } };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {

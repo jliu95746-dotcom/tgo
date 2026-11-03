@@ -30,7 +30,7 @@ async def history(kind: SourceKind, reference: UUID,
 @router.post('/{kind}/{reference}', response_model=VersionResponse)
 async def change(kind: SourceKind, reference: UUID, data: VersionChangeRequest,
                  user: Staff = Depends(get_current_active_user)) -> VersionResponse:
-    if data.action == 'publish':
+    if data.action == 'publish' and kind != 'file':
         require_admin(user)
     payload = data.model_dump(mode='json', exclude_unset=True)
     payload['actor'] = user.username

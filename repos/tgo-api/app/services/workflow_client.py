@@ -1,14 +1,45 @@
 """Workflow service client for proxying requests to internal Workflow service."""
 
 import json
-from typing import Any, Dict, List, Optional, Union
-from uuid import uuid4
+from typing import Any, Dict, List, Literal, Optional, Union
+from urllib.parse import quote
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.schemas.workflow_capabilities import WorkflowCapabilities
+from app.schemas.ai_workflows import WorkflowExecution, WorkflowInDB
+from app.schemas.workflow_approval import (
+    WorkflowAfterSalesReviewDecision, WorkflowAfterSalesReviewSummary,
+    WorkflowAfterSalesIntakeCreate, WorkflowAfterSalesIntakeSummary,
+    WorkflowApprovalDecisionResult,
+    WorkflowApprovalCustomerSession,
+    WorkflowApprovalSummary,
+)
+from app.schemas.workflow_releases import (
+    WorkflowPublishRequest, WorkflowReleaseSummary, WorkflowRollbackRequest,
+)
+from app.schemas.workflow_device_references import WorkflowDeviceReferences
+from app.schemas.workflow_events import (
+    WorkflowEventAccepted, WorkflowEventTestContext, WorkflowEventTestRequest,
+)
+from app.services.workflow_event_signing import sign_event_test, sign_source_event
+from app.schemas.workflow_event_subscriptions import WorkflowSourceEventRequest
+from app.schemas.workflow_schedule import (
+    ScheduleDisable, ScheduleReceipt, ScheduleSave, ScheduleState,
+)
+from app.schemas.workflow_schedule_views import (
+    SchedulePreviewRequest, SchedulePreview, ScheduleOccurrenceList,
+)
+from app.schemas.workflow_webhook import (
+    WebhookChange, WebhookReceipt, WebhookSave, WebhookState,
+)
+from app.schemas.webhook_delivery import WebhookAccepted
+from app.schemas.webhook_history import WebhookDeliveryList
+from app.services.webhook_http import SIGNATURE_HEADERS
 
 logger = get_logger("workflow_client")
 
@@ -20,6 +51,375 @@ class WorkflowServiceClient:
         self.base_url = settings.WORKFLOW_SERVICE_URL.rstrip("/")
         self.timeout = settings.WORKFLOW_SERVICE_TIMEOUT
         self.api_key = settings.WORKFLOW_SERVICE_API_KEY
+
+    def _schedule_headers(self) -> dict[str, str]:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "定时计划内部身份核验未配置。")
+        return {"X-Internal-API-Key": settings.SECRET_KEY}
+
+    def _webhook_headers(self) -> dict[str, str]:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "外部触发内部身份核验未配置。")
+        return {"X-Internal-API-Key": settings.SECRET_KEY}
+
+    async def accept_webhook(
+        self,
+        hook_id: UUID,
+        body: bytes,
+        headers: dict[str, str],
+        content_type: str,
+    ) -> WebhookAccepted:
+        transport = {
+            wire_name: headers[name]
+            for name, wire_name in SIGNATURE_HEADERS.items()
+        }
+        transport.update(self._webhook_headers())
+        transport["Content-Type"] = content_type
+        response = await self._make_request(
+            "POST",
+            "/v1/webhook-deliveries/" + str(hook_id),
+            raw_body=body,
+            extra_headers=transport,
+        )
+        return WebhookAccepted.model_validate(
+            await self._handle_response(response)
+        )
+
+    @staticmethod
+    def _webhook_path(workflow_id: str) -> str:
+        return f"/v1/workflows/{quote(workflow_id, safe='')}/webhook"
+
+    async def get_webhook(
+        self, workflow_id: str, project_id: UUID,
+    ) -> WebhookState:
+        response = await self._make_request(
+            "GET", self._webhook_path(workflow_id),
+            params={"project_id": str(project_id)},
+            extra_headers=self._webhook_headers(),
+        )
+        return WebhookState.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def get_webhook_deliveries(
+        self, workflow_id: str, project_id: UUID,
+        limit: int = 10, offset: int = 0,
+    ) -> WebhookDeliveryList:
+        response = await self._make_request(
+            "GET", self._webhook_path(workflow_id) + "/deliveries",
+            params={"project_id": str(project_id), "limit": limit,
+                    "offset": offset},
+            extra_headers=self._webhook_headers(),
+        )
+        return WebhookDeliveryList.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def save_webhook(
+        self, workflow_id: str, project_id: UUID, actor_id: UUID,
+        request: WebhookSave,
+    ) -> WebhookReceipt:
+        payload = request.model_dump(mode="json")
+        payload.update(
+            project_id=str(project_id), actor_staff_id=str(actor_id)
+        )
+        response = await self._make_request(
+            "PUT", self._webhook_path(workflow_id), json_data=payload,
+            extra_headers=self._webhook_headers(),
+        )
+        return WebhookReceipt.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def change_webhook(
+        self, workflow_id: str, project_id: UUID, actor_id: UUID,
+        operation: Literal["disable", "rotate"], request: WebhookChange,
+    ) -> WebhookReceipt:
+        payload = request.model_dump(mode="json")
+        payload.update(
+            project_id=str(project_id), actor_staff_id=str(actor_id)
+        )
+        response = await self._make_request(
+            "POST", self._webhook_path(workflow_id) + "/" + operation,
+            json_data=payload, extra_headers=self._webhook_headers(),
+        )
+        return WebhookReceipt.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def get_webhook_command(
+        self, workflow_id: str, project_id: UUID, actor_id: UUID,
+        request_id: UUID,
+    ) -> WebhookReceipt:
+        response = await self._make_request(
+            "GET",
+            self._webhook_path(workflow_id) + "/commands/" + str(request_id),
+            params={
+                "project_id": str(project_id),
+                "actor_staff_id": str(actor_id),
+            },
+            extra_headers=self._webhook_headers(),
+        )
+        return WebhookReceipt.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def preview_schedule(
+        self, workflow_id: str, project_id: UUID, request: SchedulePreviewRequest,
+    ) -> SchedulePreview:
+        response = await self._make_request(
+            "POST", f"/v1/workflows/{workflow_id}/schedule/preview",
+            params={"project_id": str(project_id)},
+            json_data=request.model_dump(mode="json"),
+            extra_headers=self._schedule_headers(),
+        )
+        return SchedulePreview.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def list_schedule_occurrences(
+        self, workflow_id: str, project_id: UUID, limit: int, offset: int,
+    ) -> ScheduleOccurrenceList:
+        response = await self._make_request(
+            "GET", f"/v1/workflows/{workflow_id}/schedule/occurrences",
+            params={
+                "project_id": str(project_id), "limit": limit, "offset": offset,
+            },
+            extra_headers=self._schedule_headers(),
+        )
+        return ScheduleOccurrenceList.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def get_schedule(
+        self, workflow_id: str, project_id: UUID,
+    ) -> ScheduleState:
+        response = await self._make_request(
+            "GET", f"/v1/workflows/{workflow_id}/schedule",
+            params={"project_id": str(project_id)},
+            extra_headers=self._schedule_headers(),
+        )
+        return ScheduleState.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def save_schedule(
+        self, workflow_id: str, project_id: UUID, actor_id: UUID,
+        request: ScheduleSave,
+    ) -> ScheduleReceipt:
+        payload = request.model_dump(mode="json")
+        payload.update(project_id=str(project_id), actor_staff_id=str(actor_id))
+        response = await self._make_request(
+            "PUT", f"/v1/workflows/{workflow_id}/schedule",
+            json_data=payload, extra_headers=self._schedule_headers(),
+        )
+        return ScheduleReceipt.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def disable_schedule(
+        self, workflow_id: str, project_id: UUID, actor_id: UUID,
+        request: ScheduleDisable,
+    ) -> ScheduleReceipt:
+        payload = request.model_dump(mode="json")
+        payload.update(project_id=str(project_id), actor_staff_id=str(actor_id))
+        response = await self._make_request(
+            "POST", f"/v1/workflows/{workflow_id}/schedule/disable",
+            json_data=payload, extra_headers=self._schedule_headers(),
+        )
+        return ScheduleReceipt.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def get_schedule_command(
+        self, workflow_id: str, project_id: UUID, actor_id: UUID, request_id: UUID,
+    ) -> ScheduleReceipt:
+        response = await self._make_request(
+            "GET", f"/v1/workflows/{workflow_id}/schedule/commands/{request_id}",
+            params={"project_id": str(project_id), "actor_staff_id": str(actor_id)},
+            extra_headers=self._schedule_headers(),
+        )
+        return ScheduleReceipt.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def get_event_test_context(
+        self, workflow_id: str, project_id: str,
+    ) -> WorkflowEventTestContext:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部事件核验未配置。")
+        response = await self._make_request(
+            "GET", f"/v1/workflows/{workflow_id}/event-test-context",
+            params={"project_id": project_id},
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        data = await self._handle_response(response)
+        return WorkflowEventTestContext.model_validate(data)
+
+    async def send_event_test(
+        self, workflow_id: str, project_id: str, actor_staff_id: str,
+        request: WorkflowEventTestRequest,
+    ) -> WorkflowEventAccepted:
+        signed = sign_event_test(
+            workflow_id, project_id, actor_staff_id, request,
+            settings.SECRET_KEY,
+        )
+        response = await self._make_request(
+            "POST", f"/v1/workflows/{workflow_id}/events",
+            raw_body=signed.body, extra_headers=signed.headers,
+        )
+        data = await self._handle_response(response)
+        return WorkflowEventAccepted.model_validate(data)
+
+    async def get_capabilities(self, project_id: str) -> WorkflowCapabilities:
+        response = await self._make_request(
+            "GET", "/v1/workflows/capabilities",
+            params={"project_id": project_id},
+        )
+        data = await self._handle_response(response)
+        return WorkflowCapabilities.model_validate(data)
+
+    async def send_source_event(
+        self, workflow_id: str, project_id: str, delivery_id: UUID,
+        request: WorkflowSourceEventRequest,
+    ) -> WorkflowEventAccepted:
+        signed = sign_source_event(
+            workflow_id, project_id, delivery_id, request, settings.SECRET_KEY,
+        )
+        response = await self._make_request(
+            "POST", f"/v1/workflows/{workflow_id}/events",
+            raw_body=signed.body, extra_headers=signed.headers,
+        )
+        return WorkflowEventAccepted.model_validate(await self._handle_response(response))
+
+    async def list_device_references(
+        self, project_id: str, device_id: str, *, limit: int = 5, offset: int = 0,
+    ) -> WorkflowDeviceReferences:
+        response = await self._make_request(
+            "GET", "/v1/workflows/device-references",
+            params={"project_id": project_id, "device_id": device_id,
+                    "limit": limit, "offset": offset},
+        )
+        return WorkflowDeviceReferences.model_validate(await self._handle_response(response))
+
+    async def list_approvals(
+        self, project_id: str, actor_staff_id: str,
+    ) -> list[WorkflowApprovalSummary]:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        response = await self._make_request(
+            "GET", "/v1/workflows/approvals",
+            params={"project_id": project_id, "actor_staff_id": actor_staff_id},
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        rows = await self._handle_response(response)
+        return [WorkflowApprovalSummary.model_validate(row) for row in rows]
+
+    async def get_approval_customer_session(
+        self, project_id: str, actor_staff_id: str, approval_id: str,
+    ) -> WorkflowApprovalCustomerSession:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        response = await self._make_request(
+            "GET", f"/v1/workflows/approvals/{approval_id}/customer-session",
+            params={"project_id": project_id, "actor_staff_id": actor_staff_id},
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        data = await self._handle_response(response)
+        return WorkflowApprovalCustomerSession.model_validate(data)
+
+    async def list_aftersales_reviews(
+        self, project_id: str, actor_staff_id: str,
+        *, limit: int = 100, before_status: str | None = None,
+        before_created_at: str | None = None, before_id: str | None = None,
+    ) -> list[WorkflowAfterSalesReviewSummary]:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        params: dict[str, str | int] = {
+            "project_id": project_id, "actor_staff_id": actor_staff_id, "limit": limit,
+        }
+        if before_status is not None and before_created_at is not None and before_id is not None:
+            params.update({"before_status": before_status,
+                           "before_created_at": before_created_at, "before_id": before_id})
+        response = await self._make_request(
+            "GET", "/v1/workflows/approvals/aftersales-reviews",
+            params=params,
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        rows = await self._handle_response(response)
+        return [WorkflowAfterSalesReviewSummary.model_validate(row) for row in rows]
+
+    async def get_aftersales_review(
+        self, project_id: str, actor_staff_id: str, review_id: str,
+    ) -> WorkflowAfterSalesReviewSummary:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        response = await self._make_request(
+            "GET", f"/v1/workflows/approvals/aftersales-reviews/{review_id}",
+            params={"project_id": project_id, "actor_staff_id": actor_staff_id},
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        row = await self._handle_response(response)
+        return WorkflowAfterSalesReviewSummary.model_validate(row)
+
+    async def get_aftersales_intake(
+        self, project_id: str, actor_staff_id: str, review_id: str,
+    ) -> WorkflowAfterSalesIntakeSummary | None:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        response = await self._make_request(
+            "GET", f"/v1/workflows/approvals/aftersales-reviews/{review_id}/intake",
+            params={"project_id": project_id, "actor_staff_id": actor_staff_id},
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        row = await self._handle_response(response)
+        return None if row is None else WorkflowAfterSalesIntakeSummary.model_validate(row)
+
+    async def prepare_aftersales_intake(
+        self, project_id: str, actor_staff_id: str, review_id: str,
+        request: WorkflowAfterSalesIntakeCreate,
+    ) -> WorkflowAfterSalesIntakeSummary:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        response = await self._make_request(
+            "POST", f"/v1/workflows/approvals/aftersales-reviews/{review_id}/intake",
+            params={"project_id": project_id, "actor_staff_id": actor_staff_id},
+            json_data=request.model_dump(mode="json"),
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        row = await self._handle_response(response)
+        return WorkflowAfterSalesIntakeSummary.model_validate(row)
+
+    async def decide_aftersales_review(
+        self, project_id: str, actor_staff_id: str,
+        review_id: str, decision: WorkflowAfterSalesReviewDecision,
+    ) -> WorkflowAfterSalesReviewSummary:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        response = await self._make_request(
+            "POST", f"/v1/workflows/approvals/aftersales-reviews/{review_id}/decision",
+            params={"project_id": project_id, "actor_staff_id": actor_staff_id},
+            json_data=decision.model_dump(),
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        row = await self._handle_response(response)
+        return WorkflowAfterSalesReviewSummary.model_validate(row)
+
+    async def decide_approval(
+        self, project_id: str, actor_staff_id: str,
+        approval_id: str, decision: str, preview_digest: str,
+    ) -> WorkflowApprovalDecisionResult:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        response = await self._make_request(
+            "POST", f"/v1/workflows/approvals/{approval_id}/decision",
+            params={"project_id": project_id, "actor_staff_id": actor_staff_id},
+            json_data={"decision": decision, "preview_digest": preview_digest},
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        row = await self._handle_response(response)
+        result: WorkflowApprovalDecisionResult = WorkflowApprovalDecisionResult.model_validate(row)
+        return result
 
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for Workflow service requests."""
@@ -37,12 +437,20 @@ class WorkflowServiceClient:
         endpoint: str,
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
+        raw_body: bytes | None = None,
     ) -> httpx.Response:
         """Make HTTP request to Workflow service."""
+        if raw_body is not None and json_data is not None:
+            raise ValueError(
+                "Workflow request cannot contain both raw and JSON bodies"
+            )
         url = f"{self.base_url}{endpoint}"
         request_id = str(uuid4())
         headers = self._get_headers()
         headers["X-Request-ID"] = request_id
+        if extra_headers:
+            headers.update(extra_headers)
 
         logger.info(
             f"Workflow service request: {method} {url}",
@@ -64,6 +472,7 @@ class WorkflowServiceClient:
                     url=url,
                     headers=headers,
                     json=json_data,
+                    content=raw_body,
                     params=params,
                 )
 
@@ -206,13 +615,38 @@ class WorkflowServiceClient:
         return await self._handle_response(response)
 
     async def publish_workflow(
-        self, workflow_id: str, project_id: str
-    ) -> Dict[str, Any]:
-        params = {"project_id": project_id}
+        self, workflow_id: str, project_id: str,
+        request: WorkflowPublishRequest, staff_id: str,
+    ) -> WorkflowInDB:
+        params = {"project_id": project_id, "staff_id": staff_id}
         response = await self._make_request(
-            "POST", f"/v1/workflows/{workflow_id}/publish", params=params
+            "POST", f"/v1/workflows/{workflow_id}/publish", params=params,
+            json_data=request.model_dump(mode="json"),
         )
-        return await self._handle_response(response)
+        data = await self._handle_response(response)
+        return WorkflowInDB.model_validate(data)
+
+    async def workflow_releases(
+        self, workflow_id: str, project_id: str,
+    ) -> list[WorkflowReleaseSummary]:
+        response = await self._make_request(
+            "GET", f"/v1/workflows/{workflow_id}/releases",
+            params={"project_id": project_id},
+        )
+        data = await self._handle_response(response)
+        return [WorkflowReleaseSummary.model_validate(row) for row in data]
+
+    async def rollback_workflow(
+        self, workflow_id: str, project_id: str,
+        request: WorkflowRollbackRequest,
+    ) -> WorkflowInDB:
+        response = await self._make_request(
+            "POST", f"/v1/workflows/{workflow_id}/rollback",
+            params={"project_id": project_id},
+            json_data=request.model_dump(mode="json"),
+        )
+        data = await self._handle_response(response)
+        return WorkflowInDB.model_validate(data)
 
     async def get_workflow_variables(
         self, workflow_id: str, project_id: str
@@ -249,6 +683,8 @@ class WorkflowServiceClient:
                                 error_detail = response.json()
                             except ValueError:
                                 error_detail = response.text
+                            if isinstance(error_detail, dict):
+                                error_detail = error_detail.get("detail", error_detail)
                             raise HTTPException(
                                 status_code=response.status_code, detail=error_detail
                             )
@@ -276,13 +712,80 @@ class WorkflowServiceClient:
         return await self._handle_response(response)
 
     async def list_workflow_executions(
-        self, workflow_id: str, project_id: str, skip: int = 0, limit: int = 20
+        self, workflow_id: str, project_id: str, skip: int = 0, limit: int = 20,
+        *, before_started_at: str | None = None, before_id: str | None = None,
     ) -> List[Dict[str, Any]]:
         params = {"project_id": project_id, "skip": skip, "limit": limit}
+        if before_started_at is not None:
+            params["before_started_at"] = before_started_at
+        if before_id is not None:
+            params["before_id"] = before_id
         response = await self._make_request(
             "GET", f"/v1/workflows/{workflow_id}/executions", params=params
         )
         return await self._handle_response(response)
+
+    async def list_business_request_executions(
+        self, business_request_id: str, project_id: str, *, limit: int = 20,
+        visitor_session_id: str | None = None, skip: int = 0,
+        before_started_at: str | None = None, before_id: str | None = None,
+    ) -> list[WorkflowExecution]:
+        params = {"project_id": project_id, "limit": limit}
+        if skip:
+            params["skip"] = skip
+        if visitor_session_id is not None:
+            params["visitor_session_id"] = visitor_session_id
+        if before_started_at is not None:
+            params["before_started_at"] = before_started_at
+        if before_id is not None:
+            params["before_id"] = before_id
+        response = await self._make_request(
+            "GET", f"/v1/workflows/executions/by-business-request/{business_request_id}",
+            params=params,
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        data = await self._handle_response(response)
+        return [WorkflowExecution.model_validate(row) for row in data]
+
+    async def list_visitor_session_executions(
+        self, visitor_session_id: str, project_id: str, *, limit: int = 20,
+        skip: int = 0, before_started_at: str | None = None,
+        before_id: str | None = None,
+    ) -> list[WorkflowExecution]:
+        params = {"project_id": project_id, "limit": limit}
+        if skip:
+            params["skip"] = skip
+        if before_started_at is not None:
+            params["before_started_at"] = before_started_at
+        if before_id is not None:
+            params["before_id"] = before_id
+        response = await self._make_request(
+            "GET", f"/v1/workflows/executions/by-visitor-session/{visitor_session_id}",
+            params=params,
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        data = await self._handle_response(response)
+        return [WorkflowExecution.model_validate(row) for row in data]
+
+    async def list_child_executions(
+        self, parent_execution_id: str, project_id: str, *, limit: int = 20,
+        skip: int = 0, before_started_at: str | None = None,
+        before_id: str | None = None,
+    ) -> list[WorkflowExecution]:
+        params = {"project_id": project_id, "limit": limit}
+        if skip:
+            params["skip"] = skip
+        if before_started_at is not None:
+            params["before_started_at"] = before_started_at
+        if before_id is not None:
+            params["before_id"] = before_id
+        response = await self._make_request(
+            "GET", f"/v1/workflows/executions/by-parent/{parent_execution_id}",
+            params=params,
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        data = await self._handle_response(response)
+        return [WorkflowExecution.model_validate(row) for row in data]
 
     async def cancel_execution(
         self, execution_id: str, project_id: str

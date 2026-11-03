@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+import hashlib
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -128,6 +130,43 @@ async def test_runner_returns_single_agent_response_shape() -> None:
     assert response.metadata is not None
     assert response.metadata.agent_id == context.agent.id
     assert response.metadata.agent_name == context.agent.name
+    assert built_agent.agent.arun.call_args.kwargs["run_id"] == str(context.execution_id)
+    assert response.execution_id == context.execution_id
+
+
+@pytest.mark.asyncio
+async def test_runner_reports_configured_model_and_prompt_fingerprint() -> None:
+    context = _build_context()
+    prompt = {"instructions": "业务规则", "additional_context": "本轮资料"}
+    built_agent = SimpleNamespace(
+        agent=SimpleNamespace(
+            instructions=prompt["instructions"],
+            additional_context=prompt["additional_context"],
+            arun=AsyncMock(return_value=SimpleNamespace(content="可以咨询。", tools=[])),
+        )
+    )
+    response = await AgnoAgentRunner().run(built_agent, context)
+    expected = hashlib.sha256(
+        json.dumps(prompt, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    assert response.metadata.model_name == context.agent.model
+    assert response.metadata.configured_prompt_sha256 == expected
+    assert "业务规则" not in response.metadata.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_remote_agent_does_not_claim_local_model_or_prompt() -> None:
+    context = _build_context()
+    context.agent.is_remote_store_agent = True
+    built_agent = SimpleNamespace(
+        agent=SimpleNamespace(
+            instructions="remote rules",
+            arun=AsyncMock(return_value=SimpleNamespace(content="可以咨询。", tools=[])),
+        )
+    )
+    response = await AgnoAgentRunner().run(built_agent, context)
+    assert response.metadata.model_name is None
+    assert response.metadata.configured_prompt_sha256 is None
 
 
 @pytest.mark.asyncio
@@ -172,9 +211,11 @@ async def test_runner_returns_only_final_assistant_message_after_tool_call() -> 
 async def test_nonstream_incomplete_run_cannot_become_a_billable_reply(status):
     built = SimpleNamespace(agent=SimpleNamespace(arun=AsyncMock(return_value=SimpleNamespace(
         status=status, content="synthetic internal failure detail", metrics=None))))
-    response = await AgnoAgentRunner().run(built, _build_context())
+    context = _build_context()
+    response = await AgnoAgentRunner().run(built, context)
     assert response.success is False
     assert response.content == ""
+    assert response.execution_id == context.execution_id
     assert "synthetic internal failure detail" not in response.model_dump_json()
 
 
@@ -216,6 +257,8 @@ async def test_stream_uses_content_chunks_when_completed_event_is_empty() -> Non
         success=True,
         total_chunks=2,
         tool_calls_count=0,
+        knowledge_evidence=None,
+        execution_reference=None,
     )
 
 

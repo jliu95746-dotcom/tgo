@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { generateDefaultAvatar, hasValidAvatar } from '@/utils/avatarUtils';
 import { VISITOR_STATUS } from '@/constants';
+import { useVisitorAvatar } from '@/hooks/useVisitorAvatar';
 
 export interface ChatAvatarProps {
   displayName: string;
@@ -48,7 +49,8 @@ export const ChatAvatar: React.FC<ChatAvatarProps> = React.memo(({
   title,
 }) => {
   const { t } = useTranslation();
-  const hasValidAvatarUrl = hasValidAvatar(displayAvatar);
+  const authorizedAvatar = useVisitorAvatar(displayAvatar);
+  const hasValidAvatarUrl = hasValidAvatar(authorizedAvatar);
 
   const defaultAvatar = useMemo(
     () => (!hasValidAvatarUrl ? generateDefaultAvatar(displayName, colorSeed) : null),
@@ -88,7 +90,8 @@ export const ChatAvatar: React.FC<ChatAvatarProps> = React.memo(({
     >
       {hasValidAvatarUrl ? (
         <img
-          src={displayAvatar}
+          key={authorizedAvatar}
+          src={authorizedAvatar}
           alt={`${displayName} Avatar`}
           className={`rounded-md object-cover bg-gray-200 ${!sizePx ? 'w-10 h-10' : ''} ${imageClassName ?? ''}`}
           style={sizeStyle}

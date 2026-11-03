@@ -232,6 +232,7 @@ test_*.py
 !tests/test_qa_processing.py
 !tests/test_qa_import.py
 !tests/test_database_logging.py
+!tests/test_startup_config_privacy.py
 !tests/test_website_crawler.py
 !tests/test_crawler_cleanup.py
 !tests/test_website_browser_runtime.py

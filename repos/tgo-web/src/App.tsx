@@ -73,7 +73,7 @@ const App: React.FC = () => {
         try {
           localStorage.setItem('auth-flash', JSON.stringify({ message: t('auth.sessionExpiredMessage', '登录已过期，请重新登录') }));
         } catch {}
-        logout();
+        void logout(true, true);
       }
     });
   }, [toast, t]);

@@ -4,6 +4,10 @@ import type { CommercialReadiness, OperationsAudit, OperationsTask } from '../ty
 import type { CreditAdjustment, InvoiceRequest, OperationsCompany, QuotaReply, Reconciliation, Refund, RefundInput } from '../types/billingSupport';
 import type { BillingOrder, BillingPlan, PlanDefinition } from '../types/billing';
 import type { SharedConnectionResult, SharedModels, SharedModelsChange } from '../types/sharedModels';
+import type { WeComDurableStatus } from '../types/wecomDurableStatus';
+import type {
+  ReconcileSessionNotice, SessionCommandAlertItem, SessionCommandAlertReport,
+} from '../types/sessionCommandMonitoring';
 import type {
   AuthorizationChange, AuthorizationPreview, CompanyDetail, CompanyDirectory,
   ManagedMember, MemberControl, OperationsOverview, OperatorAudit,
@@ -45,6 +49,9 @@ export const operationsApi = {
   issueTrialCode: () => client.post<TrialCodeIssue>('/v1/ops/trial-codes'),
   trialCodes: () => client.get<TrialCodeRecord[]>('/v1/ops/trial-codes'),
   commercialHealth: () => client.get<import('../types/commercialHealth').CommercialHealth>('/v1/ops/commercial-health'),
+  wecomDurableStatus: () => client.get<WeComDurableStatus>('/v1/ops/wecom-durable-status'),
+  sessionCommandAlerts: (offset = 0, limit = 50) => client.get<SessionCommandAlertReport>(`/v1/ops/session-command-alerts?offset=${offset}&limit=${limit}`),
+  reconcileSessionNotice: (operationId: string, payload: ReconcileSessionNotice) => client.post<SessionCommandAlertItem>(`/v1/ops/session-command-alerts/${encodeURIComponent(operationId)}/reconcile-notice`, payload),
   modelPolicy: () => client.get<import('../types/platformModels').PlatformModelPolicy>('/v1/ops/model-policy'),
   saveModelPolicy: (payload: import('../types/platformModels').PlatformModelChange) => client.put<import('../types/platformModels').PlatformModelPolicy>('/v1/ops/model-policy', payload),
   trialPolicy: () => client.get<import('../types/trialPolicy').TrialPolicy>('/v1/ops/trial-policy'),

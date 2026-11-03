@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tgoai/tgo-device-agent/internal/approvedscript"
 	"github.com/tgoai/tgo-device-agent/internal/config"
 	"github.com/tgoai/tgo-device-agent/internal/protocol"
 	"github.com/tgoai/tgo-device-agent/internal/tools"
@@ -113,6 +114,10 @@ func (c *Client) connectAndServe(ctx context.Context) (bool, error) {
 	if err := c.authenticate(session); err != nil {
 		return false, fmt.Errorf("auth: %w", err)
 	}
+	c.registry.ResetPolicyForConnection()
+	binding, closeScripts := c.registry.BeginScriptConnection(session.ctx, approvedscript.SessionOwner{ProjectID: c.projectID, DeviceID: c.deviceID})
+	session.scriptBinding = binding
+	defer closeScripts()
 
 	slog.Info("authenticated",
 		"device_id", c.deviceID,
@@ -327,8 +332,28 @@ func (c *Client) handleRequest(session *connection, raw []byte) {
 		c.handlePing(session, req.ID)
 	case "tools/list":
 		c.handleToolsList(session, req.ID)
+	case "scripts/list":
+		c.handleScriptCatalog(session, req.ID, req.Params)
+	case "scripts/budget/get":
+		c.handleScriptBudget(session, req.ID, req.Params)
+	case "scripts/status":
+		c.handleScriptStatus(session, req.ID, req.Params)
+	case "scripts/policy/apply":
+		c.handleScriptPolicy(session, req.ID, req.Params)
+	case "scripts/receipt/get":
+		c.handleScriptReceipt(session, req.ID, req.Params)
+	case "scripts/run":
+		c.handleScriptExecution(session, req.ID, req.Params)
+	case "scripts/cancel":
+		c.handleScriptCancellation(session, req.ID, req.Params)
 	case "tools/call":
 		c.handleToolsCall(session, req.ID, req.Params)
+	case "policy/apply":
+		c.handlePolicyApply(session, req.ID, req.Params)
+	case "screen/status":
+		c.handleScreenStatus(session, req.ID, req.Params)
+	case "screen/policy/apply":
+		c.handleScreenPolicy(session, req.ID, req.Params)
 	default:
 		if req.ID != nil {
 			resp := protocol.NewErrorResponse(req.ID, protocol.ErrMethodNotFound,
@@ -336,6 +361,25 @@ func (c *Client) handleRequest(session *connection, raw []byte) {
 			session.writeMessage(resp)
 		}
 	}
+}
+
+func (c *Client) handlePolicyApply(session *connection, id *json.RawMessage, paramsRaw json.RawMessage) {
+	var policy protocol.ReadPolicy
+	if err := json.Unmarshal(paramsRaw, &policy); err != nil {
+		session.writeMessage(protocol.NewErrorResponse(id, protocol.ErrInvalidParams, "Invalid read policy"))
+		return
+	}
+	ack, err := c.registry.ApplyReadPolicy(policy)
+	if err != nil {
+		session.writeMessage(protocol.NewErrorResponse(id, protocol.ErrInvalidParams, err.Error()))
+		return
+	}
+	resp, err := protocol.NewResponse(id, ack)
+	if err != nil {
+		slog.Error("failed to build policy acknowledgement", "error", err)
+		return
+	}
+	session.writeMessage(resp)
 }
 
 // handlePing responds to server ping.

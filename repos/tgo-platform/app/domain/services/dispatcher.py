@@ -11,6 +11,29 @@ from app.domain.services.adapters import SimpleStdoutAdapter, EmailAdapter, WeCo
 from app.domain.services.wecom_credentials import resolve_wecom_kf_secret
 
 
+class UnsentReplyFailure(RuntimeError):
+    """The upstream reply failed before this channel attempted a customer send."""
+
+
+_WECOM_KF_AI_DISCLOSURE = "【AI 客服】如需人工服务，请回复“转人工”。\n"
+_WECOM_KF_HANDOFF_CONFIRMATION = "已收到转人工请求，请稍候。"
+
+
+def _is_wecom_kf_customer(msg: NormalizedMessage, ptype: str) -> bool:
+    wecom = (msg.extra or {}).get("wecom")
+    return (
+        ptype == "wecom"
+        and isinstance(wecom, dict)
+        and wecom.get("is_from_colleague") is False
+    )
+
+
+def _customer_visible_ai_reply(msg: NormalizedMessage, ptype: str, text: str) -> str:
+    if _is_wecom_kf_customer(msg, ptype):
+        return _WECOM_KF_AI_DISCLOSURE + text
+    return text
+
+
 def _expected_output_for(ptype: str) -> str | None:
     p = (ptype or "").lower()
     if p == "wecom":
@@ -308,6 +331,14 @@ async def process_message(
             if ptype == "wecom":
                 await adapter.send_final({"text": "当前客服服务已暂停，请稍后再试。"})
             return None  # System notice is not an AI reply or a billable receipt.
+        if (
+            event_type == "human_handoff"
+            and _is_wecom_kf_customer(msg, ptype)
+            and _extract_named_value(payload.get("data"), "routing_reason")
+            == "explicit_customer_request"
+        ):
+            await adapter.send_final({"text": _WECOM_KF_HANDOFF_CONFIRMATION})
+            return _WECOM_KF_HANDOFF_CONFIRMATION
         if event_type in no_reply_events:
             logging.info(
                 "[DISPATCH] No automatic reply for event=%s platform_id=%s",
@@ -316,12 +347,14 @@ async def process_message(
             )
             return None
         if event_type in failure_events or event.event in failure_events:
-            raise RuntimeError(f"AI stream failed with event {event_type or event.event}")
+            raise UnsentReplyFailure(
+                f"AI stream failed with event {event_type or event.event}"
+            )
         if event_type == "agent_response_complete":
             success = _extract_named_value(payload.get("data"), "success")
             if success is False:
                 error_detail = _extract_named_value(payload.get("data"), "error")
-                raise RuntimeError(
+                raise UnsentReplyFailure(
                     f"AI agent response failed: {error_detail or 'unknown error'}"
                 )
             final_value = _extract_named_value(
@@ -341,15 +374,16 @@ async def process_message(
         if event_type in success_events:
             success = _extract_named_value(payload.get("data"), "success")
             if success is False:
-                raise RuntimeError("AI workflow completed with success=false")
+                raise UnsentReplyFailure("AI workflow completed with success=false")
             completed = True
             break
 
     if not completed:
-        raise RuntimeError("AI stream ended without a success event")
+        raise UnsentReplyFailure("AI stream ended without a success event")
     reply_text = "".join(chunks) or final_content or ""
     if not reply_text:
-        raise RuntimeError("AI stream completed without reply text")
+        raise UnsentReplyFailure("AI stream completed without reply text")
+    reply_text = _customer_visible_ai_reply(msg, ptype, reply_text)
     final = {"text": reply_text}
     await adapter.send_final(final)
     return reply_text

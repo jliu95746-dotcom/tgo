@@ -7,12 +7,37 @@ from app.schemas.workflow import (
     WorkflowCreate, WorkflowUpdate, WorkflowInDB, WorkflowSummary, 
     WorkflowValidationResponse, WorkflowValidateRequest, WorkflowDuplicateRequest,
     WorkflowVariablesResponse, NodeVariables, WorkflowVariable,
-    WorkflowBatchInfo, WorkflowInputParameter
+    WorkflowBatchInfo, WorkflowInputParameter, WorkflowIntegrationRelease
 )
 from app.schemas.common import PaginatedResponse, PaginationInfo
 from typing import List, Optional
+from app.schemas.capabilities import WorkflowCapabilities
+from app.services.node_readiness import workflow_capabilities
+from app.services import workflow_releases
+from app.schemas.workflow_release import WorkflowPublishRequest, WorkflowReleaseSummary, WorkflowRollbackRequest
+from app.schemas.device_references import DeviceWorkflowReferences
+from app.services.device_workflow_references import list_device_workflow_references
+from uuid import UUID
 
 router = APIRouter()
+
+
+@router.get("/capabilities", response_model=WorkflowCapabilities)
+async def get_workflow_capabilities() -> WorkflowCapabilities:
+    return workflow_capabilities()
+
+
+@router.get("/device-references", response_model=DeviceWorkflowReferences)
+async def get_device_workflow_references(
+    project_id: str = Query(...),
+    device_id: UUID = Query(...),
+    limit: int = Query(5, ge=1, le=20),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> DeviceWorkflowReferences:
+    return await list_device_workflow_references(
+        db, project_id, device_id, limit=limit, offset=offset,
+    )
 
 @router.get("/", response_model=PaginatedResponse[WorkflowSummary])
 async def get_workflows(
@@ -73,7 +98,11 @@ async def get_workflows_batch(
     for workflow in workflows:
         # Extract input parameters from input node
         input_parameters = []
-        nodes = workflow.definition.get("nodes", [])
+        definition = workflow.definition
+        if workflow.status == "active":
+            published = await workflow_releases.production_definition(db, workflow.id, project_id)
+            definition = published.definition
+        nodes = definition.get("nodes", [])
         for node in nodes:
             if node.get("type") == "input":
                 node_data = node.get("data", {})
@@ -82,7 +111,7 @@ async def get_workflows_batch(
                         name=var.get("name", ""),
                         type=var.get("type", "string"),
                         description=var.get("description"),
-                        required=var.get("required", True),
+                        required=var.get("required", False),
                         default=var.get("default")
                     ))
                 break  # Only process the first input node
@@ -95,6 +124,8 @@ async def get_workflows_batch(
             tags=workflow.tags,
             status=workflow.status,
             version=workflow.version,
+            published_version=workflow.published_version,
+            publication_revision=workflow.publication_revision,
             updated_at=workflow.updated_at,
             input_parameters=input_parameters
         ))
@@ -119,6 +150,11 @@ async def update_workflow(
     project_id: str = Query(..., description="Project ID"),
     db: AsyncSession = Depends(get_db)
 ):
+    if workflow_in.status == "active":
+        raise HTTPException(409, "请使用发布入口启用工作流，不能直接修改为已发布。")
+    existing = await WorkflowService.get_by_id(db, workflow_id, project_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Workflow not found")
     workflow = await WorkflowService.update(db, workflow_id, project_id, workflow_in)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -175,7 +211,9 @@ async def validate_workflow(
 @router.post("/{workflow_id}/publish", response_model=WorkflowInDB)
 async def publish_workflow(
     workflow_id: str,
+    request: WorkflowPublishRequest,
     project_id: str = Query(..., description="Project ID"),
+    staff_id: str | None = Query(None, description="Publishing staff ID"),
     db: AsyncSession = Depends(get_db)
 ):
     workflow = await WorkflowService.get_by_id(db, workflow_id, project_id)
@@ -190,8 +228,38 @@ async def publish_workflow(
             detail={"message": "Workflow validation failed", "errors": errors}
         )
         
-    updated_workflow = await WorkflowService.publish(db, workflow_id, project_id)
+    updated_workflow = await WorkflowService.publish(db, workflow_id, project_id, request, staff_id)
     return updated_workflow
+
+
+@router.get("/{workflow_id}/releases", response_model=list[WorkflowReleaseSummary])
+async def get_workflow_releases(
+    workflow_id: str, project_id: str = Query(...), db: AsyncSession = Depends(get_db),
+) -> list[WorkflowReleaseSummary]:
+    return await workflow_releases.history(db, workflow_id, project_id)
+
+
+@router.get(
+    "/{workflow_id}/releases/{version}/integration",
+    response_model=WorkflowIntegrationRelease,
+)
+async def get_workflow_integration_release(
+    workflow_id: str,
+    version: int,
+    project_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> WorkflowIntegrationRelease:
+    return await workflow_releases.integration_release(
+        db, workflow_id, project_id, version
+    )
+
+
+@router.post("/{workflow_id}/rollback", response_model=WorkflowInDB)
+async def rollback_workflow(
+    workflow_id: str, request: WorkflowRollbackRequest,
+    project_id: str = Query(...), db: AsyncSession = Depends(get_db),
+):
+    return await workflow_releases.rollback(db, workflow_id, project_id, request)
 
 @router.get("/{workflow_id}/variables", response_model=WorkflowVariablesResponse)
 async def get_workflow_variables(

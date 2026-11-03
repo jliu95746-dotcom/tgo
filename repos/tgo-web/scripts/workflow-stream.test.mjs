@@ -36,7 +36,7 @@ function loadStore(api) {
     'zustand/middleware': { devtools: value => value, persist: value => value },
     reactflow: {},
   });
-  useWorkflowStore.setState({ currentWorkflow: { id: 'workflow-owned' } });
+  useWorkflowStore.setState({ currentWorkflow: { id: 'workflow-owned', definition: { nodes: [] } } });
   return useWorkflowStore;
 }
 
@@ -140,6 +140,9 @@ test('debug panel displays cancellation and incomplete errors in Chinese', () =>
         nodeExecutionMap: {}, debugInput: {},
       }) },
       'react-i18next': { useTranslation: () => i18n },
+      '@/utils/workflowInputs': loadSource('utils/workflowInputs.ts', {}),
+      '@/stores/authStore': { useAuthStore: { getState: () => ({ user: null }) } },
+      './EventTestPanel': () => null,
     });
     const html = renderToStaticMarkup(React.createElement(DebugPanel));
     assert.ok(html.includes(status === 'cancelled' ? '已取消' : '执行未完成'));

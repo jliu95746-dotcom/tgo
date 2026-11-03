@@ -4,12 +4,13 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.database import SessionLocal
 from app.core.logging import get_logger
 from app.models.ai_usage import AIUsageReservation
 from app.services import ai_usage
+from app.services.agent_trial_usage import recover_trials
 from app.services.company_email import utc
 from app.services.platform_message_client import get_ai_delivery_receipt
 from app.services.wukongim_client import wukongim_client
@@ -26,6 +27,7 @@ def release_abandoned() -> None:
                 .where(
                     AIUsageReservation.status == "reserved",
                     AIUsageReservation.expires_at <= now,
+                    func.coalesce(AIUsageReservation.receipt["kind"].as_string(), "") != "agent_trial",
                 )
                 .limit(100)
             )
@@ -42,6 +44,7 @@ def release_abandoned() -> None:
 
 async def reconcile_deliveries() -> None:
     await asyncio.to_thread(release_abandoned)
+    await recover_trials()
     now = datetime.now(timezone.utc)
     with SessionLocal() as db:
         rows = list(
@@ -50,6 +53,7 @@ async def reconcile_deliveries() -> None:
                 .where(
                     AIUsageReservation.status.in_(["publishing", "review"]),
                     AIUsageReservation.expires_at <= now,
+                    func.coalesce(AIUsageReservation.receipt["kind"].as_string(), "") != "agent_trial",
                 )
                 .order_by(AIUsageReservation.expires_at)
                 .limit(100)

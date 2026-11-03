@@ -17,6 +17,7 @@ from app.models import ChannelMember, Platform, Project, Staff, Visitor
 from app.models.staff import StaffStatus
 from app.services.ai_client import AIServiceClient
 from app.services.customer_logistics_service import CustomerLogisticsService
+from app.services.hidden_shadow_run import HiddenShadowRunService
 from app.services.message_analysis_service import (
     MessageAnalysisLookupKey,
     MessageAnalysisService,
@@ -463,8 +464,6 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                     ),
                 ),
             )
-            if existing:
-                continue
             platform = (
                 db.query(Platform)
                 .filter(
@@ -484,13 +483,35 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
             )
             if platform is None or project is None:
                 continue
-            await MessageIntentOrchestrator(db).analyze_text_message(
-                project=project,
-                platform=platform,
-                visitor=visitor,
-                source_message_id=source_message_id,
-                user_text=message_text,
-            )
+            from app.services.chat_service import resolve_service_mode
+
+            service_mode = resolve_service_mode(platform, visitor)
+            if service_mode == "manual":
+                continue
+            if not existing:
+                await MessageIntentOrchestrator(db).analyze_text_message(
+                    project=project,
+                    platform=platform,
+                    visitor=visitor,
+                    source_message_id=source_message_id,
+                    user_text=message_text,
+                    shadow_only=service_mode == "assist",
+                )
+            if (
+                service_mode == "assist"
+                and getattr(platform, "type", None) == "wecom"
+                and getattr(platform, "agent_id", None) is not None
+            ):
+                await HiddenShadowRunService(
+                    db, ai_client=ai_client, im_client=wukong_client,
+                ).generate(
+                    project_id=project.id,
+                    platform_id=platform.id,
+                    visitor_id=visitor.id,
+                    agent_id=platform.agent_id,
+                    source_message_id=source_message_id,
+                    customer_message=message_text,
+                )
         except Exception as exc:
             db.rollback()
             logger.warning(

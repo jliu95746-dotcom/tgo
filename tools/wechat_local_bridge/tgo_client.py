@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
-from base64 import urlsafe_b64decode
-from binascii import Error as Base64Error
 from collections.abc import Mapping
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -64,18 +61,6 @@ def bridge_base_url(value: str, platform_type: str) -> str:
     ):
         raise ValueError("个人微信需绑定明确的 HTTPS 或本机客服 API 地址")
     return base
-
-
-def visitor_token_expired(value: object) -> bool:
-    """Use the unsigned timestamp only to decide when to request a fresh grant."""
-    if not isinstance(value, str):
-        return True
-    try:
-        payload = value.split(".")[1]
-        expiration = object_map(json.loads(urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))).get("exp")
-        return not isinstance(expiration, (int, float)) or expiration <= time.time() + 60
-    except (IndexError, ValueError, Base64Error):
-        return True
 
 
 class TgoClient:
@@ -151,10 +136,7 @@ class TgoClient:
             ):
                 raise TgoError("已有客服访客不属于当前绑定，保留原凭据并停止")
             self.session = session
-        if not self.session or (
-            self.platform_type == "wechat_local" and visitor_token_expired(self.session.get("im_token"))
-        ):
-            previous_id = self.session.get("id")
+        else:
             marker = self.runtime / "tgo-registration-inflight.private.json"
             if marker.exists():
                 raise TgoError("上次访客注册结果未知，需先核对后恢复，不重复注册")
@@ -180,16 +162,12 @@ class TgoClient:
                 },
                 authenticated=False,
             )
-            required_fields = ("id", "im_token", "channel_id")
-            if self.platform_type == "website":
-                required_fields += ("visitor_access_token",)
             if (
                 session.get("platform_id") != self.platform_id
                 or session.get("platform_open_id") != identity
-                or (previous_id is not None and session.get("id") != previous_id)
                 or not all(
                     session.get(key)
-                    for key in required_fields
+                    for key in ("id", "im_token", "visitor_access_token", "channel_id")
                 )
                 or session.get("channel_type") != 251
             ):
@@ -259,7 +237,7 @@ class TgoClient:
         if self.platform_type == "wechat_local":
             result = self._post(
                 f"/v1/platforms/{self.platform_id}/wechat-local/heartbeat",
-                {"channel_id": self.channel_id},
+                {},
                 include_platform_key=True,
             )
             if result.get("connected") is not True:

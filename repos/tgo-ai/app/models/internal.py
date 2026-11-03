@@ -6,13 +6,16 @@ for representing data from external services and coordination state.
 """
 
 from typing import Any, Dict, List, Literal, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.knowledge_evidence import KnowledgeEvidence
+from app.schemas.agent_execution import AgentExecutionReference
+from app.schemas.agent_business_connections import AgentBusinessConnectionRecord
+from app.schemas.business_execution_context import BusinessRequestPrincipal
 from app.runtime.tools.models import LLMProviderCredentials
 
 
@@ -81,6 +84,9 @@ class AgentWorkflow(BaseModel):
     id: UUID = Field(..., description="Internal association ID")
     workflow_id: str = Field(..., description="External workflow service ID")
     enabled: bool = Field(default=True, description="Whether workflow is enabled for this agent")
+    release_version: int | None = None
+    release_id: str | None = None
+    release_digest: str | None = None
 
     class Config:
         """Pydantic model configuration."""
@@ -95,16 +101,23 @@ class Agent(BaseModel):
     name: str = Field(..., description="Agent name")
     instruction: Optional[str] = Field(None, description="Agent system instruction")
     model: str = Field(..., description="LLM model name")
+    model_owner_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    humanization_skill_name: str | None = None
+    humanization_skill_enabled: bool = False
     config: Dict[str, Any] = Field(default_factory=dict, description="Agent configuration (temperature, max_tokens, markdown, etc.)")
     tools: List[AgentTool] = Field(default_factory=list, description="Agent tools")
     collections: List[AgentCollection] = Field(default_factory=list, description="Agent collections")
     workflows: List[AgentWorkflow] = Field(default_factory=list, description="Agent workflows")
+    business_connections: list[AgentBusinessConnectionRecord] = Field(default_factory=list)
     is_default: bool = Field(default=False, description="Whether this is the default agent")
     is_remote_store_agent: bool = Field(default=False, description="Whether this is a remote agent from store")
     remote_agent_url: Optional[str] = Field(None, description="URL of the remote AgentOS server")
     store_agent_id: Optional[str] = Field(None, description="Agent ID in the remote store")
     agent_category: str = Field(default="normal", description="Agent category: normal or computer_use")
     bound_device_id: Optional[str] = Field(None, description="Bound device ID for device control MCP connection")
+    bound_device_policy_digest: Optional[str] = Field(
+        None, pattern=r"^[0-9a-f]{64}$", description="Pinned device read policy"
+    )
     skills_enabled: bool = Field(default=True, description="Whether skill discovery is enabled")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
@@ -174,10 +187,16 @@ class AgentExecutionContext(BaseModel):
     """Direct runtime context for a single executing agent."""
 
     agent: Agent = Field(..., description="Resolved agent for this run")
+    execution_id: UUID = Field(default_factory=uuid4, description="Stable ID for this agent run")
     response_purpose: Literal["standard", "expression"] = "standard"
     require_current_knowledge: bool = False
     knowledge_context: list[str] = Field(default_factory=list, max_length=4)
     knowledge_evidence: KnowledgeEvidence | None = None
+    execution_reference: AgentExecutionReference | None = None
+    business_principal: "BusinessRequestPrincipal | None" = Field(default=None, exclude=True, repr=False)
+    business_context_token: "SecretStr | None" = Field(default=None, exclude=True, repr=False)
+    parent_workflow_execution_id: UUID | None = Field(default=None, exclude=True, repr=False)
+    workflow_lineage: tuple[str, ...] = Field(default=(), exclude=True, repr=False)
     project_id: str = Field(..., description="Owning project ID")
     message: str = Field(..., description="User message")
     system_message: Optional[str] = Field(

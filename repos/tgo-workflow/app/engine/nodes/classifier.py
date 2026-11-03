@@ -44,7 +44,7 @@ Return the category ID in JSON format: {{"category_id": "..."}}
                 # Fallback to simple matching if JSON not found
                 category_id = categories[0]["id"]
         except (json.JSONDecodeError, KeyError, IndexError) as e:
-            logger.error(f"Error parsing classifier response: {e}")
+            logger.error("Error parsing classifier response: %s", type(e).__name__)
             category_id = categories[0]["id"]
             
         matched_category = next((c for c in categories if c["id"] == category_id), categories[0])

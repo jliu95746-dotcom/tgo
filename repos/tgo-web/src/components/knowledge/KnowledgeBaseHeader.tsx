@@ -9,11 +9,12 @@ interface KnowledgeBaseHeaderProps {
     name: string;
     description?: string;
     category?: string;
-    tags?: string[] | any[];
+    tags?: (string | { name: string })[];
   };
   onBack: () => void;
   onRefresh: () => void;
   onToggleUpload: () => void;
+  onPasteText?: () => void;
   isUploadVisible: boolean;
   // Search and filter props
   searchTerm: string;
@@ -35,6 +36,7 @@ export const KnowledgeBaseHeader: React.FC<KnowledgeBaseHeaderProps> = ({
   onBack,
   onRefresh,
   onToggleUpload,
+  onPasteText,
   isUploadVisible,
   searchTerm,
   onSearchChange,
@@ -51,8 +53,8 @@ export const KnowledgeBaseHeader: React.FC<KnowledgeBaseHeaderProps> = ({
   return (
     <header className="px-6 py-4 border-b border-gray-200/80 dark:border-gray-700/80 sticky top-0 bg-white/60 dark:bg-gray-800/60 backdrop-blur-lg z-10">
       {/* Main Header Row - matches HTML reference structure */}
-      <div className="flex justify-between items-center">
-        <div className="flex items-center space-x-4">
+      <div className="flex flex-wrap justify-between items-start gap-3">
+        <div className="flex min-w-0 w-full sm:flex-1 items-start gap-3">
           {/* Back Button */}
           <button
             onClick={onBack}
@@ -63,20 +65,22 @@ export const KnowledgeBaseHeader: React.FC<KnowledgeBaseHeaderProps> = ({
           </button>
 
           {/* Title and Description */}
-          <div>
-            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+          <div className="min-w-0">
+            <h2 className="break-words text-lg font-semibold text-gray-800 dark:text-gray-100">
               {knowledgeBase.name}
             </h2>
             {knowledgeBase.description && (
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                {knowledgeBase.description}
-              </p>
+              <details className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                <summary className="cursor-pointer">{t('knowledgeOnboarding.readBrief')}</summary>
+                <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-words">{knowledgeBase.description}</p>
+                {knowledgeBase.description.length > 500 && <p className="mt-2 text-amber-600 dark:text-amber-400">{t('knowledgeOnboarding.legacyBrief')}</p>}
+              </details>
             )}
 
             {/* Tags Display */}
             {knowledgeBase.tags && knowledgeBase.tags.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {knowledgeBase.tags.map((tag: any, tagIndex: number) => {
+                {knowledgeBase.tags.map((tag, tagIndex: number) => {
                   const tagName = typeof tag === 'string' ? tag : tag.name || String(tag);
                   return (
                     <span
@@ -98,7 +102,8 @@ export const KnowledgeBaseHeader: React.FC<KnowledgeBaseHeaderProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center space-x-3">
+        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+          {onPasteText && <button onClick={onPasteText} className="rounded-md border border-blue-300 px-3 py-1.5 text-sm text-blue-600 dark:text-blue-300">{t('knowledgeOnboarding.paste')}</button>}
           <button
             onClick={onRefresh}
             className="p-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-200/70 dark:hover:bg-gray-700/70 rounded-md transition-colors duration-200"
@@ -116,7 +121,7 @@ export const KnowledgeBaseHeader: React.FC<KnowledgeBaseHeaderProps> = ({
             }`}
           >
             <Upload className="w-4 h-4 mr-1" />
-            <span>{t('knowledge.detail.uploadDocument')}</span>
+            <span>{t('knowledgeOnboarding.replaceUpload')}</span>
           </button>
         </div>
       </div>
@@ -152,7 +157,7 @@ export const KnowledgeBaseHeader: React.FC<KnowledgeBaseHeaderProps> = ({
       </div>
 
       {/* Quick Stats */}
-      <div className="mt-3 flex items-center space-x-6 text-sm text-gray-600 dark:text-gray-300">
+      <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-gray-600 dark:text-gray-300">
         <span>{t('knowledge.detail.totalDocuments', { count: totalDocuments })}</span>
         <span>{t('knowledge.detail.totalSize', { size: totalSize })}</span>
         <span>{t('knowledge.detail.lastUpdated', { date: lastUpdated })}</span>

@@ -7,7 +7,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
+import httpx
+import pytest
+from fastapi import FastAPI
+
 from app.api.internal.endpoints import ai_events
+from app.core.config import settings
+from app.core.database import get_db
 from app.schemas.ai import AIServiceEvent
 
 
@@ -31,6 +37,36 @@ class _FakeDB:
 
     def query(self, model: object) -> _FakeQuery:
         return _FakeQuery(self._results[model])
+
+
+@pytest.mark.asyncio
+async def test_authenticated_ai_event_reaches_the_handoff_handler() -> None:
+    project_id, visitor_id = uuid4(), uuid4()
+    visitor = SimpleNamespace(id=visitor_id, project_id=project_id)
+    project = SimpleNamespace(id=project_id)
+    app = FastAPI()
+    app.include_router(ai_events.router, prefix="/internal/ai/events")
+    app.dependency_overrides[get_db] = lambda: _FakeDB(visitor, project)
+    handler = AsyncMock(return_value={"status": "pending"})
+    with patch.object(ai_events, "_handle_manual_service_request", handler):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/internal/ai/events",
+                json={
+                    "event_type": "manual_service.request",
+                    "user_id": str(visitor_id),
+                    "payload": {"reason": "需要人工客服"},
+                },
+                headers={"X-Internal-API-Key": settings.SECRET_KEY},
+            )
+    assert response.status_code == 202
+    assert response.json() == {
+        "event_type": "manual_service.request",
+        "result": {"status": "pending"},
+    }
+    handler.assert_awaited_once()
 
 
 class InternalAIEventsTests(unittest.IsolatedAsyncioTestCase):
@@ -88,7 +124,10 @@ class InternalAIEventsTests(unittest.IsolatedAsyncioTestCase):
         event = AIServiceEvent(
             event_type="manual_service.request",
             user_id=str(visitor_id),
-            payload={"reason": "customer requested human support"},
+            payload={
+                "reason": "customer requested human support",
+                "metadata": {"request_id": "turn-123"},
+            },
         )
         handoff_result = {
             "assigned_staff_id": str(staff_id),
@@ -113,6 +152,10 @@ class InternalAIEventsTests(unittest.IsolatedAsyncioTestCase):
             request_handoff.await_args.kwargs["reason"],
             "customer requested human support",
         )
+        self.assertEqual(
+            request_handoff.await_args.kwargs["source_message_id"], "ai:turn-123",
+        )
+        self.assertIs(request_handoff.await_args.kwargs["strict_source_receipt"], True)
 
     async def test_manual_handoff_requires_visitor_id(
         self,
@@ -135,3 +178,20 @@ class InternalAIEventsTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(raised.exception.status_code, 400)
+
+    async def test_manual_handoff_rejects_invalid_request_id(self) -> None:
+        visitor_id = uuid4()
+        project_id = uuid4()
+        visitor = SimpleNamespace(id=visitor_id, project_id=project_id)
+        project = SimpleNamespace(id=project_id)
+        db = _FakeDB(visitor=visitor, project=project)
+        event = AIServiceEvent(
+            event_type="manual_service.request",
+            user_id=str(visitor_id),
+            payload={"reason": "转人工", "metadata": {"request_id": 123}},
+        )
+        with patch.object(ai_events, "request_human_handoff") as handoff:
+            with self.assertRaises(ai_events.HTTPException) as raised:
+                await ai_events._handle_manual_service_request(event, project, db)
+        self.assertEqual(raised.exception.status_code, 400)
+        handoff.assert_not_called()

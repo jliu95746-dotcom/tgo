@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useCallback, useState } from 'react'
 import styled from '@emotion/styled'
 import type { ChatMessage, SystemMessagePayload, RegularMessagePayload } from '../types/chat'
 import { isSystemMessageType } from '../types/chat'
@@ -6,9 +6,11 @@ import { formatMessageTime } from '../utils/time'
 import { useChatStore } from '../store'
 import { AlertCircle, RotateCw, Trash2 } from 'lucide-react'
 import { ReasonCode } from 'easyjssdk'
-import { Bubble, Cursor, AILoadingDots, TextMessage, ImageMessage, FileMessage, MixedMessage, MixedImages, SystemMessage } from './messages'
+import { Bubble, Cursor, AILoadingDots, TextMessage, ImageMessage, FileMessage, VoiceMessage, MixedMessage, MixedImages, SystemMessage } from './messages'
 import { useTranslation } from 'react-i18next'
 import JSONRenderMessage from './messages/JSONRenderMessage'
+import { verifyAIReplyOrigins } from '../services/aiReplyOrigin'
+import { isVerifiedAIReply, originKey } from '../utils/aiReplyOrigin'
 
 
 
@@ -40,6 +42,48 @@ export default function MessageList({ messages }: { messages: ChatMessage[] }){
   const { t } = useTranslation()
   const ref = useRef<HTMLDivElement>(null)
   const items = useMemo(()=> messages.map(m => ({...m, key: m.id})), [messages])
+  const apiBase = useChatStore(s => s.apiBase)
+  const platformApiKey = useChatStore(s => s.platformApiKey)
+  const channelId = useChatStore(s => s.channelId)
+  const sessionRevision = useChatStore(s => s.sessionRevision)
+  const proofContext = JSON.stringify([apiBase, platformApiKey, channelId, sessionRevision])
+  const candidateSignature = useMemo(() => JSON.stringify(messages.flatMap(m => (
+    m.role === 'agent' && m.senderKind === 'ai'
+    && m.channelType === 251 && m.channelId === channelId && m.clientMsgNo
+      ? [m.clientMsgNo] : []
+  )).sort()), [messages, channelId])
+  const candidateNos = useMemo(() => [...new Set(JSON.parse(candidateSignature) as string[])], [candidateSignature])
+  const [originProof, setOriginProof] = useState<{ context: string; verified: Set<string> }>({
+    context: '', verified: new Set(),
+  })
+
+  useEffect(() => {
+    const controller = new AbortController()
+    if (!apiBase || !platformApiKey || !channelId || !candidateNos.length) {
+      setOriginProof({ context: proofContext, verified: new Set() })
+      return () => controller.abort()
+    }
+    const verify = async () => {
+      const verified = new Set<string>()
+      try {
+        for (let start = 0; start < candidateNos.length; start += 50) {
+          const batch = candidateNos.slice(start, start + 50)
+          const evidence = await verifyAIReplyOrigins({
+            apiBase, platformApiKey, channelId, clientMsgNos: batch, signal: controller.signal,
+          })
+          for (const item of evidence) {
+            if (item.status === 'verified' && batch.includes(item.client_msg_no)) {
+              verified.add(originKey(channelId, item.client_msg_no))
+            }
+          }
+        }
+      } catch { /* A lost grant or unavailable IM cannot prove AI origin. */ }
+      if (!controller.signal.aborted) setOriginProof({ context: proofContext, verified })
+    }
+    void verify()
+    return () => controller.abort()
+  }, [apiBase, platformApiKey, channelId, candidateNos, proofContext])
+  const verifiedAI = originProof.context === proofContext ? originProof.verified : new Set<string>()
 
   const historyLoading = useChatStore(s => s.historyLoading)
   const historyHasMore = useChatStore(s => s.historyHasMore)
@@ -205,6 +249,8 @@ export default function MessageList({ messages }: { messages: ChatMessage[] }){
                 </Bubble>
               ) : payload.type === 2 ? (
                 <ImageMessage url={payload.url} w={payload.width} h={payload.height} />
+              ) : payload.type === 4 ? (
+                <VoiceMessage url={payload.url} />
               ) : m.errorMessage ? (
                 /* 有错误信息 - 在气泡内显示错误 */
                 <Bubble self={false}>
@@ -234,7 +280,7 @@ export default function MessageList({ messages }: { messages: ChatMessage[] }){
               )}
             </Row>
             {m.role==='agent' && (
-              <Meta>{formatMessageTime(m.time)}</Meta>
+              <Meta>{isVerifiedAIReply(m, channelId, verifiedAI) ? `${t('messageList.aiLabel')} · ` : ''}{formatMessageTime(m.time)}</Meta>
             )}
             {m.role==='user' && (
               <Meta style={{ textAlign: 'right' }}>{formatMessageTime(m.time)}</Meta>

@@ -1,15 +1,23 @@
-import React, { useEffect, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import OnboardingWelcome from '@/components/onboarding/OnboardingWelcome';
 import { useOnboardingStore } from '@/stores/onboardingStore';
 import NotificationPermissionNotice from '@/components/notifications/NotificationPermissionNotice';
 import TrialActivationButton from './TrialActivationButton';
+import MobileChatNavigation from './MobileChatNavigation';
+import { useChatViewport } from '@/hooks/useChatViewport';
+import '@/styles/chat-workspace.css';
+import '@/styles/management-workspace.css';
 
 /**
  * Main layout component with sidebar and content area
  */
 const Layout: React.FC = () => {
+  const location = useLocation();
+  const isChatRoute = location.pathname === '/chat' || location.pathname.startsWith('/chat/');
+  const workspace = useRef<HTMLDivElement>(null);
+  useChatViewport(workspace, isChatRoute);
   const [trialStatus, setTrialStatus] = useState<'checking' | 'pending' | 'ready'>('checking');
   const {
     hasInitialized,
@@ -40,12 +48,13 @@ const Layout: React.FC = () => {
   }, [hasInitialized, isCompleted, startPolling, stopPolling]);
 
   return (
-    <div className="flex flex-col bg-gray-100 dark:bg-gray-900 h-screen overflow-hidden font-sans antialiased">
+    <div ref={workspace} data-module={location.pathname.split('/')[1]} className={`app-workspace flex flex-col bg-gray-100 dark:bg-gray-900 h-screen overflow-hidden font-sans antialiased ${isChatRoute ? 'chat-workspace' : 'mobile-management-workspace'}`}>
       <NotificationPermissionNotice />
       <TrialActivationButton onStatus={setTrialStatus} />
-      <div className="flex flex-1 min-h-0 w-full">
+      <MobileChatNavigation />
+      <div className="workspace-body flex flex-1 min-h-0 min-w-0 w-full">
         {/* Sidebar Navigation */}
-        <Sidebar />
+        <div className="hidden shrink-0 min-[900px]:flex"><Sidebar /></div>
 
         {/* Main Content */}
         <Outlet />

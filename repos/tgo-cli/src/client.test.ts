@@ -103,6 +103,21 @@ describe('TgoClient', () => {
       );
     });
 
+    it('POST can add an operation id without replacing authorization', async () => {
+      mockFetch.mockResolvedValue(mockResponse({ success: true }));
+      await client.post('/v1/sessions/visitor/v-1/close', {}, {
+        'X-Session-Operation-ID': 'd9503a7a-91e1-4f6a-8da3-cc31ff535d21',
+        Authorization: 'Bearer wrong',
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8000/api/v1/sessions/visitor/v-1/close',
+        expect.objectContaining({ headers: expect.objectContaining({
+          'X-Session-Operation-ID': 'd9503a7a-91e1-4f6a-8da3-cc31ff535d21',
+          Authorization: 'Bearer test-token',
+        }) }),
+      );
+    });
+
     it('PUT should send JSON body', async () => {
       mockFetch.mockResolvedValue(mockResponse({ updated: true }));
       await client.put('/v1/staff/me/service-paused?paused=true');

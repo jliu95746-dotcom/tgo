@@ -193,6 +193,16 @@ class HTTPMediaProvider:
                 or url.fragment
             ):
                 raise ValueError("Invalid configured provider URL")
+            if url.scheme == "http" and url.host not in {
+                "localhost",
+                "127.0.0.1",
+                "::1",
+            }:
+                raise ProviderExecutionError(
+                    "远程媒体模型接口必须使用 HTTPS，请检查服务商接口地址。",
+                    retryable=False,
+                    diagnostic_code="insecure_endpoint",
+                )
             headers = {"Authorization": "Bearer " + self._model.api_key}
             if self._model.organization:
                 headers["OpenAI-Organization"] = self._model.organization

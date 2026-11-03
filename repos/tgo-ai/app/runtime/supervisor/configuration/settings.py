@@ -6,7 +6,6 @@ validation, defaults, and environment variable support.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 import os
 
 

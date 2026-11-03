@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.dependencies import get_current_or_internal_project_id, get_db
 from app.runtime.routing.policy import IntentRoutingPolicy
-from app.schemas.intent import IntentClassificationResult
+from app.schemas.intent import (
+    ContextualIntentClassificationResult, IntentClassificationResult,
+)
 from app.schemas.intent_analysis import IntentAnalysisRequest
 from app.services.chat_service import ChatService
 from app.services.intent_classifier import IntentClassifier
@@ -26,7 +28,9 @@ router = APIRouter()
 @router.post(  # type: ignore[misc]
     "/intent",
     dependencies=[Depends(require_internal_reply_quota)],
-    response_model=IntentClassificationResult,
+    response_model=(
+        ContextualIntentClassificationResult | IntentClassificationResult
+    ),
     summary="分类客户意图并执行安全路由策略",
 )
 async def classify_intent(

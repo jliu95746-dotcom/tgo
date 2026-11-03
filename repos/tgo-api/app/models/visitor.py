@@ -5,7 +5,7 @@ from enum import Enum
 from typing import List, Optional, TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -64,6 +64,19 @@ class Visitor(Base):
     """Visitor model for external users/customers."""
 
     __tablename__ = "api_visitors"
+
+    access_secret_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    access_revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    access_retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    im_disconnect_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    im_disconnect_lease_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    im_disconnect_lease_token: Mapped[UUID | None] = mapped_column(
+        nullable=True,
+    )
 
     # Primary key
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)

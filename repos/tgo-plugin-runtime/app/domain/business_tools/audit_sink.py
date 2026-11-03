@@ -67,6 +67,8 @@ class DatabaseBusinessQueryAuditSink:
             outcome=event.outcome,
             visitor_fingerprint=event.visitor_fingerprint,
             parameter_fingerprint=event.parameter_fingerprint,
+            source_message_digest=event.source_message_digest,
+            response_message_digest=event.response_message_digest,
             duration_ms=event.duration_ms,
         )
         async with self._session_factory() as session:

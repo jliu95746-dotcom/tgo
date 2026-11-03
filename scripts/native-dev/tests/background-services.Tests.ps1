@@ -27,10 +27,13 @@ Assert-Equal (Test-NativeProcessIdentity -Entry $testEntry) $true 'JSON-parsed D
 $testEntry.startedAt = $testProcess.StartTime.AddHours(-1)
 Assert-Equal (Test-NativeProcessIdentity -Entry $testEntry) $false 'Stale process records must be rejected'
 $definitions = @(Get-NativeBackgroundServices)
-Assert-Equal $definitions.Count 3 'All required background services must be defined'
+Assert-Equal $definitions.Count 4 'All required background services must be defined'
 $workflow = $definitions | Where-Object { $_.Name -eq 'tgo-workflow-worker' }
 Assert-Equal ($workflow.Arguments -contains '--pool=solo') $true 'Workflow worker must support Windows'
 Assert-Equal ($workflow.Arguments -contains 'workflow') $true 'Workflow worker must consume the workflow queue'
+$workflowBeat = $definitions | Where-Object { $_.Name -eq 'tgo-workflow-beat' }
+Assert-Equal ($workflowBeat.Arguments -contains 'beat') $true 'Workflow approval scheduler must start'
+Assert-Equal $workflowBeat.ProcessOnly $true 'Workflow Beat readiness uses process identity'
 $rag = $definitions | Where-Object { $_.Name -eq 'tgo-rag-worker' }
 Assert-Equal ($rag.Arguments -contains 'document_processing,embedding,website_crawling,qa_processing,celery') $true 'RAG worker must consume every processing queue'
 $plugin = $definitions | Where-Object { $_.Name -eq 'tgo-plugin-runtime' }

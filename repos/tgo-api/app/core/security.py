@@ -1,5 +1,6 @@
 """Security utilities for authentication and authorization."""
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import Any, Dict, Literal, Optional, Union
 from uuid import UUID
@@ -108,6 +109,15 @@ def verify_token(token: str) -> Optional[Dict[str, Any]]:
         # Downgrade to debug to avoid noisy logs on unauthenticated endpoints
         logger.debug(f"Token verification failed: {e}")
         return None
+
+
+def require_internal_service_token(token: str | None) -> None:
+    """Reuse the configured private service credential, never a platform key."""
+    from secrets import compare_digest
+
+    if (settings.SAAS_INTERNAL_TOKEN is None or not token or len(token) > 8192
+            or not compare_digest(token, settings.SAAS_INTERNAL_TOKEN.get_secret_value())):
+        raise HTTPException(403, "内部服务身份无效")
 
 
 def resolve_staff_token(db: Session, token: str) -> Optional[Staff]:
@@ -390,7 +400,7 @@ def require_permission(permission: str):
     return permission_dependency
 
 
-def require_admin():
+def require_admin() -> Callable[[Staff], Awaitable[Staff]]:
     """
     Create a dependency that requires admin role.
     
@@ -415,9 +425,7 @@ def require_admin():
     ) -> Staff:
         """Check user is admin."""
         if current_user.role != ADMIN_ROLE:
-            logger.warning(
-                f"Admin required: user {current_user.username} is not admin"
-            )
+            logger.warning("Admin permission required for this request.")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin permission required"

@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Plus,
   GitBranch,
@@ -23,7 +23,13 @@ import { useWorkflowStore } from '@/stores/workflowStore';
 import { useToast } from '@/hooks/useToast';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import ScenarioLibrary from '@/components/business/ScenarioLibrary';
+import WorkflowTemplateDialog from '@/components/business/WorkflowTemplateDialog';
+import WorkflowRunHistory from '@/components/business/WorkflowRunHistory';
+import WorkflowApprovals from '@/components/business/WorkflowApprovals';
+import type { BusinessScenario } from '@/types/businessScenarios';
 import type { WorkflowSummary, WorkflowStatus } from '@/types/workflow';
+import { isWorkflowMessageNavigation } from '@/utils/workflowTraceNavigation';
 
 /**
  * Workflow Card Component
@@ -211,6 +217,10 @@ const WorkflowManagement: React.FC = () => {
   const { t } = useTranslation();
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
+  const initialMessageLookup = isWorkflowMessageNavigation(location.state)
+    ? location.state.workflowMessageLookup
+    : null;
   
   const {
     workflows,
@@ -223,6 +233,8 @@ const WorkflowManagement: React.FC = () => {
   } = useWorkflowStore();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [tab, setTab] = useState<'templates' | 'mine' | 'records' | 'approvals'>(initialMessageLookup ? 'records' : 'mine');
+  const [scenario, setScenario] = useState<BusinessScenario | null>(null);
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
   const [statusFilter, setStatusFilter] = useState<WorkflowStatus | 'all'>('all');
 
@@ -234,6 +246,10 @@ const WorkflowManagement: React.FC = () => {
   useEffect(() => {
     loadWorkflows();
   }, [loadWorkflows]);
+
+  useEffect(() => {
+    if (initialMessageLookup) setTab('records');
+  }, [initialMessageLookup]);
 
   const [isCreating, setIsCreating] = useState(false);
 
@@ -316,9 +332,9 @@ const WorkflowManagement: React.FC = () => {
   };
 
   return (
-    <main className="flex-grow flex flex-col bg-[#f8fafc] dark:bg-gray-950 overflow-hidden">
+    <main className="min-h-0 min-w-0 flex-1 flex flex-col bg-[#f8fafc] dark:bg-gray-950 overflow-hidden">
       {/* Header */}
-      <header className="px-8 py-5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-30">
+      <header className="shrink-0 px-4 py-4 sm:px-8 sm:py-5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col xl:flex-row xl:items-center justify-between gap-4 sticky top-0 z-30">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <GitBranch className="w-7 h-7 text-purple-600" />
@@ -329,7 +345,7 @@ const WorkflowManagement: React.FC = () => {
           </p>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="relative group hidden sm:block">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-purple-500 transition-colors" />
             <input 
@@ -355,6 +371,7 @@ const WorkflowManagement: React.FC = () => {
             <button
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-xl shadow-lg shadow-purple-200 dark:shadow-none transition-all active:scale-95"
               onClick={handleCreate}
+              aria-label={t('workflow.actions.create', '创建工作流')}
               disabled={isCreating}
             >
               {isCreating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
@@ -365,10 +382,18 @@ const WorkflowManagement: React.FC = () => {
       </header>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <div className="max-w-[1600px] mx-auto p-8 space-y-8">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+        <div className="max-w-[1600px] mx-auto p-4 space-y-6 sm:p-8 sm:space-y-8">
           
           {/* Quick Actions / Info Banner */}
+          <nav className="flex flex-wrap gap-2" aria-label={t('workflow.management.title')}>
+            {(['templates', 'mine', 'records', 'approvals'] as const).map(value => <button key={value} onClick={() => setTab(value)} aria-pressed={tab === value} className={`rounded-xl px-4 py-2 text-sm font-medium ${tab === value ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>{t(`businessScenarios.workflow.${value === 'approvals' ? 'approvalsTab' : value}`)}</button>)}
+          </nav>
+          {tab === 'templates' && <ScenarioLibrary key="templates" module="workflows" hasResources={false} onUse={setScenario} />}
+          {tab === 'records' && <WorkflowRunHistory key={location.key} workflows={workflows} initialChannelMessageLookup={initialMessageLookup} />}
+          {tab === 'approvals' && <WorkflowApprovals />}
+          <div className={tab === 'mine' ? 'space-y-8' : 'hidden'}>
+          <ScenarioLibrary module="workflows" hasResources={workflows.length > 0} onUse={setScenario} />
           <div className="bg-gradient-to-r from-purple-600 to-indigo-700 rounded-3xl p-6 text-white shadow-xl shadow-purple-200 dark:shadow-none flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
             <div className="relative z-10">
@@ -489,9 +514,11 @@ const WorkflowManagement: React.FC = () => {
               </nav>
             </div>
           )}
+          </div>
         </div>
       </div>
 
+      {scenario && <WorkflowTemplateDialog scenario={scenario} onClose={() => setScenario(null)} onCreated={id => { setScenario(null); navigate(`/ai/workflows/${id}/edit`); }} />}
       {/* Delete Confirmation */}
       <ConfirmDialog
         isOpen={!!deleteTarget}

@@ -1,4 +1,5 @@
 import { resolveApiKey } from '../utils/url'
+import { captureVisitorDataAccess } from './visitorDataAccess'
 
 export type ChatFileUploadResponse = {
   file_id: string
@@ -14,6 +15,7 @@ export type ChatFileUploadResponse = {
 
 export type UploadParams = {
   apiBase: string
+  platformApiKey?: string
   channelId: string
   channelType: number
   file: File
@@ -23,30 +25,28 @@ export type UploadParams = {
 
 export function makeChatFileUrl(apiBase: string, fileId: string, opts?: { includeApiKey?: boolean; apiKeyOverride?: string }): string {
   const base = apiBase.replace(/\/$/, '')
-  let url = `${base}/v1/chat/files/${encodeURIComponent(fileId)}`
-  const include = opts?.includeApiKey !== false
-  const key = opts?.apiKeyOverride ?? resolveApiKey()
-  if (include && key) {
-    url += (url.includes('?') ? '&' : '?') + 'platform_api_key=' + encodeURIComponent(key)
-  }
-  return url
+  void opts
+  return `${base}/v1/chat/files/${encodeURIComponent(fileId)}`
 }
 
 // Use XMLHttpRequest to support upload progress callbacks
-export function uploadChatFile({ apiBase, channelId, channelType, file, onProgress, signal }: UploadParams): Promise<ChatFileUploadResponse> {
+export function uploadChatFile({ apiBase, platformApiKey, channelId, channelType, file, onProgress, signal }: UploadParams): Promise<ChatFileUploadResponse> {
   return new Promise((resolve, reject) => {
+    const apiKey = platformApiKey || resolveApiKey() || ''
+    const access = captureVisitorDataAccess({apiBase,platformApiKey:apiKey,channelId})
     const xhr = new XMLHttpRequest()
     const base = apiBase.replace(/\/$/, '')
     const url = `${base}/v1/chat/upload`
     xhr.open('POST', url, true)
 
-    const apiKey = resolveApiKey()
     if (apiKey) xhr.setRequestHeader('X-Platform-API-Key', apiKey)
+    xhr.setRequestHeader('Authorization',access.headers.Authorization)
 
     xhr.responseType = 'json'
 
     if (xhr.upload && onProgress) {
       xhr.upload.onprogress = (e: ProgressEvent) => {
+        try {access.assertCurrent()} catch (error) {cleanup();xhr.abort();reject(error);return}
         if (!e.lengthComputable) return onProgress(0, 0, 0)
         const p = Math.min(100, Math.round((e.loaded / Math.max(1, e.total)) * 100))
         onProgress(p, e.loaded, e.total)
@@ -61,28 +61,29 @@ export function uploadChatFile({ apiBase, channelId, channelType, file, onProgre
 
     xhr.onerror = () => {
       cleanup()
-      const msg = typeof xhr.statusText === 'string' && xhr.statusText ? xhr.statusText : 'Network error'
-      reject(new Error(`[Upload] network error: ${xhr.status} ${msg}`))
+      reject(new Error('上传失败，请稍后重试。'))
     }
+    xhr.onabort = () => {cleanup();reject(new DOMException('Aborted','AbortError'))}
     xhr.onload = () => {
       cleanup()
+      try {access.assertCurrent();access.assertSafeValue(xhr.response)} catch (error) {reject(error);return}
       const status = xhr.status
       if (status >= 200 && status < 300) {
         const data = xhr.response as ChatFileUploadResponse
+        if (data && (data.channel_id !== channelId || data.channel_type !== channelType)) {
+          return reject(new Error('附件会话不匹配，请重新连接。'))
+        }
         if (!data || !data.file_id) {
           return reject(new Error('[Upload] invalid response'))
         }
         resolve(data)
       } else {
-        const text = ((): string => {
-          try { return typeof xhr.response === 'string' ? xhr.response : JSON.stringify(xhr.response) } catch { return '' }
-        })()
-        reject(new Error(`[Upload] failed: ${status} ${xhr.statusText} ${text}`))
+        reject(new Error(`上传失败（HTTP ${status}）。`))
       }
     }
 
     const cleanup = () => {
-      try { if (signal) signal.removeEventListener('abort', onAbort as any) } catch {}
+      try { if (signal) signal.removeEventListener('abort', onAbort) } catch {}
     }
 
     const form = new FormData()

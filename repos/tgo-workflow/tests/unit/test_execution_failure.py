@@ -36,9 +36,11 @@ def graph(condition=None):
 @pytest.mark.asyncio
 async def test_failed_node_is_recorded_then_fails_run_without_downstream():
     complete = AsyncMock()
+    definition = graph()
+    definition["nodes"][1]["data"]["compare_value"] = "private-input"
     with pytest.raises(RuntimeError, match="金额判断") as error:
-        await WorkflowExecutor(graph()).run(
-            {"amount": "private-input"}, on_node_complete=complete,
+        await WorkflowExecutor(definition).run(
+            {"amount": 10}, on_node_complete=complete,
         )
     calls = [call.kwargs for call in complete.await_args_list]
     assert [(call["node_id"], call["status"]) for call in calls] == [
@@ -46,6 +48,16 @@ async def test_failed_node_is_recorded_then_fails_run_without_downstream():
     ]
     assert "ValueError" in calls[-1]["error"]
     assert "private-input" not in calls[-1]["error"]
+    assert "private-input" not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_invalid_input_is_rejected_before_any_node_executes():
+    from app.services.workflow_inputs import WorkflowInputError
+    complete = AsyncMock()
+    with pytest.raises(WorkflowInputError) as error:
+        await WorkflowExecutor(graph()).run({"amount": "private-input"}, on_node_complete=complete)
+    complete.assert_not_awaited()
     assert "private-input" not in str(error.value)
 
 

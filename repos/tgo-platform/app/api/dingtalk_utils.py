@@ -12,11 +12,37 @@ import base64
 import hashlib
 import hmac
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Dict, Optional
 
 import httpx
 
 from app.core.config import settings
+
+
+async def _dingtalk_response(
+    pending_response: Awaitable[httpx.Response],
+) -> httpx.Response:
+    """Preserve HTTP failures without retaining the signed session webhook."""
+    status_code: int | None = None
+    try:
+        response = await pending_response
+        response.raise_for_status()
+        return response
+    except httpx.HTTPStatusError as error:
+        status_code = error.response.status_code
+    except httpx.RequestError:
+        pass
+
+    # Raise outside the handler so the original token-bearing error is not chained.
+    safe_request = httpx.Request("POST", "/")
+    if status_code is not None:
+        safe_response = httpx.Response(status_code, request=safe_request)
+        raise httpx.HTTPStatusError(
+            f"DingTalk webhook returned HTTP {status_code}",
+            request=safe_request,
+            response=safe_response,
+        )
+    raise httpx.RequestError("DingTalk webhook request failed", request=safe_request)
 
 
 def dingtalk_compute_signature(timestamp: str, app_secret: str) -> str:
@@ -93,19 +119,18 @@ async def dingtalk_send_webhook(
     if at:
         payload["at"] = at
 
-    logging.info("[DINGTALK] Sending via session webhook, msgtype=%s", msgtype)
+    logging.info("[DINGTALK] Sending via session webhook")
 
     async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
-        resp = await client.post(session_webhook, json=payload)
-        resp.raise_for_status()
+        resp = await _dingtalk_response(client.post(session_webhook, json=payload))
         data = resp.json()
 
         # DingTalk returns {"errcode": 0, "errmsg": "ok"} on success
         errcode = data.get("errcode")
         if errcode not in (0, None):
-            raise RuntimeError(f"DingTalk send webhook failed: {data}")
+            raise RuntimeError("DingTalk send webhook failed")
 
-        logging.info("[DINGTALK] Send success: %s", data)
+        logging.info("[DINGTALK] Send success")
         return data
 
 

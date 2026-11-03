@@ -28,6 +28,12 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     path: '/knowledge'
   },
   {
+    id: 'shadow-acceptance',
+    title: 'hiddenShadow.title',
+    icon: 'ClipboardCheck',
+    path: '/shadow-acceptance'
+  },
+  {
     id: 'channels',
     title: 'navigation.channels',
     icon: 'Platform',

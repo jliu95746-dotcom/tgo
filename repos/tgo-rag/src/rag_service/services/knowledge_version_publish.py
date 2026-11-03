@@ -79,9 +79,9 @@ async def publish(db: AsyncSession, project: UUID, version_id: UUID, actor: str)
         KnowledgeGovernanceRecord.deleted_at.is_(None),
     ).with_for_update())).scalar_one_or_none()
     now = datetime.now(UTC)
-    if governance and governance.expires_at and governance.expires_at <= now:
+    if governance and source.source_kind != 'file' and governance.expires_at and governance.expires_at <= now:
         raise VersionConflict('资料有效期已结束，请先调整有效期再发布。')
-    if governance and governance.source_origin == 'customer':
+    if governance and source.source_kind != 'file' and governance.source_origin == 'customer':
         raise VersionConflict('客户原始内容不能直接发布为自动回复知识。')
     if governance is None:
         collection = await db.get(Collection, source.collection_id)
@@ -94,6 +94,10 @@ async def publish(db: AsyncSession, project: UUID, version_id: UUID, actor: str)
             source_origin='website' if source.source_kind == 'website' else 'internal',
         ))
         db.add(governance)
+    if source.source_kind == 'file':
+        from ..schemas.knowledge_governance import KnowledgeChannel
+        governance.channels = [channel.value for channel in KnowledgeChannel]
+        governance.expires_at, governance.source_origin = None, 'internal'
     governance.review_status, governance.reviewed_by, governance.reviewed_at = 'approved', actor, now
     governance.allow_automatic_reply = True
     governance.document_version = f'V{version.number}'

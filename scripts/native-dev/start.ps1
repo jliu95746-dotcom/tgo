@@ -58,6 +58,7 @@ Invoke-DockerCompose -Arguments @(
     'tgo-platform',
     'tgo-workflow',
     'tgo-workflow-worker',
+    'tgo-workflow-beat',
     'tgo-plugin-runtime',
     'tgo-device-control',
     'tgo-widget-js'
@@ -76,7 +77,7 @@ Write-Host 'Starting minimal Docker infrastructure...'
 Invoke-DockerCompose -Arguments @('up', '-d', 'postgres', 'redis', 'wukongim')
 
 $databasePort = [int](Get-EnvValue -Name 'NATIVE_POSTGRES_PORT' -DefaultValue '15432')
-$redisPort = [int](Get-EnvValue -Name 'REDIS_PORT' -DefaultValue '6379')
+$redisPort = Get-NativeRedisPort
 try {
     Wait-TcpPort -Port $databasePort -Label 'PostgreSQL' -TimeoutSeconds 15
 } catch {

@@ -5,6 +5,7 @@ import { AIAgentsApiService, AIAgentsTransformUtils } from '@/services/aiAgentsA
 import { useOnboardingStore } from './onboardingStore';
 import i18n from '@/i18n';
 import { useAuthStore } from './authStore';
+import { useAgentActivationStore } from './agentActivationStore';
 
 interface AIState {
   // AI员工相关
@@ -45,7 +46,7 @@ interface AIState {
   setAgentFilter: (filter: 'all' | 'active' | 'inactive' | 'error') => void;
   setAgentCurrentPage: (page: number) => void;
   createAgent: (agentData: CreateAgentFormData, availableTools?: ToolSummary[]) => Promise<void>;
-  updateAgent: (agentId: string, updates: Partial<Agent>, availableTools?: import('@/types').ToolSummary[]) => Promise<void>;
+  updateAgent: (agentId: string, updates: Partial<Agent>, availableTools?: import('@/types').ToolSummary[], refreshWorkflowReleases?: boolean, workflowReleaseVersions?: Record<string, number>) => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
   toggleAgentStatus: (agentId: string) => Promise<void>;
 
@@ -81,6 +82,10 @@ interface AIState {
   getToolsPaginated: () => { tools: AiTool[]; totalPages: number };
 }
 
+const staffIdentity = () => {
+  const actor = useAuthStore.getState().user;
+  return actor?.project_id ? `${actor.project_id}:${actor.id}:${actor.role}` : null;
+};
 export const useAIStore = create<AIState>()(
   devtools(
     persist(
@@ -144,6 +149,9 @@ export const useAIStore = create<AIState>()(
         setAgentCurrentPage: (page) => set({ agentCurrentPage: page }, false, 'setAgentCurrentPage'),
 
         createAgent: async (agentData, availableTools) => {
+          const owner = useAuthStore.getState().user;
+          const sameOwner = () => useAuthStore.getState().user?.id === owner?.id
+            && useAuthStore.getState().user?.project_id === owner?.project_id;
           set({ isCreatingAgent: true, agentsError: null }, false, 'createAgent:start');
 
           try {
@@ -155,6 +163,7 @@ export const useAIStore = create<AIState>()(
 
             // Call the real API
             const apiResponse = await AIAgentsApiService.createAgent(createRequest);
+            if (!sameOwner()) throw new Error(i18n.t('businessScenarios.wizard.identityChanged'));
 
             // Enrich tools with title/short_no from availableTools when missing
             let enrichedResponse: any = apiResponse as any;
@@ -199,6 +208,7 @@ export const useAIStore = create<AIState>()(
             // 重置表单
             get().resetCreateAgentForm();
           } catch (error) {
+            if (!sameOwner()) throw error;
             const errorMessage = error instanceof Error ? error.message : 'Failed to create agent';
             set({
               isCreatingAgent: false,
@@ -208,10 +218,15 @@ export const useAIStore = create<AIState>()(
           }
         },
         
-        updateAgent: async (agentId, updates, availableTools) => {
+        updateAgent: async (agentId, updates, availableTools, refreshWorkflowReleases = false, workflowReleaseVersions = {}) => {
           let ownsActivationChange = false;
-          const projectId = useAuthStore.getState().user?.project_id;
+          const actor = useAuthStore.getState().user;
+          const sameOwner = () => {
+            const current = useAuthStore.getState().user;
+            return current?.id === actor?.id && current?.project_id === actor?.project_id && current?.role === actor?.role;
+          };
           try {
+            if (!actor?.project_id || actor.role !== 'admin') throw new Error(i18n.t('businessScenarios.activation.errors.forbidden'));
             // Find the current agent
             const currentAgent = get().agents.find(agent => agent.id === agentId);
             if (!currentAgent) {
@@ -220,6 +235,10 @@ export const useAIStore = create<AIState>()(
 
             // Transform to API request format
             const updateRequest = AIAgentsTransformUtils.transformAgentPatch(currentAgent, updates, availableTools);
+            if (refreshWorkflowReleases) updateRequest.refresh_workflow_releases = true;
+            if (Object.keys(workflowReleaseVersions).length > 0) {
+              updateRequest.workflow_release_versions = workflowReleaseVersions;
+            }
             if (updateRequest.is_active !== undefined) {
               if (get().isChangingAgentActivation) {
                 throw new Error(i18n.t('agents.activation.switchPending'));
@@ -230,21 +249,22 @@ export const useAIStore = create<AIState>()(
 
             // Call the real API
             const apiResponse = await AIAgentsApiService.updateAgent(agentId, updateRequest);
-            if (useAuthStore.getState().user?.project_id !== projectId) return;
+            if (!sameOwner()) return;
+            useAgentActivationStore.getState().invalidate();
 
             if (ownsActivationChange) {
               // The backend also changes other employees. Read the resulting
               // list rather than updating only the clicked card.
               try {
                 const refreshed = await AIAgentsApiService.getAgents();
-                if (useAuthStore.getState().user?.project_id !== projectId) return;
+                if (!sameOwner()) return;
                 const agents = refreshed.data.map(AIAgentsTransformUtils.transformApiAgentToAgent);
                 set(state => ({
                   agents, agentsError: null,
                   selectedAgent: agents.find(agent => agent.id === state.selectedAgent?.id) ?? null,
                 }), false, 'activation:refreshed');
               } catch (error) {
-                if (useAuthStore.getState().user?.project_id === projectId) {
+                if (sameOwner()) {
                   set({ agentsError: i18n.t('agents.activation.refreshFailed') }, false, 'activation:refreshFailed');
                 }
                 throw error;
@@ -289,7 +309,7 @@ export const useAIStore = create<AIState>()(
             console.error('Failed to update agent:', error);
             throw error;
           } finally {
-            if (ownsActivationChange) {
+            if (ownsActivationChange && sameOwner()) {
               set({ isChangingAgentActivation: false }, false, 'activation:finished');
             }
           }
@@ -511,6 +531,8 @@ export const useAIStore = create<AIState>()(
 
         // API Actions - AI员工
         loadAgents: async (params) => {
+          const scope = staffIdentity();
+          if (!scope) return;
           // Prevent multiple concurrent API calls
           const currentState = get();
           if (currentState.isLoadingAgents) {
@@ -522,6 +544,7 @@ export const useAIStore = create<AIState>()(
 
           try {
             const response = await AIAgentsApiService.getAgents(params);
+            if (staffIdentity() !== scope) return;
             const agents = response.data.map(AIAgentsTransformUtils.transformApiAgentToAgent);
 
             set({
@@ -530,6 +553,7 @@ export const useAIStore = create<AIState>()(
               agentsError: null
             }, false, 'loadAgents:success');
           } catch (error) {
+            if (staffIdentity() !== scope) return;
             const errorMessage = error instanceof Error ? error.message : i18n.t('agents.messages.loadFailedDesc', '无法加载AI员工列表');
             set({
               isLoadingAgents: false,
@@ -540,10 +564,13 @@ export const useAIStore = create<AIState>()(
         },
 
         loadAgentById: async (id) => {
+          const scope = staffIdentity();
+          if (!scope) return;
           set({ isLoadingAgents: true, agentsError: null }, false, 'loadAgentById:start');
 
           try {
             const apiResponse = await AIAgentsApiService.getAgent(id);
+            if (staffIdentity() !== scope) return;
             const agent = AIAgentsTransformUtils.transformApiAgentToAgent(apiResponse);
 
             set({
@@ -552,6 +579,7 @@ export const useAIStore = create<AIState>()(
               agentsError: null
             }, false, 'loadAgentById:success');
           } catch (error) {
+            if (staffIdentity() !== scope) return;
             const errorMessage = error instanceof Error ? error.message : 'Failed to load agent';
             set({
               isLoadingAgents: false,
@@ -598,3 +626,10 @@ export const useAIStore = create<AIState>()(
     { name: 'ai-store' }
   )
 );
+
+useAuthStore.subscribe((state, previous) => {
+  if (state.user?.id !== previous.user?.id || state.user?.project_id !== previous.user?.project_id || state.user?.role !== previous.user?.role) {
+    useAIStore.getState().resetCreateAgentForm();
+    useAIStore.setState({ showCreateAgentModal: false, isCreatingAgent: false, isChangingAgentActivation: false, isLoadingAgents: false, agents: [], selectedAgent: null, agentsError: null });
+  }
+});

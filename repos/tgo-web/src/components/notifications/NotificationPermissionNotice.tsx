@@ -6,9 +6,9 @@ import { useNotification } from '@/hooks/useNotification';
 /** An in-flow notice, never an automatic browser permission prompt. */
 export default function NotificationPermissionNotice() {
   const { t } = useTranslation();
-  const { permission, isSupported, preferences } = useNotification();
+  const { permission, isSupported, isWeCom, preferences } = useNotification();
   const [dismissed, setDismissed] = useState(false);
-  if (dismissed || !preferences.notificationEnabled || (isSupported && permission === 'granted')) return null;
+  if (isWeCom || dismissed || !preferences.notificationEnabled || (isSupported && permission === 'granted')) return null;
 
   const reason = !isSupported ? 'unsupported' : permission === 'denied' ? 'denied' : 'default';
   return (

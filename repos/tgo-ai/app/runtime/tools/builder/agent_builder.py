@@ -27,8 +27,10 @@ from agno.tools.function import Function
 from agno.tools.mcp import MCPTools
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from pydantic import SecretStr
 
 from app.config import settings
+from app.exceptions import ExternalServiceError, NotFoundError, ValidationError
 from app.core.logging import get_logger
 from app.json_render import JsonRenderSchemaManager
 from app.models.internal import Agent as InternalAgent
@@ -58,8 +60,10 @@ from app.runtime.tools.utils import (
     wrap_mcp_authenticate_tool,
 )
 from app.services.api_service import api_service_client
+from app.services.device_control_client import device_control_client
 from app.services.device_execution import device_headers_factory
 from app.schemas.mcp_connection import mcp_connection_headers
+from app.schemas.business_execution_context import BusinessRequestPrincipal
 from app.runtime.tools.mcp_bindings import group_mcp_bindings
 from app.runtime.tools.saved_mcp import SavedMCPTools
 
@@ -692,6 +696,10 @@ class AgentBuilder:
                 project_id=request.project_id,
                 agent_id=request.agent_id,
                 request_id=request.request_id,
+                business_principal=request.business_principal,
+                business_context_token=request.business_context_token,
+                parent_workflow_execution_id=request.parent_workflow_execution_id,
+                workflow_lineage=request.workflow_lineage,
                 excluded_tool_ids=request.excluded_tool_ids,
             )
 
@@ -859,7 +867,11 @@ class AgentBuilder:
         project_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         request_id: Optional[str] = None,
+        business_principal: BusinessRequestPrincipal | None = None,
+        business_context_token: SecretStr | None = None,
         excluded_tool_ids: tuple[UUID, ...] = (),
+        parent_workflow_execution_id: UUID | None = None,
+        workflow_lineage: tuple[str, ...] = (),
     ) -> List[Any]:
         tools: List[Any] = []
 
@@ -880,13 +892,19 @@ class AgentBuilder:
             )
 
         try:
-            tools.extend(await self._build_workflow_tools(config.workflow))
+            tools.extend(await self._build_workflow_tools(
+                config.workflow, request_id=request_id,
+                business_principal=business_principal,
+                business_context_token=business_context_token,
+                parent_workflow_execution_id=parent_workflow_execution_id,
+                workflow_lineage=workflow_lineage,
+            ))
         except Exception as exc:  # noqa: BLE001
             self._logger.warning(
-                "Workflow tool setup failed, continuing without workflow tools",
-                error=str(exc),
+                "Workflow tool setup failed",
                 error_type=type(exc).__name__,
             )
+            raise RuntimeError("员工工作流不可用，请检查固定版本及授权") from exc
 
         # Load MCP tools from the persisted agent binding. Per-run exclusions
         # are applied to a copy so the project's saved agent configuration is
@@ -1130,7 +1148,12 @@ class AgentBuilder:
         return tools
 
     async def _build_workflow_tools(
-        self, workflow_config: Optional[WorkflowConfig]
+        self, workflow_config: Optional[WorkflowConfig], *,
+        request_id: str | None = None,
+        business_principal: BusinessRequestPrincipal | None = None,
+        business_context_token: SecretStr | None = None,
+        parent_workflow_execution_id: UUID | None = None,
+        workflow_lineage: tuple[str, ...] = (),
     ) -> List[Any]:
         if (
             not workflow_config
@@ -1144,16 +1167,25 @@ class AgentBuilder:
                 workflow_config.workflow_url,
                 workflow_config.workflows,
                 project_id=workflow_config.project_id,
+                fixed_versions=workflow_config.release_versions,
+                agent_id=workflow_config.agent_id,
+                release_ids=workflow_config.release_ids,
+                release_digests=workflow_config.release_digests,
+                request_id=request_id,
+                business_principal=business_principal,
+                business_context_token=business_context_token,
+                parent_workflow_execution_id=parent_workflow_execution_id,
+                workflow_lineage=workflow_lineage,
             )
         except Exception as exc:  # noqa: BLE001
             self._logger.warning(
-                "Failed to create workflow tools, skipping",
+                "Failed to create workflow tools",
                 workflows=workflow_config.workflows,
                 workflow_url=workflow_config.workflow_url,
                 error=str(exc),
                 error_type=type(exc).__name__,
             )
-            return []
+            raise
 
     async def _build_mcp_tools(
         self,
@@ -1769,7 +1801,20 @@ class AgentBuilder:
         device_id = str(UUID(device_id))
         project_id = str(UUID(project_id))
 
-        device_headers = device_headers_factory(project_id, device_id)
+        try:
+            read_policy = await device_control_client.validate_binding(
+                UUID(project_id), device_id
+            )
+        except (ExternalServiceError, NotFoundError, ValidationError) as exc:
+            raise MCPToolError("设备策略或测试暂不可用，请检查设备后重试") from exc
+        current_digest = read_policy.digest if read_policy else None
+        if current_digest != getattr(internal_agent, "bound_device_policy_digest", None):
+            raise MCPToolError("设备策略已变化，请重新验证并绑定此设备")
+
+        device_headers = device_headers_factory(
+            project_id, device_id,
+            getattr(internal_agent, "bound_device_policy_digest", None),
+        )
 
         endpoint = settings.device_control_mcp_endpoint.replace(
             "{device_id}", str(device_id)

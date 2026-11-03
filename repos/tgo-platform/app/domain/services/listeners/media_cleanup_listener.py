@@ -16,7 +16,10 @@ from app.domain.services.media.observability import (
     MediaMetricsSink,
     NoOpMediaMetrics,
 )
-from app.domain.services.media.storage import MediaObjectDeleter
+from app.domain.services.media.storage import (
+    MediaObjectDeleter,
+    MediaTemporaryObjectCleaner,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -36,10 +39,12 @@ class MediaCleanupListener:
         *,
         session_factory: async_sessionmaker[AsyncSession],
         object_deleter: MediaObjectDeleter,
+        temporary_cleaner: MediaTemporaryObjectCleaner | None = None,
         metrics: MediaMetricsSink | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._object_deleter = object_deleter
+        self._temporary_cleaner = temporary_cleaner
         self._metrics = metrics or NoOpMediaMetrics()
         self._stop_event = asyncio.Event()
         self._consumer_task: asyncio.Task[None] | None = None
@@ -63,11 +68,12 @@ class MediaCleanupListener:
     async def _consumer_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
+                temporary_cleanup_succeeded = await self._cleanup_temporary_objects()
                 await self._cleanup_staging_objects()
                 await self._cleanup_expired_media()
                 self._metrics.cleanup_finished(
                     MediaCleanupKind.CYCLE,
-                    succeeded=True,
+                    succeeded=temporary_cleanup_succeeded,
                 )
             except asyncio.CancelledError:
                 raise
@@ -81,6 +87,25 @@ class MediaCleanupListener:
                     succeeded=False,
                 )
             await asyncio.sleep(settings.media_cleanup_interval_seconds)
+
+    async def _cleanup_temporary_objects(self) -> bool:
+        if self._temporary_cleaner is None:
+            return True
+        try:
+            await self._temporary_cleaner.cleanup_expired_temporary_objects(
+                older_than=datetime.now(timezone.utc) - timedelta(hours=24),
+                limit=settings.media_cleanup_batch_size,
+            )
+        except Exception as exc:
+            logger.error(
+                "[MEDIA_CLEANUP] event=temporary_delete_failed error_type=%s",
+                type(exc).__name__,
+            )
+            self._metrics.cleanup_finished(MediaCleanupKind.TEMPORARY, succeeded=False)
+            return False
+        else:
+            self._metrics.cleanup_finished(MediaCleanupKind.TEMPORARY, succeeded=True)
+            return True
 
     async def _cleanup_staging_objects(self) -> None:
         now = datetime.now(timezone.utc)

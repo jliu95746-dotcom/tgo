@@ -2,7 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.config import settings
-from app.api import customer_service_routing, executions, workflows
+from app.api import (
+    approvals, customer_service_routing, events, executions, schedules, workflows,
+    webhooks,
+    webhook_deliveries,
+)
 from app.integrations.http_client import HttpClient
 
 @asynccontextmanager
@@ -27,7 +31,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(approvals.router, prefix=f"{settings.API_V1_STR}/workflows", tags=["approvals"])
 app.include_router(workflows.router, prefix=f"{settings.API_V1_STR}/workflows", tags=["workflows"])
+app.include_router(
+    schedules.router, prefix=f"{settings.API_V1_STR}/workflows", tags=["schedules"],
+)
+app.include_router(events.router, prefix=f"{settings.API_V1_STR}/workflows", tags=["events"])
+app.include_router(
+    webhooks.router, prefix=f"{settings.API_V1_STR}/workflows", tags=["webhooks"],
+)
+app.include_router(webhook_deliveries.router,
+                   prefix=f"{settings.API_V1_STR}/webhook-deliveries",
+                   tags=["Private webhook ingress"])
 app.include_router(executions.router, prefix=f"{settings.API_V1_STR}/workflows", tags=["executions"])
 app.include_router(
     customer_service_routing.router,

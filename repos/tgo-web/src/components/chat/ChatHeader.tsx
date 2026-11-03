@@ -1,10 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { Chat, PlatformType, ChannelVisitorExtra, VisitorServiceStatus } from '@/types';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Bot, LogOut, Loader2, ArrowRightLeft, ChevronDown, PanelRightOpen, User, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Bot, LogOut, Loader2, ArrowRightLeft, ChevronDown, PanelRightOpen, User, RotateCcw, MoreHorizontal } from 'lucide-react';
 
 import { getPlatformIconComponent, getPlatformLabel, toPlatformType, getPlatformColor } from '@/utils/platformUtils';
-import { visitorApiService } from '@/services/visitorApi';
 import { staffApi, type StaffListResponse } from '@/services/staffApi';
 import type { StaffResponse } from '@/services/api';
 import { useToast } from '@/hooks/useToast';
@@ -13,7 +12,17 @@ import { useChannelDisplay } from '@/hooks/useChannelDisplay';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
 import { chatMessagesApiService } from '@/services/chatMessagesApi';
+import { sessionCommandTransport } from '@/services/sessionCommandTransport';
+import {
+  beginSessionCommand,
+  checkPendingSessionCommand,
+  readPendingSessionCommand,
+  retryPendingSessionCommand,
+  sessionCommandResolved,
+} from '@/utils/sessionCommandRecovery';
+import type { PendingSessionCommand, SessionCommandScope } from '@/types/sessionCommand';
 import ConversationExport from './ConversationExport';
+import SessionHandoffSummaryButton from './SessionHandoffSummaryButton';
 
 /**
  * Props for the ChatHeader component
@@ -44,7 +53,11 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
   const [isClosing, setIsClosing] = useState(false);
   const [isClearingMemory, setIsClearingMemory] = useState(false);
   const [isTransferring, setIsTransferring] = useState(false);
+  const [pendingCommand, setPendingCommand] = useState<PendingSessionCommand | null>(null);
+  const [isCheckingCommand, setIsCheckingCommand] = useState(false);
   const [showTransferMenu, setShowTransferMenu] = useState(false);
+  const [showActions, setShowActions] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
   const [staffList, setStaffList] = useState<StaffResponse[]>([]);
   const [isLoadingStaff, setIsLoadingStaff] = useState(false);
   const transferMenuRef = useRef<HTMLDivElement>(null);
@@ -81,37 +94,77 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
   // 获取显示名称
   const displayName = channelName || '';
 
+  const applySessionCommandSuccess = useCallback(() => {
+    const channelId = activeChat.channelId;
+    const channelType = activeChat.channelType;
+    if (channelId && channelType !== undefined) {
+      updateChannelExtra(channelId, channelType, {
+        service_status: 'closed' as VisitorServiceStatus,
+      });
+      deleteChat(activeChat.id);
+      onEndChatSuccess?.(channelId, channelType);
+    }
+  }, [activeChat.channelId, activeChat.channelType, activeChat.id, updateChannelExtra, deleteChat, onEndChatSuccess]);
+
+  useEffect(() => {
+    if (!visitorId || !currentUser?.id || !currentUser.project_id) {
+      setPendingCommand(null);
+      return;
+    }
+    const scope: SessionCommandScope = { projectId: currentUser.project_id, actorId: currentUser.id };
+    const saved = readPendingSessionCommand(localStorage, scope, visitorId);
+    setPendingCommand(saved);
+    if (!saved) return;
+    let cancelled = false;
+    void checkPendingSessionCommand(localStorage, scope, visitorId, sessionCommandTransport).then(result => {
+      if (cancelled || !result) return;
+      if (result.state === 'committed') {
+        setPendingCommand(null);
+        applySessionCommandSuccess();
+      }
+    });
+    return () => { cancelled = true; };
+  }, [visitorId, currentUser?.id, currentUser?.project_id, applySessionCommandSuccess]);
+
+  useEffect(() => {
+    const handleResolved = (event: Event) => {
+      const detail = (event as CustomEvent<{ visitorId: string; committed: boolean }>).detail;
+      if (detail?.visitorId !== visitorId) return;
+      setPendingCommand(null);
+      if (detail.committed) applySessionCommandSuccess();
+    };
+    window.addEventListener(sessionCommandResolved, handleResolved);
+    return () => window.removeEventListener(sessionCommandResolved, handleResolved);
+  }, [visitorId, applySessionCommandSuccess]);
+
   // 结束聊天处理
   const handleEndChat = useCallback(async () => {
-    if (!visitorId || isClosing) return;
+    if (!visitorId || !currentUser?.id || !currentUser.project_id || isClosing || pendingCommand) return;
     
     setIsClosing(true);
     try {
-      await visitorApiService.closeSession(visitorId);
-      showSuccess(t('chat.header.endChatSuccess', '会话已结束'));
-      
-      // 保存 channel 信息用于通知父组件
-      const channelId = activeChat.channelId;
-      const channelType = activeChat.channelType;
-      
-      // 更新本地状态
-      if (channelId && channelType !== undefined) {
-        updateChannelExtra(channelId, channelType, {
-          service_status: 'closed' as VisitorServiceStatus,
-        });
-        // 从最近会话列表移除当前会话
-        deleteChat(activeChat.id);
-        
-        // 通知父组件结束聊天成功（传递 channel 信息），让父组件处理移除和选中下一个会话
-        onEndChatSuccess?.(channelId, channelType);
+      const result = await beginSessionCommand(
+        localStorage, { projectId: currentUser.project_id, actorId: currentUser.id },
+        visitorId, 'close', null, sessionCommandTransport,
+      );
+      if (result.state === 'pending') {
+        setPendingCommand(result.command);
+        showError(t('chat.header.commandPending', '操作结果待确认。请查询结果，不要创建新操作。'));
+        return;
       }
-    } catch (error: any) {
+      if (result.state === 'rejected') {
+        showError(result.message);
+        return;
+      }
+      showSuccess(t('chat.header.endChatSuccess', '会话已结束'));
+      applySessionCommandSuccess();
+    } catch (error: unknown) {
       console.error('Failed to close session:', error);
-      showError(error?.message || t('chat.header.endChatError', '结束会话失败'));
+      showError(error instanceof Error ? error.message : t('chat.header.endChatError', '结束会话失败'));
     } finally {
       setIsClosing(false);
     }
-  }, [visitorId, isClosing, showSuccess, showError, t, activeChat.channelId, activeChat.channelType, activeChat.id, updateChannelExtra, deleteChat, onEndChatSuccess]);
+  }, [visitorId, currentUser?.id, currentUser?.project_id, isClosing, pendingCommand, showSuccess, showError, t, applySessionCommandSuccess]);
 
   // 清除记忆处理
   const handleClearMemory = useCallback(async () => {
@@ -172,36 +225,57 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
 
   // 执行转接
   const handleTransferToStaff = useCallback(async (targetStaffId: string, staffName: string) => {
-    if (!visitorId || isTransferring) return;
+    if (!visitorId || !currentUser?.id || !currentUser.project_id || isTransferring || pendingCommand) return;
     
     setIsTransferring(true);
     setShowTransferMenu(false);
     try {
-      await visitorApiService.transferSession(visitorId, targetStaffId);
-      showSuccess(t('chat.header.transferSuccess', '已转接给 {{name}}', { name: staffName }));
-      
-      // 保存 channel 信息用于通知父组件
-      const channelId = activeChat.channelId;
-      const channelType = activeChat.channelType;
-      
-      // 更新本地状态
-      if (channelId && channelType !== undefined) {
-        updateChannelExtra(channelId, channelType, {
-          service_status: 'closed' as VisitorServiceStatus,
-        });
-        // 从最近会话列表移除当前会话
-        deleteChat(activeChat.id);
-        
-        // 通知父组件转接成功（传递 channel 信息），让父组件处理移除和选中下一个会话
-        onEndChatSuccess?.(channelId, channelType);
+      const result = await beginSessionCommand(
+        localStorage, { projectId: currentUser.project_id, actorId: currentUser.id },
+        visitorId, 'transfer', targetStaffId, sessionCommandTransport,
+      );
+      if (result.state === 'pending') {
+        setPendingCommand(result.command);
+        showError(t('chat.header.commandPending', '操作结果待确认。请查询结果，不要创建新操作。'));
+        return;
       }
-    } catch (error: any) {
+      if (result.state === 'rejected') {
+        showError(result.message);
+        return;
+      }
+      showSuccess(t('chat.header.transferSuccess', '已转接给 {{name}}', { name: staffName }));
+      applySessionCommandSuccess();
+    } catch (error: unknown) {
       console.error('Failed to transfer session:', error);
-      showError(error?.message || t('chat.header.transferError', '转接失败'));
+      showError(error instanceof Error ? error.message : t('chat.header.transferError', '转接失败'));
     } finally {
       setIsTransferring(false);
     }
-  }, [visitorId, isTransferring, showSuccess, showError, t, activeChat.channelId, activeChat.channelType, activeChat.id, updateChannelExtra, deleteChat, onEndChatSuccess]);
+  }, [visitorId, currentUser?.id, currentUser?.project_id, isTransferring, pendingCommand, showSuccess, showError, t, applySessionCommandSuccess]);
+
+  const handlePendingCommand = useCallback(async (retry: boolean) => {
+    if (!visitorId || !currentUser?.id || !currentUser.project_id || isCheckingCommand) return;
+    setIsCheckingCommand(true);
+    const scope: SessionCommandScope = { projectId: currentUser.project_id, actorId: currentUser.id };
+    try {
+      const result = retry
+        ? await retryPendingSessionCommand(localStorage, scope, visitorId, sessionCommandTransport)
+        : await checkPendingSessionCommand(localStorage, scope, visitorId, sessionCommandTransport);
+      if (result?.state === 'committed') {
+        setPendingCommand(null);
+        showSuccess(t('chat.header.commandCommitted', '原操作已完成'));
+        applySessionCommandSuccess();
+      } else if (result?.state === 'rejected') {
+        setPendingCommand(null);
+        showError(result.message);
+      } else {
+        setPendingCommand(readPendingSessionCommand(localStorage, scope, visitorId));
+        showError(t('chat.header.commandStillPending', '尚未查到原操作结果，请稍后查询。'));
+      }
+    } finally {
+      setIsCheckingCommand(false);
+    }
+  }, [visitorId, currentUser?.id, currentUser?.project_id, isCheckingCommand, showSuccess, showError, t, applySessionCommandSuccess]);
 
   // 点击外部关闭菜单
   useEffect(() => {
@@ -217,10 +291,26 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showTransferMenu]);
+
+  useEffect(() => {
+    if (!showActions) return;
+    const dismiss = (event: MouseEvent) => {
+      if (event.target instanceof Node && !actionsRef.current?.contains(event.target)) setShowActions(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowActions(false);
+    };
+    document.addEventListener('mousedown', dismiss);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('mousedown', dismiss);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [showActions]);
   
   return (
-    <header className="px-6 py-3 border-b border-gray-200/80 dark:border-gray-700/80 flex justify-between items-center bg-white/60 dark:bg-gray-800/60 backdrop-blur-lg sticky top-0 z-10">
-      <div className="flex min-w-0 items-center gap-2">
+    <header className="shrink-0 px-6 max-[899px]:px-2 py-3 border-b border-gray-200/80 dark:border-gray-700/80 flex gap-2 justify-between items-center bg-white/60 dark:bg-gray-800/60 backdrop-blur-lg sticky top-0 z-20">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         {onBackToList && (
           <button
             type="button"
@@ -232,7 +322,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
           </button>
         )}
         <h2 className="min-w-0 truncate text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center">
-          <span>{displayName}</span>
+          <span className="min-w-0 truncate">{displayName}</span>
           {isAgentChat ? (
             <span title={t('chat.header.agentTooltip', 'AI员工会话')}>
               <Bot className="w-4 h-4 inline-block ml-1.5 -mt-0.5 text-purple-500 dark:text-purple-400" />
@@ -252,7 +342,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
           )}
         </h2>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
       {!isAIChat && onOpenVisitorPanel && (
         <button
           type="button"
@@ -260,20 +350,35 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
           className="hidden min-h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-gray-700 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-blue-500 max-[1199px]:inline-flex dark:text-gray-200 dark:hover:bg-gray-700"
         >
           <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
-          <span>{t('visitor.ui.panelTitle', '访客信息')}</span>
+          <span className="max-[899px]:sr-only">{t('visitor.ui.panelTitle', '访客信息')}</span>
         </button>
       )}
+      <div ref={actionsRef} className="chat-header-actions">
+      <button type="button" aria-label={t('mobileChat.actions')} aria-expanded={showActions} onClick={() => setShowActions(value => !value)} className="flex h-10 w-10 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700 min-[900px]:hidden"><MoreHorizontal className="h-5 w-5" /></button>
+      <div aria-label={t('mobileChat.actions')} className={`chat-header-action-list ${showActions ? 'flex' : 'hidden'} min-[900px]:flex items-center gap-1`}>
       {/* 操作按钮 - 只对访客会话显示 */}
       {!isAIChat && currentUser?.role === 'admin' && activeChat.channelId && activeChat.channelType !== undefined && (
         <ConversationExport key={`${activeChat.channelType}:${activeChat.channelId}`} channelId={activeChat.channelId} channelType={activeChat.channelType} />
       )}
+      {showEndChatButton && <SessionHandoffSummaryButton key={visitorId} visitorId={visitorId} />}
       {showEndChatButton && (
         <div className="flex items-center gap-1">
+          {pendingCommand && (
+            <div className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
+              <span>{t('chat.header.commandPendingLabel', '结果待确认')}</span>
+              <button type="button" onClick={() => void handlePendingCommand(false)} disabled={isCheckingCommand} className="rounded px-2 py-1 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50">
+                {t('chat.header.checkCommand', '查询结果')}
+              </button>
+              <button type="button" onClick={() => void handlePendingCommand(true)} disabled={isCheckingCommand} className="rounded px-2 py-1 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50">
+                {t('chat.header.retryCommand', '重试原操作')}
+              </button>
+            </div>
+          )}
           {/* 转接按钮 */}
           <div className="relative" ref={transferMenuRef}>
             <button
               onClick={handleTransferClick}
-              disabled={isTransferring}
+              disabled={isTransferring || !!pendingCommand}
               className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               title={t('chat.header.transferTooltip', '转接给其他客服')}
             >
@@ -287,7 +392,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
             </button>
             {/* 坐席选择下拉菜单 */}
             {showTransferMenu && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 py-1 max-h-60 overflow-y-auto">
+              <div className="absolute right-0 top-full mt-1 w-48 max-[899px]:static max-[899px]:w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 py-1 max-h-60 overflow-y-auto">
                 {isLoadingStaff ? (
                   <div className="flex items-center justify-center py-3">
                     <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
@@ -318,7 +423,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
           {/* 结束聊天按钮 */}
           <button
             onClick={handleEndChat}
-            disabled={isClosing}
+            disabled={isClosing || !!pendingCommand}
             className="flex items-center gap-1 px-2 py-1 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             title={t('chat.header.endChatTooltip', '结束当前会话')}
           >
@@ -349,6 +454,8 @@ const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
           </button>
         </div>
       )}
+      </div>
+      </div>
       </div>
     </header>
   );

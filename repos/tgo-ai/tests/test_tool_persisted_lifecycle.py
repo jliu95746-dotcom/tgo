@@ -21,6 +21,9 @@ from app.runtime.tools.builder.agent_builder import AgentBuilder
 from app.runtime.tools.config import ToolsRuntimeSettings
 from app.schemas.agent import AgentCreate, AgentToolCreate, AgentUpdate
 from app.services.agent_service import AgentService
+from app.services.agent_activation_readiness import AgentActivationReadinessService
+from tests.test_account_agent_activation import proof
+from unittest.mock import AsyncMock
 
 
 @pytest.fixture
@@ -67,9 +70,17 @@ async def test_saved_edit_disable_unbind_and_delete_reach_runtime(
     db_session: AsyncSession,
     tool_target: tuple[str, list[tuple[str, str, str]]],
     use_default: bool,
+    monkeypatch,
 ) -> None:
     base_url, calls = tool_target
     project_id = uuid4()
+    actor = uuid4()
+    # Readiness is a fixture here; real action approval remains a D2/D5 gate.
+    async def transport_fixture_proof(project, reviewer, identifier):
+        result = proof(project, reviewer, identifier)
+        result.channels[0].template_id = "assistant"
+        return result
+    monkeypatch.setattr(AgentActivationReadinessService, "read", AsyncMock(side_effect=transport_fixture_proof))
     session_factory = async_sessionmaker(
         db_session.bind, expire_on_commit=False,
     )
@@ -120,9 +131,11 @@ async def test_saved_edit_disable_unbind_and_delete_reach_runtime(
         async with session_factory() as session:
             agent = await AgentService(session).create_agent(project_id, AgentCreate(
                 name="Isolated lifecycle employee", model="fixture-model",
-                is_default=True, tools=[AgentToolCreate(tool_id=tool_id)],
+                tools=[AgentToolCreate(tool_id=tool_id)],
             ))
             agent_id = agent.id
+            await AgentService(session).update_agent(project_id, agent_id, AgentUpdate(is_active=True),
+                requested_by=actor, enrich_resources=False)
 
         functions = await runtime_functions(agent_id)
         assert len(functions) == 1
@@ -166,20 +179,25 @@ async def test_saved_edit_disable_unbind_and_delete_reach_runtime(
             )
         assert await runtime_functions(agent_id) == []
         async with session_factory() as session:
+            await AgentService(session).update_agent(project_id, agent_id, AgentUpdate(is_active=False), enrich_resources=False)
             await AgentService(session).set_tool_enabled(
                 project_id, agent_id, tool_id, True,
             )
+            await AgentService(session).update_agent(project_id, agent_id, AgentUpdate(is_active=True),
+                requested_by=actor, enrich_resources=False)
         assert len(await runtime_functions(agent_id)) == 1
 
         async with session_factory() as session:
             await AgentService(session).update_agent(
                 project_id, agent_id, AgentUpdate(tools=[]),
+                requested_by=actor, enrich_resources=False,
             )
         assert await runtime_functions(agent_id) == []
         async with session_factory() as session:
             await AgentService(session).update_agent(
                 project_id, agent_id,
                 AgentUpdate(tools=[AgentToolCreate(tool_id=tool_id)]),
+                requested_by=actor, enrich_resources=False,
             )
         assert len(await runtime_functions(agent_id)) == 1
 

@@ -17,6 +17,7 @@ import SetupWizard from '../pages/SetupWizard';
 import OperationsConsole from '../pages/OperationsConsole';
 import LaunchGuide from '../pages/LaunchGuide';
 import CompanyEmailPage from '../pages/CompanyEmailPage';
+import HiddenShadowAcceptance from '../pages/HiddenShadowAcceptance';
 
 import { useTranslation } from 'react-i18next';
 
@@ -132,6 +133,10 @@ export const router = createBrowserRouter([
       {
         path: 'visitors',
         element: <VisitorManagement />
+      },
+      {
+        path: 'shadow-acceptance',
+        element: <HiddenShadowAcceptance />
       },
       {
         path: 'ai',
