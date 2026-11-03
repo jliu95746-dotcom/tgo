@@ -10,7 +10,10 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import TGOAPIException
 from app.models import Platform, Project, Visitor
+from app.models.business_customer_identity import BusinessCustomerBinding
+from app.models.visitor_business_scope import VisitorBusinessScope
 from app.services.im_access import issue_visitor_im_token
 from app.services.wechat_local_bridge import bridge_status, require_bridge_visitor
 from app.utils.wechat_local import is_filehelper_identity, is_wechat_local_source
@@ -24,7 +27,7 @@ def compile_jsonb(_element, _compiler, **_kwargs):
 @pytest.fixture
 def bridge():
     engine = create_engine("sqlite://")
-    for model in (Project, Platform, Visitor):
+    for model in (Project, Platform, Visitor, BusinessCustomerBinding, VisitorBusinessScope):
         model.__table__.create(engine)
     with Session(engine) as db:
         project = Project(id=uuid4(), name="bridge fixture", api_key="fixture-project-only")
@@ -58,9 +61,12 @@ def test_signed_scope_and_canonical_channel(bridge):
     assert denied.value.status_code == 403
     visitor.platform_open_id = "wechat-local:0123456789abcdef:friend"
     db.commit()
-    with pytest.raises(HTTPException) as denied:
-        require_bridge_visitor(db, platform, channel, 251, proof)
-    assert denied.value.status_code == 403
+    friend_proof = HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials=issue_visitor_im_token(visitor, timedelta(minutes=1)),
+    )
+    with pytest.raises(TGOAPIException) as denied:
+        require_bridge_visitor(db, platform, channel, 251, friend_proof)
+    assert denied.value.status_code == 401
 
 
 def test_filehelper_identity_and_source_format():
