@@ -16,7 +16,7 @@ from .window_ocr import normalized_title
 
 
 def is_customer_chat(value: str) -> bool:
-    return bool(re.fullmatch(r"[\w.-]+(?:@chatroom)?", value, re.ASCII)) and (
+    return bool(re.fullmatch(r"[\w.-]+(?:@chatroom|@openim)?", value, re.ASCII)) and (
         len(value) <= 128
         and not value.startswith("gh_")
         and value not in {"filehelper", "weixin", "fmessage", "newsapp"}
@@ -58,10 +58,11 @@ def load_contacts(reader: WeChatReader) -> dict[str, Contact]:
         if not isinstance(identity, str) or not is_customer_chat(identity) or identity == reader.self_username:
             continue
         group = identity.endswith("@chatroom")
+        friend_type = 5 if identity.endswith("@openim") else 1
         selectable = deleted == 0 and (
             member == 1 and bool(room)
             if group
-            else kind == 1 and isinstance(flag, int) and bool(flag & 1) and verified == 0
+            else kind == friend_type and isinstance(flag, int) and bool(flag & 1) and verified == 0
         )
         if identity in result:
             raise ValueError("联系人库包含重复内部标识")

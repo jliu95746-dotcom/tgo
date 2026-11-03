@@ -139,6 +139,13 @@ class DatabaseKey:
     key: bytes = field(repr=False)
 
 
+@dataclass(frozen=True)
+class SessionUnread:
+    count: int
+    last_cleared: int
+    last_message: int
+
+
 class WeChatReader:
     def __init__(self, key_file: Path, chat_id: str = "filehelper", *, scoped: bool = False):
         if chat_id != "filehelper" and not scoped:
@@ -277,6 +284,18 @@ class WeChatReader:
                 message.local_id,
             ),
         )
+
+    def session_unread(self) -> SessionUnread | None:
+        entry = next(item for item in self.databases if item.path.name == "session.db")
+        connection = open_snapshot(entry.path, entry.key)
+        try:
+            row = connection.execute(
+                "SELECT unread_count, last_clear_unread_timestamp, last_timestamp FROM SessionTable WHERE username=?",
+                (self.chat_id,),
+            ).fetchone()
+            return SessionUnread(*row) if row and all(type(value) is int for value in row) else None
+        finally:
+            connection.close()
 
     def draft_matches(self, expected: str) -> bool:
         entry = next(item for item in self.databases if item.path.name == "session.db")

@@ -76,11 +76,14 @@ function contactRow(contact, duplicate, label, checked, change) {
   const controls = element("div", "", "row");
   const name = element("div", "", "name");
   name.append(element("strong", title(contact)));
+  if (contact.id.endsWith("@openim")) {
+    name.append(element("small", contact.remark ? "企业微信 · 备注" : "企业微信 · 昵称"));
+  }
   if (contact.remark && contact.nickname && contact.remark !== contact.nickname) {
     name.append(element("small", contact.nickname));
   }
   const delivery = current.delivery[contact.id];
-  if (duplicate) name.append(element("small", "有同名会话，回复将留给人工核对"));
+  if (duplicate) name.append(element("small", "有同名会话，发送前须核对接待对象"));
   if (delivery) name.append(element("small", delivery.state));
   controls.append(name, checkbox(label, checked, change));
   row.append(controls);

@@ -15,6 +15,7 @@ import numpy as np
 from PIL import Image
 
 from .filehelper_navigation import SearchNavigation
+from .reader import SessionUnread
 from .rpa import RpaNotReady
 from .rpa_windows import NativeRpa
 from .visual_locator import VisualLocator
@@ -22,23 +23,36 @@ from .window_control import WindowControl
 from .window_ocr import TextLine, check_ocr, normalized_title, read_lines
 
 
-def matches_header(lines: list[TextLine], title: str, *, group: bool) -> bool:
+def matches_enterprise_title(actual: str, expected: str) -> bool:
+    return bool(expected) and (actual == expected or actual.startswith(expected + "@"))
+
+
+def matches_header(lines: list[TextLine], title: str, *, group: bool, enterprise: bool = False) -> bool:
+    if enterprise and len(lines) == 2 and normalized_title(lines[1].text).startswith("@"):
+        lines = lines[:1]
     if len(lines) != 1:
         return False
     actual, expected = normalized_title(lines[0].text), normalized_title(title)
+    if enterprise:
+        return matches_enterprise_title(actual, expected)
     if group and actual != expected:
         actual = re.sub(r"\([0-9]{1,6}\)$", "", actual)
     return bool(expected) and actual == expected
 
 
-def result_line(lines: list[TextLine], title: str, sections: list[TextLine] | None = None) -> TextLine:
-    headings = {"联系人", "群聊", "最近使用", "最近聊天", "常用联系人", "最常使用", "好友", "聊天", "最佳匹配"}
+def result_line(
+    lines: list[TextLine], title: str, sections: list[TextLine] | None = None, *,
+    candidate: int | None = None,
+) -> TextLine:
+    headings = {"联系人", "群聊", "最近使用", "最近聊天", "常用联系人", "最常使用", "好友", "聊天", "最佳匹配",
+                "企业微信联系人", "企业微信好友"}
     ignored = {"聊天记录", "网络结果", "搜索网络结果", "网页结果", "公众号", "搜一搜", "功能", "小程序"}
     regions = [line for line in (lines if sections is None else sections)
                if normalized_title(line.text) in headings | ignored]
     matches = []
     for row in lines:
-        if normalized_title(row.text) != normalized_title(title):
+        actual, expected = normalized_title(row.text), normalized_title(title)
+        if not (actual == expected or candidate is not None and matches_enterprise_title(actual, expected)):
             continue
         previous = [line for line in regions if line.y < row.y]
         if previous and normalized_title(max(previous, key=lambda line: line.y).text) in headings:
@@ -50,6 +64,10 @@ def result_line(lines: list[TextLine], title: str, sections: list[TextLine] | No
             # Some WeChat builds omit the local heading above the network section.
             # Selection still has to pass the independent header and draft checks.
             matches.append(row)
+    if candidate is not None and 0 <= candidate < len(matches) <= 2:
+        return sorted(matches, key=lambda line: line.y)[candidate]
+    if candidate is not None:
+        raise RpaNotReady(f"微信搜索可核对的同名结果为 {len(matches)} 条，回复待人工处理")
     if len(matches) != 1:
         raise RpaNotReady("未找到唯一的本地聊天结果，回复待人工处理")
     return matches[0]
@@ -60,12 +78,17 @@ class ScopedRpa(NativeRpa):
         self, window: WindowControl, runtime: Path, chat_id: str, title: str,
         authorize: Callable[[], None], scope_lock: AbstractContextManager,
         draft_matches: Callable[[str], bool],
+        *, unread_state: Callable[[], SessionUnread | None] | None = None,
     ):
         self._configure_desktop(window, runtime, chat_id, authorize, scope_lock)
         self.title, self.draft_matches = title, draft_matches
+        self.unread_state = unread_state
+        self._observed_unread: SessionUnread | None = None
         self._header_box: tuple[int, int, int, int] | None = None
         self._header: bytes | None = None
         self._verified_header: bytes | None = None
+        self._verified_context: bytes | None = None
+        self._verified_marker: str | None = None
         with Image.open(Path(__file__).with_name("wechat-controls.png")) as assets:
             self.locator = VisualLocator(assets, None, (0, 0, 114, 29))
             self.navigation = SearchNavigation(assets.crop((70, 36, 93, 64)), assets.crop((100, 36, 135, 71)))
@@ -95,7 +118,8 @@ class ScopedRpa(NativeRpa):
     def _confirm_header(self, header: Image.Image) -> None:
         digest = sha256(header.tobytes()).digest()
         if digest != self._header and not matches_header(
-            read_lines(header, self.runtime), self.title, group=self.chat_id.endswith("@chatroom")
+            read_lines(header, self.runtime), self.title, group=self.chat_id.endswith("@chatroom"),
+            enterprise=self.unread_state is not None,
         ):
             raise RpaNotReady("当前微信会话标题无法核对")
         if self._verified_header is not None and self._verified_header == self._header:
@@ -108,9 +132,21 @@ class ScopedRpa(NativeRpa):
             raise RpaNotReady("尚未核对当前微信会话")
         frame = self.gui.screenshot(region=self.bounds).convert("RGB")
         self._confirm_header(frame.crop(self._header_box))
+        if self._verified_context is not None and self._context_digest(frame) != self._verified_context:
+            raise RpaNotReady("同名企微会话的聊天区域已变化，停止发送")
         super()._guard_input()
         if self._verified_header is not None and self._header != self._verified_header:
             raise RpaNotReady("已核对的微信会话发生变化")
+
+    def _context_digest(self, frame: Image.Image) -> bytes:
+        if self.target is None or self._header_box is None:
+            raise RpaNotReady("同名企微会话的输入区域无法核对")
+        left, top = self.target.toolbar[0], self._header_box[3]
+        # The toolbar can sit below the editor. Use the detected editor edge.
+        right, bottom = frame.width - 24, self.target.input_box[1] - 12
+        if left >= right or top >= bottom:
+            raise RpaNotReady("同名企微会话的消息区域无法核对")
+        return sha256(frame.crop((left, top, right, bottom)).tobytes()).digest()
 
     def ensure_conversation(self) -> None:
         self.authorize()
@@ -138,7 +174,7 @@ class ScopedRpa(NativeRpa):
                     raise
                 time.sleep(0.2)
 
-    def _sidebar(self) -> None:
+    def _sidebar(self, candidate: int | None = None) -> None:
         self._chat_tab()
         bounds = self._visible_bounds()
         frame = self.gui.screenshot(region=bounds)
@@ -162,19 +198,23 @@ class ScopedRpa(NativeRpa):
         if box[2] - box[0] < 100:
             raise RpaNotReady("微信会话列表不可用")
         sidebar = frame.crop(box)
+        expected = normalized_title(self.title)
         rows = [row for row in read_lines(sidebar, self.runtime)
-                if normalized_title(row.text) == normalized_title(self.title)]
-        if len(rows) != 1:
+                if normalized_title(row.text) == expected
+                or candidate is not None and matches_enterprise_title(normalized_title(row.text), expected)]
+        if (candidate is None and len(rows) != 1
+                or candidate is not None and not 0 <= candidate < len(rows) <= 2):
             raise RpaNotReady("侧栏未找到唯一会话")
+        row = sorted(rows, key=lambda item: item.y)[candidate or 0]
         self.authorize()
         if self._visible_bounds() != bounds or self.gui.screenshot(region=bounds).crop(box).tobytes() != sidebar.tobytes():
             raise RpaNotReady("微信侧栏发生变化")
-        point = bounds[0] + box[0] + rows[0].x, bounds[1] + box[1] + rows[0].y
+        point = bounds[0] + box[0] + row.x, bounds[1] + box[1] + row.y
         self.window.require_point(*point)
         self.gui.click(*point)
         time.sleep(0.25)
 
-    def _search(self) -> None:
+    def _search(self, candidate: int | None = None) -> None:
         bounds = self._visible_bounds()
         left, top, width, height = bounds
 
@@ -223,7 +263,7 @@ class ScopedRpa(NativeRpa):
                     min(search.width, x + round(382 * scale)), search.height)
             heading_box = (x + round(5 * scale), crop[1], x + round(152 * scale), crop[3])
             sections = read_lines(search.crop(heading_box), self.runtime)
-            row = result_line(read_lines(search.crop(crop), self.runtime), self.title, sections)
+            row = result_line(read_lines(search.crop(crop), self.runtime), self.title, sections, candidate=candidate)
             result = (crop[0] + row.x, crop[1] + row.y)
             latest = frame().crop(crop)
             if latest.tobytes() != search.crop(crop).tobytes():
@@ -270,27 +310,27 @@ class ScopedRpa(NativeRpa):
 
     def ensure_ready(self) -> None:
         self._verified_header = None
+        self._verified_context = None
+        self._verified_marker = None
         original = self.get_clipboard()
         marker = "桥接自检-" + uuid.uuid4().hex
         marker_started = False
         try:
+            if self.unread_state is not None:
+                before = self.unread_state()
+                if before is not None and before.count > 0:
+                    self._observed_unread = before
+                    self._open_unread_same_title(before)
+                elif self._observed_unread is not None and self._matches_read_transition(self._observed_unread, before):
+                    self.window.recover()
+                    self.check_target()
+                else:
+                    raise RpaNotReady("同名企微会话缺少可核对的未读消息，回复待人工处理")
             super().ensure_ready()
             if self.draft_matches(marker):
                 raise RpaNotReady("微信草稿状态无法核对")
             marker_started = True
-            super().paste(marker)
-            if self.read_input() != marker:
-                raise RpaNotReady("微信草稿回读未通过")
-            self._contacts_tab()
-            deadline = time.monotonic() + 3
-            while not self.draft_matches(marker):
-                if time.monotonic() >= deadline:
-                    raise RpaNotReady("微信未确认草稿属于授权会话，回复待人工处理")
-                time.sleep(0.2)
-            self._chat_tab()
-            self.ensure_conversation()
-            self._clear_marker(marker)
-            self._verified_header = self._header
+            self._probe_editor(marker)
         except RpaNotReady as exc:
             if marker_started:
                 raise RuntimeError("微信会话未完成草稿核对，请人工处理") from exc
@@ -301,6 +341,60 @@ class ScopedRpa(NativeRpa):
             raise RpaNotReady("微信窗口或草稿库无法核对，回复待人工处理") from exc
         finally:
             self.restore_clipboard(original)
+
+    def _probe_editor(self, marker: str) -> None:
+        super().paste(marker)
+        if self.read_input() != marker:
+            raise RpaNotReady("微信草稿回读未通过")
+        self._contacts_tab()
+        self._chat_tab()
+        deadline = time.monotonic() + 5
+        while not self.draft_matches(marker):
+            if time.monotonic() >= deadline:
+                raise RpaNotReady("微信未确认草稿属于授权会话，回复待人工处理")
+            time.sleep(0.2)
+        self.ensure_conversation()
+        if self.unread_state is None:
+            self._clear_marker(marker)
+        else:
+            if self.read_input() != marker:
+                raise RpaNotReady("当前输入框未保留已核对的会话标记")
+            self._verified_marker = marker
+            self._observed_unread = None
+        self._verified_header = self._header
+
+    def _open_unread_same_title(self, before: SessionUnread) -> None:
+        assert self.unread_state is not None
+        self.window.recover()
+        for candidate in range(2):
+            try:
+                self._sidebar(candidate)
+                self._wait_target()
+            except RpaNotReady:
+                self._search(candidate)
+                self._wait_target()
+            try:
+                self._confirm_unread_transition(before)
+            except RpaNotReady:
+                if candidate == 0 and self.unread_state() == before:
+                    continue
+                raise
+            return
+
+    def _confirm_unread_transition(self, before: SessionUnread) -> None:
+        assert self.unread_state is not None
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            after = self.unread_state()
+            if self._matches_read_transition(before, after):
+                return
+            time.sleep(0.15)
+        raise RpaNotReady("微信未确认打开的是这条企微会话，回复待人工处理")
+
+    @staticmethod
+    def _matches_read_transition(before: SessionUnread, after: SessionUnread | None) -> bool:
+        return bool(after and after.count == 0 and after.last_cleared > before.last_cleared
+                    and after.last_message == before.last_message)
 
     def _clear_marker(self, marker: str) -> None:
         if self.read_input() != marker:
@@ -315,7 +409,22 @@ class ScopedRpa(NativeRpa):
     def paste(self, text: str) -> None:
         if self._verified_header is None or self._header != self._verified_header:
             raise RpaNotReady("当前会话尚未通过本机草稿核对")
-        super().paste(text)
+        if self._verified_marker is None:
+            super().paste(text)
+            return
+        with self.scope_lock:
+            if self.read_input() != self._verified_marker:
+                raise RpaNotReady("同名企微会话的草稿标记已变化，停止填写")
+            self.clipboard.copy(text)
+            self._guard_input()
+            self.gui.hotkey("ctrl", "a")
+            self._guard_input()
+            self.gui.hotkey("ctrl", "v")
+            time.sleep(0.3)
+            if self.read_input() != text:
+                raise RpaNotReady("客服回复未通过输入框回读")
+            self._verified_context = self._context_digest(self.gui.screenshot(region=self.bounds).convert("RGB"))
+            self._verified_marker = None
 
     def send_point(self, expected: str) -> tuple[int, int]:
         if self._verified_header is None:

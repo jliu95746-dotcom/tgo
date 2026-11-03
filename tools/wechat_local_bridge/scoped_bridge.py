@@ -19,6 +19,7 @@ from .tgo_bridge import TgoBridge
 from .tgo_client import TgoClient, TgoError, TgoUnavailable, visitor_token_expired
 from .tgo_store import TgoStore
 from .window_control import WindowControl
+from .window_ocr import normalized_title
 
 
 def cloud_identity(account_tag: str, grant: Grant) -> str:
@@ -35,6 +36,7 @@ class Worker:
     next_poll: float = 0
     error: str = ""
     target_title: str = ""
+    target_same_title: bool = False
 
 
 class ScopedBridge:
@@ -70,14 +72,27 @@ class ScopedBridge:
             legacy.rename(path)
         return path
 
-    def authorize(self, grant: Grant, *, check_title: bool = False) -> None:
+    def _same_title_enterprise_pair(self, grant: Grant, active: Mapping[str, Grant]) -> bool:
+        if not grant.contact.id.endswith("@openim"):
+            return False
+        title = normalized_title(grant.contact.title)
+        matches = [contact.id for contact in self.scope.contacts.values()
+                   if normalized_title(contact.title) == title]
+        return len(matches) == 2 and all(identity.endswith("@openim") and identity in active for identity in matches)
+
+    def authorize(self, grant: Grant, *, check_title: bool = False, verify_same_title: bool = False) -> None:
         with self.scope.lock:
             self.scope.refresh()
-            current = self.scope.grants().get(grant.contact.id)
+            active = self.scope.grants()
+            current = active.get(grant.contact.id)
             if self.stop.is_set() or current is None or current.revision != grant.revision:
                 raise RpaNotReady("会话接待权限已撤销或暂停")
             if check_title and (
-                current.contact.title != grant.contact.title or not self.scope.unique_title(grant.contact.id)
+                current.contact.title != grant.contact.title
+                or (
+                    not self.scope.unique_title(grant.contact.id)
+                    and not (verify_same_title and self._same_title_enterprise_pair(current, active))
+                )
             ):
                 raise RpaNotReady("会话已改名或名称不唯一，需要人工核对")
 
@@ -176,23 +191,28 @@ class ScopedBridge:
     def _load_backend(self, worker: Worker) -> None:
         from .scoped_rpa import ScopedRpa
 
-        current = self.scope.grants().get(worker.grant.contact.id)
+        active = self.scope.grants()
+        current = active.get(worker.grant.contact.id)
         if self.window is None or not self.window_ready or current is None:
             worker.bridge.backend = None
             return
-        if worker.bridge.backend is not None and current.contact.title == worker.target_title:
+        same_title = self._same_title_enterprise_pair(current, active)
+        if (worker.bridge.backend is not None and current.contact.title == worker.target_title
+                and same_title == worker.target_same_title):
             return
 
         def check() -> None:
             if not self.window_ready or not self.healthy:
                 raise RpaNotReady("微信窗口暂不可用，回复待人工处理")
-            self.authorize(current, check_title=True)
+            self.authorize(current, check_title=True, verify_same_title=same_title)
 
         worker.bridge.backend = ScopedRpa(
             self.window, worker.bridge.runtime, current.contact.id, current.contact.title,
             check, self.scope.lock, worker.bridge.reader.draft_matches,
+            unread_state=worker.bridge.reader.session_unread if same_title else None,
         )
         worker.target_title = current.contact.title
+        worker.target_same_title = same_title
 
     def _process(self, worker: Worker) -> None:
         bridge = worker.bridge

@@ -74,6 +74,24 @@ class ScopeTests(unittest.TestCase):
         self.scope.save(replace(settings, enabled=False), [])
         self.assertFalse(self.scope.settings.enabled)
 
+    def test_same_name_enterprise_contacts_require_proof_and_both_authorizations(self):
+        remark_id, nickname_id = "1001@openim", "1002@openim"
+        self.people[remark_id] = Contact(remark_id, "同名企微", "另一个昵称", False, True)
+        self.people[nickname_id] = Contact(nickname_id, "", "同名企微", False, True)
+        settings = ScopeSettings.parse({"enabled": True, "individuals": [remark_id, nickname_id]})
+        self.scope.save(settings, [])
+        bridge = ScopedBridge(self.scope, Mock(), self.root, allow_send=True)
+        for identity in (remark_id, nickname_id):
+            grant = self.scope.grants()[identity]
+            bridge.authorize(grant)
+            self.assertIn(":private:", cloud_identity("a" * 16, grant))
+            with self.assertRaises(RpaNotReady):
+                bridge.authorize(grant, check_title=True)
+            bridge.authorize(grant, check_title=True, verify_same_title=True)
+        self.scope.save(replace(settings, individuals=(nickname_id,)), [])
+        with self.assertRaises(RpaNotReady):
+            bridge.authorize(self.scope.grants()[nickname_id], check_title=True, verify_same_title=True)
+
     def test_worker_reuses_ledger_and_session_after_shortening_legacy_path(self):
         self.scope.save(ScopeSettings(True, ("a",)), [])
         grant = self.scope.grants()["a"]
@@ -114,6 +132,10 @@ class ScopeTests(unittest.TestCase):
             CREATE TABLE chat_room(username);
             INSERT INTO contact VALUES ('wxid_a','备注','昵称',1,1,0,0,0),
                 ('wxid_stranger','','访客',1,0,0,0,0), ('wxid_removed','','已删除',1,1,1,0,0),
+                ('1001@openim','','企微好友',5,1,0,0,0), ('1002@openim','','企微访客',5,0,0,0,0),
+                ('1003@openim','','已删除的企微',5,1,1,0,0), ('1004@openim','','其他类型',1,1,0,0,0),
+                ('1005@openim','','认证账号',5,1,0,1,0), ('unknown@other','','未知账号',5,1,0,0,0),
+                ('wxid_wrong_type','','普通账号类型不符',5,1,0,0,0),
                 ('r1@chatroom','','售后群',2,0,0,0,1), ('r2@chatroom','','退出的群',2,0,0,0,0);
             INSERT INTO chat_room VALUES ('r1@chatroom'), ('r2@chatroom');
         """)
@@ -121,7 +143,8 @@ class ScopeTests(unittest.TestCase):
                                  self_username="wxid_self")
         with patch("tools.wechat_local_bridge.reception_scope.open_snapshot", return_value=connection):
             contacts = load_contacts(reader)
-        self.assertEqual({key for key, value in contacts.items() if value.selectable}, {"wxid_a", "r1@chatroom"})
+        self.assertEqual({key for key, value in contacts.items() if value.selectable},
+                         {"wxid_a", "1001@openim", "r1@chatroom"})
         self.assertEqual(contacts["wxid_a"].title, "备注")
 
 
