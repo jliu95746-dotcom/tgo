@@ -7,6 +7,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
+from urllib.parse import urlsplit
+from urllib.request import ProxyHandler, Request, build_opener
 from uuid import uuid4
 from xml.etree import ElementTree as ET
 
@@ -163,7 +166,13 @@ class ResidentBridgeTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             runtime = Path(directory)
             stop, window_lost = threading.Event(), threading.Event()
-            bridge = Mock(runtime=runtime, stop=stop, desktop_lock=threading.Lock())
+            channel = uuid4()
+            dashboard = "https://support.example.test"
+            bridge = Mock(
+                runtime=runtime, stop=stop, desktop_lock=threading.Lock(),
+                client=Mock(platform_id=str(channel), base=dashboard + "/api"),
+                scope=Mock(ready=False),
+            )
             bridge.run.side_effect = stop.wait
 
             def validate_window():
@@ -188,6 +197,30 @@ class ResidentBridgeTests(unittest.TestCase):
                     else:
                         self.fail("本机接待页未启动")
                     self.assertTrue(url.startswith("http://127.0.0.1:"))
+                    port = urlsplit(url).port
+                    seed = channel.int & 0xFFFFFF
+                    self.assertIn(port, [38000 + (seed + offset) % 10000 for offset in (0, 3571, 7142)])
+                    endpoint = f"http://127.0.0.1:{port}/dashboard/reception/{channel}"
+                    opener = build_opener(ProxyHandler({}))
+
+                    def request(entry=endpoint, origin=dashboard, method="GET"):
+                        return opener.open(Request(entry, headers={"Origin": origin}, method=method), timeout=1)
+
+                    with self.assertRaises(HTTPError) as waiting:
+                        request()
+                    self.assertEqual(waiting.exception.code, 503)
+                    bridge.scope.ready = True
+                    with request() as response:
+                        self.assertEqual(response.headers["Access-Control-Allow-Origin"], dashboard)
+                        self.assertEqual(json.load(response), {"ready": True})
+                    with self.assertRaises(HTTPError) as forbidden:
+                        request(origin="https://untrusted.example.test", method="POST")
+                    self.assertEqual(forbidden.exception.code, 403)
+                    self.assertIsNone(forbidden.exception.headers.get("Access-Control-Allow-Origin"))
+                    with self.assertRaises(HTTPError):
+                        request(entry=endpoint.replace(str(channel), str(uuid4())))
+                    with request(method="POST") as response:
+                        self.assertEqual(json.load(response), {"url": url})
                 finally:
                     window_lost.set()
                 server.result(timeout=8)

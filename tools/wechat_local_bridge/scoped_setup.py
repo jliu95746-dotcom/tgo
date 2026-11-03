@@ -126,6 +126,12 @@ def serve_scoped(bridge: ScopedBridge, *, resident: bool = False) -> None:
     checking = threading.Lock()
     window_status = "等待检查微信窗口"
     window = bridge.window
+    channel = UUID(bridge.client.platform_id)
+    base = urlsplit(bridge.client.base)
+    host = base.netloc.lower()
+    default_port = ":443" if base.scheme == "https" else ":80"
+    dashboard_origin = f"{base.scheme}://{host.removesuffix(default_port)}"
+    entry_path = f"/dashboard/reception/{channel}"
 
     def check(passive: bool) -> None:
         nonlocal window_status
@@ -170,7 +176,10 @@ def serve_scoped(bridge: ScopedBridge, *, resident: bool = False) -> None:
                 and secrets.compare_digest(supplied, token)
             )
 
-        def respond(self, status: int, value: object, media: str = "application/json") -> None:
+        def respond(
+            self, status: int, value: object, media: str = "application/json", *,
+            dashboard: bool = False,
+        ) -> None:
             content = value if isinstance(value, bytes) else json.dumps(value, ensure_ascii=False).encode()
             self.send_response(status)
             self.send_header("Content-Type", media + "; charset=utf-8")
@@ -179,12 +188,36 @@ def serve_scoped(bridge: ScopedBridge, *, resident: bool = False) -> None:
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
             self.send_header("Content-Length", str(len(content)))
+            if dashboard:
+                self.send_header("Access-Control-Allow-Origin", dashboard_origin)
+                self.send_header("Vary", "Origin")
             self.end_headers()
             self.wfile.write(content)
 
+        def dashboard_entry(self, *, open_page: bool = False) -> None:
+            if (
+                self.headers.get("Origin") != dashboard_origin
+                or self.headers.get("Host") != f"127.0.0.1:{self.server.server_port}"
+            ):
+                self.respond(403, {})
+                return
+            try:
+                if window is None or bridge.stop.is_set() or not bridge.scope.ready:
+                    raise RpaNotReady("接待配置尚未就绪")
+                window.validate()
+            except RpaNotReady:
+                self.respond(503, {}, dashboard=True)
+                return
+            if open_page:
+                self.respond(200, {"url": url}, dashboard=True)
+            else:
+                self.respond(200, {"ready": True}, dashboard=True)
+
         def do_GET(self) -> None:
             path = urlsplit(self.path).path
-            if path == "/reception.js":
+            if self.path == entry_path:
+                self.dashboard_entry()
+            elif path == "/reception.js":
                 self.respond(200, Path(__file__).with_name("reception.js").read_bytes(), "text/javascript")
             elif path == "/" and self.allowed(page=True):
                 self.respond(200, Path(__file__).with_name("reception.html").read_bytes(), "text/html")
@@ -203,6 +236,9 @@ def serve_scoped(bridge: ScopedBridge, *, resident: bool = False) -> None:
                 self.respond(403, {})
 
         def do_POST(self) -> None:
+            if self.path == entry_path:
+                self.dashboard_entry(open_page=True)
+                return
             if not self.allowed():
                 self.respond(403, {})
                 return
@@ -229,7 +265,16 @@ def serve_scoped(bridge: ScopedBridge, *, resident: bool = False) -> None:
             except (ValueError, OSError) as exc:
                 self.respond(400, {"error": str(exc)})
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    # Probe the same bounded set from the dashboard. Leave the local CLI usable if all are taken.
+    port_seed = channel.int & 0xFFFFFF
+    for offset in (0, 3571, 7142):
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", 38000 + (port_seed + offset) % 10000), Handler)
+            break
+        except OSError:
+            continue
+    else:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     url = f"http://127.0.0.1:{server.server_port}/?local={token}"
     worker = threading.Thread(target=bridge.run, daemon=True)
     control = bridge.runtime / "scope-control.private.json"

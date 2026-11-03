@@ -3239,7 +3239,10 @@
       "v2Preview": "Contact and group reception is being verified. You can preview the setup steps.",
       "v2PairConfirm": "Confirm connecting the WeChat account signed in on this computer to the current channel.",
       "v2PairButton": "Connect this computer",
-      "v2ManualBind": "The tool opens a confirmation page. Click Connect this computer, then choose who to serve and enable reception."
+      "v2ManualBind": "The tool opens a confirmation page. Click Connect this computer, then choose who to serve and enable reception.",
+      "manageReception": "Manage reception scope",
+      "receptionOnBridgeComputer": "Open this page on the computer running the updated bridge and allow the browser to access it.",
+      "receptionUnavailable": "Reception settings could not open. Make sure WeChat and the bridge are ready."
     },
     "list": {
       "title": "Platforms",

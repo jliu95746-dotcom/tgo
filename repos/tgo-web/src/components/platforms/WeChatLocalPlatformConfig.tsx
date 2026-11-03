@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { IoLogoWechat } from 'react-icons/io5';
@@ -6,6 +6,7 @@ import PlatformAISettings from './PlatformAISettings';
 import { useToast } from '@/hooks/useToast';
 import { getApiBaseUrl } from '@/services/api';
 import { platformsApiService } from '@/services/platformsApi';
+import { findLocalReceptionEntry, openLocalReceptionEntry } from '@/services/weChatLocalReception';
 import { usePlatformStore } from '@/stores/platformStore';
 import type { Platform } from '@/types';
 import { showApiError, showSuccess } from '@/utils/toastHelpers';
@@ -43,6 +44,41 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
   const challenge = pairParams.get('wechat_pair') ?? '';
   const port = Number(pairParams.get('port'));
   const hasPairRequest = /^[a-f0-9]{64}$/.test(challenge) && Number.isInteger(port) && port >= 1024 && port <= 65535;
+  const canCheckReception = scopedEnabled && connected && !hasPairRequest;
+  const [reception, setReception] = useState<{ channelId: string; endpoint: string | null } | null>(null);
+  const [openingReception, setOpeningReception] = useState(false);
+  const receptionEndpoint = canCheckReception && reception?.channelId === platform.id ? reception.endpoint : null;
+
+  useEffect(() => {
+    if (!canCheckReception) {
+      setReception(null);
+      return;
+    }
+    const controller = new AbortController();
+    let timer: number;
+    const check = async () => {
+      const endpoint = await findLocalReceptionEntry(platform.id, controller.signal);
+      if (controller.signal.aborted) return;
+      setReception({ channelId: platform.id, endpoint });
+      timer = window.setTimeout(check, 5_000);
+    };
+    void check();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [canCheckReception, platform.id]);
+
+  const openReception = async () => {
+    if (!receptionEndpoint || openingReception) return;
+    setOpeningReception(true);
+    const opened = await openLocalReceptionEntry(receptionEndpoint);
+    setOpeningReception(false);
+    if (!opened) {
+      setReception({ channelId: platform.id, endpoint: null });
+      showToast('error', t('platforms.wechatLocal.receptionUnavailable'));
+    }
+  };
 
   const pair = async () => {
     if (!scopedEnabled || !hasPairRequest || isPairing) return;
@@ -98,6 +134,15 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
             {statusLabel}
           </span>
         </header>
+        {receptionEndpoint ? (
+          <button type="button" disabled={openingReception}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            onClick={() => void openReception()}>
+            {t('platforms.wechatLocal.manageReception')}
+          </button>
+        ) : canCheckReception && reception?.channelId === platform.id && (
+          <p className="text-sm text-gray-500">{t('platforms.wechatLocal.receptionOnBridgeComputer')}</p>
+        )}
         {scopedEnabled && hasPairRequest && (
           <section className="space-y-3 rounded-xl border border-blue-200 bg-white p-5 dark:border-blue-900 dark:bg-gray-900">
             <p className="text-sm text-gray-600 dark:text-gray-300">{t('platforms.wechatLocal.v2PairConfirm')}</p>

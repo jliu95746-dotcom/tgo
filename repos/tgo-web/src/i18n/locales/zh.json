@@ -1958,7 +1958,10 @@
       "v2Preview": "好友和群聊接待正在验收，目前可以预览配置步骤。",
       "v2PairConfirm": "确认将这台电脑上已登录的微信连接到当前渠道。",
       "v2PairButton": "连接这台电脑",
-      "v2ManualBind": "工具会打开确认页。请点击「连接这台电脑」，然后在「接待范围」选择接待对象并启用。"
+      "v2ManualBind": "工具会打开确认页。请点击「连接这台电脑」，然后在「接待范围」选择接待对象并启用。",
+      "manageReception": "管理接待范围",
+      "receptionOnBridgeComputer": "请在运行新版桥接的电脑打开此页，并允许浏览器访问本机。",
+      "receptionUnavailable": "本机接待范围暂时无法打开，请确认微信和桥接已就绪。"
     },
     "list": {
       "title": "接入平台",
