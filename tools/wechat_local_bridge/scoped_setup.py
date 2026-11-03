@@ -7,6 +7,7 @@ import os
 import secrets
 import subprocess
 import threading
+import time
 import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -34,6 +35,7 @@ def discover_window() -> tuple[int, int, Path]:
          "ForEach-Object { @{pid=$_.Id;hwnd=[long]$_.MainWindowHandle} }); "
          "@{windows=$w;documents=[Environment]::GetFolderPath('MyDocuments')} | ConvertTo-Json -Compress"],
         capture_output=True, check=True, timeout=12,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     data = json.loads(result.stdout.decode("utf-8-sig"))
     windows = data["windows"]
@@ -73,12 +75,15 @@ def find_accounts(documents: Path) -> tuple[Path, ...]:
     }))
 
 
-def setup_scoped(
-    runtime: Path, base: str, platform_id: UUID, account_root: Path | None, *, preview: bool = False
-) -> None:
+def prepare_scoped(
+    runtime: Path, base: str, platform_id: UUID, account_root: Path | None, *,
+    preview: bool = False, bound_only: bool = False,
+) -> ScopedBridge | None:
     base = bridge_base_url(base, "wechat_local")
-    pid, hwnd, documents = discover_window()
     binding = runtime / "tgo.private.json"
+    if bound_only and not binding.is_file():
+        return None
+    pid, hwnd, documents = discover_window()
     key_file = runtime / "keys.private.json"
     if not preview and binding.exists():
         existing = json.loads(binding.read_text(encoding="utf-8"))
@@ -95,11 +100,13 @@ def setup_scoped(
         with TemporaryDirectory(dir=runtime, prefix="preview-") as temporary:
             capture_scoped_account(pid, accounts, Path(temporary))
         print("试跑通过。已自动识别并核验当前登录的微信账号。", flush=True)
-        return
+        return None
 
     capture_scoped_account(pid, accounts, runtime)
     reader = WeChatReader(key_file)
     new_binding = not binding.exists()
+    if bound_only and new_binding:
+        return None
     if new_binding:
         key = pair_current_channel(base, platform_id)
         save_tgo_binding(runtime, base, platform_id, "wechat_local", reader, key, scoped=True)
@@ -111,26 +118,33 @@ def setup_scoped(
         except (TgoError, TgoUnavailable):
             binding.unlink()
             raise
-    serve_scoped(ScopedBridge(scope, client, runtime, allow_send=True, window=WindowControl(hwnd, pid)))
+    return ScopedBridge(scope, client, runtime, allow_send=True, window=WindowControl(hwnd, pid))
 
 
-def serve_scoped(bridge: ScopedBridge) -> None:
+def serve_scoped(bridge: ScopedBridge, *, resident: bool = False) -> None:
     token = secrets.token_urlsafe(32)
     checking = threading.Lock()
     window_status = "等待检查微信窗口"
+    window = bridge.window
 
-    def check() -> None:
+    def check(passive: bool) -> None:
         nonlocal window_status
         try:
             from .scoped_rpa import check_window
 
             with bridge.desktop_lock:
                 bridge.window_ready = False
-                if bridge.window is None:
+                if window is None:
                     raise RpaNotReady("微信窗口暂不可用")
-                check_window(bridge.window)
+                if passive:
+                    from .window_ocr import check_ocr
+
+                    window.validate()
+                    check_ocr()
+                else:
+                    check_window(window)
                 bridge.window_ready = True
-                window_status = "已识别微信窗口"
+                window_status = "已识别微信窗口，发送时会重新核对" if passive else "已识别微信窗口"
         except (OSError, ValueError, RpaNotReady) as exc:
             window_status = str(exc)
         except Exception as exc:
@@ -138,9 +152,9 @@ def serve_scoped(bridge: ScopedBridge) -> None:
         finally:
             checking.release()
 
-    def start_check() -> None:
+    def start_check(*, passive: bool = False) -> None:
         if checking.acquire(blocking=False):
-            threading.Thread(target=check, daemon=True).start()
+            threading.Thread(target=check, args=(passive,), daemon=True).start()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args: object) -> None:
@@ -218,14 +232,35 @@ def serve_scoped(bridge: ScopedBridge) -> None:
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     url = f"http://127.0.0.1:{server.server_port}/?local={token}"
     worker = threading.Thread(target=bridge.run, daemon=True)
-    start_check()
+    control = bridge.runtime / "scope-control.private.json"
+    start_check(passive=resident)
     worker.start()
-    (bridge.runtime / "scope-control.private.json").write_text(json.dumps({"url": url}), encoding="utf-8")
-    webbrowser.open(url)
-    print("已打开本机接待范围。请勾选联系人或群聊并保存。", flush=True)
     try:
-        server.serve_forever(poll_interval=0.5)
+        control.write_text(json.dumps({"url": url}), encoding="utf-8")
+        if not resident:
+            webbrowser.open(url)
+            print("已打开本机接待范围。请勾选联系人或群聊并保存。", flush=True)
+            server.serve_forever(poll_interval=0.5)
+            return
+
+        server.timeout = 1
+        next_window_check = 0.0
+        while worker.is_alive():
+            server.handle_request()
+            now = time.monotonic()
+            if now >= next_window_check:
+                try:
+                    if window is None:
+                        return
+                    window.validate()
+                except RpaNotReady:
+                    return
+                next_window_check = now + 5
+        raise RuntimeError("个人微信接待线程已停止")
     finally:
         bridge.stop.set()
         worker.join(timeout=20)
         server.server_close()
+        control.unlink(missing_ok=True)
+        if worker.is_alive():
+            raise RuntimeError("接待线程尚未退出")

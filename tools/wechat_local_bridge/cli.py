@@ -10,14 +10,16 @@ import os
 import subprocess
 import sys
 import threading
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import UUID
 
-from .private_runtime import DEFAULT_RUNTIME, ensure_private_runtime, scoped_runtime
+from .private_runtime import (
+    DEFAULT_RUNTIME, BridgeAlreadyRunning, ensure_private_runtime, integration_lock, scoped_runtime,
+)
 from .reader import WeChatReader
 from .store import InboxStore
 from .tgo_bridge import TgoBridge
@@ -80,26 +82,6 @@ def save_tgo_binding(
             indent=2,
         )
     print("已保存本机客服渠道绑定")
-
-
-@contextmanager
-def integration_lock(runtime: Path):
-    import msvcrt
-
-    with (runtime / "tgo-bridge.lock").open("a+b") as lock:
-        if lock.tell() == 0:
-            lock.write(b"0")
-            lock.flush()
-        lock.seek(0)
-        try:
-            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError as error:
-            raise RuntimeError("该微信客服桥接已有运行实例") from error
-        try:
-            yield
-        finally:
-            lock.seek(0)
-            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def serve(
@@ -336,7 +318,9 @@ def main() -> None:
     setup.add_argument("--base-url", required=True)
     setup.add_argument("--platform-id", type=UUID, required=True)
     setup.add_argument("--account-root", type=Path)
-    setup.add_argument("--preview", action="store_true", help="仅验证当前微信账号并退出")
+    mode = setup.add_mutually_exclusive_group()
+    mode.add_argument("--preview", action="store_true", help="仅验证当前微信账号并退出")
+    mode.add_argument("--resident", action="store_true", help=argparse.SUPPRESS)
     server = sub.add_parser("serve", help="启动仅本机可访问的控制页与新增消息监听")
     server.add_argument(
         "--port", type=int, default=0, help="监听端口，0 表示自动选择空闲端口"
@@ -387,17 +371,21 @@ def main() -> None:
             args.platform_type, args.calibration_runtime,
         )
     elif args.command == "setup-scoped":
-        from .scoped_setup import setup_scoped
+        from .resident import configure_scoped, run_resident
 
         try:
-            with integration_lock(args.runtime):
-                setup_scoped(
+            if args.resident:
+                run_resident(args.runtime, args.base_url, args.platform_id)
+            else:
+                configure_scoped(
                     args.runtime, args.base_url, args.platform_id, args.account_root,
                     preview=args.preview,
                 )
         except KeyboardInterrupt:
             raise SystemExit("已结束个人微信配置") from None
-        except (ValueError, OSError, TgoError, subprocess.SubprocessError) as error:
+        except (BridgeAlreadyRunning, ValueError, OSError, TgoError, subprocess.SubprocessError) as error:
+            if args.resident:
+                raise SystemExit(1) from None
             raise SystemExit(str(error)) from None
     elif args.command == "probe-uia":
         from .uia_probe import probe_uia

@@ -79,7 +79,7 @@ class AccountDiscoveryTests(unittest.TestCase):
                 patch.object(scoped_setup, "serve_scoped") as serve,
                 patch("builtins.print") as output,
             ):
-                scoped_setup.setup_scoped(runtime, "http://localhost", uuid4(), None, preview=True)
+                self.assertIsNone(scoped_setup.prepare_scoped(runtime, "http://localhost", uuid4(), None, preview=True))
             verify.assert_called_once()
             serve.assert_not_called()
             self.assertIn("试跑通过", output.call_args.args[0])
