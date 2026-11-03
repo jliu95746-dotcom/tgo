@@ -7,7 +7,7 @@ import i18n from '../i18n';
 
 // API Configuration
 // Priority: window.ENV (runtime) > import.meta.env (build-time) > default
-const getApiBaseUrl = (): string => {
+export const getApiBaseUrl = (): string => {
   // Local development uses Vite's same-origin proxy. This also works inside
   // the in-app browser, where direct localhost:8000 access may be isolated.
   if (

@@ -55,6 +55,7 @@ export interface AgentAdvancedConfig {
 
 export enum PlatformType {
   WEBSITE = "website",
+  WECHAT_LOCAL = "wechat_local",
   WECHAT = "wechat",
   WHATSAPP = "whatsapp",
   TELEGRAM = "telegram",

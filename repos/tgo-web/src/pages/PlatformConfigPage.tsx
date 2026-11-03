@@ -13,6 +13,8 @@ import DouyinPlatformConfig from '@/components/platforms/DouyinPlatformConfig';
 import CustomPlatformConfig from '@/components/platforms/CustomPlatformConfig';
 import TelegramPlatformConfig from '@/components/platforms/TelegramPlatformConfig';
 import SlackPlatformConfig from '@/components/platforms/SlackPlatformConfig';
+import WeChatLocalPlatformConfig from '@/components/platforms/WeChatLocalPlatformConfig';
+import { PlatformType } from '@/types';
 
 /**
  * Platform Configuration page component
@@ -100,6 +102,9 @@ const PlatformConfigPage: React.FC = () => {
 
   if (platform.type === 'website') {
     return <WebsitePlatformConfig platform={platform} />;
+  }
+  if (platform.type === PlatformType.WECHAT_LOCAL) {
+    return <WeChatLocalPlatformConfig key={platform.id} platform={platform} />;
   }
   // 企业微信（WeCom）
   if ((platform.type as any) === 'wecom') {

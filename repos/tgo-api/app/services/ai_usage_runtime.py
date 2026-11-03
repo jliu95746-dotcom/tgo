@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models import Platform, Visitor
+from app.models.platform import DIRECT_VISITOR_PLATFORM_TYPES
 from app.models.ai_interaction_run import AIInteractionRun
 from app.services import ai_usage
 
@@ -69,7 +70,8 @@ def _reserve(
             if visitor is None or visitor.project_id != project_id or platform is None:
                 raise ValueError("Invalid quota channel")
             external = (
-                platform.type != "website" and visitor.platform_open_id != channel_id
+                platform.type not in DIRECT_VISITOR_PLATFORM_TYPES
+                and visitor.platform_open_id != channel_id
             )
             if external:
                 run = db.scalar(

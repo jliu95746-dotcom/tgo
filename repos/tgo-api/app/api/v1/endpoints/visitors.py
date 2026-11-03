@@ -24,7 +24,11 @@ from app.core.config import settings
 from app.core.security import verify_token
 
 from app.services.wukongim_client import wukongim_client
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
 from app.services.im_access import issue_visitor_im_token
+from app.services.wechat_local_bridge import require_bridge_visitor
+from app.utils.wechat_local import is_filehelper_identity
 from app.services.reply_history import reconcile_reply_history
 from app.schemas.employee_style import EmployeeStyle
 from app.services.employee_style import resolve_employee_style
@@ -380,6 +384,18 @@ async def register_visitor(
     if not platform:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform API key")
 
+    if platform.type == PlatformType.WECHAT_LOCAL.value:
+        if not is_filehelper_identity(req.platform_open_id):
+            raise HTTPException(403, "个人微信仅接入文件传输助手")
+        # The bridge registers only a fixed synthetic profile.
+        req = VisitorRegisterRequest(
+            platform_api_key=req.platform_api_key,
+            platform_open_id=req.platform_open_id,
+            nickname="文件传输助手（个人微信）",
+            language="zh-CN",
+            source="wechat-local-bridge",
+        )
+
     # 2) Find existing or create new visitor
     normalized_open_id = (req.platform_open_id or "").strip() or None
     visitor: Optional[Visitor] = None
@@ -496,7 +512,7 @@ async def register_visitor(
         issue_visitor_im_token(
             visitor, timedelta(minutes=settings.SAAS_VISITOR_IM_TOKEN_MINUTES)
         )
-        if settings.SAAS_ENABLED else str(uuid.uuid4())
+        if settings.SAAS_ENABLED or platform.type == PlatformType.WECHAT_LOCAL.value else str(uuid.uuid4())
     )
     try:
         await wukongim_client.register_or_login_user(
@@ -1410,6 +1426,7 @@ async def sync_visitor_channel_messages(
     req: VisitorMessageSyncRequest,
     db: Session = Depends(get_db),
     x_platform_api_key: Optional[str] = Header(None, alias="X-Platform-API-Key"),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> WuKongIMChannelMessageSyncResponse:
     """Retrieve historical messages for a channel using platform API key authentication."""
     # 1) Authenticate platform via API key (body param or header)
@@ -1428,6 +1445,9 @@ async def sync_visitor_channel_messages(
     )
     if not platform:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform_api_key")
+
+    if platform.type == PlatformType.WECHAT_LOCAL.value:
+        require_bridge_visitor(db, platform, req.channel_id, req.channel_type, credentials)
 
     # 2) Authorize access to the channel and determine login_uid (visitor UID)
     login_uid: Optional[str] = None

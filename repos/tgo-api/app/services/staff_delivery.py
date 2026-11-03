@@ -17,6 +17,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.platform import PlatformType
 from app.models.staff_message_delivery import StaffMessageDelivery, utc_now
 from app.schemas.staff_delivery import (
     AssistTrainingIntent,
@@ -340,6 +341,8 @@ async def deliver(
     require_human_service(db, target.project_id, target.visitor_id)
     if target.platform_type == "wechat_personal":
         raise HTTPException(410, "该渠道已下线，无法发送消息")
+    if target.platform_type == PlatformType.WECHAT_LOCAL.value and request.payload.get("type") != 1:
+        raise HTTPException(400, "个人微信测试渠道仅支持文字回复")
     if (request.channel_id, request.channel_type) != (
         target.channel_id,
         target.channel_type,

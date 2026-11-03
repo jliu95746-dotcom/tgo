@@ -20,6 +20,7 @@ export function toPlatformType(input: string | null | undefined): PlatformType {
   const v = String(input || '').toLowerCase();
   switch (v) {
     case PlatformType.WEBSITE: return PlatformType.WEBSITE;
+    case PlatformType.WECHAT_LOCAL: return PlatformType.WECHAT_LOCAL;
     case PlatformType.WECHAT: return PlatformType.WECHAT;
     case PlatformType.WHATSAPP: return PlatformType.WHATSAPP;
     case PlatformType.TELEGRAM: return PlatformType.TELEGRAM;
@@ -50,6 +51,7 @@ export function toPlatformType(input: string | null | undefined): PlatformType {
  */
 export function getPlatformIconComponent(platformType: PlatformType): IconComponent {
   switch (platformType) {
+    case PlatformType.WECHAT_LOCAL:
     case PlatformType.WECHAT: return IoLogoWechat;
     case PlatformType.WECOM: return AiOutlineWechatWork;
     case PlatformType.WECOM_BOT: return FaRobot;
@@ -83,6 +85,7 @@ export function getPlatformIconComponent(platformType: PlatformType): IconCompon
 export function getPlatformIcon(platformType: PlatformType): string {
   switch (platformType) {
     case PlatformType.WEBSITE: return 'Globe';
+    case PlatformType.WECHAT_LOCAL:
     case PlatformType.WECHAT: return 'MessageSquare';
     case PlatformType.WHATSAPP: return 'MessageCircle';
     case PlatformType.TELEGRAM: return 'Send';
@@ -114,6 +117,7 @@ export function getPlatformIcon(platformType: PlatformType): string {
  */
 export function getPlatformColor(platformType: PlatformType): string {
   switch (platformType) {
+    case PlatformType.WECHAT_LOCAL:
     case PlatformType.WECHAT: return 'text-green-600';
     case PlatformType.WHATSAPP: return 'text-green-500';
     case PlatformType.TELEGRAM: return 'text-sky-500';
@@ -148,6 +152,7 @@ export function getPlatformColor(platformType: PlatformType): string {
 export function getPlatformLabel(platformType: PlatformType): string {
   switch (platformType) {
     case PlatformType.WEBSITE: return i18n.t('platforms.website.label', '官网客服');
+    case PlatformType.WECHAT_LOCAL: return i18n.t('platforms.wechatLocal.label', '个人微信');
     case PlatformType.WECHAT: return i18n.t('platforms.wechat.label', '微信公众号');
     case PlatformType.WHATSAPP: return i18n.t('platforms.whatsapp.label', 'WhatsApp');
     case PlatformType.TELEGRAM: return i18n.t('platforms.telegram.label', 'Telegram');

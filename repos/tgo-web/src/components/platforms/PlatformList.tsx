@@ -38,7 +38,9 @@ const PlatformListItem: React.FC<PlatformListItemProps> = ({ platform }) => {
     }
   };
 
-  const statusConfig = getStatusConfig(platformDisplayStatus(platform));
+  const statusConfig = platform.type === PlatformType.WECHAT_LOCAL && platform.status !== 'disabled'
+    ? { color: 'bg-gray-400', text: t('platforms.wechatLocal.bridgeLink', '查看桥接状态'), textColor: 'text-gray-500' }
+    : getStatusConfig(platformDisplayStatus(platform));
   const isSupported = platform.is_supported !== false; // default to true if not specified
   const displayName = platform.display_name || platform.name;
 

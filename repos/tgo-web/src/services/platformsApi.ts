@@ -23,6 +23,11 @@ export interface PlatformCreateRequest {
   agent_id?: string | null;
 }
 
+export interface WeChatLocalStatus {
+  connected: boolean;
+  last_seen_at: string | null;
+}
+
 // OpenAPI: PlatformResponse
 export interface PlatformResponse {
   is_configured?: boolean;
@@ -129,6 +134,10 @@ class PlatformsApiService extends BaseApiService {
   async updatePlatform(id: string, payload: PlatformUpdateRequest): Promise<PlatformResponse> {
     const endpoint = this.endpoints.UPDATE(id);
     return this.patch<PlatformResponse>(endpoint, payload);
+  }
+
+  async getWeChatLocalStatus(id: string): Promise<WeChatLocalStatus> {
+    return this.get<WeChatLocalStatus>(`${this.endpoints.PLATFORM_BY_ID(id)}/wechat-local/status`);
   }
   /**
    * Upload or replace platform logo (multipart/form-data: field 'file')

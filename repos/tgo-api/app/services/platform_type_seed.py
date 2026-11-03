@@ -30,6 +30,12 @@ SEED_PLATFORM_TYPES: List[Dict[str, object]] = [
         "is_supported": True,
     },
     {
+        "type": "wechat_local",
+        "name": "个人微信",
+        "name_en": "Personal WeChat",
+        "is_supported": True,
+    },
+    {
         "type": "email",
         "name": "邮件",
         "name_en": "Email",

@@ -92,6 +92,9 @@ from app.services.ai_interaction_run_service import (
     claim_ai_interaction,
     mark_ai_interaction_finished,
 )
+from app.models.platform import PlatformType
+from app.services.wechat_local_bridge import require_bridge_visitor
+from app.utils.wechat_local import is_filehelper_identity, is_wechat_local_source
 from app.services.chat_service import get_or_create_visitor
 from app.services.humanization_service import (
     ASSIST_FACT_GATHERING_PROMPT,
@@ -379,10 +382,22 @@ const eventSource = new EventSource('/api/v1/chat/completion', {
 async def chat_completion(
     req: ChatCompletionRequest,
     db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> StreamingResponse | dict[str, Any]:
     """流式聊天完成接口 - 详细说明请查看接口描述。"""
     # 1) Validate Platform API key and get project
     platform, project = chat_service.validate_platform_and_project(req.api_key, db)
+    if platform.type == PlatformType.WECHAT_LOCAL.value:
+        if (
+            req.msg_type != MessageType.TEXT
+            or not is_filehelper_identity(req.from_uid)
+            or not is_wechat_local_source(req.source_message_id)
+            or not req.forward_user_message_to_wukongim
+        ):
+            raise HTTPException(403, "个人微信仅接入文件传输助手的文字消息")
+        actor = require_bridge_visitor(db, platform, req.channel_id, req.channel_type, credentials)
+        if actor.platform_open_id != req.from_uid:
+            raise HTTPException(403, "个人微信访客身份不匹配")
 
     # 2) Get or create visitor (handles status reset if CLOSED)
     visitor, visitor_changed = await get_or_create_visitor(
@@ -1240,6 +1255,8 @@ async def chat_completion_openai_compatible(
     """OpenAI-compatible chat completion endpoint."""
     # 1) Validate Platform API key and get project
     platform, project = chat_service.validate_platform_and_project(x_platform_api_key, db)
+    if platform.type == PlatformType.WECHAT_LOCAL.value:
+        raise HTTPException(403, "个人微信必须使用专用桥接会话")
 
     # 2) Extract messages from OpenAI format
     user_message, system_message, platform_open_id = chat_service.extract_messages_from_openai_format(
