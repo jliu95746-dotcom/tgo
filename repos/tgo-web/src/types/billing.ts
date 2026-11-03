@@ -25,5 +25,6 @@ export interface BillingSubscription {
   status: string; expires_at: string | null; plan: BillingPlan | null;
   seats: number | null; seats_used: number; seats_reserved: number; ai_remaining: number;
   ai_total?: number;
+  ai_expiring_soon?: number;
   server_time: string; months: 1 | 12 | null; version: number | null;
 }

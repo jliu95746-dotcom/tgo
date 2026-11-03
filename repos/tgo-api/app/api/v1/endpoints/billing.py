@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.company_membership import require_company_features
@@ -13,7 +13,7 @@ from app.core.database import get_db
 from app.core.security import get_current_active_user, require_admin
 from app.models import Staff
 from app.models.billing import BillingOrder, BillingPlan
-from app.models.company_account import AICreditBatch, CompanyAccount
+from app.models.company_account import CompanyAccount
 from app.schemas.billing import (
     OrderCreate,
     OrderResponse,
@@ -24,6 +24,7 @@ from app.schemas.billing import (
     QuoteResponse,
     SubscriptionResponse,
 )
+from app.services.billing_credit_summary import credit_summary
 from app.services.billing_orders import create_order
 from app.services.billing_plans import catalogue_plans
 from app.services.billing_quotes import conflict, create_quote
@@ -78,15 +79,7 @@ def subscription(
         and utc(account.expires_at) <= now
     ):
         state = "expired"
-    total, remaining = db.execute(
-        select(
-            func.coalesce(func.sum(AICreditBatch.amount), 0),
-            func.coalesce(func.sum(AICreditBatch.remaining), 0),
-        ).where(
-            AICreditBatch.project_id == actor.project_id,
-            AICreditBatch.expires_at > now,
-        )
-    ).one()
+    total, remaining, expiring_soon = credit_summary(db, actor.project_id, now)
     return SubscriptionResponse(
         status=state,
         expires_at=account.expires_at if account else None,
@@ -96,6 +89,7 @@ def subscription(
         seats_reserved=reserved,
         ai_total=total,
         ai_remaining=remaining,
+        ai_expiring_soon=expiring_soon,
         server_time=now,
         months=account.billing_months if account else None,
         version=account.version if account else None,

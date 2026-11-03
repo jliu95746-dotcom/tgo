@@ -68,6 +68,11 @@ export default function ProfileMembershipSummary() {
           <dd className="text-gray-900 dark:text-gray-100">{value}</dd>
         </div>
       ))}
+      {Boolean(subscription.ai_expiring_soon) && (
+        <div className="text-amber-700 sm:col-span-2 dark:text-amber-400">
+          {t('billing.aiExpiringSoon', { amount: subscription.ai_expiring_soon?.toLocaleString(locale) })}
+        </div>
+      )}
     </dl>
   );
 }

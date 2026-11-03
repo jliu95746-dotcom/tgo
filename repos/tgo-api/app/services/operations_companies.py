@@ -12,6 +12,7 @@ from app.models.company_account import AICreditBatch, CompanyAccount
 from app.models.platform_operator import PlatformOperator
 from app.schemas.operations_companies import CreditAdjustment, OperationsCompany
 from app.schemas.billing import PlanDefinition
+from app.services.billing_credit_summary import credit_summary
 from app.services.billing_quotes import conflict
 from app.services.company_email import utc
 from app.services.company_membership import lock_company, seat_usage
@@ -46,15 +47,7 @@ def companies(
             and utc(account.expires_at) <= now
         ):
             state = "expired"
-        remaining = (
-            db.scalar(
-                select(func.coalesce(func.sum(AICreditBatch.remaining), 0)).where(
-                    AICreditBatch.project_id == project.id,
-                    AICreditBatch.expires_at > now,
-                )
-            )
-            or 0
-        )
+        _, remaining, expiring_soon = credit_summary(db, project.id, now)
         exceptions = (
             db.scalar(
                 select(func.count())
@@ -81,6 +74,7 @@ def companies(
                 used=used,
                 reserved=reserved,
                 ai_remaining=remaining,
+                ai_expiring_soon=expiring_soon,
                 order_exceptions=exceptions,
             )
         )
