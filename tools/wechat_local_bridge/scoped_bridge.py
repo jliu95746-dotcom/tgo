@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
 import threading
 import time
@@ -55,8 +56,19 @@ class ScopedBridge:
         self.next_publish = 0.0
         self.published: list[Mapping[str, object]] | None = None
 
-    def target_runtime(self, identity: str) -> Path:
-        return self.runtime / "targets" / hashlib.sha256(identity.encode()).hexdigest()
+    def target_runtime(self, grant: Grant) -> Path:
+        if not re.fullmatch(r"[a-f0-9]{32}", grant.revision):
+            raise ValueError("本机会话授权编号无效")
+        identity = hashlib.sha256(grant.contact.id.encode()).hexdigest()
+        key = hashlib.sha256(f"{grant.revision}:{identity}".encode()).hexdigest()[:32]
+        targets = self.runtime / "targets"
+        path = targets / key
+        legacy = targets / identity / grant.revision
+        if legacy.is_dir():
+            if path.exists():
+                raise ValueError("本机会话有两份记录，已暂停以避免重复处理")
+            legacy.rename(path)
+        return path
 
     def authorize(self, grant: Grant, *, check_title: bool = False) -> None:
         with self.scope.lock:
@@ -88,7 +100,7 @@ class ScopedBridge:
 
     def _worker(self, grant: Grant) -> Worker:
         contact = grant.contact
-        path = self.target_runtime(contact.id) / grant.revision
+        path = self.target_runtime(grant)
         store = TgoStore(path / "state.sqlite3", chat_id=contact.id)
         client = TgoClient(
             self.client.config_file, path, self.client.account_tag, scoped=True,

@@ -1,12 +1,16 @@
+import os
 import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
 from dataclasses import replace
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
+from tools.wechat_local_bridge import private_runtime
 from tools.wechat_local_bridge.reader import Message, structured_mentions
 from tools.wechat_local_bridge.reception_scope import Contact, ContactGroup, Scope, ScopeSettings, load_contacts
 from tools.wechat_local_bridge.scoped_bridge import ScopedBridge, cloud_identity
@@ -69,6 +73,39 @@ class ScopeTests(unittest.TestCase):
             bridge.authorize(grant)
         self.scope.save(replace(settings, enabled=False), [])
         self.assertFalse(self.scope.settings.enabled)
+
+    def test_worker_reuses_ledger_and_session_after_shortening_legacy_path(self):
+        self.scope.save(ScopeSettings(True, ("a",)), [])
+        grant = self.scope.grants()["a"]
+        old = self.root / "targets" / sha256(b"a").hexdigest() / grant.revision
+        with closing(TgoStore(old / "state.sqlite3", chat_id="a")) as ledger:
+            ledger.baseline({"message_0.db": 7})
+        (old / "tgo-session.private.json").write_text("fixture session", encoding="utf-8")
+        bridge = ScopedBridge(self.scope, Mock(), self.root, allow_send=False)
+        current = bridge.target_runtime(grant)
+        self.assertLess(len(str(current)), len(str(old)))
+        self.assertFalse(old.exists())
+        self.assertEqual((current / "tgo-session.private.json").read_text(encoding="utf-8"), "fixture session")
+        with closing(TgoStore(current / "state.sqlite3", chat_id="a")) as ledger:
+            self.assertEqual(ledger.cursors(), {"message_0.db": 7})
+        self.assertEqual(bridge.target_runtime(grant), current)
+        self.assertNotEqual(bridge.target_runtime(replace(grant, revision=uuid4().hex)), current)
+
+    @unittest.skipUnless(os.name == "nt", "Windows local application data")
+    def test_fresh_channel_uses_short_application_data_and_reuses_existing_binding(self):
+        channel = uuid4()
+        extracted = self.root / ("extracted-" + "a" * 90) / ".tmp/wechat-local-bridge"
+        legacy = extracted / "scoped-channels" / str(channel)
+        profile = self.root / "Local"
+        with (
+            patch.dict(os.environ, {"LOCALAPPDATA": str(profile)}),
+            patch.object(private_runtime, "DEFAULT_RUNTIME", extracted),
+        ):
+            self.assertEqual(private_runtime.scoped_runtime(channel),
+                             profile / "Yujian" / "WeChatBridge" / str(channel))
+            legacy.mkdir(parents=True)
+            (legacy / "tgo.private.json").touch()
+            self.assertEqual(private_runtime.scoped_runtime(channel), legacy)
 
     def test_contact_schema_excludes_nonfriends_and_groups_no_longer_joined(self):
         connection = sqlite3.connect(":memory:")

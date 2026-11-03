@@ -17,16 +17,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 from uuid import UUID
 
-from .private_runtime import ensure_private_runtime
+from .private_runtime import DEFAULT_RUNTIME, ensure_private_runtime, scoped_runtime
 from .reader import WeChatReader
 from .store import InboxStore
 from .tgo_bridge import TgoBridge
 from .tgo_client import TgoClient, TgoError, bridge_base_url
 from .tgo_store import TgoStore
 from .watch import Watcher
-
-DEFAULT_RUNTIME = Path(__file__).resolve().parents[2] / ".tmp/wechat-local-bridge"
-
 
 def account_tag(reader: WeChatReader) -> str:
     return hashlib.sha256(str(reader.root).encode()).hexdigest()[:16]
@@ -310,7 +307,7 @@ def serve(
 def main() -> None:
     parser = argparse.ArgumentParser(description="个人微信本机只读采集与回复草稿验证")
     parser.add_argument(
-        "--runtime", type=Path, default=DEFAULT_RUNTIME, help="本机私有运行目录"
+        "--runtime", type=Path, help="本机私有运行目录"
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("history", help="导出文件传输助手最近 20 条历史至私有目录")
@@ -371,7 +368,10 @@ def main() -> None:
         help="本轮实际发送上限",
     )
     args = parser.parse_args()
-    ensure_private_runtime(args.runtime)
+    scoped = args.command == "setup-scoped"
+    if args.runtime is None:
+        args.runtime = scoped_runtime(args.platform_id) if scoped else DEFAULT_RUNTIME
+    ensure_private_runtime(args.runtime, scoped=scoped)
     if args.command == "capture":
         from .memory import capture
 

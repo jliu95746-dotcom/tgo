@@ -19,7 +19,7 @@ if not exist ".venv\bridge-v2-ready" (
 )
 set "setup_mode=--preview"
 if "%~3"=="--connect" set "setup_mode="
-".venv\Scripts\python.exe" -m tools.wechat_local_bridge.cli --runtime ".tmp\wechat-local-bridge\scoped-channels\%~2" setup-scoped --base-url "%~1" --platform-id "%~2" %setup_mode%
+".venv\Scripts\python.exe" -m tools.wechat_local_bridge.cli setup-scoped --base-url "%~1" --platform-id "%~2" %setup_mode%
 exit /b %errorlevel%
 
 :python_required
