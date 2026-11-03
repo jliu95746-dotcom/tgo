@@ -1,9 +1,11 @@
 """One company's paid lifecycle preserves time, consumed credits and add-ons."""
 
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 
+from app.api.v1.endpoints.billing import subscription
 from app.core.exceptions import TGOAPIException
 from app.models.ai_usage import AIUsageMovement, AIUsageReservation
 from app.models.billing import (
@@ -21,6 +23,38 @@ from app.services.billing_orders import create_order, record_verified_payment
 from app.services.billing_quotes import create_quote
 from app.services.company_email import utc
 from tests.test_billing_quotes import commercial_company  # noqa: F401
+
+
+def test_subscription_credit_totals(commercial_company):  # noqa: F811
+    db, staff, _, account, _ = commercial_company
+    now = datetime.now(timezone.utc)
+    account.expires_at = now + timedelta(days=7)
+    AICreditBatch.__table__.create(db.get_bind())
+
+    for source, project_id, amount, remaining, days in (
+        ("trial", staff.project_id, 100, 36, 7),
+        ("operator", staff.project_id, 50, 0, 7),
+        ("expired", staff.project_id, 200, 200, -1),
+        ("other", uuid4(), 300, 300, 7),
+    ):
+        db.add(
+            AICreditBatch(
+                project_id=project_id,
+                source_key=f"test:{source}",
+                kind=source,
+                amount=amount,
+                remaining=remaining,
+                expires_at=now + timedelta(days=days),
+            )
+        )
+    db.commit()
+
+    result = subscription(db=db, actor=staff)
+
+    assert result.status == "trial"
+    assert result.plan is None
+    assert result.ai_total == 150
+    assert result.ai_remaining == 36
 
 
 def test_paid_company_full_lifecycle(commercial_company):

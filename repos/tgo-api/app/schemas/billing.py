@@ -132,6 +132,7 @@ class SubscriptionResponse(BaseModel):
     seats: int | None
     seats_used: int
     seats_reserved: int
+    ai_total: int
     ai_remaining: int
     server_time: datetime
     months: int | None

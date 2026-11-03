@@ -16,6 +16,7 @@ import {
 import { staffApi, StaffRole, StaffStatus } from '@/services/staffApi';
 import { StaffResponse } from '@/services/api';
 import { useToast } from '@/hooks/useToast';
+import ProfileMembershipSummary from './ProfileMembershipSummary';
 
 // Role configuration for display (colors only, labels from i18n)
 const roleStyleConfig: Record<StaffRole, { bgColor: string; textColor: string }> = {
@@ -256,6 +257,8 @@ const ProfileSettings: React.FC = () => {
           <h3 className="text-lg font-medium text-gray-800 dark:text-gray-100 mb-4">
             {t('settings.profile.accountInfo', '账户信息')}
           </h3>
+
+          {profile && <ProfileMembershipSummary key={profile.project_id} />}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">

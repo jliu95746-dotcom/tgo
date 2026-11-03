@@ -78,15 +78,15 @@ def subscription(
         and utc(account.expires_at) <= now
     ):
         state = "expired"
-    remaining = (
-        db.scalar(
-            select(func.coalesce(func.sum(AICreditBatch.remaining), 0)).where(
-                AICreditBatch.project_id == actor.project_id,
-                AICreditBatch.expires_at > now,
-            )
+    total, remaining = db.execute(
+        select(
+            func.coalesce(func.sum(AICreditBatch.amount), 0),
+            func.coalesce(func.sum(AICreditBatch.remaining), 0),
+        ).where(
+            AICreditBatch.project_id == actor.project_id,
+            AICreditBatch.expires_at > now,
         )
-        or 0
-    )
+    ).one()
     return SubscriptionResponse(
         status=state,
         expires_at=account.expires_at if account else None,
@@ -94,6 +94,7 @@ def subscription(
         seats=account.seat_limit if account else None,
         seats_used=used,
         seats_reserved=reserved,
+        ai_total=total,
         ai_remaining=remaining,
         server_time=now,
         months=account.billing_months if account else None,
