@@ -5,6 +5,7 @@ import { useBillingStore } from '../stores/billingStore';
 import { useAuthStore } from '../stores/authStore';
 import type { BillingOrder, QuoteRequest } from '../types/billing';
 import BillingSupport from '../components/settings/BillingSupport';
+import TrialActivationDialog from '../components/settings/TrialActivationDialog';
 
 const button = 'rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium disabled:opacity-40 hover:bg-slate-50';
 const primary = 'rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40 hover:bg-indigo-700';
@@ -18,6 +19,7 @@ export default function BillingPage() {
   const [quantity, setQuantity] = useState(1);
   const [offset, setOffset] = useState(0);
   const [localNow, setNow] = useState(Date.now());
+  const [trialActivationOpen, setTrialActivationOpen] = useState(false);
   const now = localNow + store.serverClockOffset;
   const dialog = useRef<HTMLDialogElement>(null);
   const { subscription, plans, quote, order, busy, error } = store;
@@ -64,7 +66,12 @@ export default function BillingPage() {
         <div><dt className="text-sm text-slate-500">{t('billing.seats')}</dt><dd className="mt-2 font-medium">{t('billing.seatUsage', { used: subscription.seats_used, limit: subscription.seats ?? '—', reserved: subscription.seats_reserved })}</dd></div>
         <div><dt className="text-sm text-slate-500">{t('billing.ai')}</dt><dd className="mt-2 text-2xl font-semibold">{subscription.ai_remaining.toLocaleString()}</dd></div>
       </dl><p className="mt-5 text-sm leading-6 text-slate-500">{t('billing.quotaHint')}</p><p className="text-sm leading-6 text-slate-500">{t('billing.seatHint')}</p>
+      {admin && subscription.status === 'pending' && <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-slate-200 pt-5 dark:border-slate-700">
+        <div><h3 className="font-medium">{t('trialActivation.title')}</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t('trialActivation.hint')}</p></div>
+        <button type="button" className={primary} onClick={() => setTrialActivationOpen(true)}>{t('trialActivation.button')}</button>
+      </div>}
     </section>}
+    {admin && subscription?.status === 'pending' && trialActivationOpen && <TrialActivationDialog onClose={() => setTrialActivationOpen(false)} />}
     {admin && subscription && <>
       <div className="flex flex-wrap gap-3"><select aria-label={t('billing.period')} className={button} value={months} disabled={Boolean(subscription.months)} onChange={e => setMonths(Number(e.target.value) as 1 | 12)}>
         <option value={1}>{t('billing.month')}</option><option value={12}>{t('billing.year')}</option></select>
@@ -72,7 +79,11 @@ export default function BillingPage() {
       </div>
       <section className="grid gap-4 md:grid-cols-3">{plans.map(plan => <article key={plan.id} className="rounded-2xl border border-slate-200 bg-white p-6 dark:bg-slate-800">
         <h2 className="text-lg font-semibold">{plan.definition.name}</h2><p className="my-5 text-3xl font-semibold">{money(months === 12 ? plan.definition.annual_price : plan.definition.monthly_price)}<span className="ml-2 text-sm font-normal text-slate-500">{t(months === 12 ? 'billing.year' : 'billing.month')}</span></p>
-        <ul className="mb-6 space-y-2 text-sm text-slate-600"><li>{t('billing.planSeats', { count: plan.definition.seats })}</li><li>{t('billing.planAi', { count: plan.definition.monthly_ai })}</li><li>{t('billing.planChannels', { count: plan.definition.channel_limit })}</li></ul>
+        <ul className="mb-6 space-y-2 text-sm text-slate-600">
+          <li>{t('billing.planAccounts', { count: plan.definition.seats - 1 })}</li>
+          <li>{t('billing.planAi', { amount: plan.definition.monthly_ai.toLocaleString(i18n.language) })}</li>
+          <li>{plan.definition.channel_limit === null ? t('billing.allChannels') : t('billing.planChannels', { count: plan.definition.channel_limit })}</li>
+        </ul>
         {!subscription.plan ? <button className={primary} disabled={busy} onClick={() => requestQuote({ kind: 'subscribe', plan_id: plan.id, months })}>{t('billing.subscribe')}</button>
           : plan.definition.rank > subscription.plan.definition.rank && <button className={primary} disabled={busy || subscription.status !== 'active'} onClick={() => requestQuote({ kind: 'upgrade', plan_id: plan.id, months })}>{t('billing.upgrade')}</button>}
       </article>)}{plans.length === 0 && <p>{t('billing.noPlans')}</p>}</section>

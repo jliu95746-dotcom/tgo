@@ -93,7 +93,7 @@ def fulfill_order(
         account is None
         or account.status in {"pending", "suspended"}
         or account.version != quote.base_version
-        or paid > utc(quote.expires_at)
+        or paid >= utc(quote.expires_at)
         or order.refunded_amount
     ):
         order.fulfillment_status = "conflict"
@@ -211,7 +211,7 @@ def fulfill_order(
             f"pack:{order.id}",
             "pack",
             details.additional_ai,
-            add_months(paid, 12),
+            details.ends_at,
         )
     account.version += 1
     order.fulfillment_status = "applied"

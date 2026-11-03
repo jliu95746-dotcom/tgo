@@ -1,7 +1,8 @@
 export interface PlanDefinition {
   name: string; rank: number; monthly_price: number; annual_price: number;
-  seats: number; monthly_ai: number; knowledge_bytes: number; channel_limit: number;
+  seats: number; monthly_ai: number; knowledge_bytes: number; channel_limit: number | null;
   seat_monthly_price: number; seat_annual_price: number; ai_pack_price: number; ai_pack_replies: number;
+  target_project_id?: string | null;
 }
 export interface BillingPlan { id: string; code: string; version: number; status: string; definition: PlanDefinition }
 export type BillingKind = 'subscribe' | 'renew' | 'upgrade' | 'seats' | 'ai_pack';

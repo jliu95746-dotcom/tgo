@@ -11,6 +11,7 @@ export const billingApi = {
   batches: (offset = 0) => apiClient.get<QuotaBatch[]>(`/v1/billing/usage/batches?offset=${offset}`),
   replies: (offset = 0) => apiClient.get<QuotaReply[]>(`/v1/billing/usage/replies?offset=${offset}`),
   plans: () => apiClient.get<BillingPlan[]>('/v1/billing/plans'),
+  availablePlans: () => apiClient.get<BillingPlan[]>('/v1/billing/plans/available'),
   subscription: () => apiClient.get<BillingSubscription>('/v1/billing/subscription'),
   quote: (payload: QuoteRequest) => apiClient.post<BillingQuote>('/v1/billing/quotes', payload),
   createOrder: (quoteId: string) => apiClient.post<BillingOrder>('/v1/billing/orders', { quote_id: quoteId }),

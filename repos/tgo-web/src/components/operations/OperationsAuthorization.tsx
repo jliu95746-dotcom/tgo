@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { operationsApi } from '../../services/operationsApi';
@@ -7,7 +7,12 @@ import { localDateTime, OpsFeedback, OpsPanel, opsButton, opsInput, opsPrimary, 
 
 export default function OperationsAuthorization({ detail, onSaved }: { detail: CompanyDetail; onSaved: () => void }) {
   const { t, i18n } = useTranslation();
-  const plans = useOpsResource(operationsApi.plans);
+  const companyId = detail.company.id;
+  const loadPlans = useCallback(async () => {
+    const [standard, custom] = await Promise.all([operationsApi.plans(), operationsApi.plans(companyId)]);
+    return [...standard, ...custom];
+  }, [companyId]);
+  const plans = useOpsResource(loadPlans);
   const [plan, setPlan] = useState(detail.plan_id || '');
   const [expiry, setExpiry] = useState(localDateTime(detail.company.expires_at));
   const [seats, setSeats] = useState(String(detail.company.seats || Math.max(1, detail.company.used + detail.company.reserved)));

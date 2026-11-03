@@ -66,8 +66,14 @@ export const operationsApi = {
   quotaReviews: (offset = 0) => client.get<QuotaReply[]>(`/v1/ops/usage/review?offset=${offset}`),
   resolveQuota: (id: string, payload: { action: 'settle' | 'release'; reason: string }) => client.post<void>(`/v1/ops/usage/${encodeURIComponent(id)}/resolve`, payload),
   companyState: (id: string, payload: { action: 'suspend' | 'restore'; reason: string }) => client.post<void>(`/v1/ops/companies/${encodeURIComponent(id)}/state`, payload),
-  plans: () => client.get<BillingPlan[]>('/v1/ops/plans'),
+  plans: (targetProjectId?: string) => client.get<BillingPlan[]>(targetProjectId
+    ? `/v1/ops/plans?target_project_id=${encodeURIComponent(targetProjectId)}`
+    : '/v1/ops/plans?standard_only=true'),
   createPlan: (code: string, definition: PlanDefinition) => client.post<BillingPlan>('/v1/ops/plans', { code, definition }),
+  saveStandardDrafts: (plans: { code: string; definition: PlanDefinition }[]) =>
+    client.post<BillingPlan[]>('/v1/ops/plans/standard-drafts', { plans }),
+  publishStandardDrafts: (plan_ids: string[]) =>
+    client.post<BillingPlan[]>('/v1/ops/plans/standard-drafts/publish', { plan_ids }),
   changePlanState: (id: string, state: 'published' | 'retired') => client.post<BillingPlan>(`/v1/ops/plans/${encodeURIComponent(id)}/${state}`),
   orders: (offset = 0) => client.get<BillingOrder[]>(`/v1/ops/orders?offset=${offset}&limit=100`),
   onSessionExpired(handler: () => void) { onSessionExpired = handler; },

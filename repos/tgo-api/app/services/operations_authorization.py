@@ -32,7 +32,7 @@ def preview_authorization(
     now = datetime.now(timezone.utc)
     if payload.expires_at <= now:
         raise conflict("新的授权到期时间必须晚于当前时间")
-    plan = published_plan(db, payload.plan_id)
+    plan = published_plan(db, payload.plan_id, project_id)
     used, reserved = seat_usage(db, project_id)
     if payload.seats < used + reserved:
         raise conflict("坐席上限不能少于已启用账号和有效邀请之和", "SEAT_LIMIT")

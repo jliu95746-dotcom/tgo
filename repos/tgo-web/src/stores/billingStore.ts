@@ -29,7 +29,7 @@ export const useBillingStore = create<BillingState>((set, get) => ({
     set({ busy: true, error: null });
     try {
       const [subscription, plans, orders] = await Promise.all([
-        billingApi.subscription(), billingApi.plans(), admin ? billingApi.orders(offset) : Promise.resolve([]),
+        billingApi.subscription(), billingApi.availablePlans(), admin ? billingApi.orders(offset) : Promise.resolve([]),
       ]);
       if (currentGeneration === generation && currentLoad === loadRevision) set({ subscription, plans, orders, serverClockOffset: clockOffset(subscription) });
     } catch (error) { if (currentGeneration === generation && currentLoad === loadRevision) set({ error: errorMessage(error) }); }
