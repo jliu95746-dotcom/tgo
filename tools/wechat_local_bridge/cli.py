@@ -308,6 +308,9 @@ def main() -> None:
     )
     capture_command.add_argument("--pid", type=int, required=True)
     capture_command.add_argument("--account-root", type=Path, required=True)
+    calibration = sub.add_parser("calibrate", help="框选文件传输助手窗口并回读校准草稿")
+    calibration.add_argument("--pid", type=int, required=True)
+    calibration.add_argument("--window-id", type=int, required=True)
     verify = sub.add_parser(
         "verify-current", help="回读当前已填写的文件传输助手草稿，并核验待办"
     )
@@ -357,6 +360,11 @@ def main() -> None:
         from .memory import capture
 
         print(json.dumps(capture(args.pid, args.account_root, args.runtime)))
+    elif args.command == "calibrate":
+        from .calibration import calibrate
+
+        calibrate(args.runtime, args.pid, args.window_id)
+        print("窗口校准通过。请在微信里手动清空校准草稿后再启动桥接。")
     elif args.command == "bind-tgo":
         bind_tgo(
             args.runtime, args.base_url, args.platform_id,

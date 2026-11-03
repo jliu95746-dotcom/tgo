@@ -41,6 +41,7 @@ from app.services.visitor_notifications import notify_visitor_profile_updated
 from app.services.platform_message_client import prepare_native_mode
 from app.utils.intent import localize_visitor_response_intent
 from app.models.platform import PlatformType
+from app.services.wechat_local_bridge import require_bridge_visitor
 from app.utils.wechat_local import is_filehelper_identity
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_VISITOR
 from app.utils.request import get_client_ip, get_client_language
@@ -1228,6 +1229,8 @@ async def sync_visitor_channel_messages(
     if not platform:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform_api_key")
 
+    if platform.type == PlatformType.WECHAT_LOCAL.value:
+        require_bridge_visitor(db, platform, req.channel_id, req.channel_type, credentials)
     access = require_visitor_data_access(db,platform,credentials)
     authorize_visitor_data_channel(access,req.channel_id,req.channel_type)
     login_uid = f"{access.visitor_id}-vtr"

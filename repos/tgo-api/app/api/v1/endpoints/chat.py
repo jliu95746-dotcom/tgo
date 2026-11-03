@@ -95,6 +95,7 @@ from app.services.visitor_chat_access import resolve_chat_visitor, check_chat_ch
 logger = get_logger(__name__)
 from app.models import AssignmentSource
 from app.models.platform import PlatformType
+from app.services.wechat_local_bridge import require_bridge_visitor
 from app.utils.wechat_local import is_filehelper_identity, is_wechat_local_source
 from app.services.ai_client import AIServiceClient
 from app.services.ai_interaction_run_service import (
@@ -395,14 +396,18 @@ async def chat_completion(
     if req.customer_sessions and req.msg_type != MessageType.TEXT:
         raise HTTPException(403, "当前业务身份验证仅用于文字咨询，请先使用文字查询")
     platform, project = chat_service.validate_platform_and_project(req.api_key, db)
-    if platform.type == PlatformType.WECHAT_LOCAL.value and (
-        req.msg_type != MessageType.TEXT
-        or not is_filehelper_identity(req.from_uid)
-        or not is_wechat_local_source(req.source_message_id)
-        or not req.forward_user_message_to_wukongim
-        or req.customer_sessions
-    ):
-        raise HTTPException(403, "个人微信仅接入文件传输助手的文字消息")
+    if platform.type == PlatformType.WECHAT_LOCAL.value:
+        if (
+            req.msg_type != MessageType.TEXT
+            or not is_filehelper_identity(req.from_uid)
+            or not is_wechat_local_source(req.source_message_id)
+            or not req.forward_user_message_to_wukongim
+            or req.customer_sessions
+        ):
+            raise HTTPException(403, "个人微信仅接入文件传输助手的文字消息")
+        actor = require_bridge_visitor(db, platform, req.channel_id, req.channel_type, credentials)
+        if actor.platform_open_id != req.from_uid:
+            raise HTTPException(403, "个人微信访客身份不匹配")
 
     visitor, visitor_changed, access = await resolve_chat_visitor(db, platform, req.from_uid,
         credentials, x_saas_service_token, nickname=req.visitor_name, avatar_url=req.visitor_avatar,

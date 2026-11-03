@@ -52,9 +52,14 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
   const apiBase = new URL(getApiBaseUrl(), window.location.origin).href.replace(/\/$/, '');
   // PowerShell single-quoted arguments are literal and escape a quote by doubling it.
   const runtime = `.tmp/wechat-local-bridge/channels/${platform.id}`;
-  const bridgeCommand = `python -m tools.wechat_local_bridge.cli --runtime ${runtime}`;
-  const bindCommand = `${bridgeCommand} bind-tgo --platform-type wechat_local --base-url '${apiBase.replace(/'/g, "''")}' --platform-id ${platform.id} --calibration-runtime .tmp/wechat-local-bridge`;
+  const bridgePython = '.\\.venv\\Scripts\\python.exe';
+  const bridgeCommand = `${bridgePython} -m tools.wechat_local_bridge.cli --runtime ${runtime}`;
+  const installCommand = `python -m venv .venv; if ($LASTEXITCODE -eq 0) { ${bridgePython} -m pip install -r tools/wechat_local_bridge/requirements.txt }`;
+  const bindCommand = `${bridgeCommand} bind-tgo --platform-type wechat_local --base-url '${apiBase.replace(/'/g, "''")}' --platform-id ${platform.id}`;
   const startCommand = `${bridgeCommand} serve --rpa-binding ${runtime}/rpa-binding.private.json --tgo-config ${runtime}/tgo.private.json --test-prefix '个人微信测试：' --allow-send`;
+  const processCommand = 'Get-Process Weixin | Where-Object MainWindowHandle | Select-Object Id, MainWindowHandle';
+  const captureCommand = `${bridgeCommand} capture --pid <微信进程Id> --account-root '<含 db_storage 的本人账号目录>'`;
+  const calibrateCommand = `${bridgeCommand} calibrate --pid <微信进程Id> --window-id <MainWindowHandle>`;
 
   const copy = async (value: string) => {
     try {
@@ -112,9 +117,36 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
           </div>
           <details className="text-sm" open={connected ? undefined : true}>
             <summary className="cursor-pointer font-medium">{t('platforms.wechatLocal.setup', '连接步骤')}</summary>
-            <p className="my-3 text-gray-600 dark:text-gray-300">
-              {t('platforms.wechatLocal.setupHint', '在已完成微信读取和窗口校准的项目目录中打开 PowerShell。执行绑定命令，按提示粘贴渠道密钥，然后执行启动命令。用「个人微信测试：」开头的消息进行试发。')}
-            </p>
+            <ol className="my-3 list-decimal space-y-3 pl-5 text-gray-600 dark:text-gray-300">
+              <li>
+                <a className="text-blue-600 underline dark:text-blue-300" href="/downloads/wechat-local-bridge-v1.zip" download>
+                  {t('platforms.wechatLocal.download', '下载 Windows 桥接工具')}
+                </a>
+                {' '}{t('platforms.wechatLocal.installHint', '解压后在工具目录打开 PowerShell。使用 64 位 Python 3.11 或更新版本安装依赖。')}
+                <button type="button" className="ml-2 rounded-md border px-2 py-1"
+                  onClick={() => void copy(installCommand)}>
+                  {t('platforms.wechatLocal.copyInstall', '复制安装命令')}
+                </button>
+              </li>
+              <li>
+                {t('platforms.wechatLocal.captureHint', '登录自己的 Windows 微信。查看微信进程编号和主窗口句柄，再从微信设置的文件管理找到含 db_storage 的本人账号目录。替换命令中的占位符后读取本机密钥。')}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" className="rounded-md border px-2 py-1" onClick={() => void copy(processCommand)}>
+                    {t('platforms.wechatLocal.copyProcess', '复制进程查询命令')}
+                  </button>
+                  <button type="button" className="rounded-md border px-2 py-1" onClick={() => void copy(captureCommand)}>
+                    {t('platforms.wechatLocal.copyCapture', '复制读取命令模板')}
+                  </button>
+                </div>
+              </li>
+              <li>
+                {t('platforms.wechatLocal.calibrateHint', '把微信窗口完整放在主屏，打开文件传输助手，在输入框键入「个人微信校准」并保留草稿。运行校准命令，依次框选标题、输入工具栏和发送按钮。校准通过后清空草稿。')}
+                <button type="button" className="ml-2 rounded-md border px-2 py-1" onClick={() => void copy(calibrateCommand)}>
+                  {t('platforms.wechatLocal.copyCalibrate', '复制校准命令模板')}
+                </button>
+              </li>
+              <li>{t('platforms.wechatLocal.bindHint', '执行绑定命令，按提示粘贴此渠道专用密钥，再执行启动命令。Windows 微信保持登录和桌面解锁，文件传输助手保持为当前微信会话。用「个人微信测试：」开头的文字试发。')}</li>
+            </ol>
             <div className="flex flex-wrap gap-2">
               <button type="button" className="rounded-md border px-3 py-1.5" onClick={() => void copy(bindCommand)}>
                 {t('platforms.wechatLocal.copyBind', '复制绑定命令')}
