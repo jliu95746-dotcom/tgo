@@ -12,6 +12,7 @@ import {
   type VisitorProfileUpdatedEvent,
 } from '../services/wukongimWebSocket';
 import { WuKongIMApiService } from '../services/wukongimApi';
+import { tokenNeedsRefresh } from '../services/staffSession';
 import { notificationService, type NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../services/notificationService';
 import { Message } from '../types';
 import { isWebSocketAutoConnectDisabled } from '@/utils/config';
@@ -290,40 +291,26 @@ export const WebSocketManager: React.FC = () => {
   /**
    * Connect to WebSocket
    */
-  const connect = React.useCallback(async () => {
-    if (!token) {
-      console.log('🔌 WebSocket Manager: No token available, skipping connection');
-      return;
+  const staffId = user?.id;
+  const hasToken = Boolean(token);
+  const connect = React.useCallback(async (signal: AbortSignal, refresh: boolean) => {
+    const session = useAuthStore.getState();
+    if (signal.aborted || !staffId || session.user?.id !== staffId || !session.isAuthenticated || !session.token) return;
+    if (refresh || (!wukongimWebSocketService.getConnectionStatus().isConnected && tokenNeedsRefresh(session.token))) {
+      await session.refreshSession(false);
     }
-
-    if (!user?.id) {
-      console.log('🔌 WebSocket Manager: No user ID available, skipping connection');
-      return;
-    }
-
-    // Generate dynamic UID using user ID with "-staff" suffix
-    const uid = `${user.id}-staff`;
-
-    console.log('🔌 WebSocket Manager: Connecting with dynamic UID', {
-      userId: user.id,
-      uid,
-      hasToken: !!token
-    });
-
-    // Resolve server URL dynamically via backend route (with env fallback)
+    if (signal.aborted) return;
+    const uid = `${staffId}-staff`;
     const serverUrl = await WuKongIMApiService.resolveWebSocketUrl(uid);
+    const current = useAuthStore.getState();
+    if (signal.aborted || !current.isAuthenticated || current.user?.id !== staffId || !current.token) return;
     const config: WuKongIMWebSocketConfig = {
       serverUrl,
       uid,
-      token,
+      token: current.token,
     };
-
-    try {
-      await wukongimWebSocketService.init(config);
-    } catch (error) {
-      console.error('🔌 WebSocket Manager: Failed to connect:', error);
-    }
-  }, [token, user?.id]);
+    await wukongimWebSocketService.init(config);
+  }, [staffId]);
 
   /**
    * Setup event listeners on mount
@@ -358,24 +345,13 @@ export const WebSocketManager: React.FC = () => {
    * Auto-connect when token and user are available
    */
   useEffect(() => {
-    // Check if auto-connect is disabled via runtime/build-time configuration
-    if (isWebSocketAutoConnectDisabled()) {
-      console.log('🔌 WebSocket Manager: Auto-connect is disabled via environment variable');
-      return;
-    }
+    if (isWebSocketAutoConnectDisabled() || !hasToken || !staffId) return;
+    return wukongimWebSocketService.maintainConnection(connect);
+  }, [hasToken, staffId, connect]);
 
-    if (token && user?.id) {
-      console.log('🔌 WebSocket Manager: Token and user available, attempting auto-connect');
-      connect().catch(error => {
-        console.error('🔌 WebSocket Manager: Auto-connect failed:', error);
-      });
-    } else {
-      console.log('🔌 WebSocket Manager: Token or user not available 1111', {
-        hasToken: !!token,
-        hasUser: !!user?.id
-      });
-    }
-  }, [token, user?.id, connect]);
+  useEffect(() => {
+    if (token) wukongimWebSocketService.renewConnectionToken(token);
+  }, [token]);
 
   /**
    * Cleanup on unmount
