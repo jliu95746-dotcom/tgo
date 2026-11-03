@@ -39,19 +39,14 @@ export default function ProfileMembershipSummary() {
   const { subscription } = state;
   const locale = i18n.resolvedLanguage;
   const empty = t('billing.none');
+  const plan = subscription.plan?.definition.name ?? t('billing.noPlan');
+  const status = t(`billing.${subscription.status}`, { defaultValue: empty });
   const fields = [
-    [t('billing.planName'), subscription.plan?.definition.name ?? t('billing.noPlan')],
-    [t('billing.subscriptionStatus'), t(`billing.${subscription.status}`, { defaultValue: empty })],
-    [t('billing.planMonthlyAi'), subscription.plan?.definition.monthly_ai.toLocaleString(locale) ?? empty],
-    [t('billing.aiTotal'), subscription.ai_total?.toLocaleString(locale) ?? empty],
-    [t('billing.aiRemaining'), subscription.ai_remaining.toLocaleString(locale)],
-    [t('billing.memberSeats'), subscription.seats === null
-      ? empty
-      : Math.max(0, subscription.seats - 1).toLocaleString(locale)],
-    [t('billing.seats'), t('billing.seatUsage', {
-      used: subscription.seats_used,
-      limit: subscription.seats ?? empty,
-      reserved: subscription.seats_reserved,
+    [t('billing.planName'), status === empty ? plan : `${plan} · ${status}`],
+    [t('billing.profileSeats'), `${subscription.seats_used.toLocaleString(locale)} / ${subscription.seats?.toLocaleString(locale) ?? empty}`],
+    [t('billing.aiQuota'), t('billing.aiQuotaUsage', {
+      remaining: subscription.ai_remaining.toLocaleString(locale),
+      total: subscription.ai_total?.toLocaleString(locale) ?? empty,
     })],
     [t('billing.serviceExpiry'), subscription.expires_at
       ? new Date(subscription.expires_at).toLocaleString(locale, {
