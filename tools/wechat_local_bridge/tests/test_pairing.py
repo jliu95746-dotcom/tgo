@@ -36,11 +36,14 @@ class PairingTests(unittest.TestCase):
             patch.object(pairing.secrets, "token_urlsafe", return_value=proof),
             patch.object(pairing.webbrowser, "open", side_effect=confirm),
             patch.object(pairing, "post_json", return_value={"platform_api_key": "fixture-key"}) as exchange,
-            patch("builtins.print"),
+            patch("builtins.print") as output,
         ):
             key = pairing.pair_current_channel("https://example.test/api", platform)
 
         self.assertEqual(key, "fixture-key")
+        printed_urls = [call.args[0] for call in output.call_args_list if call.args[0].startswith("https://")]
+        self.assertEqual(len(printed_urls), 1)
+        self.assertIn(f"/platforms/{platform}#wechat_pair={challenge}", printed_urls[0])
         _, endpoint, payload, _ = exchange.call_args.args
         self.assertEqual(endpoint, f"https://example.test/api/v1/platforms/{platform}/wechat-local/pair/exchange")
         self.assertEqual(payload, {"code": code, "verifier": proof})

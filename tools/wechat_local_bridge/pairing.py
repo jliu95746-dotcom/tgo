@@ -59,13 +59,14 @@ def pair_current_channel(base: str, platform_id: UUID) -> str:
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         try:
+            print("请在这台电脑的客服后台登录，并点「连接这台电脑」。确认链接 5 分钟内有效。", flush=True)
+            print(dashboard, flush=True)
             try:
                 opened = webbrowser.open(dashboard)
             except (OSError, webbrowser.Error):
                 opened = False
-            print("请在这台电脑的客服后台登录，并点「连接这台电脑」。", flush=True)
             if not opened:
-                print("请在这台电脑的浏览器打开 " + dashboard, flush=True)
+                print("请在这台电脑的浏览器打开上方确认链接。", flush=True)
             try:
                 code = pending.get(timeout=300)
             except Empty:

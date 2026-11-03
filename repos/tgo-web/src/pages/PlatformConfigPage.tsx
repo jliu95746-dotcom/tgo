@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { useParams, Navigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { usePlatformStore } from '@/stores/platformStore';
-import { platformSelectors } from '@/stores';
 import PlatformConfig from '@/components/platforms/PlatformConfig';
 import WebsitePlatformConfig from '@/components/platforms/WebsitePlatformConfig';
 import WeComPlatformConfig from '@/components/platforms/WeComPlatformConfig';
@@ -22,16 +21,16 @@ import { PlatformType } from '@/types';
  */
 const PlatformConfigPage: React.FC = () => {
   const { platformId } = useParams<{ platformId: string }>();
-  const platforms = usePlatformStore(platformSelectors.platforms);
-  const isLoading = usePlatformStore(platformSelectors.isLoading);
+  const platform = usePlatformStore(state =>
+    state.platforms.find(item => item.id === platformId) ??
+    (state.selectedPlatform?.id === platformId ? state.selectedPlatform : null)
+  );
   const isLoadingDetail = usePlatformStore(state => state.isLoadingDetail);
   const detailLoadError = usePlatformStore(state => state.detailLoadError);
   const fetchPlatformById = usePlatformStore(state => state.fetchPlatformById);
 
   // Track the last loaded platform ID to avoid redundant fetches
   const lastLoadedIdRef = useRef<string | null>(null);
-
-  const platform = platforms.find((p: any) => p.id === platformId);
 
   // Fetch platform detail when platformId changes
   useEffect(() => {
@@ -44,8 +43,8 @@ const PlatformConfigPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platformId]); // Only depend on platformId, not fetchPlatformById (it's a stable store function)
 
-  // Show loading state while fetching platform detail
-  if (isLoadingDetail) {
+  // Keep the requested route and its pairing parameters while the first request starts.
+  if (isLoadingDetail || (!platform && !detailLoadError)) {
     return (
       <div className="flex-grow flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
         <div className="text-center text-gray-500 dark:text-gray-400">
@@ -77,23 +76,6 @@ const PlatformConfigPage: React.FC = () => {
         </div>
       </div>
     );
-  }
-
-  // Show loading state while fetching platform list
-  if (isLoading && !platform) {
-    return (
-      <div className="p-6">
-        <div className="text-center text-gray-500">Loading...</div>
-      </div>
-    );
-  }
-
-  if (!isLoading && !platform && platforms.length > 0) {
-    return <Navigate to={`/platforms/${platforms[0]!.id}`} replace />;
-  }
-
-  if (!isLoading && platforms.length === 0) {
-    return <Navigate to="/platforms" replace />;
   }
 
   if (!platform) {
