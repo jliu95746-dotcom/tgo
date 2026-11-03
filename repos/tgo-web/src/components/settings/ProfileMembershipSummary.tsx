@@ -42,6 +42,7 @@ export default function ProfileMembershipSummary() {
   const fields = [
     [t('billing.planName'), subscription.plan?.definition.name ?? t('billing.noPlan')],
     [t('billing.subscriptionStatus'), t(`billing.${subscription.status}`, { defaultValue: empty })],
+    [t('billing.planMonthlyAi'), subscription.plan?.definition.monthly_ai.toLocaleString(locale) ?? empty],
     [t('billing.aiTotal'), subscription.ai_total?.toLocaleString(locale) ?? empty],
     [t('billing.aiRemaining'), subscription.ai_remaining.toLocaleString(locale)],
     [t('billing.memberSeats'), subscription.seats === null
@@ -52,8 +53,10 @@ export default function ProfileMembershipSummary() {
       limit: subscription.seats ?? empty,
       reserved: subscription.seats_reserved,
     })],
-    [t('billing.expiry'), subscription.expires_at
-      ? new Date(subscription.expires_at).toLocaleString(locale)
+    [t('billing.serviceExpiry'), subscription.expires_at
+      ? new Date(subscription.expires_at).toLocaleString(locale, {
+        timeZone: 'Asia/Shanghai',
+      })
       : empty],
   ];
 

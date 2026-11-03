@@ -39,8 +39,7 @@ export function OpsBadge({ state }: { state: string }) {
   return <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${tone}`}>{t(`opsWorkspace.states.${state}`, { defaultValue: state })}</span>;
 }
 
-export function localDateTime(value: string | null): string {
+export function beijingDateTimeInput(value: string | null): string {
   if (!value) return '';
-  const date = new Date(value);
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  return new Date(Date.parse(value) + 8 * 60 * 60 * 1000).toISOString().slice(0, 19);
 }
