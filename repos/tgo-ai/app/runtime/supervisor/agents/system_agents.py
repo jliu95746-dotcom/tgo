@@ -7,7 +7,7 @@ by the coordination system for query analysis and result consolidation.
 
 from datetime import datetime
 from uuid import uuid4
-from typing import Dict, Any
+from typing import Dict
 
 from app.config import settings as app_settings
 from app.models.internal import Agent

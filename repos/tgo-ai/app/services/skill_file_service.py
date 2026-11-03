@@ -679,7 +679,6 @@ class SkillFileService:
         if not directory.exists() or not directory.is_dir():
             return []
         result: List[str] = []
-        prefix = str(directory.name)
         for root, _dirs, files in os.walk(directory):
             for f in sorted(files):
                 full = Path(root) / f
