@@ -12,6 +12,7 @@ from app.models.visitor import VisitorServiceMode
 from app.schemas.base import BaseSchema, PaginatedResponse, SoftDeleteMixin, TimestampMixin
 from app.schemas.tag import TagResponse
 from app.schemas.platform_schema import PlatformAISettings
+from app.utils.platform_ai_mode import effective_platform_ai_mode
 
 
 def _resolve_avatar_url(avatar_url: Optional[str]) -> Optional[str]:
@@ -731,8 +732,12 @@ def populate_visitor_ai_settings(
     Populate ai_settings field from platform model.
     """
     if platform:
+        platform_type = getattr(platform, "type", None)
         response.ai_settings = PlatformAISettings(
-            ai_mode=getattr(platform, "ai_mode", None),
-            fallback_to_ai_timeout=getattr(platform, "fallback_to_ai_timeout", None)
+            ai_mode=effective_platform_ai_mode(
+                platform_type, getattr(platform, "ai_mode", None)
+            ),
+            fallback_to_ai_timeout=None if platform_type == PlatformType.WECHAT_LOCAL
+            else getattr(platform, "fallback_to_ai_timeout", None),
         )
     return response

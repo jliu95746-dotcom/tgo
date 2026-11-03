@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.schemas.visitor import VisitorServiceModeUpdate
+from app.schemas.visitor import VisitorServiceModeUpdate, populate_visitor_ai_settings
 from app.services.chat_service import resolve_service_mode
 from app.services import visitor_service
 
@@ -26,6 +26,23 @@ def test_legacy_visitors_fall_back_to_existing_ai_fields() -> None:
     platform = SimpleNamespace(ai_mode="assist")
     visitor = SimpleNamespace(service_mode=None, ai_disabled=None)
 
+    assert resolve_service_mode(platform, visitor) == "assist"
+
+
+@pytest.mark.parametrize("legacy_mode", [None, "auto", "assist", "off"])
+def test_personal_wechat_uses_the_standard_ai_default(legacy_mode) -> None:
+    platform = SimpleNamespace(
+        type="wechat_local", ai_mode=legacy_mode, fallback_to_ai_timeout=60,
+    )
+    visitor = SimpleNamespace(service_mode=None, ai_disabled=None)
+    response = populate_visitor_ai_settings(SimpleNamespace(), platform)
+
+    assert resolve_service_mode(platform, visitor) == "auto"
+    assert response.ai_settings.ai_mode == "auto"
+    assert response.ai_settings.fallback_to_ai_timeout is None
+    visitor.ai_disabled = True
+    assert resolve_service_mode(platform, visitor) == "manual"
+    visitor.service_mode = "assist"
     assert resolve_service_mode(platform, visitor) == "assist"
 
 

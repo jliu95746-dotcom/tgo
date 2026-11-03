@@ -6,7 +6,7 @@ import { useToast } from '@/hooks/useToast';
 import { getApiBaseUrl } from '@/services/api';
 import { platformsApiService, type WeChatLocalStatus } from '@/services/platformsApi';
 import { usePlatformStore } from '@/stores/platformStore';
-import type { Platform, PlatformAIMode } from '@/types';
+import type { Platform } from '@/types';
 import { showApiError, showSuccess } from '@/utils/toastHelpers';
 
 export default function WeChatLocalPlatformConfig({ platform }: { platform: Platform }) {
@@ -16,9 +16,8 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
   const isSaving = usePlatformStore(state => state.isUpdating);
   const [status, setStatus] = useState<WeChatLocalStatus | 'error' | null>(null);
   const [agentIds, setAgentIds] = useState<string[]>(platform.agent_id ? [platform.agent_id] : []);
-  const [aiMode, setAiMode] = useState<PlatformAIMode>(platform.ai_mode ?? 'auto');
-  const [timeout, setTimeoutSeconds] = useState(platform.fallback_to_ai_timeout ?? null);
   const disabled = platform.status === 'disabled';
+  const agentChanged = (agentIds[0] ?? null) !== (platform.agent_id ?? null);
 
   useEffect(() => {
     if (disabled) return;
@@ -74,8 +73,6 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
     try {
       await updatePlatform(platform.id, {
         agent_id: agentIds[0] ?? null,
-        ai_mode: aiMode,
-        fallback_to_ai_timeout: aiMode === 'assist' ? timeout : null,
         status: disabled ? 'disabled' : 'connected',
       });
       showSuccess(showToast, t('platforms.wechatLocal.saved', '已保存客服设置'));
@@ -165,16 +162,12 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
           <PlatformAISettings
             platform={platform}
             agentIds={agentIds}
-            aiMode={aiMode}
-            fallbackTimeout={timeout}
             onAgentIdsChange={setAgentIds}
-            onAIModeChange={setAiMode}
-            onFallbackTimeoutChange={setTimeoutSeconds}
           />
-          <button type="button" disabled={isSaving} onClick={() => void save()}
+          {agentChanged && <button type="button" disabled={isSaving} onClick={() => void save()}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-            {t('platforms.wechatLocal.save', '保存客服设置')}
-          </button>
+            {t('common.save', '保存')}
+          </button>}
         </section>
       </div>
     </div>

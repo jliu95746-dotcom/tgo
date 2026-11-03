@@ -10,15 +10,15 @@ interface PlatformAISettingsProps {
   /** Current agent selection (controlled as an array for existing callers) */
   agentIds: string[];
   /** Current AI mode (controlled) */
-  aiMode: PlatformAIMode;
+  aiMode?: PlatformAIMode;
   /** Current fallback timeout in seconds (controlled) */
-  fallbackTimeout: number | null;
+  fallbackTimeout?: number | null;
   /** Callback when selected agent changes */
   onAgentIdsChange: (agentIds: string[]) => void;
   /** Callback when AI mode changes */
-  onAIModeChange: (mode: PlatformAIMode) => void;
+  onAIModeChange?: (mode: PlatformAIMode) => void;
   /** Callback when fallback timeout changes */
-  onFallbackTimeoutChange: (timeout: number | null) => void;
+  onFallbackTimeoutChange?: (timeout: number | null) => void;
   /** Whether the section is initially expanded (default: false) */
   defaultExpanded?: boolean;
 }
@@ -33,7 +33,7 @@ interface PlatformAISettingsProps {
 const PlatformAISettings: React.FC<PlatformAISettingsProps> = ({
   platform,
   agentIds,
-  aiMode,
+  aiMode = 'auto',
   fallbackTimeout,
   onAgentIdsChange,
   onAIModeChange,
@@ -94,11 +94,11 @@ const PlatformAISettings: React.FC<PlatformAISettingsProps> = ({
   const handleTimeoutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     if (value === '') {
-      onFallbackTimeoutChange(null);
+      onFallbackTimeoutChange?.(null);
     } else {
       const num = parseInt(value, 10);
       if (!isNaN(num) && num >= 0) {
-        onFallbackTimeoutChange(num);
+        onFallbackTimeoutChange?.(num);
       }
     }
   };
@@ -208,7 +208,7 @@ const PlatformAISettings: React.FC<PlatformAISettingsProps> = ({
           </div>
 
           {/* AI Mode Selection */}
-          <div>
+          {onAIModeChange && <div>
             <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">
               {t('platforms.aiSettings.mode', 'AI 模式')}
             </label>
@@ -258,10 +258,10 @@ const PlatformAISettings: React.FC<PlatformAISettingsProps> = ({
               {aiMode === 'assist' && t('platforms.aiSettings.modeAssistHint', '人工优先处理，超时后 AI 自动接管。')}
               {aiMode === 'off' && t('platforms.aiSettings.modeOffHint', '禁用 AI，仅人工处理消息。')}
             </p>
-          </div>
+          </div>}
 
           {/* Fallback Timeout (only shown when mode is 'assist') */}
-          {aiMode === 'assist' && (
+          {onFallbackTimeoutChange && aiMode === 'assist' && (
             <div>
               <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
                 {t('platforms.aiSettings.timeout', '超时时间 (秒)')}

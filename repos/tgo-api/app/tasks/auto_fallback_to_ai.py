@@ -11,6 +11,7 @@ from sqlalchemy import or_
 
 from app.core.database import SessionLocal
 from app.models import Platform, Visitor, VisitorServiceStatus, VisitorSession, SessionStatus
+from app.models.platform import PlatformType
 from app.services.chat_service import handle_ai_response_non_stream
 from app.services.knowledge_channel import resolve_platform_knowledge_channel
 from app.services.employee_style import resolve_employee_style
@@ -63,6 +64,7 @@ async def check_and_fallback_to_ai():
     try:
         # 1) Get platforms in assist mode with timeout > 0
         platforms = db.query(Platform).filter(
+            Platform.type != PlatformType.WECHAT_LOCAL.value,
             Platform.ai_mode == "assist",
             Platform.fallback_to_ai_timeout > 0,
             Platform.is_active.is_(True),

@@ -40,6 +40,7 @@ from app.services.chat_media_service import MediaInputError
 from app.services.wukongim_client import wukongim_client
 from app.services.reply_service_mode import ensure_customer_auto_reply
 from app.utils.const import MessageType
+from app.utils.platform_ai_mode import effective_platform_ai_mode
 
 logger = get_logger("services.chat")
 
@@ -97,7 +98,9 @@ def resolve_service_mode(platform: Platform, visitor: Optional[Visitor]) -> str:
         if visitor_ai_disabled is not None:
             return "manual" if visitor_ai_disabled else "auto"
 
-    platform_mode = getattr(platform, "ai_mode", None)
+    platform_mode = effective_platform_ai_mode(
+        getattr(platform, "type", None), getattr(platform, "ai_mode", None)
+    )
     if platform_mode == "assist":
         return "assist"
     if platform_mode == "auto":
