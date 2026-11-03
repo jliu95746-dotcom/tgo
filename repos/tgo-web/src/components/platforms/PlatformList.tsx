@@ -22,6 +22,9 @@ interface PlatformListItemProps {
 
 const PlatformListItem: React.FC<PlatformListItemProps> = ({ platform }) => {
   const { t } = useTranslation();
+  const isWeChatLocal = platform.type === PlatformType.WECHAT_LOCAL;
+  const bridgeStatus = usePlatformStore(state => isWeChatLocal ? state.weChatLocalStatuses[platform.id] : undefined);
+
 
   const getStatusConfig = (status: string) => {
     switch (status) {
@@ -38,9 +41,17 @@ const PlatformListItem: React.FC<PlatformListItemProps> = ({ platform }) => {
     }
   };
 
-  const statusConfig = platform.type === PlatformType.WECHAT_LOCAL && platform.status !== 'disabled'
-    ? { color: 'bg-gray-400', text: t('platforms.wechatLocal.bridgeLink', '查看桥接状态'), textColor: 'text-gray-500' }
-    : getStatusConfig(platformDisplayStatus(platform));
+  let statusConfig = getStatusConfig(platformDisplayStatus(platform));
+  if (isWeChatLocal && platform.status !== 'disabled') {
+    if (bridgeStatus && bridgeStatus !== 'error' && bridgeStatus.connected) {
+      statusConfig = getStatusConfig('enabled');
+    } else {
+      const statusText = bridgeStatus === 'error' ? t('platforms.wechatLocal.unavailable', '状态暂不可用')
+        : bridgeStatus ? t('platforms.wechatLocal.offline', '待连接')
+        : t('platforms.wechatLocal.checking', '正在检查');
+      statusConfig = { color: 'bg-gray-400', text: statusText, textColor: 'text-gray-500' };
+    }
+  }
   const isSupported = platform.is_supported !== false; // default to true if not specified
   const displayName = platform.display_name || platform.name;
 

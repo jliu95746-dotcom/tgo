@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { IoLogoWechat } from 'react-icons/io5';
 import PlatformAISettings from './PlatformAISettings';
 import { useToast } from '@/hooks/useToast';
 import { getApiBaseUrl } from '@/services/api';
-import { platformsApiService, type WeChatLocalStatus } from '@/services/platformsApi';
+import { platformsApiService } from '@/services/platformsApi';
 import { usePlatformStore } from '@/stores/platformStore';
 import type { Platform } from '@/types';
 import { showApiError, showSuccess } from '@/utils/toastHelpers';
@@ -17,32 +17,10 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
   const updatePlatform = usePlatformStore(state => state.updatePlatform);
   const isSaving = usePlatformStore(state => state.isUpdating);
   const [isPairing, setIsPairing] = useState(false);
-  const [status, setStatus] = useState<WeChatLocalStatus | 'error' | null>(null);
+  const status = usePlatformStore(state => state.weChatLocalStatuses[platform.id]) ?? null;
   const [agentIds, setAgentIds] = useState<string[]>(platform.agent_id ? [platform.agent_id] : []);
   const disabled = platform.status === 'disabled';
   const agentChanged = (agentIds[0] ?? null) !== (platform.agent_id ?? null);
-
-  useEffect(() => {
-    if (disabled) return;
-    let disposed = false;
-    let timer: number;
-    const refresh = async () => {
-      try {
-        const latest = await platformsApiService.getWeChatLocalStatus(platform.id);
-        if (!disposed) setStatus(latest);
-      } catch {
-        if (!disposed) setStatus('error');
-      } finally {
-        if (!disposed) timer = window.setTimeout(refresh, 5000);
-      }
-    };
-    setStatus(null);
-    void refresh();
-    return () => {
-      disposed = true;
-      window.clearTimeout(timer);
-    };
-  }, [disabled, platform.id]);
 
   const connected = !disabled && status !== 'error' && status?.connected === true;
   const lastSeen = !disabled && status !== 'error' ? status?.last_seen_at : null;
@@ -161,7 +139,7 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
             </li>
             <li>{t('platforms.wechatLocal.v2Login')}</li>
             <li>
-              {scopedEnabled ? t('platforms.wechatLocal.v2SetupBind') : t('platforms.wechatLocal.v2ManualPreview')}
+              {scopedEnabled ? t('platforms.wechatLocal.v2ManualBind') : t('platforms.wechatLocal.v2ManualPreview')}
 
             </li>
           </ol>
