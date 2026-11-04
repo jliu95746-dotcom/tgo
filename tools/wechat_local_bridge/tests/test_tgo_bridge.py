@@ -148,3 +148,22 @@ class TgoBridgeTests(unittest.TestCase):
             self.bridge.initialize()
         self.assertEqual(self.store.delivery_stats(), {"uncertain": 1})
         self.rpa.click_send.assert_called_once()
+
+    def test_scoped_media_is_prepared_before_submit_and_self_media_is_ignored(self):
+        from tools.wechat_local_bridge.media_types import UploadedMedia
+        self.bridge.scoped = True
+        self.bridge.media = Mock()
+        self.bridge.media.prepare.side_effect = [None, UploadedMedia("file-id", "image", "/v1/chat/files/file-id")]
+        self.client.account_tag = "fixture"
+        incoming = replace(self.inbound, message_type=3, text="", sender_id="filehelper", is_self=False)
+        self.reader.new_messages.side_effect = None
+        self.reader.new_messages.return_value = []
+        self.client.history.return_value = {"messages": []}
+        self.bridge.observe([incoming, replace(incoming, local_id=25, is_self=True)])
+        self.bridge.poll(read_local=False)
+        self.client.submit.assert_not_called()
+        self.assertEqual(self.store.stats(), {"observed": 1, "ignored": 1})
+        self.bridge.poll(read_local=False)
+        self.assertEqual(self.client.submit.call_args.kwargs["media"].file_id, "file-id")
+        self.assertEqual(self.store.stats(), {"accepted": 1, "ignored": 1})
+        self.bridge.media.completed.assert_called()

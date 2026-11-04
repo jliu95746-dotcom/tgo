@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .crypto import open_snapshot
+from .local_media import LocalMediaReader
+from .media_pipeline import MediaPipeline
 from .reader import WeChatReader, conversation_table, read_messages
 from .reception_scope import Grant, Scope
 from .rpa import RpaNotReady
@@ -123,9 +125,11 @@ class ScopedBridge:
             nickname=(contact.remark or contact.nickname or ("微信群聊" if contact.is_group else "微信联系人"))[:80],
         )
         reader = WeChatReader(self.key_file, contact.id, scoped=True)
+        active = lambda: self._active(grant)
+        media = MediaPipeline(LocalMediaReader(reader, self.key_file, path, active), client, path, active)
         return Worker(grant, TgoBridge(
             reader, store, path, "", client, None, self.allow_send, float("inf"), float("inf"),
-            scoped=True, active=lambda: self._active(grant),
+            scoped=True, active=active, media=media,
         ))
 
     def _reconcile(self, grants: dict[str, Grant]) -> None:
@@ -133,6 +137,8 @@ class ScopedBridge:
             current = grants.get(identity)
             if current is None or current.revision != worker.grant.revision:
                 worker.bridge.stop.set()
+                if worker.bridge.media is not None:
+                    worker.bridge.media.close()
                 worker.bridge.ledger.close()
                 del self.workers[identity]
         for identity, grant in grants.items():
@@ -288,4 +294,7 @@ class ScopedBridge:
             except (TgoError, OSError):
                 pass
             for worker in self.workers.values():
+                worker.bridge.stop.set()
+                if worker.bridge.media is not None:
+                    worker.bridge.media.close()
                 worker.bridge.ledger.close()

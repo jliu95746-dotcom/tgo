@@ -1,4 +1,4 @@
-"""Forward new filehelper texts to TGO and deliver completed replies through RPA."""
+"""Forward authorized messages to TGO and deliver text replies through RPA."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .reader import Message, WeChatReader
+from .media_pipeline import MediaPipeline
 from .rpa import RpaBackend, RpaNotReady, fill_draft
 from .tgo_client import TgoClient, TgoError, TgoUnavailable
 from .tgo_protocol import decode_reply, object_map
@@ -38,11 +39,13 @@ class TgoBridge(Watcher):
         *,
         scoped: bool = False,
         active: Callable[[], bool] | None = None,
+        media: MediaPipeline | None = None,
     ):
         super().__init__(reader, store, runtime, prefix, backend, max_seconds)
         self.ledger, self.client, self.backend = store, client, backend
         self.allow_send, self.max_sends = allow_send, max_sends
         self.scoped, self.active = scoped, active or (lambda: True)
+        self.media = media
         self.sent_this_run = 0
         self.next_delivery_at = 0.0
         self.next_heartbeat_at = 0.0
@@ -83,10 +86,9 @@ class TgoBridge(Watcher):
             if not self.active():
                 break
             eligible = (
-                message.message_type == 1
-                and bool(message.text.strip())
-                and len(message.text) <= 8000
-                and message.text.startswith(self.prefix)
+                ((message.message_type == 1 and bool(message.text.strip())
+                  and len(message.text) <= 8000 and message.text.startswith(self.prefix))
+                 or (self.scoped and self.media is not None and message.message_type in (3, 34)))
                 and (not self.scoped or (
                     not message.is_self and bool(message.sender_id)
                     and (message.chat_id.endswith("@chatroom") or message.sender_id == message.chat_id)
@@ -210,8 +212,18 @@ class TgoBridge(Watcher):
             self.polls += 1
             count = self._read_wechat() if read_local else 0
             message = self.ledger.next_inbound()
+            media = None
+            if message and message.message_type in (3, 34):
+                if self.media is None:
+                    raise TgoError("当前会话尚未配置媒体读取")
+                media = self.media.prepare(message)
+                self.rpa_status = self.media.status
+                if media is None:
+                    message = None
             if message and not self.stop.is_set() and self.active():
                 self.ledger.begin_submission(message.event_id)
+                if media is not None and self.media is not None:
+                    self.media.completed()
                 if not self.active():
                     self.ledger.submission_uncertain(message.event_id)
                     return count
@@ -226,6 +238,7 @@ class TgoBridge(Watcher):
                                 and (not message.mentions_verified or not message.mentioned_ids)
                             ),
                             author=hashlib.sha256(f"{self.client.account_tag}:{message.sender_id}".encode()).hexdigest(),
+                            **({"media": media} if media is not None else {}),
                         )
                     else:
                         receipt = self.client.submit(message.event_id, message.text)
@@ -237,6 +250,8 @@ class TgoBridge(Watcher):
                     raise
                 else:
                     self.ledger.accepted(message.event_id, receipt)
+                    if self.media is not None:
+                        self.media.completed()
                     self.rpa_status = (
                         "客服系统已接收，等待人工回复"
                         if receipt

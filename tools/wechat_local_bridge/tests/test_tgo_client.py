@@ -4,8 +4,11 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
+from uuid import uuid4
 
 from tools.wechat_local_bridge.tgo_client import TgoClient, TgoError, bridge_base_url
+from tools.wechat_local_bridge.media_types import MediaContent
 
 
 class TgoClientTests(unittest.TestCase):
@@ -135,3 +138,32 @@ class TgoClientTests(unittest.TestCase):
         ):
             with self.subTest(url=url, channel=channel), self.assertRaises(ValueError):
                 bridge_base_url(url, channel)
+
+    def test_media_upload_uses_visitor_token_platform_key_and_owned_channel(self):
+        config = json.loads(self.config_file.read_text())
+        config.update(chat_id="scoped", platform_type="wechat_local")
+        self.config_file.write_text(json.dumps(config))
+        client = TgoClient(self.config_file, self.root, "account-a", scoped=True, identity="fixture-identity")
+        client.session = {"channel_id": "visitor-vtr", "id": "visitor", "im_token": "fixture-token",
+                          "platform_open_id": "fixture-identity"}
+        file_id = str(uuid4())
+        with patch("tools.wechat_local_bridge.tgo_client.request_json", return_value={
+            "channel_id": "visitor-vtr", "channel_type": 251, "file_id": file_id,
+        }) as upload:
+            media = client.upload_media(MediaContent("voice", "audio/silk", b"fixture-silk"))
+            request = upload.call_args.args[1]
+            self.assertEqual(request.get_header("Authorization"), "Bearer fixture-token")
+            self.assertEqual(request.get_header("X-platform-api-key"), "test-channel-key")
+            self.assertIn(b'name="channel_id"\r\n\r\nvisitor-vtr', request.data)
+            self.assertIn(b"Content-Type: audio/silk", request.data)
+            self.assertEqual(media.file_id, file_id)
+        client.submit("a" * 64, "", media=media)
+        body = self.calls[-1][2]
+        self.assertEqual(body["msg_type"], 4)
+        self.assertEqual(body["media_file_id"], file_id)
+        self.assertEqual(body["source_message_id"], "wxlocal:"+"a"*64)
+        with patch("tools.wechat_local_bridge.tgo_client.request_json", return_value={
+            "channel_id": "other-vtr", "channel_type": 251, "file_id": file_id,
+        }):
+            with self.assertRaises(TgoError):
+                client.upload_media(MediaContent("image", "image/png", b"fixture"))

@@ -41,7 +41,7 @@ class ChatMediaService:
         self._db = db
         self._storage = storage or get_storage()
 
-    async def load(self, request: ChatMediaInput) -> LoadedChatMedia:
+    def authorize(self, request: ChatMediaInput) -> ChatFile:
         # URLs supply an identifier only. Their host is never contacted.
         try:
             path = urlsplit(request.reference).path
@@ -81,6 +81,12 @@ class ChatMediaService:
             raise MediaInputError(
                 "文件类型或大小不适合识别，请重新上传或补充文字说明。"
             )
+        return row
+
+    async def load(self, request: ChatMediaInput) -> LoadedChatMedia:
+        row = self.authorize(request)
+        max_bytes = settings.MULTIMODAL_MAX_MEDIA_BYTES
+        mime_type = row.file_type.lower()
         try:
             content = await self._storage.read(row.file_path, max_bytes=max_bytes)
         except (OSError, ValueError, NotImplementedError) as exc:

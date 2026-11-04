@@ -94,6 +94,7 @@ from app.services.ai_interaction_run_service import (
 )
 from app.models.platform import PlatformType
 from app.services.wechat_local_bridge import authorize_bridge_visitor
+from app.services.wechat_media import authorize_wechat_media, normalize_wechat_upload
 from app.utils.wechat_local import is_wechat_local_source
 from app.services.chat_service import get_or_create_visitor
 from app.services.humanization_service import (
@@ -391,21 +392,28 @@ async def chat_completion(
     wechat_manual_only = False
     if platform.type == PlatformType.WECHAT_LOCAL.value:
         if (
-            req.msg_type != MessageType.TEXT
+            req.msg_type not in (MessageType.TEXT, MessageType.IMAGE, MessageType.VOICE)
             or not is_wechat_local_source(req.source_message_id)
             or not req.forward_user_message_to_wukongim
         ):
-            raise HTTPException(403, "个人微信仅接入授权会话的文字消息")
+            raise HTTPException(403, "个人微信仅接入授权会话的文字、图片和语音消息")
         actor, scoped_target = await authorize_bridge_visitor(
             db, platform, req.channel_id, req.channel_type, credentials
         )
         if actor.platform_open_id != req.from_uid:
             raise HTTPException(403, "个人微信访客身份不匹配")
+        if req.msg_type != MessageType.TEXT:
+            if scoped_target is None:
+                raise HTTPException(403, "微信媒体需要启用接待范围")
+            authorize_wechat_media(db, platform, actor, req)
         if scoped_target is not None:
             extra = req.extra or {}
             wechat_manual_only = scoped_target.is_group and (
                 extra.get("wechat_local_mention_ambiguous") is True
-                or not scoped_target.allows_ai(req.message, extra.get("wechat_local_mentioned") is True)
+                or not scoped_target.allows_ai(
+                    req.message if req.msg_type == MessageType.TEXT else "",
+                    extra.get("wechat_local_mentioned") is True,
+                )
             )
             req.system_message = None
             author = extra.get("wechat_local_author")
@@ -1074,6 +1082,12 @@ async def chat_file_upload(
     if not current_user and not platform:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
 
+    if platform and platform.type == PlatformType.WECHAT_LOCAL.value:
+        _actor, target = await authorize_bridge_visitor(db, platform, channel_id, channel_type, credentials)
+        if target is None:
+            raise HTTPException(403, "微信媒体需要启用接待范围")
+        file = await normalize_wechat_upload(file)
+
     # Determine project context
     if current_user:
         project_id = current_user.project_id
@@ -1174,6 +1188,8 @@ async def chat_file_upload(
     buffer.seek(0)
 
     # 6) Upload via storage backend
+    if platform and platform.type == PlatformType.WECHAT_LOCAL.value:
+        await authorize_bridge_visitor(db, platform, channel_id, channel_type, credentials)
     from app.services.storage import get_storage
     storage = get_storage()
     try:

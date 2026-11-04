@@ -9,11 +9,13 @@ from base64 import urlsafe_b64decode
 from binascii import Error as Base64Error
 from collections.abc import Mapping
 from pathlib import Path
+from uuid import UUID, uuid4
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, OpenerDirector, ProxyHandler, Request, build_opener
 
 from .tgo_protocol import object_map
+from .media_types import MAX_MEDIA_BYTES, MediaContent, UploadedMedia
 
 
 class TgoError(RuntimeError):
@@ -87,6 +89,10 @@ def post_json(
         headers=dict(headers),
         method="POST",
     )
+    return request_json(opener, request)
+
+
+def request_json(opener: OpenerDirector, request: Request) -> Mapping[str, object]:
     try:
         with opener.open(request, timeout=15) as response:
             raw = response.read(2 * 1024**2 + 1)
@@ -229,8 +235,10 @@ class TgoClient:
 
     def submit(
         self, event_id: str, text: str, *, mentioned: bool = False,
-        mention_ambiguous: bool = False, author: str = "",
+        mention_ambiguous: bool = False, author: str = "", media: UploadedMedia | None = None,
     ) -> str:
+        if media is not None and not self.scoped:
+            raise TgoError("媒体仅用于已授权的接待会话")
         extra = {
             "message_id": "wxlocal:" + event_id,
             "source": "wechat-local-bridge",
@@ -247,7 +255,9 @@ class TgoClient:
                 "from_uid": self.session["platform_open_id"],
                 "channel_id": self.channel_id,
                 "channel_type": 251,
-                "message": text,
+                "message": media.url if media else text,
+                "msg_type": (2 if media.kind == "image" else 4) if media else 1,
+                "media_file_id": media.file_id if media else None,
                 "source_message_id": "wxlocal:" + event_id,
                 "extra": extra,
                 "stream": False,
@@ -265,6 +275,33 @@ class TgoClient:
         if event in ("human_handoff", "ai_disabled", "assist_mode", "queued"):
             return str(event)
         raise TgoError("客服接口未返回可识别的接收回执")
+
+    def upload_media(self, media: MediaContent) -> UploadedMedia:
+        if not self.scoped or hashlib.sha256(self.config_file.read_bytes()).digest() != self.config_hash:
+            raise TgoError("媒体上传需要当前授权会话和有效绑定")
+        token = self.session.get("im_token")
+        if not isinstance(token, str) or not token or not 0 < len(media.content) <= MAX_MEDIA_BYTES:
+            raise TgoError("媒体或访客凭据无效")
+        boundary = "wechat-" + uuid4().hex
+        body = bytearray()
+        for name, value in (("channel_id", self.channel_id), ("channel_type", "251")):
+            body.extend(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+        # Fixed ASCII transport name keeps multipart headers portable; the UI supplies Chinese labels.
+        extension = media.filename.rsplit(".", 1)[-1]
+        body.extend((f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="wechat.{extension}"'
+                     f'\r\nContent-Type: {media.mime_type}\r\n\r\n').encode())
+        body.extend(media.content)
+        body.extend(f"\r\n--{boundary}--\r\n".encode())
+        response = request_json(self.opener, Request(self.base + "/v1/chat/upload", data=bytes(body),
+            headers={"Content-Type": "multipart/form-data; boundary=" + boundary,
+                     "Authorization": "Bearer " + token, "X-Platform-API-Key": self.api_key}, method="POST"))
+        if response.get("channel_id") != self.channel_id or response.get("channel_type") != 251:
+            raise TgoError("媒体上传回执与授权会话不一致")
+        try:
+            file_id = str(UUID(str(response.get("file_id"))))
+        except ValueError:
+            raise TgoError("媒体上传回执缺少文件编号") from None
+        return UploadedMedia(file_id, media.kind, self.base + "/v1/chat/files/" + file_id)
 
     def publish_scope(self, targets: list[Mapping[str, object]]) -> None:
         if not self.scoped:

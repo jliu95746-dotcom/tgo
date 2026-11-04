@@ -17,6 +17,7 @@
 <main>
   <h1>个人微信接待范围</h1>
   <p class="muted">选择要接待的会话。通讯录和分组保存在这台电脑。</p>
+  <p class="muted">支持接收文字、图片和语音，客服以文字回复。</p>
   <p id="status" role="status" class="state"></p>
   <div class="row">
     <small id="window-status" role="status"></small>
@@ -42,7 +43,7 @@
   </section>
   <section>
     <h2>群聊</h2>
-    <p class="muted">勾选的群聊会接入新文字消息。只有明确 @ 本账号或命中填写的关键词才触发 AI 自动回复。</p>
+    <p class="muted">勾选的群聊会接入新消息。文字明确 @ 本账号或命中关键词时自动回复；图片和语音需明确 @ 本账号，其他消息交由人工处理。</p>
     <div id="rooms" class="list"></div>
   </section>
   <section id="suspended-section" hidden>
