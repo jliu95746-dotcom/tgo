@@ -45,7 +45,7 @@ def _row(
 
 def collection_counts_statement(
     project: UUID, channel: KnowledgeChannel | str, at: datetime,
-) -> Select[tuple[UUID, int, int]]:
+) -> Select[tuple[UUID | None, int, int]]:
     admitted = KnowledgeGovernancePolicy.eligible_document_ids_statement(
         project_id=project, at=at, channel=KnowledgeChannel(channel),
     )

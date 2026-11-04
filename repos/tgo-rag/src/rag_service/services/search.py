@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..database import get_db_session
 from ..logging_config import get_logger
-from ..models import FileDocument
+from ..models import File, FileDocument
 from ..schemas.search import (
     AutomaticAnswerSearchResponse,
     AutomaticAnswerSearchResult,
@@ -248,28 +248,41 @@ class SearchService:
                 score_threshold=min_score,
             )
 
-            # Convert vector results to search results
+            # Hydrate metadata once, retaining vector rank and score order.
+            document_ids = list(dict.fromkeys(
+                UUID(doc.id) for doc, _ in vector_results if doc.id
+            ))
+            records = await self._get_document_records(
+                document_ids, project_id, collection_id
+            )
             search_results = []
             for doc, score in vector_results:
                 document_id = doc.id
                 if document_id:
-                    # Get full document info from database with project filtering
-                    document_info = await self._get_document_info(UUID(document_id), project_id)
-                    if document_info:
+                    record = records.get(UUID(document_id))
+                    if record:
+                        document, source_file = record
                         search_result = SearchResult(
                             document_id=UUID(document_id),
-                            file_id=document_info["file_id"],
-                            collection_id=document_info.get("collection_id"),
+                            file_id=document.file_id,
+                            collection_id=document.collection_id,
                             relevance_score=score,
                             content_preview=self._create_content_preview(doc.page_content),
-                            document_title=document_info.get("document_title"),
-                            content_type=document_info.get("content_type", "paragraph"),
-                            chunk_index=document_info.get("chunk_index"),
-                            page_number=document_info.get("page_number"),
-                            section_title=document_info.get("section_title"),
-                            tags=document_info.get("tags"),
-                            metadata=document_info.get("metadata", {}),
-                            created_at=document_info["created_at"],
+                            document_title=document.document_title,
+                            content_type=document.content_type,
+                            chunk_index=document.chunk_index,
+                            page_number=document.page_number,
+                            section_title=document.section_title,
+                            tags=document.tags,
+                            metadata={
+                                "source": (source_file.original_filename
+                                           if source_file else "Unknown"),
+                                "filename": (source_file.original_filename
+                                             if source_file else None),
+                                "file_size": (source_file.file_size
+                                              if source_file else None),
+                            },
+                            created_at=document.created_at,
                         )
                         search_results.append(search_result)
             
@@ -563,53 +576,35 @@ class SearchService:
         except Exception as e:
             logger.error(f"Hybrid search failed: {str(e)}")
             raise
-    
 
-    async def _get_document_info(self, document_id: UUID, project_id: UUID) -> Optional[Dict[str, Any]]:
-        """
-        Get document information from database with project filtering.
+    async def _get_document_records(
+        self,
+        document_ids: List[UUID],
+        project_id: UUID,
+        collection_id: Optional[UUID],
+    ) -> Dict[UUID, Tuple[FileDocument, Optional[File]]]:
+        """Load vector hits in one tenant- and collection-scoped read."""
+        if not document_ids:
+            return {}
 
-        Args:
-            document_id: Document UUID
-            project_id: Project ID for multi-tenant isolation
-
-        Returns:
-            Document information dictionary or None if not found
-        """
-        from ..models import File  # Import locally to avoid circular imports if any
-        
+        query = select(FileDocument, File).outerjoin(
+            File,
+            and_(
+                FileDocument.file_id == File.id,
+                File.project_id == project_id,
+            ),
+        ).where(
+            FileDocument.id.in_(document_ids),
+            FileDocument.project_id == project_id,
+        )
+        if collection_id is not None:
+            query = query.where(FileDocument.collection_id == collection_id)
         async with get_db_session() as db:
-            query = select(FileDocument, File).outerjoin(
-                File, FileDocument.file_id == File.id
-            ).where(
-                and_(
-                    FileDocument.id == document_id,
-                    FileDocument.project_id == project_id
-                )
-            )
             result = await db.execute(query)
-            row = result.first()
-            
-            if row:
-                document, file = row
-                return {
-                    "file_id": document.file_id,
-                    "collection_id": document.collection_id,
-                    "document_title": document.document_title,
-                    "content_type": document.content_type,
-                    "chunk_index": document.chunk_index,
-                    "page_number": document.page_number,
-                    "section_title": document.section_title,
-                    "tags": document.tags,
-                    "created_at": document.created_at,
-                    "metadata": {
-                        "source": file.original_filename if file else "Unknown",
-                        "filename": file.original_filename if file else None,
-                        "file_size": file.file_size if file else None,
-                    }
-                }
-            
-            return None
+            return {
+                document.id: (document, source_file)
+                for document, source_file in result.all()
+            }
 
     def _create_content_preview(self, content: Optional[str], length: int = 200) -> str:
         """

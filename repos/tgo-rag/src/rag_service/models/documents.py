@@ -3,6 +3,7 @@ Document model for processed document chunks.
 """
 
 from typing import Optional
+from uuid import UUID as UUIDValue
 
 from sqlalchemy import ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
@@ -33,20 +34,20 @@ class FileDocument(Base, UUIDMixin, TimestampMixin):
     __tablename__ = table_name
 
     # Foreign keys
-    project_id: Mapped[UUID] = mapped_column(
+    project_id: Mapped[UUIDValue] = mapped_column(
         UUID(as_uuid=True),
         nullable=False,
         doc="Associated project ID for multi-tenant isolation",
     )
 
-    file_id: Mapped[Optional[UUID]] = mapped_column(
+    file_id: Mapped[Optional[UUIDValue]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("rag_files.id", ondelete="SET NULL"),
         nullable=True,
         doc="Associated file ID (nullable for QA pairs)",
     )
 
-    collection_id: Mapped[Optional[UUID]] = mapped_column(
+    collection_id: Mapped[Optional[UUIDValue]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("rag_collections.id", ondelete="SET NULL"),
         nullable=True,
