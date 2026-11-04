@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import cv2
@@ -9,6 +10,14 @@ import numpy as np
 from PIL import Image
 
 from .rpa import RpaNotReady
+
+# Some OpenCV wheels ignore the environment setting during initialization.
+try:
+    _thread_count = int(os.environ.get("OPENCV_FOR_THREADS_NUM", "1"))
+except ValueError:
+    _thread_count = 1
+cv2.setNumThreads(_thread_count)
+del _thread_count
 
 
 @dataclass(frozen=True)
