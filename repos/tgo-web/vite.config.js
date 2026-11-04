@@ -49,6 +49,9 @@ export default defineConfig({
       input: { main: path.resolve(__dirname, 'index.html'), launchGuide: path.resolve(__dirname, 'launch-guide.html') },
       output: {
         manualChunks(id) {
+          // React's CommonJS wrapper must not depend on an application chunk:
+          // that chunk also imports icons which consume React during startup.
+          if (id.includes('commonjsHelpers')) return 'vendor-react';
           if (id.includes('/pages/LaunchGuide.tsx') || id.includes('/i18n/launchGuide.ts')) return 'launch-guide';
           // React core libraries + react-i18next (must be together)
           if (id.includes('node_modules/react/') ||
