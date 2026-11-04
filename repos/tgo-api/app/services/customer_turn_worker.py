@@ -46,7 +46,7 @@ def recover() -> list[tuple[UUID, float]]:
                         ),
                         and_(
                             CustomerTurn.state == "sending",
-                            CustomerTurn.ready_at < now - timedelta(seconds=120),
+                            CustomerTurn.updated_at < now - timedelta(seconds=120),
                         ),
                     )
                 )
@@ -58,7 +58,7 @@ def recover() -> list[tuple[UUID, float]]:
         for row in rows:
             if (
                 row.state == "sending"
-                and (now - utc(row.ready_at or row.updated_at)).total_seconds() > 120
+                and (now - utc(row.updated_at)).total_seconds() > 120
             ):
                 row.state = "uncertain"
                 row.failure = "发送结果待核对，停止自动重试"

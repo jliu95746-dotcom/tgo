@@ -146,3 +146,30 @@ class VisualLocator:
         # Current light theme has grey placeholder text and a green caret.
         # Only treat a failed copy as empty when no dark draft glyphs are visible.
         return int(np.count_nonzero(pixels < 100)) <= 10
+
+    @classmethod
+    def locate_send_button(cls, image: Image.Image, template: np.ndarray) -> tuple[int, int, int, int]:
+        """Verify the label and enabled color; tolerate only outer-border changes."""
+        width, height = image.size
+        pixels = np.asarray(image.convert("L"))
+        region = (width * 3 // 4, height * 3 // 4, width - 8, height - 8)
+        try:
+            box, _, _ = cls._match(pixels, template, region, "已启用的发送按钮")
+        except RpaNotReady:
+            inset = min(4, min(template.shape) // 6)
+            if inset < 1:
+                raise
+            # Keep the same confidence and uniqueness thresholds. The glyphs
+            # remain exact; rounded corners and hover outlines are excluded.
+            core = template[inset:-inset, inset:-inset]
+            inner, _, scale = cls._match(pixels, core, region, "发送按钮文字")
+            box = (inner[0] - round(inset * scale), inner[1] - round(inset * scale),
+                   round(template.shape[1] * scale), round(template.shape[0] * scale))
+        left, top, bw, bh = box
+        if left < region[0] or top < region[1] or left + bw > region[2] or top + bh > region[3]:
+            raise RpaNotReady("发送按钮显示不完整，停止点击")
+        button = np.asarray(image.crop((left, top, left + bw, top + bh)).convert("RGB"))
+        green = (button[:, :, 0] < 60) & (button[:, :, 1] > 130) & (button[:, :, 2] < 155)
+        if float(green.mean()) < .45:
+            raise RpaNotReady("发送按钮未启用，等待核对")
+        return box

@@ -506,7 +506,19 @@ class ScopedRpa(NativeRpa):
 
     def send_point(self, expected: str) -> tuple[int, int]:
         if self._verified_header is None:
-            raise RpaNotReady("回复需要人工核对")
+            if self.unread_state is not None:
+                raise RpaNotReady("同名企微会话需要重新核对，保留草稿")
+            # A filled outbox survives a restart. Rebuild its proof from the
+            # unique authorized title, exact editor text and internal chat ID.
+            self.ensure_conversation()
+            original = self.get_clipboard()
+            try:
+                if self.read_input() != expected or not self.draft_matches(expected):
+                    raise RpaNotReady("已填写回复与授权会话草稿不一致，保留原内容")
+                self.check_target()
+                self._verified_header = self._header
+            finally:
+                self.restore_clipboard(original)
         point = super().send_point(expected)
         if self._header != self._verified_header:
             raise RpaNotReady("微信会话已变化，回复需要人工核对")

@@ -93,6 +93,7 @@ def test_ambiguous_send_never_retries_but_a_late_actual_receipt_can_settle(turns
     turns.stage(first.turn_id, 1, "完整答复", "staff-staff", None)
     claim = turns.claim(first.turn_id, 1).claim_id
     turns.confirm(first.turn_id, 1, claim, "unknown", None)
+    turns.get(first.turn_id).failure = "发送结果待核对，停止自动重试"
     with pytest.raises(HTTPException):
         turns.claim(first.turn_id, 1)
     with pytest.raises(HTTPException):
@@ -101,8 +102,26 @@ def test_ambiguous_send_never_retries_but_a_late_actual_receipt_can_settle(turns
         turns.confirm(first.turn_id, 1, claim, "sent", "actual-provider-receipt").state
         == "sent"
     )
+    assert turns.get(first.turn_id).failure is None
     second, _ = turns.ingest(**scope, request=message("next", "补充"))
     assert second.turn_id != first.turn_id
+
+
+def test_send_timeout_starts_at_claim_instead_of_old_reply_ready_time(
+    turns, monkeypatch
+):
+    first, _ = turns.ingest(**args(), request=message())
+    turns.stage(first.turn_id, 1, "完整答复", "staff-staff", None)
+    row = turns.get(first.turn_id)
+    row.ready_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    turns.claim(first.turn_id, 1)
+    turns.db.commit()
+    monkeypatch.setattr(
+        customer_turn_worker, "SessionLocal", lambda: Session(turns.db.get_bind())
+    )
+    customer_turn_worker.recover()
+    turns.db.expire_all()
+    assert turns.get(first.turn_id).state == "sending"
 
 
 def test_superseded_generation_refunds_before_final_delivery_and_settles_once(

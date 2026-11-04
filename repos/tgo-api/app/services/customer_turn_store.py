@@ -296,6 +296,7 @@ class TurnStore:
                 {"kind": "customer_turn", "turn_id": str(turn.id)},
             )
         turn.state, turn.claim_id = "sending", uuid4()
+        turn.updated_at = datetime.now(timezone.utc)
         self.db.flush()
         return turn
 
@@ -312,6 +313,7 @@ class TurnStore:
             raise HTTPException(409, "发送回执不属于当前轮次")
         if turn.state in ("sent", "failed"):
             if turn.state == "sent" and result == "sent" and turn.receipt == proof:
+                turn.failure = None
                 return turn
             raise HTTPException(409, "发送结果已保存，不能覆盖")
         if turn.state == "uncertain" and result == "unknown":
@@ -322,6 +324,14 @@ class TurnStore:
             result
         ]
         turn.receipt = proof
+        turn.updated_at = datetime.now(timezone.utc)
+        turn.failure = (
+            None
+            if result == "sent"
+            else "发送结果待核对，停止自动重试"
+            if result == "unknown"
+            else "渠道未接受本轮回复"
+        )
         turn.delivered_at = datetime.now(timezone.utc) if result == "sent" else None
         turn.due_at = datetime.now(timezone.utc)
         if turn.permit:

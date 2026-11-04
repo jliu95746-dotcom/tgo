@@ -12,6 +12,46 @@ from tools.wechat_local_bridge.scoped_rpa import ScopedRpa, matches_header, resu
 from tools.wechat_local_bridge.window_ocr import TextLine
 
 
+class FilledDraftRecoveryTests(unittest.TestCase):
+    def backend(self):
+        backend = ScopedRpa.__new__(ScopedRpa)
+        backend._verified_header, backend._header = None, b"verified-current-title"
+        backend.unread_state = None
+        backend.ensure_conversation = Mock()
+        backend.check_target = Mock()
+        backend.get_clipboard = Mock(return_value="original clipboard")
+        backend.restore_clipboard = Mock()
+        backend.read_input = Mock(return_value="cloud reply")
+        backend.draft_matches = Mock(return_value=True)
+        return backend
+
+    def test_restart_rechecks_unique_title_editor_and_owned_database_draft(self):
+        backend = self.backend()
+        with patch.object(NativeRpa, "send_point", return_value=(10, 20)):
+            self.assertEqual(backend.send_point("cloud reply"), (10, 20))
+        backend.draft_matches.assert_called_once_with("cloud reply")
+        backend.check_target.assert_called_once()
+        backend.restore_clipboard.assert_called_once_with("original clipboard")
+
+    def test_human_draft_or_wrong_internal_contact_cannot_resume(self):
+        for wrong_editor in (True, False):
+            backend = self.backend()
+            if wrong_editor:
+                backend.read_input.return_value = "human changed draft"
+            else:
+                backend.draft_matches.return_value = False
+            with patch.object(NativeRpa, "send_point") as send, self.assertRaises(RpaNotReady):
+                backend.send_point("cloud reply")
+            send.assert_not_called()
+
+    def test_ambiguous_enterprise_title_still_requires_independent_identity_proof(self):
+        backend = self.backend()
+        backend.unread_state = Mock()
+        with patch.object(NativeRpa, "send_point") as send, self.assertRaises(RpaNotReady):
+            backend.send_point("cloud reply")
+        send.assert_not_called()
+
+
 class ScopedVisualGuardTests(unittest.TestCase):
     def search_backend(self):
         backend = ScopedRpa.__new__(ScopedRpa)

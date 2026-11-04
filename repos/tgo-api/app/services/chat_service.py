@@ -509,6 +509,12 @@ async def _process_ai_reply_to_wukongim(
                     None, project_id=project_id, channel=knowledge_channel,
                 )
             knowledge_evidence.tool_results.extend(trusted_tool_evidence)
+            from app.services.customer_turn_context import current_execution
+            turn_context = current_execution.get()
+            if turn_context is not None:
+                logging.info("Customer turn knowledge turn=%s version=%s status=%s documents=%s",
+                             turn_context.turn_id, turn_context.version,
+                             knowledge_evidence.status, len(knowledge_evidence.documents))
             style = await get_humanization_skill_prompt(
                 project_id, humanization_skill_name, message, reply, history) if humanization_skill_name else ""
             reply = await rewrite_assist_draft(

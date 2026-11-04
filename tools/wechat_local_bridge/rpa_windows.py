@@ -244,8 +244,6 @@ class NativeRpa:
 
     def send_point(self, expected: str) -> tuple[int, int]:
         """Verify the exact draft and identify the enabled Send button."""
-        import numpy as np
-
         if self.send_template is None:
             raise RpaNotReady("发送按钮尚未完成视觉校准")
         self.ensure_conversation()
@@ -257,22 +255,8 @@ class NativeRpa:
             self.restore_clipboard(original)
         self.check_target()
         screenshot = self.gui.screenshot(region=self.bounds).convert("RGB")
-        width, height = screenshot.size
-        box, _, _ = self.locator._match(
-            np.asarray(screenshot.convert("L")),
-            self.send_template,
-            (width * 3 // 4, height * 3 // 4, width - 8, height - 8),
-            "已启用的发送按钮",
-        )
+        box = self.locator.locate_send_button(screenshot, self.send_template)
         left, top, button_width, button_height = box
-        button = np.asarray(
-            screenshot.crop((left, top, left + button_width, top + button_height))
-        )
-        green = (
-            (button[:, :, 0] < 60) & (button[:, :, 1] > 130) & (button[:, :, 2] < 155)
-        )
-        if float(green.mean()) < 0.45:
-            raise RpaNotReady("发送按钮未启用，等待核对")
         point = (
             self.bounds[0] + left + button_width // 2,
             self.bounds[1] + top + button_height // 2,

@@ -22,6 +22,12 @@ class TgoError(RuntimeError):
     pass
 
 
+class TgoAuthorizationError(TgoError):
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+        super().__init__(f"客服 API HTTP {status_code}，等待重新核对当前会话授权")
+
+
 class TurnChanged(TgoError):
     pass
 
@@ -101,6 +107,8 @@ def request_json(opener: OpenerDirector, request: Request) -> Mapping[str, objec
         with opener.open(request, timeout=15) as response:
             raw = response.read(2 * 1024**2 + 1)
     except HTTPError as error:
+        if error.code in (401, 403):
+            raise TgoAuthorizationError(error.code) from None
         if error.code >= 500:
             raise TgoUnavailable(f"客服 API HTTP {error.code}") from None
         if error.code == 409:
@@ -163,7 +171,7 @@ class TgoClient:
             headers["Authorization"] = "Bearer " + token
         return post_json(self.opener, self.base + endpoint, body, headers)
 
-    def connect(self) -> None:
+    def connect(self, *, force_refresh: bool = False) -> None:
         identity = self.identity
         if identity is None:
             raise TgoError("未指定授权会话")
@@ -178,7 +186,7 @@ class TgoClient:
             ):
                 raise TgoError("已有客服访客不属于当前绑定，保留原凭据并停止")
             self.session = session
-        if not self.session or (
+        if force_refresh or not self.session or (
             self.platform_type == "wechat_local" and visitor_token_expired(self.session.get("im_token"))
         ):
             previous_id = self.session.get("id")

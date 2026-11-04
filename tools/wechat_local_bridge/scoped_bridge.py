@@ -19,7 +19,7 @@ from .reader import WeChatReader, conversation_table, read_messages
 from .reception_scope import Grant, Scope
 from .rpa import RpaNotReady
 from .tgo_bridge import TgoBridge
-from .tgo_client import TgoClient, TgoError, TgoUnavailable, visitor_token_expired
+from .tgo_client import TgoClient, TgoError, TgoUnavailable, TgoAuthorizationError, visitor_token_expired
 from .tgo_store import TgoStore
 from .window_control import WindowControl
 from .window_ocr import normalized_title
@@ -42,6 +42,7 @@ class Worker:
     target_same_title: bool = False
     future: Future[None] | None = None
     delivery_future: Future[None] | None = None
+    refresh_session: bool = False
 
 
 class ScopedBridge:
@@ -234,18 +235,34 @@ class ScopedBridge:
             return
         if not worker.connected and not bridge.ledger.next_inbound() and bridge.ledger.value("tgo_channel") is None:
             return
+        expected = {"identity": cloud_identity(self.client.account_tag, worker.grant),
+                    "keywords": list(worker.grant.keywords)}
+        if expected not in (self.published or []):
+            return  # A newly selected/revised grant must reach the cloud first.
         try:
+            if worker.refresh_session:
+                bridge.client.connect(force_refresh=True)
+                worker.refresh_session = False
             if not worker.connected:
                 bridge.initialize()
                 worker.connected = True
             elif visitor_token_expired(bridge.client.session.get("im_token")):
                 bridge.client.connect()
             bridge.poll(read_local=False, deliver=False)
+        except TgoAuthorizationError as error:
+            self._retry_authorization(worker, error)
         except TgoUnavailable:
             worker.next_poll = time.monotonic() + 6
         except (RuntimeError, ValueError, OSError, sqlite3.Error, KeyError) as exc:
             reason = str(exc) if isinstance(exc, (TgoError, RpaNotReady)) else type(exc).__name__
             worker.error = f"需人工核对（{reason}）"
+
+    def _retry_authorization(self, worker: Worker, error: TgoAuthorizationError) -> None:
+        worker.connected = False
+        worker.refresh_session |= error.status_code == 401
+        worker.next_poll = time.monotonic() + 1
+        self.next_publish = 0
+        worker.bridge.rpa_status = "会话授权重新核对，稍后自动恢复"
 
     def poll(self) -> None:
         self.scope.refresh()
@@ -283,6 +300,9 @@ class ScopedBridge:
                 with self.desktop_lock:
                     self._load_backend(worker)
                 bridge._deliver()
+            except TgoAuthorizationError as error:
+                self._retry_authorization(worker, error)
+                bridge.next_delivery_at = time.monotonic() + 1
             except TgoUnavailable:
                 bridge.next_delivery_at = time.monotonic() + 1
             except (RuntimeError, ValueError, OSError, sqlite3.Error) as error:

@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -81,3 +82,40 @@ class VisualLocatorTests(unittest.TestCase):
         self.assertTrue(self.locator.is_blank(image, target))
         ImageDraw.Draw(image).text(target.input_point, "user draft", fill=(40, 40, 40))
         self.assertFalse(self.locator.is_blank(image, target))
+
+
+class SendButtonTests(unittest.TestCase):
+    def setUp(self):
+        with Image.open(Path(__file__).parents[1] / "wechat-controls.png") as assets:
+            self.button = assets.crop((0, 36, 63, 72)).convert("RGB")
+        self.template = np.asarray(self.button.convert("L"))
+
+    def scene(self, button):
+        image = Image.new("RGB", (1000, 800), "white")
+        image.paste(button, (870, 740))
+        return image
+
+    def test_enabled_button_with_changed_outer_border_keeps_exact_label_verification(self):
+        button = self.button.copy()
+        draw = ImageDraw.Draw(button)
+        draw.rectangle((0, 0, 62, 3), fill="white")
+        draw.rectangle((0, 32, 62, 35), fill="white")
+        draw.rectangle((0, 0, 3, 35), fill="white")
+        draw.rectangle((59, 0, 62, 35), fill="white")
+        left, top, width, height = VisualLocator.locate_send_button(self.scene(button), self.template)
+        self.assertLess(abs(left + width // 2 - 901), 3)
+        self.assertLess(abs(top + height // 2 - 758), 3)
+
+    def test_disabled_gray_button_is_never_selected(self):
+        with self.assertRaises(RpaNotReady):
+            VisualLocator.locate_send_button(self.scene(self.button.convert("L").convert("RGB")), self.template)
+
+    def test_two_enabled_buttons_are_ambiguous(self):
+        image = self.scene(self.button)
+        image.paste(self.button, (870, 650))
+        with self.assertRaises(RpaNotReady):
+            VisualLocator.locate_send_button(image, self.template)
+
+    def test_green_rectangle_without_verified_send_label_is_rejected(self):
+        with self.assertRaises(RpaNotReady):
+            VisualLocator.locate_send_button(self.scene(Image.new("RGB", (63, 36), (0, 190, 110))), self.template)
