@@ -41,6 +41,9 @@ class WindowControl:
             "WindowFromPoint": ([wt.POINT], wt.HWND),
             "GetAncestor": ([wt.HWND, wt.UINT], wt.HWND),
             "GetClassNameW": ([wt.HWND, wt.LPWSTR, ctypes.c_int], ctypes.c_int),
+            "SetThreadDpiAwarenessContext": ([wt.HANDLE], wt.HANDLE),
+            "GetThreadDpiAwarenessContext": ([], wt.HANDLE),
+            "GetAwarenessFromDpiAwarenessContext": ([wt.HANDLE], ctypes.c_int),
             "GetGUIThreadInfo": ([wt.DWORD, ctypes.POINTER(GuiThreadInfo)], wt.BOOL),
             "OpenInputDesktop": ([wt.DWORD, wt.BOOL, wt.DWORD], wt.HANDLE),
             "CloseDesktop": ([wt.HANDLE], wt.BOOL),
@@ -67,6 +70,15 @@ class WindowControl:
             ctypes.POINTER(wt.DWORD),
         ]
         self.kernel.CloseHandle.argtypes = [wt.HANDLE]
+
+    def use_physical_coordinates(self) -> None:
+        # Pillow captures physical pixels. Bind the desktop worker to that
+        # coordinate space even when the process was started before a DPI change.
+        if not self.user.SetThreadDpiAwarenessContext(wt.HANDLE(-4)):
+            raise RpaNotReady("无法切换到屏幕物理坐标，停止输入")
+        current = self.user.GetThreadDpiAwarenessContext()
+        if self.user.GetAwarenessFromDpiAwarenessContext(current) != 2:
+            raise RpaNotReady("屏幕坐标模式未通过核对，停止输入")
 
     def validate(self) -> None:
         pid = wt.DWORD()
@@ -161,11 +173,20 @@ class WindowControl:
         if focus:
             thread = self.user.GetWindowThreadProcessId(self.hwnd, None)
             info = GuiThreadInfo(cbSize=ctypes.sizeof(GuiThreadInfo))
+            if not self.user.GetGUIThreadInfo(thread, ctypes.byref(info)):
+                raise RpaNotReady("输入焦点不属于微信，停止输入")
+            focus_root = self.user.GetAncestor(info.hwndFocus, 2)
             if (
-                not self.user.GetGUIThreadInfo(thread, ctypes.byref(info))
-                or self.user.GetAncestor(info.hwndFocus, 2) != self.hwnd
+                focus_root != self.hwnd
+                and not (search_result and self._is_search_popup(focus_root))
             ):
                 raise RpaNotReady("输入焦点不属于微信，停止输入")
+
+    def search_popup_at(self, x: int, y: int) -> bool:
+        self.require_desktop()
+        self.bounds()
+        hit = self.user.WindowFromPoint(wt.POINT(x, y))
+        return self._is_search_popup(self.user.GetAncestor(hit, 2))
 
     def _is_search_popup(self, hwnd: int) -> bool:
         pid = wt.DWORD()

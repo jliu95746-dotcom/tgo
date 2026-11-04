@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from threading import RLock
 from unittest.mock import Mock, patch
 
@@ -12,6 +13,136 @@ from tools.wechat_local_bridge.window_ocr import TextLine
 
 
 class ScopedVisualGuardTests(unittest.TestCase):
+    def search_backend(self):
+        backend = ScopedRpa.__new__(ScopedRpa)
+        backend.title = "测试联系人"
+        backend.runtime = Path("unused")
+        backend.authorize = Mock()
+        backend.window, backend.gui, backend.navigation = Mock(), Mock(), Mock()
+        backend.window.search_popup_at.return_value = False
+        backend._visible_bounds = Mock(return_value=(10, 20, 800, 700))
+        backend.gui.screenshot.return_value = Image.new("RGB", (570, 395), "white")
+        backend.navigation.search_point.return_value = (150, 70)
+        backend.navigation.focused_search.return_value = (90, 50, 1)
+        backend.clipboard = Mock()
+        backend.clipboard.paste.return_value = backend.title
+        backend.get_clipboard = Mock(return_value="原剪贴板")
+        backend.restore_clipboard = Mock()
+        return backend
+
+    def test_search_uses_one_region_for_categories_and_targets(self):
+        backend = self.search_backend()
+        lines = [TextLine("联系人", 30, 10), TextLine(backend.title, 120, 65),
+                 TextLine("搜索网络结果", 60, 100), TextLine(backend.title, 120, 140)]
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.read_lines", return_value=lines) as ocr,
+            patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
+        ):
+            backend._search()
+        self.assertEqual(ocr.call_count, 1)
+        self.assertEqual(backend.gui.click.call_args.args, (225, 171))
+        self.assertNotIn(("esc",), [call.args for call in backend.gui.press.call_args_list])
+        backend.restore_clipboard.assert_called_once_with("原剪贴板")
+
+    def test_search_waits_for_local_result_without_selecting_network_result(self):
+        backend = self.search_backend()
+        network = [TextLine("搜索网络结果", 50, 10), TextLine(backend.title, 120, 65)]
+        ready = [TextLine("联系人", 30, 10), TextLine(backend.title, 120, 65)]
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.read_lines", side_effect=[network, network, ready]),
+            patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
+        ):
+            backend._search()
+        self.assertEqual(backend.gui.click.call_count, 2)
+
+    def test_search_confirms_result_only_while_the_verified_popup_remains(self):
+        backend = self.search_backend()
+        backend.window.search_popup_at.return_value = True
+        lines = [TextLine("最常使用", 44, 19), TextLine(backend.title, 121, 80)]
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.read_lines", return_value=lines),
+            patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
+        ):
+            backend._search()
+        backend.gui.press.assert_any_call("enter")
+
+    def test_search_never_confirms_with_enter_after_the_popup_has_closed(self):
+        backend = self.search_backend()
+        lines = [TextLine("最常使用", 44, 19), TextLine(backend.title, 121, 80)]
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.read_lines", return_value=lines),
+            patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
+        ):
+            backend._search()
+        self.assertNotIn(("enter",), [call.args for call in backend.gui.press.call_args_list])
+
+    def test_search_stops_if_the_popup_closes_before_confirmation(self):
+        backend = self.search_backend()
+        backend.window.search_popup_at.side_effect = [True, False]
+        lines = [TextLine("最常使用", 44, 19), TextLine(backend.title, 121, 80)]
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.read_lines", return_value=lines),
+            patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
+            self.assertRaisesRegex(RpaNotReady, "弹层已关闭"),
+        ):
+            backend._search()
+        self.assertNotIn(("enter",), [call.args for call in backend.gui.press.call_args_list])
+
+    def test_faint_category_can_be_verified_separately_without_relaxing_name_match(self):
+        backend = self.search_backend()
+        rows = [TextLine(backend.title, 120, 65), TextLine("群聊", 30, 139)]
+        categories = [TextLine("联系人", 30, 10), TextLine("群聊", 30, 139)]
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.read_lines", side_effect=[rows, categories]),
+            patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
+        ):
+            backend._search()
+        self.assertEqual(backend.gui.click.call_args.args, (225, 171))
+
+    def test_search_failure_rechecks_the_chat_uncovered_when_popup_closes(self):
+        backend = self.search_backend()
+        backend.check_target = Mock(side_effect=RpaNotReady("弹层挡住工具栏"))
+        backend._sidebar = Mock(side_effect=RpaNotReady("未找到唯一会话"))
+        backend._search = Mock(side_effect=RpaNotReady("分类无法核对"))
+        backend._wait_target = Mock()
+        backend.ensure_conversation()
+        backend._wait_target.assert_called_once()
+
+    def test_search_cleans_up_when_query_input_fails_before_readback(self):
+        backend = self.search_backend()
+        backend.gui.hotkey.side_effect = RpaNotReady("输入暂不可用")
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
+            self.assertRaisesRegex(RpaNotReady, "输入暂不可用"),
+        ):
+            backend._search()
+        backend.gui.press.assert_called_once_with("esc")
+        backend.restore_clipboard.assert_called_once_with("原剪贴板")
+
+    def test_search_never_clicks_network_only_results(self):
+        backend = self.search_backend()
+        lines = [TextLine("搜索网络结果", 50, 10), TextLine(backend.title, 120, 65)]
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.read_lines", return_value=lines),
+            patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
+            self.assertRaises(RpaNotReady),
+        ):
+            backend._search()
+        self.assertEqual(backend.gui.click.call_count, 1)
+        backend.gui.press.assert_any_call("esc")
+
+    def test_search_cleanup_does_not_send_keys_after_focus_is_lost(self):
+        backend = self.search_backend()
+        backend.window.require_point.side_effect = [None, RpaNotReady("焦点变化"), RpaNotReady("焦点变化")]
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
+            self.assertRaisesRegex(RpaNotReady, "焦点变化"),
+        ):
+            backend._search()
+        backend.gui.hotkey.assert_not_called()
+        backend.gui.press.assert_not_called()
+        backend.restore_clipboard.assert_called_once_with("原剪贴板")
+
     def test_group_title_matches_only_exact_name_or_member_count(self):
         self.assertTrue(matches_header([TextLine("测 试 群 （ 12 ）", 20, 10)], "测试群", group=True))
         self.assertFalse(matches_header([TextLine("测试群二", 20, 10)], "测试群", group=True))
@@ -22,6 +153,23 @@ class ScopedVisualGuardTests(unittest.TestCase):
         name = TextLine("同名企微", 100, 60)
         self.assertTrue(matches_header([name, TextLine("＠某企业", 130, 70)], "同名企微", group=False, enterprise=True))
         self.assertFalse(matches_header([TextLine("同名企微二", 100, 60)], "同名企微", group=False, enterprise=True))
+
+    def test_small_header_retries_at_higher_resolution_but_still_requires_exact_name(self):
+        backend = ScopedRpa.__new__(ScopedRpa)
+        backend.title, backend.chat_id, backend.runtime = "测试联系人", "test", Path("unused")
+        backend._header, backend._verified_header, backend.unread_state = None, None, None
+        bad, good = [TextLine("测试联系入", 20, 10)], [TextLine("测试联系人", 20, 10)]
+        with patch("tools.wechat_local_bridge.scoped_rpa.read_lines", side_effect=[bad, good]) as ocr:
+            backend._confirm_header(Image.new("RGB", (400, 48), "white"))
+        self.assertIsNotNone(backend._header)
+        self.assertEqual(ocr.call_args.kwargs, {"scale": 4})
+        backend._header = None
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.read_lines", side_effect=[bad, bad]),
+            self.assertRaisesRegex(RpaNotReady, "标题"),
+        ):
+            backend._confirm_header(Image.new("RGB", (400, 48), "white"))
+        self.assertIsNone(backend._header)
 
     def test_search_rejects_duplicate_and_uncategorized_text(self):
         row = TextLine("测 试 群", 100, 60)
@@ -38,6 +186,18 @@ class ScopedVisualGuardTests(unittest.TestCase):
         self.assertEqual(result_line([row, repeated], "测试群", [network]), row)
         with self.assertRaises(RpaNotReady):
             result_line([repeated], "测试群", [network])
+
+    def test_frequent_category_ocr_error_does_not_relax_contact_name_matching(self):
+        section = TextLine("最 常 便 用", 44, 19)
+        target = TextLine("测试联系人", 121, 80)
+        self.assertEqual(result_line([section, target, TextLine("群聊", 30, 139)], "测试联系人"), target)
+        network = TextLine("搜索网络结果", 60, 110)
+        repeated = TextLine("测试联系人", 121, 140)
+        self.assertEqual(result_line([section, target, network, repeated], "测试联系人"), target)
+        with self.assertRaises(RpaNotReady):
+            result_line([section, target], "测试联系入")
+        with self.assertRaises(RpaNotReady):
+            result_line([TextLine("最常便用", 140, 19), target], "测试联系人")
 
     def test_customer_reply_requires_proof_for_current_header(self):
         backend = ScopedRpa.__new__(ScopedRpa)

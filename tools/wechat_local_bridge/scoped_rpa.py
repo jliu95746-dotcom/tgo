@@ -12,7 +12,7 @@ from hashlib import sha256
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .filehelper_navigation import SearchNavigation
 from .reader import SessionUnread
@@ -20,7 +20,7 @@ from .rpa import RpaNotReady
 from .rpa_windows import NativeRpa
 from .visual_locator import VisualLocator
 from .window_control import WindowControl
-from .window_ocr import TextLine, check_ocr, normalized_title, read_lines
+from .window_ocr import TextLine, check_ocr, normalized_title, read_lines, title_text_region
 
 
 def matches_enterprise_title(actual: str, expected: str) -> bool:
@@ -47,18 +47,25 @@ def result_line(
     headings = {"联系人", "群聊", "最近使用", "最近聊天", "常用联系人", "最常使用", "好友", "聊天", "最佳匹配",
                 "企业微信联系人", "企业微信好友"}
     ignored = {"聊天记录", "网络结果", "搜索网络结果", "网页结果", "公众号", "搜一搜", "功能", "小程序"}
+
+    def category(line: TextLine) -> str:
+        value = normalized_title(line.text)
+        # Windows OCR confuses 使 with 便 in the small gray section heading.
+        # Apply this only to the left category label, never to a contact name.
+        return "最常使用" if value == "最常便用" and line.x < 100 else value
+
     regions = [line for line in (lines if sections is None else sections)
-               if normalized_title(line.text) in headings | ignored]
+               if category(line) in headings | ignored]
     matches = []
     for row in lines:
         actual, expected = normalized_title(row.text), normalized_title(title)
         if not (actual == expected or candidate is not None and matches_enterprise_title(actual, expected)):
             continue
         previous = [line for line in regions if line.y < row.y]
-        if previous and normalized_title(max(previous, key=lambda line: line.y).text) in headings:
+        if previous and category(max(previous, key=lambda line: line.y)) in headings:
             matches.append(row)
         elif not previous and any(
-            line.y > row.y and normalized_title(line.text) in {"网络结果", "搜索网络结果", "网页结果"}
+            line.y > row.y and category(line) in {"网络结果", "搜索网络结果", "网页结果"}
             for line in regions
         ):
             # Some WeChat builds omit the local heading above the network section.
@@ -69,7 +76,8 @@ def result_line(
     if candidate is not None:
         raise RpaNotReady(f"微信搜索可核对的同名结果为 {len(matches)} 条，回复待人工处理")
     if len(matches) != 1:
-        raise RpaNotReady("未找到唯一的本地聊天结果，回复待人工处理")
+        exact = sum(normalized_title(row.text) == normalized_title(title) for row in lines)
+        raise RpaNotReady(f"未找到唯一的本地聊天结果（本地 {len(matches)} 项，同名 {exact} 项），稍后重试")
     return matches[0]
 
 
@@ -90,7 +98,8 @@ class ScopedRpa(NativeRpa):
         self._verified_context: bytes | None = None
         self._verified_marker: str | None = None
         with Image.open(Path(__file__).with_name("wechat-controls.png")) as assets:
-            self.locator = VisualLocator(assets, None, (0, 0, 114, 29))
+            self.locator = VisualLocator(assets, None, (0, 0, 114, 29),
+                                         toolbar_markers=((0, 0, 27, 29), (199, 0, 226, 29)))
             self.navigation = SearchNavigation(assets.crop((70, 36, 93, 64)), assets.crop((100, 36, 135, 71)))
             self.send_template = np.asarray(assets.crop((0, 36, 63, 72)).convert("L"))
             self.contacts_icon = np.asarray(assets.crop((140, 36, 168, 68)).convert("L"))
@@ -117,11 +126,14 @@ class ScopedRpa(NativeRpa):
 
     def _confirm_header(self, header: Image.Image) -> None:
         digest = sha256(header.tobytes()).digest()
-        if digest != self._header and not matches_header(
-            read_lines(header, self.runtime), self.title, group=self.chat_id.endswith("@chatroom"),
-            enterprise=self.unread_state is not None,
-        ):
-            raise RpaNotReady("当前微信会话标题无法核对")
+        if digest != self._header:
+            label = title_text_region(header)
+            for scale in (2, 4):
+                if matches_header(read_lines(label, self.runtime, scale=scale), self.title,
+                                  group=self.chat_id.endswith("@chatroom"), enterprise=self.unread_state is not None):
+                    break
+            else:
+                raise RpaNotReady("当前微信会话标题无法核对")
         if self._verified_header is not None and self._verified_header == self._header:
             self._verified_header = digest
         self._header = digest
@@ -153,14 +165,23 @@ class ScopedRpa(NativeRpa):
         self.window.recover()
         try:
             self.check_target()
-        except RpaNotReady:
+        except RpaNotReady as target_error:
             try:
                 self._sidebar()
                 self._wait_target()
                 return
-            except RpaNotReady:
-                pass
-            self._search()
+            except RpaNotReady as sidebar_error:
+                try:
+                    self._search()
+                except RpaNotReady as search_error:
+                    # Closing a search popup can uncover the already open chat.
+                    # It still must pass the header and scoped draft checks.
+                    try:
+                        self._wait_target()
+                        return
+                    except RpaNotReady:
+                        pass
+                    raise RpaNotReady(f"{search_error}；会话检查：{target_error}；列表检查：{sidebar_error}") from search_error
             self._wait_target()
 
     def _wait_target(self) -> None:
@@ -231,11 +252,13 @@ class ScopedRpa(NativeRpa):
 
         original = self.get_clipboard()
         point = None
-        query_confirmed = False
+        search_opened = False
+        result_clicked = False
         try:
             point = self.navigation.search_point(frame())
             guard(point)
             self.gui.click(left + point[0], top + point[1])
+            search_opened = True
             time.sleep(0.22)
             self.navigation.focused_search(frame())
             guard(point, focus=True)
@@ -255,32 +278,55 @@ class ScopedRpa(NativeRpa):
             guard(point, focus=True)
             if self.clipboard.paste() != self.title:
                 raise RpaNotReady("微信搜索词未回读确认")
-            query_confirmed = True
             self.gui.press("right")
-            search = frame()
-            x, y, scale = self.navigation.focused_search(search)
-            crop = (x + round(40 * scale), y + round(36 * scale),
-                    min(search.width, x + round(382 * scale)), search.height)
-            heading_box = (x + round(5 * scale), crop[1], x + round(152 * scale), crop[3])
-            sections = read_lines(search.crop(heading_box), self.runtime)
-            row = result_line(read_lines(search.crop(crop), self.runtime), self.title, sections, candidate=candidate)
-            result = (crop[0] + row.x, crop[1] + row.y)
-            latest = frame().crop(crop)
-            if latest.tobytes() != search.crop(crop).tobytes():
-                raise RpaNotReady("微信搜索结果发生变化，等待人工核对")
-            guard(result, popup=True)
-            self.gui.click(left + result[0], top + result[1])
+            for attempt in range(3):
+                search = frame()
+                x, y, scale = self.navigation.focused_search(search)
+                # One OCR region keeps headings and results in the same layout
+                # and avoids clipping the category or longer contact names.
+                crop = (x + round(5 * scale), y + round(36 * scale),
+                        min(search.width, x + round(382 * scale)), search.height)
+                try:
+                    # WeChat renders category headings in low contrast gray.
+                    # Preserve exact matching instead of guessing a category.
+                    rows = read_lines(search.crop(crop), self.runtime)
+                    try:
+                        row = result_line(rows, self.title, candidate=candidate)
+                    except RpaNotReady:
+                        labels = ImageOps.grayscale(search.crop(crop)).point(lambda pixel: 0 if pixel < 216 else 255)
+                        sections = read_lines(labels, self.runtime)
+                        row = result_line(rows, self.title, rows + sections, candidate=candidate)
+                    if frame().crop(crop).tobytes() != search.crop(crop).tobytes():
+                        raise RpaNotReady("微信搜索结果尚在更新，稍后重试")
+                except RpaNotReady:
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.35)
+                    continue
+                result = (crop[0] + row.x, crop[1] + row.y)
+                guard(result, popup=True)
+                self.gui.click(left + result[0], top + result[1])
+                result_clicked = True
+                break
             time.sleep(0.3)
-        except RpaNotReady:
-            if query_confirmed and point is not None:
+            if self.window.search_popup_at(left + result[0], top + result[1]):
+                current = frame()
+                self.navigation.focused_search(current)
+                if current.crop(crop).tobytes() != search.crop(crop).tobytes():
+                    raise RpaNotReady("选中后的搜索结果已变化，停止确认")
+                guard(point, focus=True, popup=True)
+                if not self.window.search_popup_at(left + result[0], top + result[1]):
+                    raise RpaNotReady("搜索弹层已关闭，停止确认")
+                self.gui.press("enter")
+                time.sleep(0.3)
+        finally:
+            if search_opened and not result_clicked and point is not None:
                 try:
                     self.navigation.focused_search(frame())
                     guard(point, focus=True)
                     self.gui.press("esc")
-                except RpaNotReady:
+                except (RpaNotReady, OSError):
                     pass
-            raise
-        finally:
             self.restore_clipboard(original)
 
     def _contacts_tab(self) -> None:
@@ -436,6 +482,7 @@ class ScopedRpa(NativeRpa):
 
 
 def check_window(window: WindowControl) -> None:
+    window.use_physical_coordinates()
     import pyautogui
 
     check_ocr()

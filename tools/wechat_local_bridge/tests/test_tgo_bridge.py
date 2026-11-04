@@ -120,6 +120,26 @@ class TgoBridgeTests(unittest.TestCase):
         self.assertEqual(self.store.stats(), {"accepted": 1})
         self.rpa.click_send.assert_not_called()
 
+    def test_restart_sends_persisted_reply_without_a_new_inbound_or_backend_reply(self):
+        self.rpa.ensure_ready.side_effect = RpaNotReady("搜索结果尚未就绪")
+        self.bridge.poll()
+        self.assertEqual(self.store.delivery_stats(), {"pending": 1})
+        self.rpa.ensure_ready.side_effect = None
+        self.reader.new_messages.side_effect = None
+        self.reader.new_messages.return_value = []
+        self.client.history.return_value = {"messages": []}
+        runtime = self.bridge.runtime
+        path = runtime / "state.sqlite3"
+        self.store.close()
+        reopened = TgoStore(path)
+        self.addCleanup(reopened.close)
+        recovered = TgoBridge(self.reader, reopened, runtime, "", self.client, self.rpa, True, 3, 60)
+        recovered.initialize()
+        recovered.poll()
+        self.assertEqual(reopened.delivery_stats(), {"sent": 1})
+        self.rpa.click_send.assert_called_once_with((900, 800), "客服回复")
+        self.client.submit.assert_called_once()
+
     def test_uncertain_click_is_never_retried_after_restart(self):
         self.rpa.click_send.side_effect = RuntimeError("unknown click outcome")
         with self.assertRaises(RuntimeError):

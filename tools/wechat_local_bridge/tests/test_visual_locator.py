@@ -44,6 +44,24 @@ class VisualLocatorTests(unittest.TestCase):
         with self.assertRaisesRegex(RpaNotReady, "标题"):
             self.locator.locate(image)
 
+    def test_changed_middle_toolbar_icons_use_two_independent_aligned_markers(self):
+        locator = VisualLocator(self.reference, (350, 80, 460, 105), (350, 740, 530, 765),
+                                toolbar_markers=((350, 740, 374, 765), (506, 740, 530, 765)))
+        image = self.scene(1250, 950, 460, 60)
+        image.paste("white", (484, 890, 616, 915))
+        target = locator.locate(image)
+        self.assertEqual(target.toolbar[:2], (460, 890))
+        self.assertGreater(target.input_point[0], 460)
+
+    def test_toolbar_fallback_rejects_a_missing_or_misaligned_second_marker(self):
+        locator = VisualLocator(self.reference, (350, 80, 460, 105), (350, 740, 530, 765),
+                                toolbar_markers=((350, 740, 374, 765), (506, 740, 530, 765)))
+        image = self.scene(1250, 950, 460, 60)
+        image.paste("white", (484, 890, 640, 915))
+        image.paste(self.toolbar.crop((156, 0, 180, 25)), (616, 850))
+        with self.assertRaises(RpaNotReady):
+            locator.locate(image)
+
     def test_duplicate_header_or_missing_editor_border_is_rejected(self):
         image = self.scene(1000, 800, 350, 80)
         image.paste(self.title, (650, 80))

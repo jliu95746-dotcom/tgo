@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import numpy as np
 from PIL import Image
 
 from .rpa import RpaNotReady
@@ -14,6 +15,16 @@ from .rpa import RpaNotReady
 
 def normalized_title(value: str) -> str:
     return "".join(unicodedata.normalize("NFKC", value).split()).casefold()
+
+
+def title_text_region(header: Image.Image) -> Image.Image:
+    """Keep title lines together, excluding distant call and action icons."""
+    ink = np.flatnonzero(np.any(np.asarray(header.convert("L")) < 160, axis=0))
+    if not len(ink):
+        return header
+    gaps = np.flatnonzero(np.diff(ink) > max(18, header.height // 3))
+    end = int(ink[int(gaps[0])]) if len(gaps) else int(ink[-1])
+    return header.crop((0, 0, min(header.width, end + 7), header.height))
 
 
 @dataclass(frozen=True)
@@ -43,10 +54,12 @@ def check_ocr() -> None:
     _run()
 
 
-def read_lines(image: Image.Image, runtime: Path) -> list[TextLine]:
+def read_lines(image: Image.Image, runtime: Path, *, scale: int = 2) -> list[TextLine]:
+    if scale not in (2, 4):
+        raise ValueError("本机文字识别仅支持 2 倍或 4 倍放大")
     with TemporaryDirectory(dir=runtime) as directory:
         path = Path(directory) / "region.png"
         # Search results use smaller glyphs than the chat header.
-        enlarged = image.resize((image.width * 2, image.height * 2), Image.Resampling.LANCZOS)
+        enlarged = image.resize((image.width * scale, image.height * scale), Image.Resampling.LANCZOS)
         enlarged.save(path)
-        return [TextLine(row.text, row.x // 2, row.y // 2) for row in _run(path)]
+        return [TextLine(row.text, row.x // scale, row.y // scale) for row in _run(path)]

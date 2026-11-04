@@ -60,6 +60,7 @@ class NativeRpa:
         self, window: WindowControl, runtime: Path, chat_id: str,
         authorize: Callable[[], None], scope_lock: AbstractContextManager | None,
     ) -> None:
+        window.use_physical_coordinates()
         import pyautogui
         import pyperclip
 

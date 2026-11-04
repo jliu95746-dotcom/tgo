@@ -26,9 +26,14 @@ class VisualLocator:
         reference: Image.Image,
         title_box: tuple[int, int, int, int] | None,
         toolbar_box: tuple[int, int, int, int],
+        *, toolbar_markers: tuple[tuple[int, int, int, int], ...] = (),
     ):
         self.title = np.asarray(reference.crop(title_box).convert("L")) if title_box else None
         self.toolbar = np.asarray(reference.crop(toolbar_box).convert("L"))
+        self.toolbar_markers = tuple(np.asarray(reference.crop(box).convert("L")) for box in toolbar_markers)
+        if self.toolbar_markers and (len(self.toolbar_markers) != 2
+                                     or any(float(marker.std()) < 8 for marker in self.toolbar_markers)):
+            raise ValueError("输入工具栏需要两个可辨识的独立图标")
         if float(self.toolbar.std()) < 8 or (self.title is not None and float(self.title.std()) < 8):
             raise ValueError("校准锚点必须包含有辨识度的标题文字和工具栏")
 
@@ -94,12 +99,24 @@ class VisualLocator:
     def locate_composer(self, image: Image.Image) -> tuple[VisualTarget, float]:
         pixels = np.asarray(image.convert("L"))
         height, width = pixels.shape
-        toolbar, toolbar_score, scale = self._match(
-            pixels,
-            self.toolbar,
-            (width // 5, height * 3 // 5, width - 15, height - 10),
-            "输入工具栏",
-        )
+        region = (width // 5, height * 3 // 5, width - 15, height - 10)
+        try:
+            toolbar, toolbar_score, scale = self._match(pixels, self.toolbar, region, "输入工具栏")
+        except RpaNotReady:
+            if not self.toolbar_markers:
+                raise
+            first, first_score, scale = self._match(pixels, self.toolbar_markers[0], region, "输入工具栏起始图标")
+            gap, margin = round(30 * scale), round(5 * scale)
+            last, last_score, last_scale = self._match(
+                pixels, self.toolbar_markers[1],
+                (first[0] + gap, max(region[1], first[1] - margin),
+                 min(region[2], first[0] + round(350 * scale)),
+                 min(region[3], first[1] + first[3] + margin)), "输入工具栏末端图标",
+            )
+            if abs(scale - last_scale) > 0.11 or abs(first[1] - last[1]) > margin:
+                raise RpaNotReady("输入工具栏图标未对齐，停止输入")
+            toolbar = (first[0], first[1], last[0] + last[2] - first[0], max(first[3], last[3]))
+            toolbar_score = min(first_score, last_score)
         left, right = max(0, toolbar[0] - round(16 * scale)), width - round(25 * scale)
         top = None
         for y in range(
