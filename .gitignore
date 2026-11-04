@@ -158,6 +158,7 @@ backups/
 # Temporary files
 tmp/
 .tmp/
+.tmp_*/
 temp/
 uploads/
 
