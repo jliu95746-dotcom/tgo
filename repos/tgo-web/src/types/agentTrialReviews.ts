@@ -7,6 +7,22 @@ export interface KnowledgeReviewCase {
   criteria_version: 1;
   question: string;
   expected_result: 'grounded_answer' | 'safe_refusal';
+  valid_from?: string | null;
+}
+export interface KnowledgeCatalog {
+  agent_id: string;
+  id: string | null;
+  revision: number;
+  request_key: string | null;
+  configured_by: string | null;
+  created_at: string | null;
+  current: boolean;
+  cases: KnowledgeReviewCase[];
+}
+export interface KnowledgeCatalogWrite {
+  request_key: string;
+  expected_revision: number;
+  questions: string[];
 }
 export interface KnowledgeReviewChecks {
   answer_correct: boolean;

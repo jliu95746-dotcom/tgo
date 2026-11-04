@@ -242,7 +242,9 @@ class AgentActivationReadinessService:
         selection = self.policies._selection(policy)
         row = ActivationChannelCoverage(**selection.model_dump(), policy_revision=policy.revision,
             requirements_revision=policy.requirements_revision, status="unavailable")
-        requirements = await self.policies._requirements(project, actor, selection)
+        requirements = await self.policies._requirements(
+            project, actor, selection, agent
+        )
         if policy.requirements_revision != requirements.requirements_revision:
             blockers.append(ActivationBlocker(code="requirements_changed", channel=selection.channel,
                 message="岗位要求已更新，请重新确认配置并测试"))
@@ -408,7 +410,9 @@ class AgentActivationReadinessService:
                 if row.business_capabilities:
                     row.status, row.valid_until = "needs_retest", None
         for policy in current_policies:
-            requirements = await self.policies._requirements(project, actor, self.policies._selection(policy))
+            requirements = await self.policies._requirements(
+                project, actor, self.policies._selection(policy), agent_id
+            )
             if requirements.requirements_revision != policy.requirements_revision:
                 result.blockers.append(ActivationBlocker(code="requirements_changed",
                     channel=KnowledgeChannel(policy.channel), message="检查期间岗位要求发生变化，请重新检查"))

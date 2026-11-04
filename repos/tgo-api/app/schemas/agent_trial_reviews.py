@@ -16,6 +16,7 @@ class KnowledgeReviewCase(BaseModel):
     criteria_version: Literal[1] = 1
     question: str = Field(min_length=1, max_length=4000)
     expected_result: Literal["grounded_answer", "safe_refusal"]
+    valid_from: datetime | None = None
 
 
 class KnowledgeReviewChecks(BaseModel):
@@ -42,6 +43,9 @@ class KnowledgeReviewRequest(BaseModel):
 class KnowledgeReviewCommand(KnowledgeReviewRequest):
     """Only the authenticated gateway supplies the current case definition."""
     case: KnowledgeReviewCase
+    current_cases: list[KnowledgeReviewCase] | None = Field(
+        default=None, max_length=30
+    )
 
 
 class KnowledgeReviewQuery(BaseModel):

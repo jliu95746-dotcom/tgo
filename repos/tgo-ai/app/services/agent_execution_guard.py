@@ -98,6 +98,7 @@ class AgentExecutionGuard:
             raise ConflictError("员工或模型配置在核验期间发生变化，请重新核验")
         requirements = await self.readiness.policies._requirements(
             project, actor, self.readiness.policies._selection(policy),
+            loaded.id,
         )
         if requirements.requirements_revision != proof.channels[0].requirements_revision:
             raise ConflictError("当前岗位要求或权限已变化，请重新核验")

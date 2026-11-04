@@ -159,6 +159,14 @@ class AgentKnowledgeCapabilityService:
         coverage = KnowledgeCaseCoverage(
             case=case, status="needs_retest", report_id=report.id
         )
+        created = (
+            report.created_at.replace(tzinfo=UTC)
+            if report.created_at.tzinfo is None else report.created_at
+        )
+        if case.valid_from is not None and (
+            case.valid_from.tzinfo is None or created < case.valid_from
+        ):
+            return coverage
         if report.status == "running":
             expiry = rows[0].expires_at
             expiry = expiry.replace(tzinfo=UTC) if expiry.tzinfo is None else expiry

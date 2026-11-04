@@ -49,7 +49,7 @@ async def test_public_review_uses_login_identity_and_existing_trial_route(monkey
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("field",["project_id","reviewed_by","case","effective","can_enable","created_at"])
+@pytest.mark.parametrize("field",["project_id","reviewed_by","case","current_cases","effective","can_enable","created_at"])
 async def test_public_review_cannot_supply_trusted_evidence_or_identity(monkeypatch,field):
     app,_=application()
     submit=AsyncMock()

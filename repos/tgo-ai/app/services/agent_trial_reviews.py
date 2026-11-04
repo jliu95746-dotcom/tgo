@@ -25,7 +25,10 @@ from app.services.sensitive_data_redactor import SensitiveDataRedactor
 
 
 def case_digest(case: KnowledgeReviewCase) -> str:
-    return hashlib.sha256(json.dumps(case.model_dump(mode="json"), sort_keys=True,
+    definition = case.model_dump(mode="json")
+    if case.valid_from is None:
+        definition.pop("valid_from")  # Preserve pre-catalog case digests.
+    return hashlib.sha256(json.dumps(definition, sort_keys=True,
                                     ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -45,6 +48,13 @@ def _within_validity(report: AgentTrialReport) -> bool:
 
 
 def _eligible(report: AgentTrialReport, case: KnowledgeReviewCase) -> bool:
+    if case.valid_from is not None:
+        created = (
+            report.created_at.replace(tzinfo=UTC)
+            if report.created_at.tzinfo is None else report.created_at
+        )
+        if case.valid_from.tzinfo is None or created < case.valid_from:
+            return False
     if report.question.strip() != case.question.strip() or not report.answer.strip() or not _within_validity(report):
         return False
     if case.expected_result == "grounded_answer":
@@ -125,12 +135,26 @@ class AgentTrialReviewService:
     async def review(
         self, project: UUID, reviewer: UUID, agent: UUID, report_id: UUID, command: KnowledgeReviewCommand,
     ) -> KnowledgeReviewResponse:
-        digest = private_digest({"agent_id": str(agent), "report_id": str(report_id), **command.model_dump(mode="json")})
+        # Catalog changes do not change the original request identity.
+        original = command.model_dump(mode="json", exclude={"current_cases"})
+        if command.case.valid_from is None:
+            original["case"].pop("valid_from")
+        digest = private_digest({
+            "agent_id": str(agent), "report_id": str(report_id), **original
+        })
+        cases = (
+            command.current_cases
+            if command.current_cases is not None else [command.case]
+        )
         existing = await self._existing(project, reviewer, command.request_key)
         if existing:
             if existing.request_digest != digest:
                 raise HTTPException(409, "该请求键已用于另一份评审，请刷新记录")
-            return await self._receipt(project, reviewer, agent, report_id, command.case, existing.id)
+            return await self._receipt(
+                project, reviewer, agent, report_id, cases, existing.id
+            )
+        if command.case not in cases:
+            raise HTTPException(409, "测试问题版本已变化，请使用当前问题重新试聊")
         report = await self.trials.get(project, reviewer, agent, report_id)
         if command.case_id != command.case.id or report.question.strip() != command.case.question.strip():
             raise HTTPException(409, "测试问题与岗位用例不一致，请按模板重新试聊")
@@ -155,7 +179,9 @@ class AgentTrialReviewService:
             await self.db.rollback()
             if concurrent_digest != digest:
                 raise HTTPException(409, "该请求键已用于另一份评审，请刷新记录")
-            return await self._receipt(project, reviewer, agent, report_id, command.case, concurrent_id)
+            return await self._receipt(
+                project, reviewer, agent, report_id, cases, concurrent_id
+            )
         latest = await self.db.scalar(select(AgentTrialReview).where(
             AgentTrialReview.project_id == project, AgentTrialReview.reviewed_by == reviewer,
             AgentTrialReview.report_id == report_id, AgentTrialReview.case_id == command.case_id,
@@ -185,10 +211,13 @@ class AgentTrialReviewService:
             if retry is None or retry.request_digest != digest:
                 raise HTTPException(409, "评审存在冲突，请查询原记录") from None
             identifier = retry.id
-        return await self._receipt(project, reviewer, agent, report_id, command.case, identifier)
+        return await self._receipt(
+            project, reviewer, agent, report_id, cases, identifier
+        )
 
     async def _receipt(
-        self, project: UUID, reviewer: UUID, agent: UUID, report_id: UUID, case: KnowledgeReviewCase, identifier: UUID,
+        self, project: UUID, reviewer: UUID, agent: UUID, report_id: UUID,
+        cases: list[KnowledgeReviewCase], identifier: UUID,
     ) -> KnowledgeReviewResponse:
         report = await self.trials.get(project, reviewer, agent, report_id)
         row = await self.db.scalar(select(AgentTrialReview).where(
@@ -203,5 +232,8 @@ class AgentTrialReviewService:
             AgentTrialReview.report_id == report_id, AgentTrialReview.case_id == row.case_id,
             AgentTrialReview.deleted_at.is_(None),
         ))
-        return self._response(row, report, await self._applicability(report, project),
-                              {case.id: case_digest(case)}, row.revision != latest)
+        return self._response(
+            row, report, await self._applicability(report, project),
+            {case.id: case_digest(case) for case in cases},
+            row.revision != latest,
+        )

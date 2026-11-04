@@ -28,8 +28,8 @@ from app.services.agent_trial_reviews import AgentTrialReviewService
 
 
 @pytest_asyncio.fixture
-async def fixture(tmp_path):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'coverage.sqlite'}")
+async def fixture():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(BaseModel.metadata.create_all)
     async with async_sessionmaker(engine, expire_on_commit=False)() as db:

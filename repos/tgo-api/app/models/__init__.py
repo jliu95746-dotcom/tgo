@@ -130,6 +130,7 @@ __all__ = [
     "Permission",
     "RolePermission",
     "ProjectRolePermission",
+    "AgentKnowledgeCatalog",
     "VisitorAssignmentRule",
     "DEFAULT_ASSIGNMENT_PROMPT",
     "VisitorAssignmentHistory",
@@ -174,3 +175,6 @@ from app.models.trial_policy import TrialPolicy
 from app.models.trial_activation_code import TrialActivationCode
 from app.models.customer_turn import CustomerTurn as CustomerTurn, CustomerTurnPart as CustomerTurnPart
 from app.models.wechat_staff_delivery import WeChatStaffDelivery as WeChatStaffDelivery
+from app.models.agent_knowledge_catalog import (
+    AgentKnowledgeCatalog as AgentKnowledgeCatalog,
+)

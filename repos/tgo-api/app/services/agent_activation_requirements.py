@@ -1,4 +1,4 @@
-"""Read the current administrator and template owner, without enabling an agent."""
+"""Read current administrator and template requirements without enabling."""
 
 from fastapi import HTTPException
 from uuid import UUID
@@ -16,7 +16,9 @@ from app.services.knowledge_review_cases import list_cases
 from app.services.scenario_templates import get_template, list_templates
 
 
-def require_activation_actor(db: Session, project_id: UUID, staff_id: UUID) -> None:
+def require_activation_actor(
+    db: Session, project_id: UUID, staff_id: UUID
+) -> None:
     actor = db.get(Staff, staff_id, populate_existing=True)
     if (
         actor is None
@@ -44,11 +46,24 @@ def current_requirements(
     ]
     if not versions or query.template_version != max(versions):
         raise ConflictError("岗位模板已更新，请刷新并重新检查配置")
-    template = get_template("agents", query.template_id, query.template_version)
-    cases = [row for row in list_cases() if row.template_id == query.template_id]
-    if query.template_id in {"knowledge", "aftersales"} and (
-        [row.question for row in cases] != template.test_questions
-        or any(row.template_version != template.version for row in cases)
+    template = get_template(
+        "agents", query.template_id, query.template_version
+    )
+    from app.services.agent_knowledge_cases import current_cases
+
+    catalog = (
+        current_cases(db, query.project_id, query.agent_id)
+        if query.agent_id
+        else list_cases()
+    )
+    cases = [row for row in catalog if row.template_id == query.template_id]
+    if (
+        query.agent_id is None
+        and query.template_id in {"knowledge", "aftersales"}
+        and (
+            [row.question for row in cases] != template.test_questions
+            or any(row.template_version != template.version for row in cases)
+        )
     ):
         raise ConflictError("岗位测试要求已变更，请刷新模板")
 
@@ -60,6 +75,8 @@ def current_requirements(
     )
     definition.requirements_revision = definition.definition_revision()
     try:
-        return AgentActivationRequirements.model_validate(definition.model_dump())
+        return AgentActivationRequirements.model_validate(
+            definition.model_dump()
+        )
     except PydanticValidationError:
         raise HTTPException(503, "岗位启用要求暂不可用，请稍后重试") from None

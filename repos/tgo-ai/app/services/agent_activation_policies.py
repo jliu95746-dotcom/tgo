@@ -81,10 +81,13 @@ class AgentActivationPolicyService:
             self._record(row) for row in await self._rows(project, agent_id)
         ])
 
-    async def _requirements(self, project: UUID, actor: UUID,
-                            selection: AgentActivationSelection) -> AgentActivationRequirements:
+    async def _requirements(
+        self, project: UUID, actor: UUID,
+        selection: AgentActivationSelection, agent_id: UUID | None = None,
+    ) -> AgentActivationRequirements:
         query = AgentActivationRequirementsQuery(
-            **selection.model_dump(), project_id=project, requested_by=actor,
+            **selection.model_dump(), project_id=project,
+            requested_by=actor, agent_id=agent_id,
         )
         result = await self.owner.get_agent_activation_requirements(query)
         if any(getattr(result, key) != value for key, value in query.model_dump().items()):
@@ -96,7 +99,9 @@ class AgentActivationPolicyService:
                     source: UUID | None = None, source_revision: int | None = None,
                     requirements: AgentActivationRequirements | None = None) -> AgentActivationPolicy:
         await self._agent(project, agent_id)
-        requirements = requirements or await self._requirements(project, actor, request.selection)
+        requirements = requirements or await self._requirements(
+            project, actor, request.selection, agent_id
+        )
         await lock_account_agents(self.db, project)
         agent = await self._agent(project, agent_id)
         row = next((value for value in await self._rows(project, agent_id)
@@ -203,7 +208,9 @@ class AgentActivationPolicyService:
             len(owned) != 1 or self._selection(owned[0]) != selection
         ):
             raise ConflictError("同一草稿版本不能改变或恢复岗位配置")
-        requirements = await self._requirements(project, actor, selection)
+        requirements = await self._requirements(
+            project, actor, selection, agent_id
+        )
         target = next((row for row in rows if row.channel == selection.channel.value), None)
         if target is not None and target.source_draft_id != draft:
             raise ConflictError("此渠道配置已在其他页面修改，请重新读取")

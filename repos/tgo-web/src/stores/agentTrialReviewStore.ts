@@ -51,7 +51,8 @@ function validCase(value: KnowledgeReviewCase): boolean {
 }
 function sameCase(left: KnowledgeReviewCase, right: KnowledgeReviewCase): boolean {
   return left.id === right.id && left.template_id === right.template_id && left.template_version === right.template_version &&
-    left.criteria_version === right.criteria_version && left.question === right.question && left.expected_result === right.expected_result;
+    left.criteria_version === right.criteria_version && left.question === right.question && left.expected_result === right.expected_result &&
+    (left.valid_from ?? null) === (right.valid_from ?? null);
 }
 function validReview(value: KnowledgeReviewResponse, agent: string, report: string, actor: string): boolean {
   return Boolean(value && value.agent_id === agent && value.report_id === report && value.reviewed_by === actor &&
@@ -134,7 +135,7 @@ export const useAgentTrialReviewStore = create<ReviewStore>((set, get) => {
       set({ ...saved, identity: scope, agentId, reportId, question, state: null, catalog: [],
         ready: false, loading: true, submitting: false, error: null });
       try {
-        const [catalog, state] = await Promise.all([AgentTrialReviewsApi.cases(controller.signal),
+        const [catalog, state] = await Promise.all([AgentTrialReviewsApi.cases(agentId, controller.signal),
           reportId ? AgentTrialReviewsApi.state(agentId, reportId, controller.signal) : Promise.resolve(null)]);
         if (!current(version, agentId, reportId) || controller.signal.aborted) return;
         acceptCatalog(catalog);
@@ -154,7 +155,7 @@ export const useAgentTrialReviewStore = create<ReviewStore>((set, get) => {
       const version = generation, controller = new AbortController(); read = controller;
       set({ ready: false, loading: true, error: null });
       try {
-        const [catalog, state] = await Promise.all([AgentTrialReviewsApi.cases(controller.signal),
+        const [catalog, state] = await Promise.all([AgentTrialReviewsApi.cases(agentId, controller.signal),
           AgentTrialReviewsApi.state(agentId, reportId, controller.signal)]);
         if (!current(version, agentId, reportId) || controller.signal.aborted) return;
         acceptCatalog(catalog);

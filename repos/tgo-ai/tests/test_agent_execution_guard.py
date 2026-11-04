@@ -10,7 +10,7 @@ from app.schemas.knowledge import KnowledgeChannel
 from app.services.agent_trial_fingerprint import configuration_fingerprint
 from app.models.agent_business_connection import AgentBusinessConnection
 from uuid import uuid4
-pytest_plugins = ("tests.test_agent_activation_readiness",)
+from tests.test_agent_activation_readiness import setup as setup
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ import { Loader2, RotateCw, Send, Square } from 'lucide-react';
 import { useAgentTrialStore } from '@/stores/agentTrialStore';
 import { useAgentTrialReviewStore } from '@/stores/agentTrialReviewStore';
 import AgentTrialReviewPanel from './AgentTrialReviewPanel';
+import AgentKnowledgeCatalogEditor from './AgentKnowledgeCatalogEditor';
 import { useAuthStore } from '@/stores/authStore';
 import type { AICollectionResponse } from '@/types';
 import type { KnowledgeChannel } from '@/types/scenarioResources';
@@ -40,11 +41,13 @@ export default function AgentTrialPanel({ agentId, collections = [], questions, 
   }, [scoped, report?.status, busy, recover]);
   if (user?.role !== 'admin') return null;
   const cases = review.agentId === agentId && review.identity === `${user.project_id}:${user.id}` ? review.catalog : [];
-  const presets = questions?.length ? questions : cases.length ? [...new Set(cases.map(row => row.question))]
+  const customCases = cases.some(row => row.id.startsWith('kc.'));
+  const presets = customCases ? cases.map(row => row.question) : questions?.length ? questions : cases.length ? [...new Set(cases.map(row => row.question))]
     : ['material', 'size', 'policy'].map(key => t(`businessScenarios.trial.questions.${key}`));
   const blocked = !scoped || !trial.historyReady || Boolean(pending) || trial.loading || busy;
   return <div className="space-y-5">
     <p className="rounded-2xl bg-blue-50 p-4 text-sm leading-6 text-blue-700 dark:bg-blue-900/20 dark:text-blue-200">{t('businessScenarios.trial.hint')}</p>
+    <AgentKnowledgeCatalogEditor agentId={agentId} disabled={Boolean(pending) || busy} />
     <div>
       <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-200">{t('businessScenarios.trial.presets')}</p>
       <div className="flex flex-wrap gap-2">{presets.map(question => <button key={question} type="button" disabled={blocked} onClick={() => setMessage(question)} className={`${button} border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200`}>{question}</button>)}</div>

@@ -25,8 +25,8 @@ from tests.test_agent_knowledge_trial import employee
 
 
 @pytest_asyncio.fixture
-async def setup(tmp_path):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'readiness.sqlite'}")
+async def setup():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(BaseModel.metadata.create_all)
     async with async_sessionmaker(engine, expire_on_commit=False)() as db:
@@ -38,7 +38,7 @@ async def setup(tmp_path):
         internal = employee().model_copy(update={"id": identifier, "project_id": str(project),
             "bound_device_id": None, "skills_enabled": False, "config": {}, "model_owner_revision": "a" * 64})
         query, body = requirements_fixture()
-        body.update(project_id=str(project), requested_by=str(actor))
+        body.update(project_id=str(project), requested_by=str(actor), agent_id=str(identifier))
         body["requirements_revision"] = AgentActivationRequirements.model_construct(
             **body).definition_revision()
         requirements = AgentActivationRequirements.model_validate(body)

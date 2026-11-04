@@ -32,6 +32,7 @@ class AgentActivationSelection(BaseModel):
 class AgentActivationRequirementsQuery(AgentActivationSelection):
     project_id: UUID
     requested_by: UUID
+    agent_id: UUID | None = None
 
 
 class AgentActivationRequirements(AgentActivationRequirementsQuery):
@@ -58,6 +59,9 @@ class AgentActivationRequirements(AgentActivationRequirementsQuery):
                 "knowledge_cases",
             },
         )
+        for case in definition["knowledge_cases"]:
+            if case.get("valid_from") is None:
+                case.pop("valid_from", None)
         encoded = json.dumps(
             definition, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         ).encode("utf-8")

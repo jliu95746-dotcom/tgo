@@ -16,10 +16,11 @@ from app.services.agent_trial_reviews import AgentTrialReviewService
 
 
 @pytest_asyncio.fixture
-async def setup(tmp_path):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'reviews.sqlite'}")
+async def setup():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
-        await connection.run_sync(BaseModel.metadata.create_all)
+        await connection.run_sync(lambda db: BaseModel.metadata.create_all(
+            db, tables=[AgentTestReport.__table__, AgentTrialReview.__table__]))
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     async with sessions() as db:
         project, actor, agent, report_id = [uuid4() for _ in range(4)]
@@ -56,6 +57,48 @@ async def test_review_is_idempotent_scoped_and_never_activates(setup):
     with pytest.raises(HTTPException) as failure:
         await service.review(project, actor, agent, report.id, command.model_copy(update={"note": "另一份评审"}))
     assert failure.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_catalog_change_keeps_retry_receipt_but_invalidates_old_pass(setup):
+    db, service, project, actor, agent, report, command, _ = setup
+    first = await service.review(project, actor, agent, report.id, command)
+    changed = command.case.model_copy(update={"id": "kc.new.knowledge.1", "question": "企业提供哪些服务？"})
+    retry_command = KnowledgeReviewCommand(**command.model_dump(exclude={"current_cases"}), current_cases=[changed])
+    retry = await service.review(project, actor, agent, report.id, retry_command)
+    assert retry.id == first.id and retry.case_status == "changed" and not retry.effective
+    assert len((await db.scalars(select(AgentTrialReview))).all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_retired_case_cannot_create_a_new_judgment(setup):
+    db, service, project, actor, agent, report, command, _ = setup
+    retired = KnowledgeReviewCommand(**command.model_dump(exclude={"current_cases"}), current_cases=[])
+    with pytest.raises(HTTPException) as failure:
+        await service.review(project, actor, agent, report.id, retired)
+    assert failure.value.status_code == 409
+    assert not (await db.scalars(select(AgentTrialReview))).all()
+
+
+@pytest.mark.asyncio
+async def test_question_version_requires_a_trial_started_after_configuration(setup):
+    _, service, project, actor, agent, report, command, _ = setup
+    updated = command.case.model_copy(update={"valid_from": datetime.now(UTC) + timedelta(seconds=1)})
+    request = command.model_copy(update={"case": updated, "current_cases": [updated]})
+    with pytest.raises(HTTPException) as failure:
+        await service.review(project, actor, agent, report.id, request)
+    assert failure.value.status_code == 409
+
+
+def test_legacy_case_digest_is_unchanged():
+    import hashlib
+    import json
+    from app.services.agent_trial_reviews import case_digest
+
+    legacy = {"id": "knowledge.v1.1", "template_id": "knowledge", "template_version": 1,
+              "criteria_version": 1, "question": "这款包是什么材质？", "expected_result": "grounded_answer"}
+    expected = hashlib.sha256(json.dumps(legacy, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+    assert case_digest(KnowledgeReviewCase.model_validate(legacy)) == expected
 
 
 @pytest.mark.asyncio

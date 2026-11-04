@@ -13,8 +13,13 @@ from app.services import agent_trials
 from app.services.request_execution import run_until_disconnect
 from app.schemas.agent_trial_reviews import KnowledgeReviewRequest, KnowledgeReviewResponse, KnowledgeReviewState
 from app.services import agent_trial_reviews
+from app.api.v1.endpoints.agent_knowledge_cases import (
+    router as knowledge_cases_router,
+)
 
 router = APIRouter()
+
+router.include_router(knowledge_cases_router)
 
 
 @router.get("/{agent_id}/knowledge-capabilities", response_model=AgentKnowledgeCapabilities)

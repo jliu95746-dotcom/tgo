@@ -19,8 +19,8 @@ from tests.test_agent_activation_requirements_client import fixture as requireme
 
 
 @pytest_asyncio.fixture
-async def setup(tmp_path):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'policies.sqlite'}")
+async def setup():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(BaseModel.metadata.create_all)
     async with async_sessionmaker(engine, expire_on_commit=False)() as db:
