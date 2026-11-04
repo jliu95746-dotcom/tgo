@@ -165,6 +165,25 @@ class TgoClientTests(unittest.TestCase):
             with self.subTest(url=url, channel=channel), self.assertRaises(ValueError):
                 bridge_base_url(url, channel)
 
+    def test_legacy_cached_session_refresh_supplies_its_original_signed_proof(self):
+        self.client.connect()
+        cached = json.loads(self.client.session_file.read_text(encoding="utf-8"))
+        cached.pop("visitor_access_token")
+        self.client.session_file.write_text(json.dumps(cached), encoding="utf-8")
+        restarted = TgoClient(self.config_file, self.root, "account-a")
+        restarted.connect(force_refresh=True)
+        registration = [body for path, _, body in self.calls if path.endswith("/register")][-1]
+        self.assertEqual(registration["im_token"], cached["im_token"])
+        self.assertNotIn("visitor_access_token", registration)
+        self.assertEqual(restarted.channel_id, self.client.channel_id)
+
+    def test_current_access_proof_does_not_send_a_second_legacy_proof(self):
+        self.client.connect()
+        self.client.connect(force_refresh=True)
+        registration = [body for path, _, body in self.calls if path.endswith("/register")][-1]
+        self.assertEqual(registration["visitor_access_token"], self.client.session["visitor_access_token"])
+        self.assertNotIn("im_token", registration)
+
     def test_media_upload_uses_visitor_token_platform_key_and_owned_channel(self):
         config = json.loads(self.config_file.read_text())
         config.update(chat_id="scoped", platform_type="wechat_local")

@@ -205,7 +205,9 @@ class TgoClient:
                     "platform_api_key": self.api_key,
                     "platform_open_id": identity,
                     **({"visitor_access_token": self.session["visitor_access_token"]}
-                       if self.session.get("visitor_access_token") else {}),
+                       if self.session.get("visitor_access_token") else
+                       {"im_token": self.session["im_token"]}
+                       if self.session.get("im_token") else {}),
                     "name": self.nickname,
                     "nickname": self.nickname,
                     "source": "wechat-local-bridge",
