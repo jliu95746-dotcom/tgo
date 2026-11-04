@@ -31,6 +31,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Verify model configuration preflight safeguards
+        run: python3 -m unittest scripts.release.tests.test_preflight_model_configuration -v
+
       - name: Discover services
         id: discover
         run: |

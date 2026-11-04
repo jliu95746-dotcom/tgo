@@ -95,6 +95,10 @@ class ConflictError(TGOAIServiceException):
         super().__init__(message, code, error_details)
 
 
+class ModelConfigurationVerificationError(ConflictError):
+    """The runtime model did not match its authenticated owner proof."""
+
+
 class DatabaseError(TGOAIServiceException):
     """Database operation failed."""
 

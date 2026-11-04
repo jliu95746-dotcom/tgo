@@ -5,7 +5,7 @@ from typing import Protocol
 from uuid import UUID
 
 from app.config import settings
-from app.exceptions import ConflictError
+from app.exceptions import ModelConfigurationVerificationError
 from app.models.agent import Agent as StoredAgent
 from app.models.internal import Agent
 from app.schemas.agent_activation_models import (
@@ -25,12 +25,18 @@ async def verify_model_configuration(
     proof = await owner.get_agent_activation_model(query)
     if (proof.model_dump(include=set(AgentActivationModelQuery.model_fields)) != query.model_dump()
             or proof.status != "ready" or not proof.owner_revision or not proof.runtime_revision):
-        raise ConflictError("当前模型配置不可用或尚未同步，请检查模型设置后重新测试")
+        raise ModelConfigurationVerificationError(
+            "当前模型配置不可用或尚未同步，请检查模型设置后重新测试"
+        )
     if verify_runtime or proof.source == "tenant":
         credentials = agent.llm_provider_credentials
         if credentials is None or proof.effective_model != agent.model:
-            raise ConflictError("模型配置尚未同步，请稍后重新测试")
+            raise ModelConfigurationVerificationError(
+                "模型配置尚未同步，请稍后重新测试"
+            )
         runtime = ActivationModelRuntime.model_validate({"model": agent.model, **credentials.model_dump()})
         if not hmac.compare_digest(runtime.private_revision(settings.secret_key), proof.runtime_revision):
-            raise ConflictError("模型配置已变更或尚未同步，请重新测试")
+            raise ModelConfigurationVerificationError(
+                "模型配置已变更或尚未同步，请重新测试"
+            )
     return agent.model_copy(update={"model": proof.effective_model, "model_owner_revision": proof.owner_revision})

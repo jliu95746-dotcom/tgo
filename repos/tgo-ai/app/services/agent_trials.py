@@ -14,6 +14,12 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.logging import get_logger
+from app.exceptions import (
+    AuthorizationError, ExternalServiceError,
+    ModelConfigurationVerificationError,
+)
+
 from app.models.agent_test_report import AgentTestReport
 from app.runtime.supervisor.application.service import SupervisorRuntimeService
 from app.runtime.supervisor.infrastructure.services import AIServiceClient
@@ -25,6 +31,8 @@ from app.services.agent_trial_dependencies import AgentTrialDependencies, compar
 from app.services.agent_service import AgentService
 from app.services.agent_trial_fingerprint import configuration_fingerprint, private_digest
 from app.services.sensitive_data_redactor import SensitiveDataRedactor
+
+logger = get_logger(__name__)
 
 
 class TrialOutcome(BaseModel):
@@ -175,13 +183,41 @@ class AgentTrialService:
                 ))
             raise
         except HTTPException as exc:
+            denied = exc.status_code in {400, 401, 402, 403, 409, 422}
+            code = (
+                "authorization_denied"
+                if denied else "dependency_unavailable"
+            )
+            message = (
+                "试聊授权未通过，请由管理员检查套餐及模型配置"
+                if denied else "试聊依赖服务暂时不可用，请稍后重试或联系管理员"
+            )
+            logger.warning(
+                "agent_trial_execution_issue", report_id=str(report_id),
+                failure_code=code,
+            )
             with CancelScope(shield=True):
                 await self._stop(execution, watcher, observation_finished)
                 await self._finish(report_id, TrialOutcome(
-                    status="blocked", error_code="authorization_denied",
-                    error_message="试聊授权未通过，请由管理员检查套餐及模型配置",
+                    status="blocked" if denied else "failed",
+                    error_code=code, error_message=message,
                 ))
-            raise HTTPException(exc.status_code, "试聊授权未通过，请由管理员检查套餐及模型配置") from None
+            raise HTTPException(exc.status_code, message) from None
+        except ModelConfigurationVerificationError:
+            outcome = TrialOutcome(
+                status="blocked", error_code="model_configuration_unavailable",
+                error_message="模型配置核验未通过，请由管理员检查模型配置和服务同步状态后重试",
+            )
+        except AuthorizationError:
+            outcome = TrialOutcome(
+                status="blocked", error_code="authorization_denied",
+                error_message="试聊权限核验未通过，请由管理员检查账号和模型使用权限",
+            )
+        except ExternalServiceError:
+            outcome = TrialOutcome(
+                status="failed", error_code="dependency_unavailable",
+                error_message="试聊依赖服务暂时不可用，请稍后重试或联系管理员",
+            )
         except Exception as exc:
             outcome = TrialOutcome(
                 status="failed", error_code="timeout" if isinstance(exc, TimeoutError) else "execution_failed",
@@ -190,6 +226,14 @@ class AgentTrialService:
         finally:
             with CancelScope(shield=True):
                 await self._stop(execution, watcher, observation_finished)
+        if (
+            outcome.error_code
+            and outcome.error_code != "knowledge_not_verified"
+        ):
+            logger.warning(
+                "agent_trial_execution_issue", report_id=str(report_id),
+                failure_code=outcome.error_code,
+            )
         await self._finish(report_id, outcome)
         return await self.get(project_id, creator, agent_id, report_id)
 

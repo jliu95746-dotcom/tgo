@@ -75,3 +75,16 @@ async def test_platform_report_read_needs_no_plain_credentials(monkeypatch):
 def test_default_switch_does_not_invalidate_explicit_knowledge_configuration():
     _, agent, _, _ = fixture()
     assert configuration_fingerprint(agent) == configuration_fingerprint(agent.model_copy(update={"is_default": True}))
+
+
+@pytest.mark.asyncio
+async def test_proof_mismatch_has_a_specific_domain_failure(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.agent_activation_model_verification.settings.secret_key",
+        "fixture-owner-key",
+    )
+    stored, agent, actor, owner = fixture()
+    owner.get_agent_activation_model.return_value.runtime_revision = "a" * 64
+    with pytest.raises(ConflictError) as failure:
+        await verify_model_configuration(stored, agent, actor, owner)
+    assert type(failure.value).__name__ == "ModelConfigurationVerificationError"
