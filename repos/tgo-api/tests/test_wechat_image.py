@@ -5,7 +5,8 @@ import pytest
 
 from app.services.wechat_image import WechatImageError, decode_wechat_image
 
-CONTAINER = b"wxgf-fixture" + b"\x00\x00\x00\x01\x40\x01" + b"fixture" * 10
+CONTAINER = b"wxgf-fixture" + b"".join(b"\x00\x00\x00\x01" + bytes([kind << 1, 1]) + b"fixture"
+                                      for kind in (32, 33, 34, 19))
 
 
 @pytest.mark.parametrize(

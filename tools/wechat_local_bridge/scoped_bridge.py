@@ -8,6 +8,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Mapping
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,6 +40,8 @@ class Worker:
     error: str = ""
     target_title: str = ""
     target_same_title: bool = False
+    future: Future[None] | None = None
+    delivery_future: Future[None] | None = None
 
 
 class ScopedBridge:
@@ -59,6 +62,9 @@ class ScopedBridge:
         self.status_snapshot: dict[str, dict[str, object]] = {}
         self.next_publish = 0.0
         self.published: list[Mapping[str, object]] | None = None
+        self.network_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="wechat-network")
+        self.delivery_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="wechat-send")
+        self.retired: list[Worker] = []
 
     def target_runtime(self, grant: Grant) -> Path:
         if not re.fullmatch(r"[a-f0-9]{32}", grant.revision):
@@ -127,10 +133,12 @@ class ScopedBridge:
         reader = WeChatReader(self.key_file, contact.id, scoped=True)
         active = lambda: self._active(grant)
         media = MediaPipeline(LocalMediaReader(reader, self.key_file, path, active), client, path, active)
-        return Worker(grant, TgoBridge(
+        bridge = TgoBridge(
             reader, store, path, "", client, None, self.allow_send, float("inf"), float("inf"),
             scoped=True, active=active, media=media,
-        ))
+        )
+        bridge.desktop_lock = self.desktop_lock
+        return Worker(grant, bridge)
 
     def _reconcile(self, grants: dict[str, Grant]) -> None:
         for identity, worker in list(self.workers.items()):
@@ -139,7 +147,7 @@ class ScopedBridge:
                 worker.bridge.stop.set()
                 if worker.bridge.media is not None:
                     worker.bridge.media.close()
-                worker.bridge.ledger.close()
+                self.retired.append(worker)
                 del self.workers[identity]
         for identity, grant in grants.items():
             if identity not in self.workers:
@@ -232,8 +240,7 @@ class ScopedBridge:
                 worker.connected = True
             elif visitor_token_expired(bridge.client.session.get("im_token")):
                 bridge.client.connect()
-            self._load_backend(worker)
-            bridge.poll(read_local=False)
+            bridge.poll(read_local=False, deliver=False)
         except TgoUnavailable:
             worker.next_poll = time.monotonic() + 6
         except (RuntimeError, ValueError, OSError, sqlite3.Error, KeyError) as exc:
@@ -243,27 +250,58 @@ class ScopedBridge:
     def poll(self) -> None:
         self.scope.refresh()
         grants = self.scope.grants()
-        self._publish(grants)
         self.healthy = self.scope.ready
         self._reconcile(grants)
         self._ingest()
-        # Serialize desktop access. A window check only holds the send
-        # path; reading and configuring scope can continue.
-        if not self.desktop_lock.acquire(blocking=False):
-            return
-        try:
-            now = time.monotonic()
-            due = sorted(self.workers.values(), key=lambda worker: worker.next_poll)
-            for worker in due[:8]:
-                if self.stop.is_set():
-                    break
-                if worker.next_poll <= now:
-                    worker.next_poll = time.monotonic() + 2
-                    self._process(worker)
-        finally:
-            self.desktop_lock.release()
+
+    def _network_loop(self) -> None:
+        while not self.stop.is_set():
+            try:
+                self._publish(self.scope.grants())
+                now = time.monotonic()
+                for worker in list(self.workers.values()):
+                    if worker.next_poll <= now and (worker.future is None or worker.future.done()):
+                        worker.next_poll = now + .25
+                        worker.future = self.network_pool.submit(self._process, worker)
+                if self.desktop_lock.acquire(blocking=False):
+                    try:
+                        for worker in list(self.retired):
+                            if ((worker.future is None or worker.future.done())
+                                    and (worker.delivery_future is None or worker.delivery_future.done())):
+                                worker.bridge.ledger.close()
+                                self.retired.remove(worker)
+                    finally:
+                        self.desktop_lock.release()
+            except (TgoError, OSError, ValueError) as error:
+                self.error = f"云端连接等待恢复（{type(error).__name__}）"
+            self.stop.wait(.25)
+
+    def _desktop_loop(self) -> None:
+        def deliver(worker: Worker) -> None:
+            bridge = worker.bridge
+            try:
+                with self.desktop_lock:
+                    self._load_backend(worker)
+                bridge._deliver()
+            except TgoUnavailable:
+                bridge.next_delivery_at = time.monotonic() + 1
+            except (RuntimeError, ValueError, OSError, sqlite3.Error) as error:
+                worker.error = f"发送待核对（{type(error).__name__}）"
+        while not self.stop.is_set():
+            for worker in list(self.workers.values()):
+                bridge = worker.bridge
+                if (not worker.connected or worker.error or not self._active(worker.grant)
+                        or time.monotonic() < bridge.next_delivery_at or not bridge.ledger.next_delivery()):
+                    continue
+                if worker.delivery_future is None or worker.delivery_future.done():
+                    worker.delivery_future = self.delivery_pool.submit(deliver, worker)
+            self.stop.wait(.05)
 
     def run(self) -> None:
+        threads = [threading.Thread(target=self._network_loop, name="wechat-cloud", daemon=True),
+                   threading.Thread(target=self._desktop_loop, name="wechat-desktop", daemon=True)]
+        for thread in threads:
+            thread.start()
         try:
             while not self.stop.is_set():
                 try:
@@ -286,14 +324,19 @@ class ScopedBridge:
                     }
                     for key, worker in self.workers.items() if key in active_ids
                 }
-                self.stop.wait(1)
+                self.stop.wait(.25)
         finally:
+            self.stop.set()
             self.healthy = False
+            for thread in threads:
+                thread.join(timeout=20)
+            self.network_pool.shutdown(wait=True, cancel_futures=True)
+            self.delivery_pool.shutdown(wait=True, cancel_futures=True)
             try:
                 self._publish({}, force=True)
             except (TgoError, OSError):
                 pass
-            for worker in self.workers.values():
+            for worker in [*self.workers.values(), *self.retired]:
                 worker.bridge.stop.set()
                 if worker.bridge.media is not None:
                     worker.bridge.media.close()

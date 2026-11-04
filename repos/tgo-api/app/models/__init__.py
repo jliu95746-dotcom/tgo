@@ -119,3 +119,4 @@ from app.models.ai_usage import AIUsageReservation, AIUsageMovement
 from app.models.billing_reconciliation import BillingReconciliation
 from app.models.trial_policy import TrialPolicy
 from app.models.trial_activation_code import TrialActivationCode
+from app.models.customer_turn import CustomerTurn as CustomerTurn, CustomerTurnPart as CustomerTurnPart

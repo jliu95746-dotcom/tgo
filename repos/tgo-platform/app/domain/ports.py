@@ -15,8 +15,12 @@ class MessageNormalizer(Protocol):
 
 
 class TgoApiClient(Protocol):
+    durable_turns: bool
     def chat_completion(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
         """Open SSE stream by POSTing to tgo-api and yield raw event lines as bytes."""
+
+    async def turn_action(self, turn_id: str, action: str, body: dict[str, object]) -> dict[str, object]: ...
+    async def ingest_turn(self, req: ChatCompletionRequest) -> dict[str, object]: ...
 
 
 class SSEManager(Protocol):

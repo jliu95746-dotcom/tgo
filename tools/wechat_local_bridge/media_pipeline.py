@@ -33,6 +33,8 @@ class MediaPipeline:
         self.event_id = ""
         self.retry_at = 0.0
         self.status = ""
+        self.failures = 0
+        self.failed = False
 
     def _prepare(self, message: Message) -> UploadedMedia:
         if not self.active():
@@ -70,7 +72,7 @@ class MediaPipeline:
         return uploaded
 
     def prepare(self, message: Message) -> UploadedMedia | None:
-        if not self.active() or time.monotonic() < self.retry_at:
+        if self.failed or not self.active() or time.monotonic() < self.retry_at:
             return None
         if self.future is None:
             self.event_id = message.event_id
@@ -82,15 +84,20 @@ class MediaPipeline:
             return None
         try:
             return self.future.result()
-        except (MediaNotReady, TgoUnavailable) as error:
+        except (MediaNotReady, TgoUnavailable, ValueError) as error:
             self.status = str(error)
-            self.retry_at = time.monotonic() + 10
+            self.failures += 1
+            self.failed = self.failures >= 5 or isinstance(error, ValueError)
+            self.retry_at = time.monotonic() + min(5, 2 ** (self.failures - 1))
             self.future = None
             return None
 
     def completed(self) -> None:
         self.future = None
         self.event_id = ""
+        self.failures = 0
+        self.failed = False
+        self.retry_at = 0
 
     def close(self) -> None:
         if self.future:

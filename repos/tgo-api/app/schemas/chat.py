@@ -112,6 +112,8 @@ class ChatCompletionRequest(BaseSchema):
         max_length=255,
         description="上游消息幂等编号；同一消息经多个入口到达时必须保持一致",
     )
+    media_pending: bool = False
+    media_error: Literal["source_unavailable", "download_failed", "unsupported_media"] | None = None
     timeout_seconds: Optional[int] = Field(
         120,
         ge=10,

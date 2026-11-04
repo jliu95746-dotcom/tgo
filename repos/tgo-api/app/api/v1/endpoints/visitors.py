@@ -33,6 +33,7 @@ from app.services.reply_history import reconcile_reply_history
 from app.schemas.employee_style import EmployeeStyle
 from app.services.employee_style import resolve_employee_style
 from app.services.visitor_notifications import notify_visitor_profile_updated
+from app.services.platform_message_client import prepare_native_mode
 from app.utils.intent import localize_visitor_response_intent
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_VISITOR
 from app.utils.request import get_client_ip, get_client_language
@@ -1254,6 +1255,18 @@ async def enable_ai_for_visitor(
     if not visitor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
 
+    visitor = db.query(Visitor).filter(
+        Visitor.id == visitor_id, Visitor.project_id == current_user.project_id,
+        Visitor.deleted_at.is_(None),
+    ).populate_existing().with_for_update().first()
+    if visitor is None:
+        raise HTTPException(404, "Visitor not found")
+    try:
+        await prepare_native_mode(visitor, "auto")
+    except BaseException:
+        db.rollback()
+        raise
+
     visitor.ai_disabled = False
     visitor.service_mode = "auto"
     visitor.updated_at = datetime.utcnow()
@@ -1302,6 +1315,9 @@ async def disable_ai_for_visitor(
     db.refresh(visitor)
 
     logger.info("AI disabled for visitor %s by user %s", str(visitor.id), current_user.username)
+    if settings.CUSTOMER_TURNS_ENABLED:
+        from app.services.customer_turn_ingress import cancel_customer_turns
+        await cancel_customer_turns(db, visitor)
     await notify_visitor_profile_updated(db, visitor)
     response = VisitorResponse.model_validate(visitor)
     populate_visitor_ai_settings(response, visitor.platform)
@@ -1355,9 +1371,10 @@ async def update_visitor_service_mode(
             detail="Visitor not found",
         )
 
+    staged = Visitor()
     try:
         await visitor_service.configure_service_mode(
-            visitor,
+            staged,
             str(current_user.project_id),
             data,
         )
@@ -1367,8 +1384,28 @@ async def update_visitor_service_mode(
             detail=str(exc),
         ) from exc
 
+    visitor = db.query(Visitor).filter(
+        Visitor.id == visitor_id, Visitor.project_id == current_user.project_id,
+        Visitor.deleted_at.is_(None),
+    ).populate_existing().with_for_update().first()
+    if visitor is None:
+        raise HTTPException(404, "Visitor not found")
+    try:
+        await prepare_native_mode(visitor, staged.service_mode)
+    except BaseException:
+        db.rollback()
+        raise
+    visitor.service_mode = staged.service_mode
+    visitor.ai_disabled = staged.ai_disabled
+    visitor.humanization_skill_name = staged.humanization_skill_name
+    visitor.humanization_skill_enabled = staged.humanization_skill_enabled
+    visitor.updated_at = datetime.utcnow()
+
     db.commit()
     db.refresh(visitor)
+    if settings.CUSTOMER_TURNS_ENABLED and visitor.service_mode != "auto":
+        from app.services.customer_turn_ingress import cancel_customer_turns
+        await cancel_customer_turns(db, visitor)
     await notify_visitor_profile_updated(db, visitor)
 
     response = VisitorResponse.model_validate(visitor)

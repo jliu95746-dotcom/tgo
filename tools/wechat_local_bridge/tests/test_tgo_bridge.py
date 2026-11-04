@@ -41,6 +41,7 @@ class TgoBridgeTests(unittest.TestCase):
         self.client.platform_id = "test-platform"
         self.client.history.return_value = {"messages": []}
         self.client.submit.return_value = "ai-test"
+        self.client.turn_replies.return_value = []
         self.rpa.read_input.return_value = "客服回复"
         self.rpa.send_point.return_value = (900, 800)
         self.bridge = TgoBridge(
@@ -142,6 +143,7 @@ class TgoBridgeTests(unittest.TestCase):
 
     def test_uncertain_click_is_never_retried_after_restart(self):
         self.rpa.click_send.side_effect = RuntimeError("unknown click outcome")
+        self.reader.history.return_value = []
         with self.assertRaises(RuntimeError):
             self.bridge.poll()
         with self.assertRaisesRegex(TgoError, "未确认"):
@@ -149,7 +151,15 @@ class TgoBridgeTests(unittest.TestCase):
         self.assertEqual(self.store.delivery_stats(), {"uncertain": 1})
         self.rpa.click_send.assert_called_once()
 
-    def test_scoped_media_is_prepared_before_submit_and_self_media_is_ignored(self):
+    def test_restart_uses_late_unique_wechat_receipt_without_clicking_again(self):
+        self.rpa.click_send.side_effect = RuntimeError("transport interrupted after click")
+        with self.assertRaises(RuntimeError):
+            self.bridge.poll()
+        self.bridge.initialize()
+        self.assertEqual(self.store.delivery_stats(), {"sent": 1})
+        self.rpa.click_send.assert_called_once()
+
+    def test_scoped_media_placeholder_precedes_upload_and_self_media_is_ignored(self):
         from tools.wechat_local_bridge.media_types import UploadedMedia
         self.bridge.scoped = True
         self.bridge.media = Mock()
@@ -161,8 +171,8 @@ class TgoBridgeTests(unittest.TestCase):
         self.client.history.return_value = {"messages": []}
         self.bridge.observe([incoming, replace(incoming, local_id=25, is_self=True)])
         self.bridge.poll(read_local=False)
-        self.client.submit.assert_not_called()
-        self.assertEqual(self.store.stats(), {"observed": 1, "ignored": 1})
+        self.assertEqual(self.client.submit.call_args.kwargs["pending_kind"], "image")
+        self.assertEqual(self.store.stats(), {"media_pending": 1, "ignored": 1})
         self.bridge.poll(read_local=False)
         self.assertEqual(self.client.submit.call_args.kwargs["media"].file_id, "file-id")
         self.assertEqual(self.store.stats(), {"accepted": 1, "ignored": 1})

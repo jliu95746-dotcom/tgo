@@ -5,7 +5,7 @@ Sends messages to Feishu using the Reply API.
 from __future__ import annotations
 
 from app.domain.entities import StreamEvent
-from app.domain.services.adapters.base import BasePlatformAdapter
+from app.domain.services.adapters.base import BasePlatformAdapter, provider_receipt, DeliveryRejected
 from app.core.config import settings
 
 from app.api.feishu_utils import feishu_get_tenant_access_token, feishu_reply_text
@@ -42,6 +42,8 @@ class FeishuBotAdapter(BasePlatformAdapter):
 
     async def send_final(self, content: dict) -> None:
         text = (content or {}).get("text") or ""
+        if content.get("delivery_fenced") and len(text) > 30000:
+            raise DeliveryRejected("Reply exceeds channel message limit")
         if not text:
             # Nothing to send
             return
@@ -60,10 +62,10 @@ class FeishuBotAdapter(BasePlatformAdapter):
         )
 
         # Reply to the message
-        await feishu_reply_text(
+        result = await feishu_reply_text(
             access_token=access_token,
             message_id=self.message_id,
             text=text[:30000],  # Feishu text limit is around 30KB
             timeout=self.http_timeout,
         )
-
+        self.delivery_receipt = provider_receipt("feishu", result)

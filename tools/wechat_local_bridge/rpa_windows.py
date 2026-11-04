@@ -226,6 +226,22 @@ class NativeRpa:
                 self.runtime / "wechat-rpa-verified.png"
             )
 
+    def clear_owned_draft(self, expected: str) -> None:
+        with self.scope_lock or nullcontext():
+            self.ensure_conversation()
+            original = self.get_clipboard()
+            try:
+                if self.read_input() != expected:
+                    raise RpaNotReady("草稿已被人工修改，保留现有内容")
+                self._guard_input()
+                self.gui.hotkey("ctrl", "a")
+                self._guard_input()
+                self.gui.press("backspace")
+                if self.read_input():
+                    raise RpaNotReady("旧草稿未能确认清除，停止后续填写")
+            finally:
+                self.restore_clipboard(original)
+
     def send_point(self, expected: str) -> tuple[int, int]:
         """Verify the exact draft and identify the enabled Send button."""
         import numpy as np

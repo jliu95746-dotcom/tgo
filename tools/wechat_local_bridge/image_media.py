@@ -8,6 +8,7 @@ from Crypto.Util.Padding import unpad
 from PIL import Image, UnidentifiedImageError
 
 from .media_types import MAX_MEDIA_BYTES, MediaContent
+from .hevc_stream import hevc_offset
 
 V1 = b"\x07\x08V1\x08\x07"
 V2 = b"\x07\x08V2\x08\x07"
@@ -67,14 +68,8 @@ def decode_image(
                 + data[boundary:-tail_size]
                 + bytes(value ^ xor_key for value in data[-tail_size:])
             )
-            start = content.find(b"\x00\x00\x00\x01")
-            if 4 <= start < len(content) - 8 and (content[start + 4] >> 1) & 63 in (
-                32,
-                33,
-                34,
-            ):
-                return MediaContent("image", "application/vnd.wechat.wxgf", content)
-            raise ValueError("微信图片编码未通过核对")
+            hevc_offset(content)
+            return MediaContent("image", "application/vnd.wechat.wxgf", content)
         endings = (
             (b"\xff\xd9",)
             if head.startswith(b"\xff\xd8\xff")

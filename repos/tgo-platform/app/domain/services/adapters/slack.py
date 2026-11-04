@@ -5,7 +5,7 @@ Sends messages to Slack using the Web API chat.postMessage endpoint.
 from __future__ import annotations
 
 from app.domain.entities import StreamEvent
-from app.domain.services.adapters.base import BasePlatformAdapter
+from app.domain.services.adapters.base import BasePlatformAdapter, provider_receipt
 from app.core.config import settings
 
 from app.api.slack_utils import slack_send_text
@@ -84,3 +84,4 @@ class SlackAdapter(BasePlatformAdapter):
             print(f"[SLACK ADAPTER] Reply sent to {self.channel}")
         else:
             print(f"[SLACK ADAPTER] Failed to send reply to {self.channel}")
+        self.delivery_receipt = provider_receipt("slack", result)

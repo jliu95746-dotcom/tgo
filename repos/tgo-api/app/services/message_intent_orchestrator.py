@@ -27,63 +27,6 @@ logger = get_logger("services.message_intent_orchestrator")
 
 CLASSIFIER_VERSION = "tgo-ai-intent-v1"
 POLICY_VERSION = "customer-service-routing-v1"
-SAFE_AUTO_REPLY_MAX_CHARACTERS = 200
-
-# Messages containing these terms can affect routing, tools, payments, orders,
-# after-sales handling, or human escalation. They must still pass through the
-# semantic intent model. Other short text can safely use the normal AI reply
-# route because that route has no write capability.
-SEMANTIC_ROUTING_MARKERS = (
-    "人工",
-    "客服",
-    "转接",
-    "投诉",
-    "举报",
-    "维权",
-    "赔偿",
-    "订单",
-    "单号",
-    "物流",
-    "快递",
-    "配送",
-    "发货",
-    "收货",
-    "签收",
-    "运单",
-    "包裹",
-    "催单",
-    "退款",
-    "退货",
-    "换货",
-    "售后",
-    "支付",
-    "付款",
-    "扣款",
-    "账单",
-    "发票",
-    "取消",
-    "修改",
-    "地址",
-    "账户",
-    "账号",
-    "密码",
-    "手机号",
-    "破损",
-    "少件",
-    "漏发",
-    "错发",
-    "质量",
-    "故障",
-    "不能用",
-    "未收到",
-    "没收到",
-    "欺诈",
-    "诈骗",
-    "盗刷",
-    "被盗",
-)
-
-
 @dataclass(frozen=True)
 class MessageIntentRoutingOutcome:
     """Persisted classification paired with the enforced workflow target."""
@@ -124,6 +67,8 @@ class MessageIntentOrchestrator:
         source_message_id: str,
         user_text: str,
         reuse_existing: bool = False,
+        conversation_context: list[str] | None = None,
+        media_input: dict[str, object] | None = None,
     ) -> MessageIntentRoutingOutcome:
         """Classify one text message, persist it, then enforce a workflow route."""
         normalized_text = user_text.strip()
@@ -159,6 +104,8 @@ class MessageIntentOrchestrator:
             result_payload = await self._classify_or_fail_closed(
                 project=project,
                 user_text=normalized_text,
+                conversation_context=conversation_context,
+                media_input=media_input,
             )
             request = IntentResultUpsertRequest.model_validate({
                 **result_payload,
@@ -219,9 +166,11 @@ class MessageIntentOrchestrator:
         *,
         project: Project,
         user_text: str,
+        conversation_context: list[str] | None = None,
+        media_input: dict[str, object] | None = None,
     ) -> dict[str, object]:
         explicit_tracking_number = self._explicit_tracking_number(user_text)
-        if explicit_tracking_number is not None:
+        if explicit_tracking_number is not None and not media_input and not conversation_context:
             return {
                 "intent": "logistics_query",
                 "confidence": 1.0,
@@ -233,7 +182,8 @@ class MessageIntentOrchestrator:
                 "routing_reason": "high_confidence_read_only",
                 "classification_source": "rule",
             }
-        if self._can_use_safe_auto_reply(user_text):
+        from app.services.humanization_service import GREETING_ONLY
+        if not conversation_context and not media_input and GREETING_ONLY.fullmatch(user_text):
             return {
                 "intent": "product_inquiry",
                 "confidence": 1.0,
@@ -270,7 +220,9 @@ class MessageIntentOrchestrator:
                 project_id=str(project.id),
                 provider_id=str(config.default_chat_provider_id),
                 model=config.default_chat_model,
-                classification_input={"user_text": user_text},
+                classification_input={"user_text": user_text,
+                                      **(media_input or {}),
+                                      "conversation_context": (conversation_context or [])[-12:]},
             )
         except Exception as exc:
             logger.warning(
@@ -306,19 +258,8 @@ class MessageIntentOrchestrator:
 
     @staticmethod
     def _can_use_safe_auto_reply(user_text: str) -> bool:
-        """Skip a redundant model call only when no special route is possible."""
-        normalized_text = "".join(
-            character
-            for character in unicodedata.normalize("NFKC", user_text).lower()
-            if not unicodedata.category(character).startswith(("P", "Z", "S"))
-        )
-        return (
-            0 < len(normalized_text) <= SAFE_AUTO_REPLY_MAX_CHARACTERS
-            and not detect_tracking_numbers(user_text)
-            and not any(
-                marker in normalized_text for marker in SEMANTIC_ROUTING_MARKERS
-            )
-        )
+        from app.services.reply_quality import GREETING_ONLY
+        return bool(GREETING_ONLY.fullmatch(user_text))
 
     async def _route_or_handoff(
         self,

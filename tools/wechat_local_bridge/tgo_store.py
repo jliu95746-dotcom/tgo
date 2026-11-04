@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .reader import Message
-from .store import InboxStore
+from .store import InboxStore, locked
 from .tgo_protocol import BackendReply
 
 
@@ -17,6 +17,9 @@ class Delivery:
     key: str
     text: str
     state: str
+    turn_id: str | None = None
+    version: int | None = None
+    claim_id: str | None = None
 
 
 class TgoStore(InboxStore):
@@ -29,19 +32,27 @@ class TgoStore(InboxStore):
                 state TEXT NOT NULL, wx_baseline TEXT, attempted_at INTEGER, wx_event_id TEXT
             )
         """)
+        columns = {row[1] for row in self.connection.execute("PRAGMA table_info(outbox)")}
+        for column, kind in (("turn_id", "TEXT"), ("version", "INTEGER"), ("claim_id", "TEXT"), ("cloud_receipt", "TEXT")):
+            if column not in columns:
+                self.connection.execute(f"ALTER TABLE outbox ADD COLUMN {column} {kind}")
+        self.connection.commit()
 
+    @locked
     def value(self, name: str) -> str | None:
         row = self.connection.execute(
             "SELECT value FROM metadata WHERE name=?", (name,)
         ).fetchone()
         return row[0] if row else None
 
+    @locked
     def _value(self, name: str, value: str) -> None:
         self.connection.execute(
             "INSERT INTO metadata VALUES (?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
             (name, value),
         )
 
+    @locked
     def bind(self, identity: str, sequence: int) -> None:
         previous = self.value("tgo_channel")
         if previous is not None and previous != identity:
@@ -51,9 +62,11 @@ class TgoStore(InboxStore):
                 self._value("tgo_channel", identity)
                 self._value("tgo_sequence", str(sequence))
 
+    @locked
     def sequence(self) -> int:
         return int(self.value("tgo_sequence") or 0)
 
+    @locked
     def observe(self, message: Message, *, eligible: bool) -> bool:
         if message.chat_id != self.chat_id:
             raise ValueError("消息不属于当前授权会话")
@@ -75,12 +88,24 @@ class TgoStore(InboxStore):
             )
         return bool(inserted and state == "observed")
 
+    @locked
     def next_inbound(self) -> Message | None:
         row = self.connection.execute(
             "SELECT payload FROM inbox WHERE status='observed' ORDER BY rowid LIMIT 1"
         ).fetchone()
         return Message(**json.loads(row[0])) if row else None
 
+    @locked
+    def media_pending(self) -> Message | None:
+        row = self.connection.execute("SELECT payload FROM inbox WHERE status='media_pending' ORDER BY rowid LIMIT 1").fetchone()
+        return Message(**json.loads(row[0])) if row else None
+
+    @locked
+    def placeholder(self, event_id: str) -> None:
+        with self.connection:
+            self.connection.execute("UPDATE inbox SET status='media_pending' WHERE event_id=? AND status='submitting'", (event_id,))
+
+    @locked
     def begin_submission(self, event_id: str) -> None:
         with self.connection:
             updated = self.connection.execute(
@@ -90,6 +115,7 @@ class TgoStore(InboxStore):
         if updated != 1:
             raise ValueError("该微信消息已进入客服提交流程")
 
+    @locked
     def submission_uncertain(self, event_id: str) -> None:
         with self.connection:
             self.connection.execute(
@@ -97,13 +123,15 @@ class TgoStore(InboxStore):
                 (event_id,),
             )
 
+    @locked
     def accepted(self, event_id: str, receipt: str) -> None:
         with self.connection:
             self.connection.execute(
-                "UPDATE inbox SET status='accepted',reply=? WHERE event_id=? AND status IN ('submitting','submit_uncertain')",
+                "UPDATE inbox SET status='accepted',reply=? WHERE event_id=? AND status IN ('submitting','submit_uncertain','media_pending')",
                 (receipt, event_id),
             )
 
+    @locked
     def queue(self, reply: BackendReply) -> None:
         if reply.waiting:
             raise ValueError("回复尚未完成")
@@ -120,12 +148,39 @@ class TgoStore(InboxStore):
                 )
             self._value("tgo_sequence", str(max(self.sequence(), reply.sequence)))
 
+    @locked
     def next_delivery(self) -> Delivery | None:
         row = self.connection.execute(
-            "SELECT key,text,state FROM outbox WHERE state IN ('pending','filled') ORDER BY sequence LIMIT 1"
+            "SELECT key,text,state,turn_id,version,claim_id FROM outbox WHERE state IN ('pending','filled') ORDER BY sequence LIMIT 1"
         ).fetchone()
         return Delivery(*row) if row else None
 
+    @locked
+    def queue_turn(self, *, key: str, turn_id: str | None, version: int | None, text: str) -> None:
+        with self.connection:
+            self.connection.execute("INSERT OR IGNORE INTO outbox(key,sequence,text,state,turn_id,version) VALUES (?,0,?,'pending',?,?)",
+                                    (key, text, turn_id, version))
+
+    @locked
+    def supersede(self, key: str) -> None:
+        with self.connection:
+            self.connection.execute("UPDATE outbox SET state='superseded' WHERE key=? AND state IN ('pending','filled')", (key,))
+
+    @locked
+    def save_claim(self, key: str, claim_id: str) -> None:
+        with self.connection:
+            self.connection.execute("UPDATE outbox SET claim_id=? WHERE key=? AND state='filled'", (claim_id, key))
+
+    @locked
+    def pending_receipts(self) -> list[tuple[str, str, int, str, str, str | None]]:
+        return list(self.connection.execute("SELECT key,turn_id,version,claim_id,state,wx_event_id FROM outbox WHERE turn_id IS NOT NULL AND claim_id IS NOT NULL AND state IN ('sent','uncertain') AND cloud_receipt IS NULL"))
+
+    @locked
+    def receipt_accepted(self, key: str) -> None:
+        with self.connection:
+            self.connection.execute("UPDATE outbox SET cloud_receipt='confirmed' WHERE key=?", (key,))
+
+    @locked
     def filled(self, key: str) -> None:
         with self.connection:
             self.connection.execute(
@@ -133,6 +188,7 @@ class TgoStore(InboxStore):
                 (key,),
             )
 
+    @locked
     def begin_send(self, key: str, baseline: dict[str, int]) -> None:
         with self.connection:
             updated = self.connection.execute(
@@ -142,6 +198,7 @@ class TgoStore(InboxStore):
             if updated != 1:
                 raise ValueError("客服回复已进入发送流程，停止重复点击")
 
+    @locked
     def resolve_send(self, key: str, message: Message | None) -> None:
         with self.connection:
             self.connection.execute(
@@ -153,6 +210,7 @@ class TgoStore(InboxStore):
                 ),
             )
 
+    @locked
     def mark_fill_uncertain(self, key: str) -> None:
         with self.connection:
             self.connection.execute(
@@ -160,15 +218,28 @@ class TgoStore(InboxStore):
                 (key,),
             )
 
+    @locked
     def recover_interruption(self) -> None:
         with self.connection:
             self.connection.execute(
-                "UPDATE inbox SET status='submit_uncertain' WHERE status='submitting'"
+                "UPDATE inbox SET status='observed' WHERE status IN ('submitting','submit_uncertain')"
             )
             self.connection.execute(
                 "UPDATE outbox SET state='uncertain' WHERE state='sending'"
             )
 
+    @locked
+    def uncertain_sends(self) -> list[tuple[str, str, str, int]]:
+        return list(self.connection.execute(
+            "SELECT key,text,wx_baseline,attempted_at FROM outbox WHERE state='uncertain' AND wx_baseline IS NOT NULL AND attempted_at IS NOT NULL"))
+
+    @locked
+    def reconcile_sent(self, key: str, event_id: str) -> None:
+        with self.connection:
+            self.connection.execute("UPDATE outbox SET state='sent',wx_event_id=?,cloud_receipt=NULL WHERE key=? AND state='uncertain'",
+                                    (event_id, key))
+
+    @locked
     def is_echo(self, message: Message) -> bool:
         if (
             message.chat_id != self.chat_id
@@ -193,6 +264,7 @@ class TgoStore(InboxStore):
                     return True
         return False
 
+    @locked
     def delivery_stats(self) -> dict[str, int]:
         return dict(
             self.connection.execute("SELECT state,COUNT(*) FROM outbox GROUP BY state")

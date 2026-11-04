@@ -1,14 +1,18 @@
 """Shared final-expression step for automatic and assisted customer replies."""
 
 import json
+from app.services.wecom_native_context import CONVERSATION_EVIDENCE_PROMPT
+import re
 from typing import Literal, Optional, Sequence
 from app.core.logging import get_logger
 
 from app.schemas.humanization import ConversationTurn, HumanizationContext
 from app.schemas.knowledge_evidence import KnowledgeEvidence
 from app.services.current_knowledge import UNCONFIRMED_REPLY
+from app.services.customer_content import customer_question
 from app.services.ai_client import AIServiceClient, ai_client
 from app.services.ai_reply_control import tracked_ai_request
+from app.services.grounded_calculations import CALCULATION_REPLY_PROMPT
 from app.services.reply_quality import (
     ANSWER_SCOPE_PROMPT,
     GREETING_ONLY,
@@ -30,7 +34,7 @@ ASSIST_FACT_GATHERING_PROMPT = (
     "明确区分：已确认有、已确认没有、仅未找到、信息不确定、查询失败。"
     "未找到不能证明不存在。只整理回答客户当前问题所需的事实和必要条件，表达风格由后续步骤处理。"
     "本轮只有‘你好’等问候时，简短回应即可，不因旧对话而继续推销或列举业务。"
-    "不得编造事实、处理成功或后续承诺。" + ANSWER_SCOPE_PROMPT
+    "不得编造事实、处理成功或后续承诺。" + ANSWER_SCOPE_PROMPT + CALCULATION_REPLY_PROMPT
 )
 
 ASSIST_REWRITE_PROMPT = (
@@ -62,7 +66,7 @@ ASSIST_REWRITE_PROMPT = (
 DRAFT_FACT_AUTHORITY_PROMPT = (
     "事实依据规则：产品、款式、材质、颜色、价格、库存、时间、政策、链接和操作结果"
     "只能来自本轮业务答复。案例和旧聊天不能补充事实。"
-)
+) + CONVERSATION_EVIDENCE_PROMPT
 
 CURRENT_FACT_AUTHORITY_PROMPT = (
     "事实依据规则：本轮检索证据是唯一业务依据，业务初稿可能过时或错误。"
@@ -71,8 +75,8 @@ CURRENT_FACT_AUTHORITY_PROMPT = (
     "先依据证据纠正初稿中的错误，再回答客户当前问题，保留完整适用条件。"
     "旧聊天、记忆和案例只用于理解指代、偏好，不证明事实；"
     "删除无本轮依据的旧数字，不以‘以前说过’或纠错说明重新复述旧值。"
-    "资料冲突或无依据时只说当前无法确认，不能猜测或宣称已转人工。"
-)
+    "资料冲突或无依据时只说当前无法确认，不能猜测或宣称已转人工。" + CALCULATION_REPLY_PROMPT
+) + CONVERSATION_EVIDENCE_PROMPT
 
 DEFAULT_EXPRESSION_STYLE = (
     "\n默认表达风格（未选择拟人技能时使用）：自然、简洁、礼貌，简单问题直接回答。"
@@ -84,8 +88,11 @@ DEFAULT_EXPRESSION_STYLE = (
 TONE_REPAIR_GUIDANCE = {
     "new_numbers": (
         "删除没有指定事实依据支持的数值，不在纠错说明中复述旧值；"
-        "依据本轮有效资料校正初稿，并保留适用条件"
+        "依据本轮有效资料校正初稿，并保留适用条件；有明确规则的计算应核对来源、公式和取整"
     ),
+    "calculation_result_mismatch": "按有据的比例和消耗规则重新精确计算，保留中间精度与适用条件",
+    "calculation_source_invalid": "计算只引用本轮资料或客户条件中的连续原文，不能引用旧回复或初稿",
+    "operation_scope_changed": "先按本轮客户明确描述的操作计算，其他收费情形只能作为单独注明的补充",
     "process_language": "删除查找过程和后续核实承诺，保留事实与不确定性，直接回答",
     "multiple_questions": "合并重复追问，只问确实缺少的必要条件，可以一次问清",
     "unnecessary_question": (
@@ -152,25 +159,36 @@ async def recent_customer_messages(
     from app.services.wukongim_client import wukongim_client
 
     try:
+        from app.services.customer_history import history_scope
+        import asyncio
+        scope = await asyncio.to_thread(history_scope, channel_id)
         history = await wukongim_client.sync_channel_messages(
             login_uid=login_uid,
             channel_id=channel_id,
             channel_type=channel_type,
-            limit=12,
+            limit=60,
             include_event_meta=1,
             event_summary_mode="full",
         )
         turns: list[ConversationTurn] = []
+        native_staff_indices: list[int] = []
         for message in sorted(
             history.messages, key=lambda item: item.message_seq
         ):
             payload = message.payload
             if not isinstance(payload, dict):
                 continue
+            extra = payload.get("extra")
+            extra = extra if isinstance(extra, dict) else {}
             content = payload.get("content")
             role: Literal["customer", "staff", "assistant"] = (
                 "customer" if message.from_uid.endswith("-vtr") else "staff"
             )
+            if scope.author is not None:
+                if role == "customer" and any(extra.get(key) != value for key, value in scope.selectors.items()):
+                    continue
+                if role != "customer" and message.client_msg_no not in scope.replies:
+                    continue
             if payload.get("type") == 100:
                 meta = message.event_meta or {}
                 if message.error or not (
@@ -189,13 +207,31 @@ async def recent_customer_messages(
                         ):
                             content = snapshot.get("text")
                 role = "assistant"
+            elif payload.get("type") in (2, 4) and role == "customer":
+                recognized = scope.media.get(str(extra.get("message_id") or ""))
+                if not recognized:
+                    continue
+                content = "客户媒体识别（仅用于理解，不证明业务事实）：" + recognized
             elif payload.get("type") not in (None, 1):
                 continue
             if isinstance(content, str) and content.strip():
+                extra = payload.get("extra")
+                if (
+                    role == "staff"
+                    and isinstance(extra, dict)
+                    and extra.get("source") == "wecom_native"
+                    and extra.get("native_role") == "staff"
+                ):
+                    native_staff_indices.append(len(turns))
                 turns.append(
                     ConversationTurn(role=role, content=content[:2000])
                 )
-        return turns[-8:]
+        selected = set(native_staff_indices[-3:])
+        for index in range(len(turns) - 1, -1, -1):
+            if len(selected) >= 8:
+                break
+            selected.add(index)
+        return [turns[index] for index in sorted(selected)]
     except Exception as exc:
         get_logger("services.humanization").warning(
             "Recent reply context unavailable: %s", type(exc).__name__
@@ -214,10 +250,15 @@ async def rewrite_assist_draft(
     recent_messages: Sequence[ConversationTurn | dict[str, str]] | None = None,
     knowledge_evidence: KnowledgeEvidence | None = None,
 ) -> str:
+    has_staff_context = any(
+        (turn.role if isinstance(turn, ConversationTurn) else turn.get("role")) == "staff"
+        for turn in (recent_messages or [])
+    )
     if (
         knowledge_evidence is not None
         and knowledge_evidence.status not in {"matched", "skipped"}
         and not any(tool.success for tool in knowledge_evidence.tool_results)
+        and not has_staff_context
     ):
         logger.info(
             "Grounded reply unconfirmed",
@@ -240,7 +281,7 @@ async def rewrite_assist_draft(
 
     def encode() -> str:
         return json.dumps({
-            "客户原话": customer_message, "近期对话": context,
+            "客户原话": customer_question(customer_message), "近期对话": context,
             ("待校正的业务初稿" if knowledge_evidence is not None
              else "本轮业务答复"): factual_draft,
             **({"本轮检索证据": knowledge_evidence.model_dump(mode="json")}
@@ -343,7 +384,11 @@ async def rewrite_assist_draft(
                 if "template_opening" not in cleaned_issues:
                     reply = without_opening
                     issues = cleaned_issues
-        if not issues:
+        # New quantities may be derived, but only the independent audit and
+        # source-bound calculator can clear this issue. Other gates stay intact.
+        if not issues or (
+            knowledge_evidence is not None and set(issues) == {"new_numbers"}
+        ):
             try:
                 issues = await audit_reply_facts(
                     client, project_id=project_id, agent_id=agent_id,
@@ -361,10 +406,23 @@ async def rewrite_assist_draft(
                 raise
         if not issues:
             return reply
+        logger.info(
+            "Customer reply validation rejected",
+            extra={"attempt": attempt + 1, "issues": _issue_codes(issues)},
+        )
     if knowledge_evidence is not None:
         logger.info(
             "Grounded reply unconfirmed",
-            extra={"reason": "quality_rejected"},
+            extra={"reason": "quality_rejected", "issues": _issue_codes(issues)},
         )
         return UNCONFIRMED_REPLY
     raise ReplyQualityError("Reply quality check failed: " + ", ".join(issues))
+
+
+def _issue_codes(issues: Sequence[str]) -> list[str]:
+    """Keep customer text and model explanations out of rejection logs."""
+    return list(dict.fromkeys(
+        match.group() if (match := re.match(r"[a-z][a-z0-9_]{0,63}", issue))
+        else "semantic_fact_change"
+        for issue in issues
+    ))

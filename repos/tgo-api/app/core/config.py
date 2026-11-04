@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    CUSTOMER_TURNS_ENABLED: bool = True
     """Application settings."""
 
     model_config = SettingsConfigDict(

@@ -229,7 +229,7 @@ class _FailingLogisticsService(_LogisticsService):
 
 
 @pytest.mark.asyncio
-async def test_safe_short_message_skips_redundant_intent_model_call() -> None:
+async def test_greeting_skips_redundant_intent_model_call() -> None:
     project = Project(id=uuid4(), name="test", api_key="ak_test")
     platform = Platform(
         id=uuid4(),
@@ -264,7 +264,7 @@ async def test_safe_short_message_skips_redundant_intent_model_call() -> None:
         platform=platform,
         visitor=visitor,
         source_message_id="user-message-fast-path",
-        user_text="请简单介绍一下你们的功能",
+        user_text="你好",
     )
 
     assert ai_client.called is False

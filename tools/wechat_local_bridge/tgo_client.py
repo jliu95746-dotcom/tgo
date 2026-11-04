@@ -22,6 +22,10 @@ class TgoError(RuntimeError):
     pass
 
 
+class TurnChanged(TgoError):
+    pass
+
+
 class TgoUnavailable(OSError):
     pass
 
@@ -99,6 +103,8 @@ def request_json(opener: OpenerDirector, request: Request) -> Mapping[str, objec
     except HTTPError as error:
         if error.code >= 500:
             raise TgoUnavailable(f"客服 API HTTP {error.code}") from None
+        if error.code == 409:
+            raise TurnChanged("本轮回复已变化或发送结果需要核对") from None
         raise TgoError(
             f"客服 API HTTP {error.code}，已停止该请求，不输出凭据或响应正文"
         ) from None
@@ -236,6 +242,8 @@ class TgoClient:
     def submit(
         self, event_id: str, text: str, *, mentioned: bool = False,
         mention_ambiguous: bool = False, author: str = "", media: UploadedMedia | None = None,
+        pending_kind: str | None = None,
+        media_error: str | None = None,
     ) -> str:
         if media is not None and not self.scoped:
             raise TgoError("媒体仅用于已授权的接待会话")
@@ -249,14 +257,16 @@ class TgoClient:
         else:
             extra["chat_id"] = "filehelper"
         result = self._post(
-            "/v1/chat/completion",
+            ("/v1/chat/turns/media-ready" if media else "/v1/chat/turns/inbound") if self.scoped else "/v1/chat/completion",
             {
                 "api_key": self.api_key,
                 "from_uid": self.session["platform_open_id"],
                 "channel_id": self.channel_id,
                 "channel_type": 251,
-                "message": media.url if media else text,
-                "msg_type": (2 if media.kind == "image" else 4) if media else 1,
+                "message": media.url if media else "" if pending_kind else text,
+                "msg_type": (2 if (media.kind if media else pending_kind) == "image" else 4) if media or pending_kind else 1,
+                "media_pending": pending_kind is not None and media_error is None,
+                "media_error": media_error,
                 "media_file_id": media.file_id if media else None,
                 "source_message_id": "wxlocal:" + event_id,
                 "extra": extra,
@@ -275,6 +285,23 @@ class TgoClient:
         if event in ("human_handoff", "ai_disabled", "assist_mode", "queued"):
             return str(event)
         raise TgoError("客服接口未返回可识别的接收回执")
+
+    def turn_replies(self) -> list[Mapping[str, object]]:
+        result = self._post("/v1/chat/turns/ready", {
+            "platform_api_key": self.api_key, "channel_id": self.channel_id, "channel_type": 251})
+        rows = result.get("replies")
+        if not isinstance(rows, list):
+            raise TgoError("连续消息回复列表格式无效")
+        return [object_map(row) for row in rows]
+
+    def turn_action(self, turn_id: str, version: int, action: str,
+                    **fields: object) -> Mapping[str, object]:
+        identity = str(UUID(turn_id))
+        if action not in {"check", "claim", "receipt"}:
+            raise ValueError("无效的发送操作")
+        return self._post(f"/v1/chat/turns/{identity}/{action}", {
+            "platform_api_key": self.api_key, "channel_id": self.channel_id,
+            "channel_type": 251, "version": version, **fields})
 
     def upload_media(self, media: MediaContent) -> UploadedMedia:
         if not self.scoped or hashlib.sha256(self.config_file.read_bytes()).digest() != self.config_hash:

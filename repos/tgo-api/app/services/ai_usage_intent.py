@@ -1,6 +1,8 @@
 """Route commercial visitor messages inside their existing reply quota permit."""
 
 from uuid import UUID
+import logging
+import time
 
 from sqlalchemy import select
 
@@ -17,7 +19,8 @@ from app.services.message_intent_orchestrator import (
 async def route_reply_intent(
     project_id: str, client_msg_no: str, message: str
 ) -> MessageIntentRoutingOutcome | None:
-    if not settings.SAAS_ENABLED or not settings.SAAS_BILLING_ENABLED:
+    from app.services.customer_turn_context import current_execution
+    if (not settings.SAAS_ENABLED or not settings.SAAS_BILLING_ENABLED) and current_execution.get() is None:
         return None
     with SessionLocal() as db:
         run = db.scalar(
@@ -33,11 +36,23 @@ async def route_reply_intent(
         platform = db.get(Platform, run.platform_id)
         if project is None or visitor is None or platform is None:
             raise ValueError("Reply routing context no longer exists")
-        return await MessageIntentOrchestrator(db).analyze_text_message(
+        from app.services.humanization_service import recent_customer_messages
+        history = await recent_customer_messages(run.channel_id, run.channel_type, f"{visitor.id}-vtr")
+        started = time.monotonic()
+        execution = current_execution.get()
+        result = await MessageIntentOrchestrator(db).analyze_text_message(
             project=project,
             platform=platform,
             visitor=visitor,
             source_message_id=run.source_message_id,
             user_text=message,
             reuse_existing=True,
+            conversation_context=[f"{turn.role}: {turn.content}" for turn in history],
+            media_input=execution.media_input if execution else None,
         )
+        context = current_execution.get()
+        if context:
+            logging.getLogger(__name__).info("Customer turn phase turn=%s version=%s phase=intent seconds=%.3f route=%s",
+                context.turn_id, context.version, time.monotonic() - started, result.routing_target)
+            context.generation_started = time.monotonic()
+        return result

@@ -412,6 +412,7 @@ async def wecom_send_app_message(
     content: dict,
     duplicate_check_interval: int | None = 10,
     timeout: Optional[int] = None,
+    enable_duplicate_check: bool = False,
 ) -> dict:
     """Send an application message to an internal colleague (enterprise member).
 
@@ -428,13 +429,15 @@ async def wecom_send_app_message(
     }
     if duplicate_check_interval is not None:
         payload["duplicate_check_interval"] = int(duplicate_check_interval)
+    if enable_duplicate_check:
+        payload["enable_duplicate_check"] = 1
 
     async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
         resp = await client.post(url, content=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
         resp.raise_for_status()
         data = resp.json()
         if data.get("errcode") != 0:
-            raise RuntimeError(f"WeCom app send message failed: {data}")
+            raise RuntimeError(f"WeCom app send message failed: errcode={data.get('errcode')}")
         return data
 
 
@@ -553,6 +556,10 @@ async def try_store_wecom_inbox(
                 # The job has a foreign key to media; persist the parent first.
                 await db.flush()
                 db.add(media_job)
+        if settings.saas_internal_token is not None:
+            from app.domain.services.wecom_turn_capture import capture_inbox
+            await db.flush()
+            await capture_inbox(db, record)
         await db.commit()
         return InboxStoreResult.STORED
     except IntegrityError as exc:
@@ -835,6 +842,7 @@ async def sync_kf_messages(
     max_iters: int = 10,
     cursor_ttl_seconds: int = 7 * 24 * 60 * 60,
     batch_limit: int = 500,
+    include_native_context: bool = False,
 ) -> None:
     """Sync actual KF messages upon receiving kf_msg_or_event.
 
@@ -870,16 +878,18 @@ async def sync_kf_messages(
                 origin = int(msg.get("origin") or 0)
             except (TypeError, ValueError):
                 origin = 0
-            if origin != 3:
+            if origin != 3 and not (include_native_context and origin in {4, 5}):
                 # Only customer-originated messages enter the AI pipeline.
                 continue
             msgid = str(msg.get("msgid") or "")
+            if not msgid and include_native_context and origin in {4, 5}:
+                msgid = "native_event_" + hashlib.sha256(json.dumps(msg, sort_keys=True).encode()).hexdigest()
             if not msgid:
                 raise RuntimeError("WeCom KF customer message is missing msgid")
             ext_uid, msgtype, content, received_at = _extract_kf_content(msg)
-            media_reference = _extract_kf_media_reference(msg)
+            media_reference = _extract_kf_media_reference(msg) if origin == 3 else None
             media_error_message = None
-            if msgtype == "text":
+            if msgtype == "text" or (include_native_context and origin in {4, 5}):
                 message_status = "pending"
             elif media_reference is not None and media_reference.supported:
                 message_status = "pending_media"
@@ -898,7 +908,7 @@ async def sync_kf_messages(
                 open_kfid=open_kf_id,
                 msg_type=msgtype,
                 content=content,
-                is_from_colleague=False,
+                is_from_colleague=origin == 5,
                 raw_payload={"kf_sync_msg": msg},
                 status=message_status,
                 error_message=media_error_message,

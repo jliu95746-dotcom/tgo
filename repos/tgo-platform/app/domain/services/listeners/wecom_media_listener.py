@@ -588,6 +588,11 @@ class WeComMediaListener:
                     error_message=message[:2000],
                 )
             )
+            if dead:
+                from app.domain.services.wecom_turn_capture import capture_inbox
+                record = await session.get(WeComInbox, claimed.inbox_id)
+                if record is not None:
+                    await capture_inbox(session, record)
             await session.commit()
 
     async def _release_claim(self, claimed: _ClaimedMediaJob) -> None:

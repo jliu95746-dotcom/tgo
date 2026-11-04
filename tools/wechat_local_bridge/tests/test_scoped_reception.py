@@ -172,6 +172,7 @@ class ScopedMessageTests(unittest.TestCase):
             message = Message("message_0.db", "room@chatroom", 22, "22", 22, 1, 1,
                               "wxid_sender", False, "@店主 售后", mentions_verified=True)
             bridge.observe([message])
+            client.turn_replies.return_value = []
             bridge.poll(read_local=False)
             self.assertTrue(client.submit.call_args.kwargs["mention_ambiguous"])
             self.assertFalse(client.submit.call_args.kwargs["mentioned"])

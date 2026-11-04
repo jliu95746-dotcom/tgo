@@ -189,6 +189,8 @@ def create_app(
         start_company_mail()
         from app.tasks.billing import start_billing
         start_billing()
+        from app.services.customer_turn_worker import start
+        start()
 
         # Start background sync monitor
         try:
@@ -269,6 +271,8 @@ def create_app(
     # Register shutdown event
     @application.on_event("shutdown")
     async def shutdown_event():
+        from app.services.customer_turn_worker import stop
+        await stop()
         """Application shutdown event: stop background tasks."""
         from app.tasks.recover_staff_delivery_history import stop_staff_history_recovery
         await stop_staff_history_recovery()

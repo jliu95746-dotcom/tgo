@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Import application models and settings
 from app.db.models import Base
+from app.db.turn_context import CustomerTurnContext as CustomerTurnContext
 from app.core.config import settings
 from migrations.version_table import ensure_platform_version_table_capacity
 
@@ -36,7 +37,7 @@ target_metadata = Base.metadata
 
 
 # Limit autogenerate scope to platform tables only
-_PT_TABLES = {"pt_platforms", "pt_email_inbox", "pt_wecom_inbox", "pt_wukongim_inbox"}
+_PT_TABLES = {"pt_platforms", "pt_email_inbox", "pt_wecom_inbox", "pt_wukongim_inbox", "pt_customer_turn_contexts"}
 
 def include_object(object, name, type_, reflected, compare_to):
     if type_ == "table":

@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+from app.services.wechat_hevc import hevc_offset
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 DECODER = """
@@ -27,15 +28,13 @@ class WechatImageError(ValueError):
 
 
 def decode_wechat_image(content: bytes) -> bytes:
-    start = content.find(b"\x00\x00\x00\x01")
     if (
         not 0 < len(content) <= MAX_IMAGE_BYTES
         or not content.startswith(b"wxgf")
-        or not 4 <= start < len(content) - 8
-        or (content[start + 4] >> 1) & 63 not in (32, 33, 34)
     ):
         raise WechatImageError("微信图片文件尚未完整下载")
     try:
+        start = hevc_offset(content)
         result = subprocess.run(
             [sys.executable, "-I", "-c", DECODER],
             input=content[start:],

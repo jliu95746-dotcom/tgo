@@ -73,7 +73,7 @@ class EmailAdapter(BasePlatformAdapter):
         logging.debug("Preparing to send email via SMTP host=%s port=%s tls=%s to=%s", self.smtp_host, self.smtp_port, self.smtp_use_tls, self.to_addr)
 
         # Robust connection with retries and proper TLS/SSL handling
-        attempts = 2
+        attempts = 1 if content.get("delivery_fenced") else 2
         last_err: Exception | None = None
         for attempt in range(1, attempts + 1):
             client: smtplib.SMTP | smtplib.SMTP_SSL | None = None
@@ -105,7 +105,11 @@ class EmailAdapter(BasePlatformAdapter):
                         raise
 
                 # Send email
-                client.send_message(msg)
+                rejected = client.send_message(msg)
+                if rejected:
+                    raise RuntimeError("SMTP recipient was rejected")
+                import hashlib
+                self.delivery_receipt = "smtp:accepted:" + hashlib.sha256(msg.as_bytes()).hexdigest()
                 logging.info("Email sent to %s with subject '%s'", self.to_addr, self.subject)
                 # Cleanup and return on success
                 try:

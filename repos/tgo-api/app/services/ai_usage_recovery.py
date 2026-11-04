@@ -62,7 +62,13 @@ async def reconcile_deliveries() -> None:
         try:
             accepted = False
             rejected = False
-            if receipt.get("kind") == "wecom":
+            if receipt.get("kind") == "customer_turn":
+                from app.models.customer_turn import CustomerTurn
+                with SessionLocal() as lookup:
+                    turn = lookup.get(CustomerTurn, UUID(str(receipt.get("turn_id"))))
+                    accepted = bool(turn and turn.project_id == project_id and turn.state == "sent")
+                    rejected = bool(turn and turn.project_id == project_id and turn.state in {"failed", "cancelled"})
+            elif receipt.get("kind") == "wecom":
                 platform_id, source = receipt.get("platform_id"), receipt.get(
                     "source_message_id"
                 )

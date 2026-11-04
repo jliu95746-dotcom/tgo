@@ -1,6 +1,7 @@
 """Chat service for handling chat completion business logic."""
 
 import asyncio
+from app.schemas.knowledge import KnowledgeChannel
 import hashlib
 import json
 from contextlib import aclosing
@@ -46,6 +47,13 @@ logger = get_logger("services.chat")
 
 ai_client = AIServiceClient()
 background_ai_tasks: set[asyncio.Task[None]] = set()
+
+
+def _delivery_event_id(client_msg_no: str, kind: str) -> str:
+    from app.services.customer_turn_context import current_execution
+    if current_execution.get() is None:
+        return uuid4().hex
+    return hashlib.sha256(f"customer-turn:{client_msg_no}:{kind}".encode()).hexdigest()[:32]
 
 # ============================================================================
 # Validation & Helpers
@@ -193,7 +201,7 @@ async def forward_ai_event_to_wukongim(
     """
     try:
         data = event_data.get("data") or {}
-        logger.info(f"Forwarding AI event {event_type} to WuKongIM: {data}")
+        logger.info("Forwarding AI event %s to WuKongIM client_msg_no=%s", event_type, client_msg_no)
 
         if event_type == "agent_execution_started":
             # Send stream anchor message
@@ -223,6 +231,9 @@ async def forward_ai_event_to_wukongim(
         elif event_type in {"workflow_completed", "agent_response_complete"}:
             final_content = data.get("final_content")
             from app.services.ai_usage_runtime import begin_delivery, confirm_im_delivery, current_permit
+            from app.services.customer_turn_context import current_execution
+            if current_execution.get() is not None and not wukongim_client.enabled:
+                raise RuntimeError("Message delivery is unavailable")
             if current_permit() is not None:
                 if data.get("success") is False or not isinstance(final_content, str) or not final_content.strip():
                     raise RuntimeError("Cannot bill an unsuccessful or empty reply")
@@ -237,7 +248,7 @@ async def forward_ai_event_to_wukongim(
                     channel_id=channel_id,
                     channel_type=channel_type,
                     client_msg_no=client_msg_no,
-                    event_id=uuid4().hex,
+                    event_id=_delivery_event_id(client_msg_no, "final-delta"),
                     event_type="stream.delta",
                     event_key="main",
                     from_uid=from_uid,
@@ -249,7 +260,7 @@ async def forward_ai_event_to_wukongim(
                 channel_id=channel_id,
                 channel_type=channel_type,
                 client_msg_no=client_msg_no,
-                event_id=uuid4().hex,
+                event_id=_delivery_event_id(client_msg_no, "final-close"),
                 event_type="stream.close",
                 event_key="main",
                 from_uid=from_uid,
@@ -258,7 +269,7 @@ async def forward_ai_event_to_wukongim(
                 channel_id=channel_id,
                 channel_type=channel_type,
                 client_msg_no=client_msg_no,
-                event_id=uuid4().hex,
+                event_id=_delivery_event_id(client_msg_no, "final-finish"),
                 event_type="stream.finish",
                 event_key="main",
                 from_uid=from_uid,
@@ -294,9 +305,16 @@ async def forward_ai_event_to_wukongim(
     except Exception as e:
         logger.error(f"Failed to forward AI event {event_type} to WuKongIM: {e}")
         from app.services.ai_usage_runtime import current_permit
-        if current_permit() is not None:
+        from app.services.customer_turn_context import current_execution
+        if current_permit() is not None or current_execution.get() is not None:
             raise
     return None
+
+
+def _isolated_customer_turn() -> bool:
+    from app.services.customer_turn_context import current_execution
+    context = current_execution.get()
+    return bool(context and context.isolated_history)
 
 
 async def process_ai_stream_to_wukongim(
@@ -332,25 +350,32 @@ async def process_ai_stream_to_wukongim(
         try:
             async with metered_reply(project_id, client_msg_no, channel_id, channel_type):
                 from app.services.ai_usage_intent import route_reply_intent
+                from app.services.customer_turn_context import current_execution, prepare_input
+                turn_message = message
                 routed_system = system_message
+                routed_disable_tools = False
+                if current_execution.get() is not None:
+                    turn_message, turn_system = await prepare_input()
+                    routed_system = (routed_system or "") + "\n" + turn_system
                 routed_excluded = excluded_tool_ids
                 routed_evidence: tuple[BusinessToolEvidence, ...] = ()
                 if channel_type == 251 and media_input is None:
-                    outcome = await route_reply_intent(project_id, client_msg_no, message)
+                    outcome = await route_reply_intent(project_id, client_msg_no, turn_message)
                     if outcome is not None:
+                        routed_disable_tools = outcome.routing_target == "clarify"
                         if outcome.routing_target == "human_handoff":
                             yield {"event_type": "human_handoff", "data": {"message": "该问题需要人工客服处理，已停止 AI 自动回复。"}}
                             return
-                        context = "本轮只询问一个必要的澄清问题，不得猜测订单号或客户意图。" if outcome.routing_target == "clarify" else outcome.tool_context
+                        context = "保留只读知识检索，资料能直接回答时直接回答；只有缺少必要条件才澄清，不猜测订单号或执行业务操作。" if outcome.routing_target == "clarify" else outcome.tool_context
                         if context:
-                            routed_system = (system_message or "") + "\n" + context
+                            routed_system = (routed_system or "") + "\n" + context
                             routed_evidence = (BusinessToolEvidence(
                                 name=outcome.routing_target, content=context,
                                 success=True,
                             ),)
                         routed_excluded = tuple(set(excluded_tool_ids) | set(outcome.excluded_tool_ids))
                 async for event in _process_ai_reply_to_wukongim(
-            project_id=project_id, user_id=user_id, message=message,
+            project_id=project_id, user_id=user_id, message=turn_message,
             channel_id=channel_id, channel_type=channel_type,
             client_msg_no=client_msg_no, from_uid=from_uid,
             session_id=session_id, system_message=routed_system,
@@ -358,6 +383,7 @@ async def process_ai_stream_to_wukongim(
             knowledge_channel=knowledge_channel, excluded_tool_ids=routed_excluded,
                     humanization_skill_name=humanization_skill_name, media_input=media_input,
                     trusted_tool_evidence=routed_evidence,
+                    disable_business_tools=routed_disable_tools,
                 ):
                     yield event
         except TGOAPIException as exc:
@@ -376,6 +402,7 @@ async def _process_ai_reply_to_wukongim(
     humanization_skill_name: str | None = None,
     media_input: ChatMediaInput | None = None,
     trusted_tool_evidence: tuple[BusinessToolEvidence, ...] = (),
+    disable_business_tools: bool = False,
 ) -> AsyncGenerator[ReplyEvent, None]:
     """Release one checked result to both SSE consumers and persisted IM history."""
     customer_facing = channel_type == 251
@@ -402,6 +429,8 @@ async def _process_ai_reply_to_wukongim(
     yield {"event_type": "agent_execution_started", "data": {"data": {}}}
     try:
         media_options: MediaModelOptions = {}
+        if disable_business_tools:
+            media_options["disable_tools"] = True
         if media_input is not None:
             prepared = await prepare_chat_media(media_input)
             message = prepared.customer_message
@@ -415,10 +444,14 @@ async def _process_ai_reply_to_wukongim(
             )
             if customer_facing else []
         )
+        if knowledge_channel == KnowledgeChannel.WECOM_KF.value:
+            from app.services.wecom_native_context import conversation_context
+
+            system_message = conversation_context(system_message, history)
         knowledge_evidence: KnowledgeEvidence | None = None
         async for stream_event_type, data in tracked_ai_stream(lambda phase: ai_client.run_supervisor_agent_stream(
             project_id=project_id, agent_id=agent_id, user_id=user_id, message=message,
-            session_id=session_id, enable_memory=True, system_message=system_message,
+            session_id=session_id, enable_memory=not _isolated_customer_turn(), system_message=system_message,
             expected_output=expected_output, knowledge_channel=knowledge_channel,
             excluded_tool_ids=list(excluded_tool_ids),
             cancel_on_disconnect=True,
@@ -487,11 +520,15 @@ async def _process_ai_reply_to_wukongim(
         # Only this result crosses the publication boundary. No original chunks
         # or original completion payload are sent to any customer consumer.
         final_data: ReplyEvent = {"success": True, "final_content": reply, "total_chunks": 0}
-        await begin_reply_publication()
-        await forward_ai_event_to_wukongim(
-            event_type="workflow_completed", event_data={"data": final_data},
-            channel_id=channel_id, channel_type=channel_type,
-            client_msg_no=client_msg_no, from_uid=from_uid)
+        from app.services.customer_turn_context import stage_reply, confirm_im
+        deferred = await stage_reply(reply, from_uid)
+        if not deferred:
+            await begin_reply_publication()
+            await forward_ai_event_to_wukongim(
+                event_type="workflow_completed", event_data={"data": final_data},
+                channel_id=channel_id, channel_type=channel_type,
+                client_msg_no=client_msg_no, from_uid=from_uid)
+            await confirm_im()
         yield {"event_type": "agent_content_chunk", "data": {
             "event_type": "agent_content_chunk", "data": {"content_chunk": reply}}}
         for terminal in ("agent_response_complete", "workflow_completed"):
