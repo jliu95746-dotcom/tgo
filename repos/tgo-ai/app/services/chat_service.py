@@ -43,6 +43,11 @@ from app.services.rag_service import rag_service_client
 from app.services.tool_executor import ToolExecutor
 from app.services.chat_accounting import account_completion, account_stream
 from app.services.commercial_ai_limits import constrain_chat
+from app.services.chat_tool_calls import (
+    INVALID_TOOL_CALL_MESSAGE, InvalidToolCallError, PreparedToolCall,
+    ToolCallStream,
+    validate_tool_calls,
+)
 
 logger = get_logger(__name__)
 
@@ -190,13 +195,21 @@ class ChatService:
                 total_usage.total_tokens += response.usage.total_tokens
 
             # Check if there are tool calls in the first choice
-            if not response.choices or not response.choices[0].message.tool_calls:
+            choice = next(
+                (item for item in response.choices if item.index == 0), None,
+            )
+            if choice is None or not choice.message.tool_calls:
                 response.usage = total_usage
                 return response
 
-            # We have tool calls. Execute them and add to messages.
-            assistant_msg_content = response.choices[0].message.content
-            tool_calls = response.choices[0].message.tool_calls
+            try:
+                prepared = validate_tool_calls(
+                    choice.message.tool_calls, choice.finish_reason,
+                )
+            except InvalidToolCallError:
+                raise ChatCompletionError(INVALID_TOOL_CALL_MESSAGE) from None
+            assistant_msg_content = choice.message.content
+            tool_calls = [item.protocol_call() for item in prepared]
             
             # Add assistant message with tool calls to history
             request.messages.append(ChatMessage(
@@ -207,18 +220,20 @@ class ChatService:
 
             # Execute tool calls in parallel
             execution_tasks = []
-            for tc in tool_calls:
-                execution_tasks.append(executor.execute(tc.function.name, tc.function.arguments))
+            for item in prepared:
+                execution_tasks.append(executor.execute(
+                    item.name, item.arguments,
+                ))
             
             results = await asyncio.gather(*execution_tasks)
 
             # Add tool result messages to history
-            for tc, result in zip(tool_calls, results):
+            for item, result in zip(prepared, results):
                 request.messages.append(ChatMessage(
                     role="tool",
-                    name=tc.function.name,
+                    name=item.name,
                     content=result,
-                    tool_call_id=tc.id
+                    tool_call_id=item.identifier
                 ))
             
             # Continue to next round
@@ -296,11 +311,12 @@ class ChatService:
         )
         await executor.register_tools(request.tool_ids, request.collection_ids)
 
+        prepared: tuple[PreparedToolCall, ...] = ()
+        round_idx = -1
         for round_idx in range(max_rounds):
             self._logger.debug(f"Starting streaming tool round {round_idx + 1}/{max_rounds}")
             
-            current_tool_calls: Dict[int, Dict[str, Any]] = {}
-            current_content = ""
+            tool_stream = ToolCallStream()
             
             if provider_kind in self.OPENAI_PROVIDERS:
                 stream_gen = self._openai_stream(request, provider)
@@ -311,77 +327,54 @@ class ChatService:
             else:
                 raise UnsupportedProviderError(provider_kind)
 
-            async for raw_chunk in stream_gen:
-                if raw_chunk == "data: [DONE]\n\n":
-                    continue
-
-                yield raw_chunk
-                
-                # Extract tool calls for next round
-                if raw_chunk.startswith("data: "):
-                    data_str = raw_chunk[6:].strip()
-                    if data_str == "[DONE]":
-                        continue
-                    try:
-                        chunk_data = json.loads(data_str)
-                        if chunk_data.get("object") == "chat.completion.chunk":
-                            choices = chunk_data.get("choices", [])
-                            if choices:
-                                delta = choices[0].get("delta", {})
-                                if delta.get("content"):
-                                    current_content += delta["content"]
-                                if delta.get("tool_calls"):
-                                    for tc_delta in delta["tool_calls"]:
-                                        idx = tc_delta.get("index", 0)
-                                        if idx not in current_tool_calls:
-                                            current_tool_calls[idx] = {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
-                                        if tc_delta.get("id"):
-                                            current_tool_calls[idx]["id"] += tc_delta["id"]
-                                        if tc_delta.get("function"):
-                                            f_delta = tc_delta["function"]
-                                            if f_delta.get("name"):
-                                                current_tool_calls[idx]["function"]["name"] += f_delta["name"]
-                                            if f_delta.get("arguments"):
-                                                current_tool_calls[idx]["function"]["arguments"] += f_delta["arguments"]
-                    except Exception:
-                        pass
-
-            if not current_tool_calls:
+            try:
+                async for raw_chunk in stream_gen:
+                    if tool_stream.observe(raw_chunk):
+                        yield raw_chunk
+                prepared = tool_stream.finish()
+            except Exception as exc:
+                self._logger.error(
+                    "Chat tool stream rejected before execution",
+                    error_type=type(exc).__name__,
+                )
+                yield "data: " + json.dumps({"error": {
+                    "message": INVALID_TOOL_CALL_MESSAGE,
+                    "type": "api_error",
+                }}, ensure_ascii=False) + "\n\n"
                 yield "data: [DONE]\n\n"
                 return
 
-            # Prepare for next round
-            final_tool_calls = []
-            for idx in sorted(current_tool_calls.keys()):
-                tc_info = current_tool_calls[idx]
-                final_tool_calls.append(ToolCall(
-                    id=tc_info["id"],
-                    type="function",
-                    function=FunctionCall(
-                        name=tc_info["function"]["name"],
-                        arguments=tc_info["function"]["arguments"]
-                    )
-                ))
+            if not prepared:
+                yield "data: [DONE]\n\n"
+                return
+
+            final_tool_calls = [item.protocol_call() for item in prepared]
 
             request.messages.append(ChatMessage(
                 role="assistant",
-                content=current_content,
+                content=tool_stream.content,
                 tool_calls=final_tool_calls
             ))
 
             for tc in final_tool_calls:
                 yield f"data: {json.dumps({'type': 'tool_call', 'tool_call': tc.model_dump()}, ensure_ascii=False)}\n\n"
 
-            execution_tasks = [executor.execute(tc.function.name, tc.function.arguments) for tc in final_tool_calls]
+            execution_tasks = [
+                executor.execute(item.name, item.arguments)
+                for item in prepared
+            ]
             results = await asyncio.gather(*execution_tasks)
             
-            for tc, result in zip(final_tool_calls, results):
-                yield f"data: {json.dumps({'type': 'tool_result', 'tool_call_id': tc.id, 'result': result}, ensure_ascii=False)}\n\n"
+            for item, result in zip(prepared, results):
+                yield "data: " + json.dumps({
+                    "type": "tool_result",
+                    "tool_call_id": item.identifier, "result": result,
+                }, ensure_ascii=False) + "\n\n"
                 request.messages.append(ChatMessage(
                     role="tool",
-                    name=tc.function.name,
+                    name=item.name,
                     content=result,
-                    tool_call_id=tc.id
+                    tool_call_id=item.identifier
                 ))
             
             if round_idx == max_rounds - 1:
@@ -389,7 +382,7 @@ class ChatService:
                 break
 
         # Final call without tools if we broke out of the loop with tool calls
-        if current_tool_calls and round_idx == max_rounds - 1:
+        if prepared and round_idx == max_rounds - 1:
             request.tools = None
             if provider_kind in self.OPENAI_PROVIDERS:
                 stream_gen = self._openai_stream(request, provider)

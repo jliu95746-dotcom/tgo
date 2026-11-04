@@ -231,7 +231,10 @@ async def test_chat_loop_passes_tool_failure_to_next_model_round(
         service, "_get_provider", AsyncMock(return_value=SimpleNamespace(provider_kind="openai_compatible"))
     )
     monkeypatch.setattr(service, "_merge_tools", AsyncMock(return_value=[]))
-    call = ToolCall(id="call_query", function=FunctionCall(name="query", arguments="{}"))
+    call = ToolCall(
+        index=0, id="call_query",
+        function=FunctionCall(name="query", arguments="{}"),
+    )
     request = ChatCompletionRequest(
         provider_id=uuid4(),
         model="owned-fixture",
@@ -247,7 +250,12 @@ async def test_chat_loop_passes_tool_failure_to_next_model_round(
             nonlocal rounds
             rounds += 1
             delta = {"tool_calls": [call.model_dump()]} if rounds == 1 else {"content": "测试完成"}
-            yield "data: " + json.dumps({"object": "chat.completion.chunk", "choices": [{"delta": delta}]}) + "\n\n"
+            yield "data: " + json.dumps({
+                "object": "chat.completion.chunk", "choices": [{
+                    "index": 0, "delta": delta,
+                    "finish_reason": "tool_calls" if rounds == 1 else "stop",
+                }],
+            }) + "\n\n"
             yield "data: [DONE]\n\n"
 
         monkeypatch.setattr(service, "_openai_stream", model_stream)
@@ -258,7 +266,10 @@ async def test_chat_loop_passes_tool_failure_to_next_model_round(
         completion = AsyncMock(
             side_effect=[
                 ChatCompletionResponse(
-                    model=request.model, choices=[Choice(index=0, message=ChoiceMessage(tool_calls=[call]))]
+                    model=request.model, choices=[Choice(
+                        index=0, message=ChoiceMessage(tool_calls=[call]),
+                        finish_reason="tool_calls",
+                    )],
                 ),
                 ChatCompletionResponse(
                     model=request.model, choices=[Choice(index=0, message=ChoiceMessage(content="测试完成"))]
