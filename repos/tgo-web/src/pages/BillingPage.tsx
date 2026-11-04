@@ -62,9 +62,15 @@ export default function BillingPage() {
       <div className="flex flex-wrap justify-between gap-3"><h2 className="font-semibold">{subscription.plan?.definition.name || t('billing.current')}</h2>
         <span className="rounded-full bg-indigo-50 px-3 py-1 text-sm text-indigo-700">{t(`billing.${subscription.status}`)}</span></div>
       <dl className="mt-5 grid gap-5 sm:grid-cols-3">
-        <div><dt className="text-sm text-slate-500">{t('billing.expiry')}</dt><dd className="mt-2 font-medium">{date(subscription.expires_at)}</dd></div>
+        <div><dt className="text-sm text-slate-500">{t('billing.serviceExpiry')}</dt><dd className="mt-2 font-medium">{subscription.expires_at
+          ? new Date(subscription.expires_at).toLocaleString(i18n.language, { timeZone: 'Asia/Shanghai' })
+          : t('billing.none')}</dd></div>
         <div><dt className="text-sm text-slate-500">{t('billing.seats')}</dt><dd className="mt-2 font-medium">{t('billing.seatUsage', { used: subscription.seats_used, limit: subscription.seats ?? '—', reserved: subscription.seats_reserved })}</dd></div>
-        <div><dt className="text-sm text-slate-500">{t('billing.ai')}</dt><dd className="mt-2 text-2xl font-semibold">{subscription.ai_remaining.toLocaleString()}</dd></div>
+        <div><dt className="text-sm text-slate-500">{t('billing.ai')}</dt><dd className="mt-2 text-2xl font-semibold">{subscription.ai_remaining.toLocaleString()}</dd>
+          {Boolean(subscription.ai_expiring_soon) && <dd className="mt-1 text-sm text-amber-700 dark:text-amber-400">{t('billing.aiExpiringSoon', {
+            amount: subscription.ai_expiring_soon?.toLocaleString(i18n.language),
+          })}</dd>}
+        </div>
       </dl><p className="mt-5 text-sm leading-6 text-slate-500">{t('billing.quotaHint')}</p><p className="text-sm leading-6 text-slate-500">{t('billing.seatHint')}</p>
       {admin && subscription.status === 'pending' && <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-slate-200 pt-5 dark:border-slate-700">
         <div><h3 className="font-medium">{t('trialActivation.title')}</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t('trialActivation.hint')}</p></div>

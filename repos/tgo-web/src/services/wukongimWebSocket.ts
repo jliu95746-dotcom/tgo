@@ -1,6 +1,7 @@
 import { WKIM, WKIMChannelType, WKIMEvent, ReasonCode } from 'easyjssdk';
 import { Message, MessagePayloadType, WuKongIMMessage } from '../types';
 import { WuKongIMUtils } from './wukongimApi';
+import { tokenNeedsRefresh } from './staffSession';
 import { CHANNEL_TYPE, WS_EVENT_TYPE } from '@/constants';
 
 
@@ -138,6 +139,14 @@ export class WuKongIMWebSocketService {
 
   // Reconnection timer (for cleanup)
   private reconnectTimer: number | null = null;
+  private reconnectAttempt = 0;
+  private refreshOnReconnect = false;
+  private autoConnect?: {
+    run: (signal: AbortSignal, refresh: boolean) => Promise<void>;
+    controller: AbortController;
+    inProgress: boolean;
+  };
+  private activeConfig?: WuKongIMWebSocketConfig;
 
   // Prevent multiple simultaneous connection attempts
   private connectionPromise: Promise<void> | null = null;
@@ -285,18 +294,21 @@ export class WuKongIMWebSocketService {
       return this.connectionPromise;
     }
 
-    // If already connected with same config, skip
-    if (this.isInitialized && this.connectionStatus.isConnected) {
+    const current = this.activeConfig;
+    if (this.isInitialized && this.connectionStatus.isConnected && current
+      && current.uid === config.uid && current.serverUrl === config.serverUrl
+      && (current.token === config.token || !tokenNeedsRefresh(current.token))) {
       console.log('🔌 Already connected, skipping initialization');
       return;
     }
 
-    this.connectionPromise = this.performConnection(config);
+    const attempt = this.performConnection(config);
+    this.connectionPromise = attempt;
 
     try {
-      await this.connectionPromise;
+      await attempt;
     } finally {
-      this.connectionPromise = null;
+      if (this.connectionPromise === attempt) this.connectionPromise = null;
     }
   }
 
@@ -304,6 +316,8 @@ export class WuKongIMWebSocketService {
    * Perform actual connection logic
    */
   private async performConnection(config: WuKongIMWebSocketConfig): Promise<void> {
+    let connection: WKIM | undefined;
+    let timeout: number | undefined;
     try {
       console.log('🔌 Starting WebSocket connection...', { uid: config.uid, serverUrl: config.serverUrl });
 
@@ -317,29 +331,36 @@ export class WuKongIMWebSocketService {
       this.manualDisconnect = false;
 
       // Initialize WKIM instance with connection timeout
-      this.im = WKIM.init(config.serverUrl, {
+      connection = WKIM.init(config.serverUrl, {
         uid: config.uid,
         token: config.token
       },{});
+      this.im = connection;
+      this.activeConfig = config;
 
       // Setup event listeners
       this.setupEventListeners();
 
       // Attempt connection with timeout
       const connectionTimeout = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Connection timeout')), 10000);
+        timeout = window.setTimeout(() => reject(new Error('Connection timeout')), 10000);
       });
 
       await Promise.race([
-        this.im.connect(),
+        connection.connect(),
         connectionTimeout
       ]);
 
+      if (this.im !== connection) return;
       this.isInitialized = true;
       console.log('🔌 WebSocket connection established successfully');
 
     } catch (error) {
+      if (connection && this.im !== connection) return;
       console.error('🔌 WebSocket initialization failed:', error);
+      if (error instanceof Error && /authenticat|code:\s*1008/i.test(error.message)) {
+        this.refreshOnReconnect = true;
+      }
       this.cleanupConnection();
       this.updateConnectionStatus({
         isConnected: false,
@@ -348,6 +369,8 @@ export class WuKongIMWebSocketService {
       });
       this.notifyErrorHandlers(error);
       throw error;
+    } finally {
+      if (timeout !== undefined) window.clearTimeout(timeout);
     }
   }
 
@@ -358,6 +381,8 @@ export class WuKongIMWebSocketService {
     console.log('🔌 Manual disconnect requested');
     this.manualDisconnect = true;
     this.cleanupConnection();
+    this.connectionPromise = null;
+    this.refreshOnReconnect = false;
   }
 
   /**
@@ -370,10 +395,7 @@ export class WuKongIMWebSocketService {
       isInitialized: this.isInitialized
     });
 
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this.clearReconnectTimer();
 
     if (this.im) {
       try {
@@ -381,7 +403,7 @@ export class WuKongIMWebSocketService {
         this.clearEventListeners();
 
         // Try to disconnect gracefully, but catch any WebSocket close code errors
-        this.im.disconnect();
+        this.im.destroy();
       } catch (error) {
         // Ignore WebSocket close code errors from the SDK
         if (error instanceof Error && error.message.includes('close code')) {
@@ -394,6 +416,7 @@ export class WuKongIMWebSocketService {
     }
 
     this.isInitialized = false;
+    this.activeConfig = undefined;
     // Always update connection status when cleaning up
     this.updateConnectionStatus({ isConnected: false, isConnecting: false });
 
@@ -404,33 +427,7 @@ export class WuKongIMWebSocketService {
    * Safe disconnect that avoids SDK close code issues
    */
   safeDisconnect(): void {
-    console.log('🔌 Safe disconnect requested:', {
-      hasIM: !!this.im,
-      isConnected: this.connectionStatus.isConnected,
-      isInitialized: this.isInitialized
-    });
-
-    this.manualDisconnect = true;
-
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-
-    // Clear connection promise to prevent pending connections
-    this.connectionPromise = null;
-
-    // Just clear the instance without calling disconnect to avoid close code errors
-    if (this.im) {
-      // Clear event listeners to prevent any remaining callbacks
-      this.clearEventListeners();
-      this.im = undefined;
-    }
-
-    this.isInitialized = false;
-    this.updateConnectionStatus({ isConnected: false, isConnecting: false });
-
-    console.log('🔌 Safe disconnect completed');
+    this.disconnect();
   }
 
   /**
@@ -627,6 +624,7 @@ export class WuKongIMWebSocketService {
   private eventHandlers: {
     connect?: (result: any) => void;
     disconnect?: (reason: any) => void;
+    reconnecting?: () => void;
     message?: (message: any) => void;
     error?: (error: any) => void;
     customEvent?: (event: any) => void;
@@ -645,6 +643,9 @@ export class WuKongIMWebSocketService {
       }
       if (this.eventHandlers.disconnect) {
         this.im.off(WKIMEvent.Disconnect, this.eventHandlers.disconnect);
+      }
+      if (this.eventHandlers.reconnecting) {
+        this.im.off(WKIMEvent.Reconnecting, this.eventHandlers.reconnecting);
       }
       if (this.eventHandlers.message) {
         this.im.off(WKIMEvent.Message, this.eventHandlers.message);
@@ -681,43 +682,30 @@ export class WuKongIMWebSocketService {
     // Connection established
     this.eventHandlers.connect = (result: any) => {
       console.log('🔌 WuKongIM WebSocket connected:', result);
+      this.clearReconnectTimer();
+      this.reconnectAttempt = 0;
+      this.refreshOnReconnect = false;
       this.updateConnectionStatus({ isConnected: true, isConnecting: false, error: undefined });
       console.log('🔌 Service state:', this.getServiceState());
     };
     this.im.on(WKIMEvent.Connect, this.eventHandlers.connect);
 
     // Connection lost
-    this.eventHandlers.disconnect = (reason: any) => {
-      console.log('🔌 WuKongIM WebSocket disconnected:', reason, {
-        manualDisconnect: this.manualDisconnect,
-        hasIM: !!this.im,
-        wasConnected: this.connectionStatus.isConnected
-      });
-
-      // CRITICAL: Clear the IM instance when disconnected to maintain state consistency
-      // This prevents the state where isConnected=true but this.im is in broken state
-      if (!this.manualDisconnect) {
-        console.log('🔌 Clearing IM instance due to disconnect');
-        this.im = undefined;
-        this.isInitialized = false;
-      }
-
-      // Only update status if not manually disconnected
-      if (!this.manualDisconnect) {
-        this.updateConnectionStatus({ isConnected: false, isConnecting: false });
-
-        // Only attempt to reconnect for certain disconnect reasons
-        // Avoid reconnecting on normal closures (code 1000) or client-initiated closures
-        if (this.shouldAttemptReconnect(reason)) {
-          console.log('🔌 Will attempt to reconnect in 1s (Attempt 1)');
-          this.scheduleReconnect();
-        }
-      } else {
-        console.log('🔌 Manual disconnect, not attempting reconnection');
-        this.updateConnectionStatus({ isConnected: false, isConnecting: false });
-      }
+    this.eventHandlers.disconnect = (reason: unknown) => {
+      if (this.manualDisconnect) return;
+      const code = typeof reason === 'object' && reason !== null && 'code' in reason ? reason.code : reason;
+      if (code === 1008) this.refreshOnReconnect = true;
+      // Destroy the SDK instance so its own retry cannot keep using old credentials.
+      this.cleanupConnection();
+      this.scheduleReconnect();
     };
     this.im.on(WKIMEvent.Disconnect, this.eventHandlers.disconnect);
+    this.eventHandlers.reconnecting = () => {
+      if (this.manualDisconnect) return;
+      this.cleanupConnection();
+      this.scheduleReconnect();
+    };
+    this.im.on(WKIMEvent.Reconnecting, this.eventHandlers.reconnecting);
 
     // Message received - Single handler only
     this.eventHandlers.message = (message: any) => {
@@ -744,16 +732,6 @@ export class WuKongIMWebSocketService {
     // Error occurred
     this.eventHandlers.error = (error: any) => {
       console.error('🔌 WuKongIM WebSocket error:', error);
-
-      // Don't immediately update status on error if we're manually disconnecting
-      if (!this.manualDisconnect) {
-        this.updateConnectionStatus({
-          isConnected: false,
-          isConnecting: false,
-          error: error.message || 'WebSocket error',
-        });
-      }
-
       this.notifyErrorHandlers(error);
     };
     this.im.on(WKIMEvent.Error, this.eventHandlers.error);
@@ -917,54 +895,67 @@ export class WuKongIMWebSocketService {
     return WuKongIMUtils.convertToMessage(wkimMessage);
   }
 
-  /**
-   * Determine if we should attempt to reconnect based on disconnect reason
-   */
-  private shouldAttemptReconnect(reason: any): boolean {
-    // Don't reconnect if manually disconnected
-    if (this.manualDisconnect) {
-      return false;
-    }
-
-    // Get the close code from the reason
-    const code = reason?.code || reason;
-
-    // Don't reconnect for normal closures (1000) or client-initiated closures (1001)
-    if (code === 1000 || code === 1001) {
-      console.log('🔌 Normal closure, not reconnecting', { code });
-      return false;
-    }
-
-    // Don't reconnect for authentication errors (typically 1002-1015)
-    if (code >= 1002 && code <= 1015) {
-      console.log('🔌 Authentication/protocol error, not reconnecting', { code });
-      return false;
-    }
-
-    // Reconnect for abnormal closures (1006) and other unexpected disconnections
-    console.log('🔌 Unexpected disconnection, will reconnect', { code, reason });
-    return true;
+  maintainConnection(run: (signal: AbortSignal, refresh: boolean) => Promise<void>): () => void {
+    const request = { run, controller: new AbortController(), inProgress: false };
+    this.autoConnect = request;
+    this.manualDisconnect = false;
+    const wake = () => {
+      if (this.connectionStatus.isConnected) return;
+      this.clearReconnectTimer();
+      void this.reconnect();
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') wake(); };
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', onVisible);
+    void this.reconnect();
+    return () => {
+      window.removeEventListener('online', wake);
+      document.removeEventListener('visibilitychange', onVisible);
+      request.controller.abort();
+      if (this.autoConnect === request) {
+        this.autoConnect = undefined;
+        this.clearReconnectTimer();
+      }
+    };
   }
 
-  /**
-   * Schedule a reconnection attempt with exponential backoff
-   */
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer || this.manualDisconnect) {
-      return;
+  renewConnectionToken(token: string): void {
+    const current = this.activeConfig;
+    if (this.connectionStatus.isConnected && current && current.token !== token && tokenNeedsRefresh(current.token)) {
+      void this.reconnect();
     }
+  }
 
-    // Simple 1-second delay for now (could be enhanced with exponential backoff)
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer === null) return;
+    window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
+  private async reconnect(): Promise<void> {
+    const request = this.autoConnect;
+    if (!request || request.inProgress || this.manualDisconnect || navigator.onLine === false) return;
+    request.inProgress = true;
+    const refresh = this.refreshOnReconnect;
+    this.refreshOnReconnect = false;
+    try {
+      await request.run(request.controller.signal, refresh);
+    } catch (error) {
+      if (!request.controller.signal.aborted) console.warn('Unable to connect to realtime messages:', error);
+    } finally {
+      request.inProgress = false;
+      if (this.autoConnect === request && !this.connectionStatus.isConnected) this.scheduleReconnect();
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer !== null || !this.autoConnect || this.manualDisconnect || navigator.onLine === false) return;
+    const delay = Math.min(1_000 * 2 ** this.reconnectAttempt, 30_000);
+    this.reconnectAttempt = Math.min(this.reconnectAttempt + 1, 5);
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
-
-      if (!this.manualDisconnect && !this.connectionStatus.isConnected) {
-        console.log('🔌 Attempting automatic reconnection...');
-        // Note: We don't have the original config here, so reconnection
-        // should be handled by the hook's auto-connect logic
-        this.updateConnectionStatus({ isConnecting: false, isConnected: false });
-      }
-    }, 1000);
+      if (!this.connectionStatus.isConnected) void this.reconnect();
+    }, delay);
   }
 
   /**

@@ -11,6 +11,7 @@ from app.api.error_utils import register_exception_handlers
 
 from app.core.config import settings
 from app.api.v1 import health, messages
+from app.api.v1 import customer_turns
 from app.api.v1 import platforms as platforms_v1
 from app.api.v1 import callbacks as callbacks_v1
 from app.api.v1 import internal as internal_v1
@@ -54,6 +55,12 @@ async def lifespan(app: FastAPI):
     # Startup: create shared clients
     app.state.tgo_api_client = HttpxTgoApiClient(settings.api_base_url, timeout=settings.request_timeout_seconds)
     app.state.sse_manager = DefaultSSEManager()
+    from app.domain.services.turn_registration import TurnRegistration
+    app.state.turn_registration = TurnRegistration(SessionLocal, app.state.tgo_api_client)
+    await app.state.turn_registration.start()
+    from app.domain.services.turn_media_upload import TurnMediaUpload
+    app.state.turn_media_upload = TurnMediaUpload(SessionLocal)
+    await app.state.turn_media_upload.start()
 
     # Start multi-tenant Email listener supervisor (dynamic; safe if no email platforms exist)
     app.state.email_listener = EmailChannelListener(
@@ -207,6 +214,8 @@ async def lifespan(app: FastAPI):
             await app.state.telegram_listener_task
         with suppress(asyncio.CancelledError):
             await app.state.slack_listener_task
+        await app.state.turn_media_upload.stop()
+        await app.state.turn_registration.stop()
         await app.state.tgo_api_client.aclose()
 
 app = FastAPI(lifespan=lifespan, docs_url="/v1/docs", redoc_url="/v1/redoc")
@@ -250,6 +259,7 @@ async def observe_platform_callback(request: Request, call_next):
 
 app.include_router(health.router, tags=["health"])
 app.include_router(messages.router, tags=["messages"])
+app.include_router(customer_turns.router, tags=["internal customer turns"])
 app.include_router(platforms_v1.router, tags=["platforms"])
 app.include_router(callbacks_v1.router, tags=["callbacks"])
 

@@ -573,7 +573,7 @@ async def test_normal_customer_message_uses_intent_model() -> None:
         platform=platform,
         visitor=visitor,
         source_message_id="user-message-fast-path",
-        user_text="请简单介绍一下你们的功能",
+        user_text="你好",
     )
 
     ai_client.classify_intent.assert_awaited_once()

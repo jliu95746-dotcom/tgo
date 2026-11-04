@@ -10,7 +10,7 @@ export type CompanyAction = { kind: 'credits' | 'state'; company: OperationsComp
 export default function OperationsCompanyActions({ action, onClose, onSaved }: { action: CompanyAction; onClose: () => void; onSaved: (notice: string) => void }) {
   const { t } = useTranslation();
   const dialog = useRef<HTMLDialogElement>(null);
-  const [requestId] = useState(crypto.randomUUID);
+  const [requestId] = useState(() => crypto.randomUUID());
   const [reason, setReason] = useState('');
   const [delta, setDelta] = useState('');
   const [expiry, setExpiry] = useState('');

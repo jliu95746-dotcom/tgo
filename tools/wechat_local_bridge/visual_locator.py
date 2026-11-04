@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import cv2
@@ -9,6 +10,14 @@ import numpy as np
 from PIL import Image
 
 from .rpa import RpaNotReady
+
+# Some OpenCV wheels ignore the environment setting during initialization.
+try:
+    _thread_count = int(os.environ.get("OPENCV_FOR_THREADS_NUM", "1"))
+except ValueError:
+    _thread_count = 1
+cv2.setNumThreads(_thread_count)
+del _thread_count
 
 
 @dataclass(frozen=True)
@@ -24,12 +33,17 @@ class VisualLocator:
     def __init__(
         self,
         reference: Image.Image,
-        title_box: tuple[int, int, int, int],
+        title_box: tuple[int, int, int, int] | None,
         toolbar_box: tuple[int, int, int, int],
+        *, toolbar_markers: tuple[tuple[int, int, int, int], ...] = (),
     ):
-        self.title = np.asarray(reference.crop(title_box).convert("L"))
+        self.title = np.asarray(reference.crop(title_box).convert("L")) if title_box else None
         self.toolbar = np.asarray(reference.crop(toolbar_box).convert("L"))
-        if min(float(self.title.std()), float(self.toolbar.std())) < 8:
+        self.toolbar_markers = tuple(np.asarray(reference.crop(box).convert("L")) for box in toolbar_markers)
+        if self.toolbar_markers and (len(self.toolbar_markers) != 2
+                                     or any(float(marker.std()) < 8 for marker in self.toolbar_markers)):
+            raise ValueError("输入工具栏需要两个可辨识的独立图标")
+        if float(self.toolbar.std()) < 8 or (self.title is not None and float(self.title.std()) < 8):
             raise ValueError("校准锚点必须包含有辨识度的标题文字和工具栏")
 
     @staticmethod
@@ -75,25 +89,43 @@ class VisualLocator:
         return (x, y, width, height), score, scale
 
     def locate(self, image: Image.Image) -> VisualTarget:
+        if self.title is None:
+            raise ValueError("需要会话标题验证")
         pixels = np.asarray(image.convert("L"))
         height, width = pixels.shape
         header, title_score, scale = self._match(
             pixels,
             self.title,
             (width // 5, 20, width - 15, height // 4),
-            "文件传输助手标题",
+            "已校准的微信会话标题",
         )
-        toolbar, toolbar_score, toolbar_scale = self._match(
-            pixels,
-            self.toolbar,
-            (width // 5, height * 3 // 5, width - 15, height - 10),
-            "输入工具栏",
-        )
-        if (
-            abs(scale - toolbar_scale) > 0.11
-            or abs(header[0] - toolbar[0]) > 80 * scale
-        ):
+        target, toolbar_scale = self.locate_composer(image)
+        if abs(scale - toolbar_scale) > 0.11 or abs(header[0] - target.toolbar[0]) > 80 * scale:
             raise RpaNotReady("标题与输入工具栏布局不一致")
+        return VisualTarget(header, target.toolbar, target.input_box, target.input_point,
+                            min(title_score, target.confidence))
+
+    def locate_composer(self, image: Image.Image) -> tuple[VisualTarget, float]:
+        pixels = np.asarray(image.convert("L"))
+        height, width = pixels.shape
+        region = (width // 5, height * 3 // 5, width - 15, height - 10)
+        try:
+            toolbar, toolbar_score, scale = self._match(pixels, self.toolbar, region, "输入工具栏")
+        except RpaNotReady:
+            if not self.toolbar_markers:
+                raise
+            first, first_score, scale = self._match(pixels, self.toolbar_markers[0], region, "输入工具栏起始图标")
+            gap, margin = round(30 * scale), round(5 * scale)
+            last, last_score, last_scale = self._match(
+                pixels, self.toolbar_markers[1],
+                (first[0] + gap, max(region[1], first[1] - margin),
+                 min(region[2], first[0] + round(350 * scale)),
+                 min(region[3], first[1] + first[3] + margin)), "输入工具栏末端图标",
+            )
+            if abs(scale - last_scale) > 0.11 or abs(first[1] - last[1]) > margin:
+                raise RpaNotReady("输入工具栏图标未对齐，停止输入")
+            toolbar = (first[0], first[1], last[0] + last[2] - first[0], max(first[3], last[3]))
+            toolbar_score = min(first_score, last_score)
         left, right = max(0, toolbar[0] - round(16 * scale)), width - round(25 * scale)
         top = None
         for y in range(
@@ -110,12 +142,12 @@ class VisualLocator:
             raise RpaNotReady("未确认输入框边界，停止输入")
         point = (left + round(35 * scale), top + round(12 * scale))
         return VisualTarget(
-            header,
+            (0, 0, 0, 0),
             toolbar,
             (left, top, right, bottom),
             point,
-            min(title_score, toolbar_score),
-        )
+            toolbar_score,
+        ), scale
 
     @staticmethod
     def is_blank(image: Image.Image, target: VisualTarget) -> bool:
@@ -123,3 +155,30 @@ class VisualLocator:
         # Current light theme has grey placeholder text and a green caret.
         # Only treat a failed copy as empty when no dark draft glyphs are visible.
         return int(np.count_nonzero(pixels < 100)) <= 10
+
+    @classmethod
+    def locate_send_button(cls, image: Image.Image, template: np.ndarray) -> tuple[int, int, int, int]:
+        """Verify the label and enabled color; tolerate only outer-border changes."""
+        width, height = image.size
+        pixels = np.asarray(image.convert("L"))
+        region = (width * 3 // 4, height * 3 // 4, width - 8, height - 8)
+        try:
+            box, _, _ = cls._match(pixels, template, region, "已启用的发送按钮")
+        except RpaNotReady:
+            inset = min(4, min(template.shape) // 6)
+            if inset < 1:
+                raise
+            # Keep the same confidence and uniqueness thresholds. The glyphs
+            # remain exact; rounded corners and hover outlines are excluded.
+            core = template[inset:-inset, inset:-inset]
+            inner, _, scale = cls._match(pixels, core, region, "发送按钮文字")
+            box = (inner[0] - round(inset * scale), inner[1] - round(inset * scale),
+                   round(template.shape[1] * scale), round(template.shape[0] * scale))
+        left, top, bw, bh = box
+        if left < region[0] or top < region[1] or left + bw > region[2] or top + bh > region[3]:
+            raise RpaNotReady("发送按钮显示不完整，停止点击")
+        button = np.asarray(image.crop((left, top, left + bw, top + bh)).convert("RGB"))
+        green = (button[:, :, 0] < 60) & (button[:, :, 1] > 130) & (button[:, :, 2] < 155)
+        if float(green.mean()) < .45:
+            raise RpaNotReady("发送按钮未启用，等待核对")
+        return box

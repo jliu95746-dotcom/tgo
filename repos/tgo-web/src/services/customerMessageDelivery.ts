@@ -33,7 +33,12 @@ export async function sendCustomerMessage(options: CustomerDeliveryOptions): Pro
       ws_sent: receipt.delivery_status === 'sent',
       ws_send_error: false, platform_send_error: false,
     } });
-    return receipt.delivery_status === 'sent';
+    // Clear an accepted cloud task from the composer while its bubble keeps the
+    // pending status. Acceptance is not a WeChat send receipt (ws_sent stays false).
+    return receipt.delivery_status === 'sent' || (
+      receipt.delivery_transport === 'wechat_local'
+      && (receipt.delivery_status === 'pending' || receipt.delivery_status === 'processing')
+    );
   }
 
   // Non-customer channels retain their existing transport.

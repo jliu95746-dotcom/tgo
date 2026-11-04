@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models import Platform, Visitor
+from app.models.platform import DIRECT_VISITOR_PLATFORM_TYPES
 from app.models.ai_interaction_run import AIInteractionRun
 from app.models.platform import DIRECT_VISITOR_PLATFORM_TYPES
 from app.services import ai_usage
@@ -28,6 +29,11 @@ class ReplyPermit:
 
 
 _permit: ContextVar[ReplyPermit | None] = ContextVar("ai_reply_quota", default=None)
+_deferred: ContextVar[bool] = ContextVar("deferred_reply_quota", default=False)
+
+
+def defer_current_permit() -> None:
+    _deferred.set(True)
 
 
 def current_permit() -> ReplyPermit | None:
@@ -63,7 +69,9 @@ def _reserve(
     project_id: UUID, client_msg_no: str, channel_id: str, channel_type: int
 ) -> ReplyPermit | None:
     with SessionLocal() as db:
-        row = ai_usage.reserve(db, project_id, f"reply:{client_msg_no}")
+        from app.services.customer_turn_context import current_execution
+        turn = current_execution.get()
+        row = ai_usage.reserve(db, project_id, f"turn:{turn.turn_id}" if turn else f"reply:{client_msg_no}")
         if row is None:
             db.commit()
             return None
@@ -83,7 +91,10 @@ def _reserve(
                 platform.type not in DIRECT_VISITOR_PLATFORM_TYPES
                 and visitor.platform_open_id != channel_id
             )
-            if external:
+            if turn:
+                external = turn.external
+                receipt.update(kind="customer_turn", turn_id=str(turn.turn_id))
+            elif external:
                 run = db.scalar(
                     select(AIInteractionRun).where(
                         AIInteractionRun.project_id == project_id,
@@ -100,6 +111,10 @@ def _reserve(
                     source_message_id=run.source_message_id,
                 )
         row.receipt = receipt
+        if turn is not None:
+            from app.services.customer_turn_store import TurnStore
+            durable = TurnStore(db).current(turn.turn_id, turn.version, lock=True)
+            durable.permit = {"reservation_id": str(row.id), "lease_id": str(row.lease_id)}
         result = ReplyPermit(project_id, row.id, row.lease_id, external)
         db.commit()
         return result
@@ -116,15 +131,17 @@ async def metered_reply(
         _reserve, UUID(project_id), client_msg_no, channel_id, channel_type
     )
     token = _permit.set(permit)
+    deferred_token = _deferred.set(False)
     try:
         yield
     finally:
         try:
-            if permit is not None:
+            if permit is not None and not _deferred.get():
                 with CancelScope(shield=True):
                     await asyncio.to_thread(_release, permit)
         finally:
             _permit.reset(token)
+            _deferred.reset(deferred_token)
 
 
 def _release(permit: ReplyPermit) -> None:

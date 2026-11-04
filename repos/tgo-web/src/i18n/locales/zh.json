@@ -2079,6 +2079,24 @@
     "noMatch.description": "尝试调整搜索条件"
   },
   "platforms": {
+    "wechatLocal": {
+      "checking": "正在检查",
+      "offline": "待连接",
+      "online": "桥接在线",
+      "unavailable": "状态暂不可用",
+      "v2Prompt": "请在这台 Windows 电脑上帮我配置域见客服的个人微信桥接。客服后台 {{backendUrl}}，桥接工具下载 {{downloadUrl}}，客服 API {{apiBase}}。请使用当前渠道 {{channelId}}。\n\n1. 优先复用已核对为最新版的工具。首次配置或工具过旧时，下载解压并记住实际路径。检查 64 位 Python 3.11 或以上版本，已有可用环境和依赖时直接复用，缺少时在权限允许的情况下协助安装。\n2. 检查 Windows 微信是否已登录。微信未打开时，能打开就帮我打开。需要登录时请告诉我，等我登录后继续。\n3. 优先在这台电脑上，从实际解压目录用本机 PowerShell 在后台运行 {{startCommand}}。保留进程并查看输出。同一渠道已有实例时，核对进度并接着当前步骤。{{setupInstruction}}\n4. 确认当前环境无法在这台电脑上执行启动命令时，再给我一段可直接粘贴到 Windows PowerShell 的完整命令。先用 Set-Location -LiteralPath 切到实际解压目录，再运行启动命令。只汇报当前进度和我需要做的一个动作。密钥和本机接待页面的访问链接留在本机。",
+      "v2SetupPreview": "当前仍在验收。看到「试跑通过」即完成，工具会自动退出。",
+      "v2SetupBind": "看到「连接这台电脑」时请让我点击确认。如果确认页没有自动打开，请先用本机浏览器打开工具输出的客服后台确认链接；需要我打开时，只发这条确认链接。授权后继续观察运行结果。看到「接待范围」页面时，保持桥接进程在后台运行，由我勾选并启用。",
+      "v2Login": "登录 Windows 微信，工具会自动核验当前账号的数据目录。",
+      "v2ManualPreview": "看到「试跑通过」即可。工具会自动退出。",
+      "v2Preview": "好友和群聊接待正在验收，目前可以预览配置步骤。",
+      "v2PairConfirm": "确认将这台电脑上已登录的微信连接到当前渠道。",
+      "v2PairButton": "连接这台电脑",
+      "v2ManualBind": "工具会打开确认页。请点击「连接这台电脑」，然后在「接待范围」选择接待对象并启用。",
+      "manageReception": "管理接待范围",
+      "receptionOnBridgeComputer": "请在运行新版桥接的电脑打开此页，并允许浏览器访问本机。",
+      "receptionUnavailable": "本机接待范围暂时无法打开，请确认微信和桥接已就绪。"
+    },
     "list": {
       "title": "接入平台",
       "addPlatform": "添加平台",
@@ -3009,6 +3027,8 @@
     "tagsPlaceholder": "输入标签并按回车键添加",
     "tagsHelper": "添加标签可以帮助您更好地组织和查找知识库",
     "filesCount": "{{count}} 文件",
+    "expandContent": "展开正文",
+    "collapseContent": "收起正文",
     "manage": "管理知识库",
     "basicInfo": "基本信息",
     "selectType": "选择类型",
@@ -3464,6 +3484,13 @@
       "historyPending": "渠道已接受，聊天记录正在补同步，请勿重复发送",
       "unknown": "发送结果待确认，请先确认客户是否收到，勿重复发送",
       "processing": "消息处理中，可查询状态，请勿重复发送",
+      "wechatPending": "等待微信发送",
+      "wechatProcessing": "微信发送中",
+      "wechatSent": "微信已发出",
+      "wechatUnknown": "发送结果待核对，请勿重复发送",
+      "wechatFailed": "发送失败，请核对后重新编辑发送",
+      "wechatHistoryPending": "微信已发出，聊天记录正在同步",
+      "accessChanged": "会话已转交或接待权限已变更",
       "failed": "渠道未接受这条消息",
       "retry": "重试发送",
       "check": "查询状态"

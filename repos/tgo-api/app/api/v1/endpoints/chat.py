@@ -103,6 +103,10 @@ from app.services.ai_interaction_run_service import (
     claim_ai_interaction,
     mark_ai_interaction_finished,
 )
+from app.models.platform import PlatformType
+from app.services.wechat_local_bridge import authorize_bridge_visitor
+from app.services.wechat_media import authorize_wechat_media, normalize_wechat_upload
+from app.utils.wechat_local import is_wechat_local_source
 from app.services.chat_service import get_or_create_visitor
 from app.services.humanization_service import (
     ASSIST_FACT_GATHERING_PROMPT,
@@ -395,19 +399,76 @@ async def chat_completion(
     if req.customer_sessions and req.msg_type != MessageType.TEXT:
         raise HTTPException(403, "当前业务身份验证仅用于文字咨询，请先使用文字查询")
     platform, project = chat_service.validate_platform_and_project(req.api_key, db)
-    if platform.type == PlatformType.WECHAT_LOCAL.value and (
-        req.msg_type != MessageType.TEXT
-        or not is_filehelper_identity(req.from_uid)
-        or not is_wechat_local_source(req.source_message_id)
-        or not req.forward_user_message_to_wukongim
-        or req.customer_sessions
-    ):
-        raise HTTPException(403, "个人微信仅接入文件传输助手的文字消息")
+    if req.media_pending and (req.msg_type not in (2, 4) or not req.source_message_id):
+        raise HTTPException(422, "媒体占位需要原始消息编号及图片或语音类型")
+    if req.media_error and (req.msg_type not in (2, 4) or req.media_pending or req.media_file_id or req.message):
+        raise HTTPException(422, "媒体失败事件不能携带文件或正文")
+    from app.services.customer_turn_context import current_execution
+    execution = current_execution.get()
+    if execution is not None and (execution.platform_id != platform.id or execution.project_id != project.id):
+        raise HTTPException(403, "回复轮次归属不一致")
+    scoped_target = None
+    wechat_manual_only = False
+    if platform.type == PlatformType.WECHAT_LOCAL.value:
+        if (
+            req.msg_type not in (MessageType.TEXT, MessageType.IMAGE, MessageType.VOICE)
+            or execution is None and not is_wechat_local_source(req.source_message_id)
+            or execution is None and not req.forward_user_message_to_wukongim
+        ):
+            raise HTTPException(403, "个人微信仅接入授权会话的文字、图片和语音消息")
+        actor, scoped_target = await authorize_bridge_visitor(
+            db, platform, req.channel_id, req.channel_type, credentials
+        )
+        if actor.platform_open_id != req.from_uid:
+            raise HTTPException(403, "个人微信访客身份不匹配")
+        if req.msg_type != MessageType.TEXT:
+            if scoped_target is None:
+                raise HTTPException(403, "微信媒体需要启用接待范围")
+            if not req.media_pending and not req.media_error:
+                authorize_wechat_media(db, platform, actor, req)
+        if scoped_target is not None:
+            extra = req.extra or {}
+            wechat_manual_only = scoped_target.is_group and (
+                extra.get("wechat_local_mention_ambiguous") is True
+                or not scoped_target.allows_ai(
+                    req.message if req.msg_type == MessageType.TEXT else "",
+                    extra.get("wechat_local_mentioned") is True,
+                )
+            )
+            req.system_message = None
+            author = extra.get("wechat_local_author")
+            req.extra = {"source": "wechat-local-bridge", "wechat_local_group": scoped_target.is_group}
+            req.extra.update(wechat_local_mentioned=extra.get("wechat_local_mentioned") is True,
+                             wechat_local_mention_ambiguous=extra.get("wechat_local_mention_ambiguous") is True)
+            if scoped_target.is_group and isinstance(author, str) and re.fullmatch(r"[a-f0-9]{64}", author):
+                req.extra["wechat_local_author"] = author
 
     visitor, visitor_changed, access = await resolve_chat_visitor(db, platform, req.from_uid,
         credentials, x_saas_service_token, nickname=req.visitor_name, avatar_url=req.visitor_avatar,
         channel_id=req.channel_id, channel_type=req.channel_type if req.channel_type is not None else 251)
     request.state.visitor_chat_access = access
+
+    admitted = None
+    can_turn_reply = not wechat_manual_only
+    if settings.CUSTOMER_TURNS_ENABLED and execution is None and req.channel_type in (None, 251):
+        from app.services.customer_turn_ingress import HUMAN_REQUEST, cancel_customer_turns, ingest
+        if HUMAN_REQUEST.fullmatch(req.message) or chat_service.resolve_service_mode(platform, visitor) != "auto":
+            await cancel_customer_turns(db, visitor)
+        else:
+            if req.msg_type in (2, 4) and not req.media_pending and not req.media_error:
+                from app.services.chat_media_service import ChatMediaService
+                ChatMediaService(db).authorize(ChatMediaInput(
+                    project_id=project.id, platform_id=platform.id, visitor_id=visitor.id,
+                    source_message_id=req.source_message_id or "pending-source", message_type=req.msg_type,
+                    reference=req.message, file_id=req.media_file_id))
+            if not req.source_message_id:
+                candidate = (req.extra or {}).get("message_id")
+                req.source_message_id = candidate if isinstance(candidate, str) and candidate else f"direct_{uuid4().hex}"
+            # Fence the old version before profile notifications, IM forwarding,
+            # or any other remote wait can delay this new part's registration.
+            admitted = await ingest(db, platform, visitor, req, can_reply=can_turn_reply)
+            from app.services.customer_turn_ingress import response
+            return await response(req, admitted, visitor, can_reply=can_turn_reply)
 
     if visitor_changed:
         # Notify visitor profile updated - need to build channel_id first
@@ -419,6 +480,12 @@ async def chat_completion(
         ), access)
 
     # 3) Prepare correlation and session IDs
+    if req.msg_type in (2, 4) and not req.media_pending and not req.media_error:
+        from app.services.chat_media_service import ChatMediaService
+        ChatMediaService(db).authorize(ChatMediaInput(
+            project_id=project.id, platform_id=platform.id, visitor_id=visitor.id,
+            source_message_id=req.source_message_id or "pending-source", message_type=req.msg_type,
+            reference=req.message, file_id=req.media_file_id))
     if req.channel_id:
         channel_id_enc = req.channel_id
     else:
@@ -427,6 +494,10 @@ async def chat_completion(
     channel_type = req.channel_type if req.channel_type is not None else CHANNEL_TYPE_CUSTOMER_SERVICE
     check_chat_channel(access, visitor.id, channel_id_enc, channel_type)
     session_id = get_session_id(f"{visitor.id}-vtr", channel_id_enc, channel_type)
+    if execution is not None and execution.isolated_history:
+        from app.services.customer_turn_store import TurnStore
+        turn = TurnStore(db).get(execution.turn_id)
+        session_id = get_session_id(f"{visitor.id}:{turn.actor_key}", channel_id_enc, channel_type)
 
     # 3.1) Resolve image/file URLs using storage backend
     if req.msg_type in {MessageType.IMAGE, MessageType.FILE}:
@@ -440,7 +511,7 @@ async def chat_completion(
         extra_source_message_id = req.extra.get("message_id")
         if isinstance(extra_source_message_id, str) and extra_source_message_id:
             source_message_id = extra_source_message_id
-    if req.forward_user_message_to_wukongim:
+    if req.forward_user_message_to_wukongim and not req.media_pending:
         forward_extra = dict(req.extra or {})
         if source_message_id:
             forward_extra["message_id"] = source_message_id
@@ -451,7 +522,7 @@ async def chat_completion(
             content=req.message,
             msg_type=req.msg_type,
             extra=forward_extra,
-            require_delivery=req.msg_type in {MessageType.IMAGE, MessageType.VOICE},
+            require_delivery=scoped_target is not None or req.msg_type in {MessageType.IMAGE, MessageType.VOICE},
         ), access)
         source_message_id = source_message_id or forwarded_message_id
 
@@ -497,7 +568,8 @@ async def chat_completion(
 
     intent_outcome: MessageIntentRoutingOutcome | None = None
     if (
-        req.msg_type == MessageType.TEXT
+        execution is None and not wechat_manual_only
+        and req.msg_type == MessageType.TEXT
         and service_mode in {"auto", "assist"}
         and not (settings.SAAS_ENABLED and settings.SAAS_BILLING_ENABLED)
     ):
@@ -639,6 +711,16 @@ async def chat_completion(
             channel_type=channel_type,
         ), access)
 
+    if wechat_manual_only and execution is None:
+        result = {"success": True, "event_type": "received", "visitor_id": str(visitor.id)}
+        if req.stream is False:
+            return result
+
+        async def received_gen() -> AsyncIterator[str]:
+            yield chat_service.sse_format({"event_type": "received", "data": result})
+
+        return StreamingResponse(received_gen(), media_type="text/event-stream")
+
     # 4) Prepare from_uid for WuKongIM forwarding (must have assigned staff)
     if assigned_staff_id:
         wukongim_from_uid = f"{assigned_staff_id}-staff"
@@ -669,6 +751,9 @@ async def chat_completion(
                 yield chat_service.sse_format({"event_type": "error", "data": error_data})
             return StreamingResponse(no_staff_error_gen(), media_type="text/event-stream")
 
+    if execution is not None:
+        execution.sender_uid = wukongim_from_uid
+
     if intent_outcome is not None:
         if intent_outcome.routing_target == "human_handoff":
             handoff_data = {
@@ -694,7 +779,7 @@ async def chat_completion(
         if intent_outcome.routing_target == "clarify":
             req.system_message = _append_trusted_system_context(
                 req.system_message,
-                "本轮只询问一个必要的澄清问题，不得猜测订单号或客户意图。",
+                "保留只读知识检索，资料能直接回答时直接回答；只有缺少必要条件才澄清，不猜测订单号或执行业务操作。",
             )
         elif intent_outcome.tool_context:
             req.system_message = _append_trusted_system_context(
@@ -760,6 +845,9 @@ async def chat_completion(
     if intent_outcome is not None and intent_outcome.contextual_reply is not None:
         agent_runtime_kwargs["contextual_reply"] = intent_outcome.contextual_reply
     response_client_msg_no = f"ai_{uuid4().hex}"
+    if execution is not None:
+        from app.services.customer_turn_store import TurnStore
+        response_client_msg_no = TurnStore(db).current(execution.turn_id, execution.version).client_msg_no
     source_message_id = source_message_id or f"direct_{uuid4().hex}"
     media_input = None
     if req.msg_type in {MessageType.IMAGE, MessageType.VOICE}:
@@ -1226,6 +1314,14 @@ async def chat_file_upload(
     project_id = actor.project_id
     uploaded_by = actor.username if isinstance(actor, StaffFileActor) else "visitor"
     await authorize_file_channel(db, actor, channel_id, channel_type)
+    platform: Platform | None = None
+    if isinstance(actor, VisitorFileActor):
+        platform = db.get(Platform, actor.platform_id)
+        if platform is not None and platform.type == PlatformType.WECHAT_LOCAL.value:
+            _actor, target = await authorize_bridge_visitor(db, platform, channel_id, channel_type, credentials)
+            if target is None:
+                raise HTTPException(403, "微信媒体需要启用接待范围")
+            file = await normalize_wechat_upload(file)
 
     # 3) Validate file type/size
     allowed_exts = set(settings.ALLOWED_UPLOAD_EXTENSIONS or [])
@@ -1274,6 +1370,8 @@ async def chat_file_upload(
     buffer.seek(0)
 
     # 6) Upload via storage backend
+    if platform and platform.type == PlatformType.WECHAT_LOCAL.value:
+        await authorize_bridge_visitor(db, platform, channel_id, channel_type, credentials)
     from app.services.storage import get_storage
     storage = get_storage()
     try:
@@ -1386,7 +1484,7 @@ async def chat_completion_openai_compatible(
     # 1) Validate Platform API key and get project
     platform, project = chat_service.validate_platform_and_project(x_platform_api_key, db)
     if platform.type == PlatformType.WECHAT_LOCAL.value:
-        raise HTTPException(403, "个人微信请使用本机桥接")
+        raise HTTPException(403, "个人微信必须使用专用桥接会话")
 
     # 2) Extract messages from OpenAI format
     user_message, system_message, platform_open_id = chat_service.extract_messages_from_openai_format(

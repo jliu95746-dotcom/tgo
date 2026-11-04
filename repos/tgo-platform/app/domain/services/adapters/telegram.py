@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 
 from app.domain.entities import StreamEvent
-from app.domain.services.adapters.base import BasePlatformAdapter
+from app.domain.services.adapters.base import BasePlatformAdapter, provider_receipt, DeliveryRejected
 from app.core.config import settings
 
 from app.api.telegram_utils import telegram_send_text
@@ -63,6 +63,8 @@ class TelegramAdapter(BasePlatformAdapter):
         text = (content or {}).get("text") or ""
         logger.debug("Telegram reply prepared")
         
+        if content.get("delivery_fenced") and len(text) > 4096:
+            raise DeliveryRejected("Reply exceeds channel message limit")
         if not text:
             logger.debug("Telegram empty reply skipped")
             return
@@ -76,7 +78,7 @@ class TelegramAdapter(BasePlatformAdapter):
         logger.debug("Telegram reply sending")
         
         # Send text message via Telegram Bot API
-        await telegram_send_text(
+        result = await telegram_send_text(
             bot_token=self.bot_token,
             chat_id=self.chat_id,
             text=text[:4096],  # Telegram text limit
@@ -84,3 +86,4 @@ class TelegramAdapter(BasePlatformAdapter):
             timeout=self.http_timeout,
         )
         logger.debug("Telegram reply send completed")
+        self.delivery_receipt = provider_receipt("telegram", result)

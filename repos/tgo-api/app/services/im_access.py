@@ -124,10 +124,7 @@ def authenticate_visitor_im_claims(
             Platform.project_id == project_id,
             or_(
                 Platform.type == "website",
-                and_(
-                    Platform.type == PlatformType.WECHAT_LOCAL.value,
-                    Visitor.platform_open_id.regexp_match(r"^wechat-local:[a-f0-9]{16}:filehelper$"),
-                ),
+                Platform.type == PlatformType.WECHAT_LOCAL.value,
             ),
             Platform.is_active.is_(True),
             Platform.deleted_at.is_(None),
@@ -138,6 +135,11 @@ def authenticate_visitor_im_claims(
     )
     if visitor is None:
         raise _unauthorized()
+    platform = db.get(Platform, visitor.platform_id)
+    if platform is not None and platform.type == PlatformType.WECHAT_LOCAL.value:
+        from app.services.wechat_local_bridge import require_current_bridge_identity
+
+        require_current_bridge_identity(platform, visitor.platform_open_id)
     if claims.access_revision != visitor.access_revision and (
         claims.access_revision is not None or visitor.access_secret_digest is not None
     ):

@@ -9,6 +9,9 @@ from app.domain.entities import NormalizedMessage, ChatCompletionRequest
 from app.domain.ports import TgoApiClient, SSEManager, PlatformAdapter
 from app.domain.services.adapters import SimpleStdoutAdapter, EmailAdapter, WeComAdapter, WeComBotAdapter, FeishuBotAdapter, DingTalkBotAdapter, TelegramAdapter, SlackAdapter, VisionAgentAdapter
 from app.domain.services.wecom_credentials import resolve_wecom_kf_secret
+from app.domain.services.adapters.base import DeliveryRejected
+from app.domain.services.conversation_scope import upstream_scope
+import httpx
 
 
 class UnsentReplyFailure(RuntimeError):
@@ -295,17 +298,16 @@ async def process_message(
         source_message_id=(msg.extra or {}).get("message_id"),
         system_message=system_message,
         expected_output=expected_output,
-        extra=_upstream_extra(msg.extra),
+        extra=upstream_scope(msg) or None,
         timeout_seconds=settings.request_timeout_seconds,
     )
+    if getattr(tgo_api_client, "durable_turns", False) is True:
+        from app.domain.services.turn_context import capture
+        await capture(db, msg)
+        return None
     frames = tgo_api_client.chat_completion(request)
     events = sse_manager.stream_events(frames)
     adapter = await select_adapter_for_target(msg, platform=platform)
-
-    if adapter.supports_stream:
-        async for event in events:
-            await adapter.send_incremental(event)
-        return None
 
     chunk_events = {"agent_content_chunk"}
     success_events = {"workflow_completed"}
@@ -319,10 +321,11 @@ async def process_message(
         "team_member_failed",
         "stream.error",
     }
-    no_reply_events = {"ai_disabled", "assist_mode", "queued", "human_handoff"}
+    no_reply_events = {"ai_disabled", "assist_mode", "queued", "human_handoff", "superseded", "received", "accepted"}
     chunks: list[str] = []
     final_content: str | None = None
     completed = False
+    delivery: dict[str, object] = {}
 
     async for event in events:
         payload = event.payload or {}
@@ -376,6 +379,9 @@ async def process_message(
             if success is False:
                 raise UnsentReplyFailure("AI workflow completed with success=false")
             completed = True
+            if _extract_named_value(payload.get("data"), "delivery_required") is True:
+                delivery = {name: _extract_named_value(payload.get("data"), name)
+                            for name in ("turn_id", "version", "channel_id")}
             break
 
     if not completed:
@@ -384,7 +390,34 @@ async def process_message(
     if not reply_text:
         raise UnsentReplyFailure("AI stream completed without reply text")
     reply_text = _customer_visible_ai_reply(msg, ptype, reply_text)
-    final = {"text": reply_text}
-    await adapter.send_final(final)
+    final: dict[str, object] = {"text": reply_text}
+    if delivery:
+        turn_id = str(delivery["turn_id"])
+        body = {"platform_api_key": msg.platform_api_key, "channel_id": delivery["channel_id"],
+                "channel_type": 251, "version": delivery["version"]}
+        try:
+            claimed = await tgo_api_client.turn_action(turn_id, "claim", body)
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code == 409:
+                return None
+            raise
+        final["delivery_fenced"] = True
+        try:
+            await adapter.send_final(final)
+        except DeliveryRejected:
+            await tgo_api_client.turn_action(turn_id, "receipt", {
+                **body, "claim_id": claimed["claim_id"], "result": "rejected"})
+            return None
+        except Exception as error:
+            logging.warning("Channel send requires reconciliation: %s", type(error).__name__)
+            await tgo_api_client.turn_action(turn_id, "receipt", {
+                **body, "claim_id": claimed["claim_id"], "result": "unknown"})
+            return None
+        proof = getattr(adapter, "delivery_receipt", None)
+        await tgo_api_client.turn_action(turn_id, "receipt", {
+            **body, "claim_id": claimed["claim_id"],
+            "result": "sent" if proof else "unknown", "receipt": proof})
+    else:
+        await adapter.send_final(final)
     return reply_text
 

@@ -77,6 +77,22 @@ def knowledge_search_query(context: AgentExecutionContext) -> str:
             recognized = data["recognized_customer_content"]
             if isinstance(recognized, str) and recognized.strip():
                 message = recognized
+        elif isinstance(data, list) and all(
+            isinstance(item, dict) and set(item) == {"kind", "content"}
+            and isinstance(item["content"], str) for item in data
+        ):
+            contents = []
+            for item in data:
+                content = item["content"]
+                _, _, envelope = content.partition("\n")
+                try:
+                    recognized = json.loads(envelope)
+                except ValueError:
+                    recognized = None
+                if isinstance(recognized, dict) and isinstance(recognized.get("recognized_customer_content"), str):
+                    content = recognized["recognized_customer_content"]
+                contents.append(content)
+            message = "\n".join(contents)
     history = [
         text[:800] for text in context.knowledge_context
         if text.strip() and not SOCIAL_ONLY.fullmatch(text)
@@ -103,8 +119,7 @@ async def retrieve_current_knowledge(
         evidence.status = "skipped"
         return evidence
     if (
-        context.disable_tools
-        or not context.rag_url
+        not context.rag_url
         or not context.knowledge_channel
     ):
         return evidence

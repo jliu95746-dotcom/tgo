@@ -9,12 +9,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.exceptions import TGOAPIException
 from app.models import Platform
-from app.models.billing import SubscriptionPeriod
+from app.models.billing import BillingPlan, SubscriptionPeriod
 from app.models.company_account import CompanyAccount
 from app.schemas.billing import PlanDefinition
 from app.schemas.company_resources import CompanyResources
 from app.services.ai_usage import require_service
 from app.services.company_membership import lock_company
+from app.services.operations_authorization import operator_authorization_active
 
 
 def resources(db: Session, project_id: UUID) -> CompanyResources:
@@ -39,11 +40,16 @@ def resources(db: Session, project_id: UUID) -> CompanyResources:
             SubscriptionPeriod.ends_at > now,
         )
     )
-    if period is None:
+    snapshot = period.definition if period is not None else None
+    if snapshot is None and account.plan_id and operator_authorization_active(account, now):
+        plan = db.get(BillingPlan, account.plan_id)
+        if plan is not None:
+            snapshot = plan.definition
+    if snapshot is None:
         raise TGOAPIException(
             "订阅权益记录异常，请联系平台处理", code="SUBSCRIPTION_INCONSISTENT", status_code=409
         )
-    definition = PlanDefinition.model_validate(period.definition)
+    definition = PlanDefinition.model_validate(snapshot)
     return CompanyResources(
         metered=True,
         knowledge_bytes=definition.knowledge_bytes,

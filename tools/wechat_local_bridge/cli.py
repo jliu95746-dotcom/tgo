@@ -7,25 +7,25 @@ import getpass
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import threading
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import UUID
 
-from .private_runtime import ensure_private_runtime
+from .private_runtime import (
+    DEFAULT_RUNTIME, BridgeAlreadyRunning, ensure_private_runtime, integration_lock, scoped_runtime,
+)
 from .reader import WeChatReader
 from .store import InboxStore
 from .tgo_bridge import TgoBridge
-from .tgo_client import TgoClient, bridge_base_url
+from .tgo_client import TgoClient, TgoError, bridge_base_url
 from .tgo_store import TgoStore
 from .watch import Watcher
-
-DEFAULT_RUNTIME = Path(__file__).resolve().parents[2] / ".tmp/wechat-local-bridge"
-
 
 def account_tag(reader: WeChatReader) -> str:
     return hashlib.sha256(str(reader.root).encode()).hexdigest()[:16]
@@ -37,6 +37,8 @@ def bind_tgo(
     platform_id: UUID,
     platform_type: str = "website",
     calibration_runtime: Path | None = None,
+    *,
+    scoped: bool = False,
 ) -> None:
     path = runtime / "tgo.private.json"
     if path.exists():
@@ -55,9 +57,17 @@ def bind_tgo(
                 with destination.open("xb") as target:
                     target.write(data)
     reader = WeChatReader(runtime / "keys.private.json")
-    key = getpass.getpass("输入专用客服测试渠道 API Key（不回显）：").strip()
+    key = getpass.getpass("粘贴当前渠道密钥并按回车（不回显）：").strip()
     if not key:
         raise ValueError("缺少测试渠道 API Key")
+    save_tgo_binding(runtime, base_url, platform_id, platform_type, reader, key, scoped=scoped)
+
+
+def save_tgo_binding(
+    runtime: Path, base_url: str, platform_id: UUID, platform_type: str,
+    reader: WeChatReader, key: str, *, scoped: bool,
+) -> None:
+    path = runtime / "tgo.private.json"
     with path.open("x", encoding="utf-8") as target:
         json.dump(
             {
@@ -65,33 +75,13 @@ def bind_tgo(
                 "platform_id": str(platform_id),
                 "platform_type": platform_type,
                 "platform_api_key": key,
-                "chat_id": "filehelper",
+                "chat_id": "scoped" if scoped else "filehelper",
                 "account_tag": account_tag(reader),
             },
             target,
             indent=2,
         )
     print("已保存本机客服渠道绑定")
-
-
-@contextmanager
-def integration_lock(runtime: Path):
-    import msvcrt
-
-    with (runtime / "tgo-bridge.lock").open("a+b") as lock:
-        if lock.tell() == 0:
-            lock.write(b"0")
-            lock.flush()
-        lock.seek(0)
-        try:
-            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError as error:
-            raise RuntimeError("该微信客服桥接已有运行实例") from error
-        try:
-            yield
-        finally:
-            lock.seek(0)
-            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def serve(
@@ -299,7 +289,7 @@ def serve(
 def main() -> None:
     parser = argparse.ArgumentParser(description="个人微信本机只读采集与回复草稿验证")
     parser.add_argument(
-        "--runtime", type=Path, default=DEFAULT_RUNTIME, help="本机私有运行目录"
+        "--runtime", type=Path, help="本机私有运行目录"
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("history", help="导出文件传输助手最近 20 条历史至私有目录")
@@ -308,6 +298,9 @@ def main() -> None:
     )
     capture_command.add_argument("--pid", type=int, required=True)
     capture_command.add_argument("--account-root", type=Path, required=True)
+    calibration = sub.add_parser("calibrate", help="框选文件传输助手窗口并回读校准草稿")
+    calibration.add_argument("--pid", type=int, required=True)
+    calibration.add_argument("--window-id", type=int, required=True)
     verify = sub.add_parser(
         "verify-current", help="回读当前已填写的文件传输助手草稿，并核验待办"
     )
@@ -321,6 +314,13 @@ def main() -> None:
     bind.add_argument(
         "--platform-id", type=UUID, required=True, help="客服测试渠道 UUID"
     )
+    setup = sub.add_parser("setup-scoped", help="连接当前个人微信渠道并打开本机接待范围")
+    setup.add_argument("--base-url", required=True)
+    setup.add_argument("--platform-id", type=UUID, required=True)
+    setup.add_argument("--account-root", type=Path)
+    mode = setup.add_mutually_exclusive_group()
+    mode.add_argument("--preview", action="store_true", help="仅验证当前微信账号并退出")
+    mode.add_argument("--resident", action="store_true", help=argparse.SUPPRESS)
     server = sub.add_parser("serve", help="启动仅本机可访问的控制页与新增消息监听")
     server.add_argument(
         "--port", type=int, default=0, help="监听端口，0 表示自动选择空闲端口"
@@ -352,16 +352,41 @@ def main() -> None:
         help="本轮实际发送上限",
     )
     args = parser.parse_args()
-    ensure_private_runtime(args.runtime)
+    scoped = args.command == "setup-scoped"
+    if args.runtime is None:
+        args.runtime = scoped_runtime(args.platform_id) if scoped else DEFAULT_RUNTIME
+    ensure_private_runtime(args.runtime, scoped=scoped)
     if args.command == "capture":
         from .memory import capture
 
         print(json.dumps(capture(args.pid, args.account_root, args.runtime)))
+    elif args.command == "calibrate":
+        from .calibration import calibrate
+
+        calibrate(args.runtime, args.pid, args.window_id)
+        print("窗口校准通过。请在微信里手动清空校准草稿后再启动桥接。")
     elif args.command == "bind-tgo":
         bind_tgo(
             args.runtime, args.base_url, args.platform_id,
             args.platform_type, args.calibration_runtime,
         )
+    elif args.command == "setup-scoped":
+        from .resident import configure_scoped, run_resident
+
+        try:
+            if args.resident:
+                run_resident(args.runtime, args.base_url, args.platform_id)
+            else:
+                configure_scoped(
+                    args.runtime, args.base_url, args.platform_id, args.account_root,
+                    preview=args.preview,
+                )
+        except KeyboardInterrupt:
+            raise SystemExit("已结束个人微信配置") from None
+        except (BridgeAlreadyRunning, ValueError, OSError, TgoError, subprocess.SubprocessError) as error:
+            if args.resident:
+                raise SystemExit(1) from None
+            raise SystemExit(str(error)) from None
     elif args.command == "probe-uia":
         from .uia_probe import probe_uia
 

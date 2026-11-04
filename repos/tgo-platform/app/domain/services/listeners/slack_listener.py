@@ -65,12 +65,15 @@ class SlackChannelListener:
         sse_manager: Any,  # Not used directly anymore
     ) -> None:
         self._session_factory = session_factory
+        self._tgo_api_client = tgo_api_client
+        self._turn_loop: asyncio.AbstractEventLoop | None = None
         self._stop_event = asyncio.Event()
         self._socket_handlers: dict[uuid.UUID, Any] = {}  # Platform ID -> SocketModeHandler
         self._handler_threads: dict[uuid.UUID, threading.Thread] = {}
 
     async def start(self) -> None:
         """Start Socket Mode handlers for all active Slack platforms."""
+        self._turn_loop = asyncio.get_running_loop()
         platforms = await self._load_active_slack_platforms()
         logger.info("Slack listeners starting: count=%s", len(platforms))
 
@@ -230,6 +233,14 @@ class SlackChannelListener:
         client: Any,
     ) -> None:
         """Process an incoming Slack message event using synchronous HTTP calls."""
+        if getattr(self._tgo_api_client, "durable_turns", False) is True:
+            from app.domain.services.slack_turn_capture import capture_event
+            if self._turn_loop is None:
+                raise RuntimeError("Slack durable message loop is not started")
+            future = asyncio.run_coroutine_threadsafe(
+                capture_event(self._session_factory, platform, event), self._turn_loop)
+            future.result(timeout=15)
+            return
         try:
             # Extract message data
             user_id = event.get("user")

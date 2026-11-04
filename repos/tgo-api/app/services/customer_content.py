@@ -15,4 +15,16 @@ def customer_question(message: str) -> str:
             text = data["recognized_customer_content"]
             if isinstance(text, str) and text.strip():
                 return text
+        if (
+            isinstance(data, list)
+            and data
+            and all(
+                isinstance(item, dict)
+                and set(item) == {"kind", "content"}
+                and item["kind"] in {"text", "image", "voice"}
+                and isinstance(item["content"], str)
+                for item in data
+            )
+        ):
+            return "\n".join(customer_question(item["content"]) for item in data)
     return message

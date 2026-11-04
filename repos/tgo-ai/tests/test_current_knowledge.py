@@ -208,13 +208,13 @@ async def test_retrieval_failures_never_admit_old_or_partial_facts(mode):
 
 
 @pytest.mark.asyncio
-async def test_media_tool_disable_boundary_is_preserved():
-    client = SimpleNamespace(search_documents=AsyncMock())
-    evidence = await retrieve_current_knowledge(
-        context(disable_tools=True), client=client
-    )
-    assert evidence.status == "unavailable"
-    client.search_documents.assert_not_awaited()
+async def test_media_business_tools_disabled_still_allows_governed_read_only_knowledge():
+    ctx = context(disable_tools=True)
+    client = SimpleNamespace(search_documents=AsyncMock(return_value=result(ctx, "有依据的商品资料")))
+    evidence = await retrieve_current_knowledge(ctx, client=client)
+    assert evidence.status == "matched"
+    client.search_documents.assert_awaited_once()
+    assert client.search_documents.call_args.kwargs["project_id"] == ctx.project_id
 
 
 @pytest.mark.asyncio

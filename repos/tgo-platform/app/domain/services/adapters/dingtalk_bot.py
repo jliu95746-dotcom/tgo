@@ -5,7 +5,7 @@ Sends messages to DingTalk using the sessionWebhook.
 from __future__ import annotations
 
 from app.domain.entities import StreamEvent
-from app.domain.services.adapters.base import BasePlatformAdapter
+from app.domain.services.adapters.base import BasePlatformAdapter, provider_receipt, DeliveryRejected
 from app.core.config import settings
 
 from app.api.dingtalk_utils import dingtalk_send_text
@@ -37,6 +37,8 @@ class DingTalkBotAdapter(BasePlatformAdapter):
 
     async def send_final(self, content: dict) -> None:
         text = (content or {}).get("text") or ""
+        if content.get("delivery_fenced") and len(text) > 20000:
+            raise DeliveryRejected("Reply exceeds channel message limit")
         if not text:
             # Nothing to send
             return
@@ -45,9 +47,9 @@ class DingTalkBotAdapter(BasePlatformAdapter):
             raise RuntimeError("DingTalk Bot adapter requires session_webhook")
 
         # Send text message via sessionWebhook
-        await dingtalk_send_text(
+        result = await dingtalk_send_text(
             session_webhook=self.session_webhook,
             content=text[:20000],  # DingTalk text limit
             timeout=self.http_timeout,
         )
-
+        self.delivery_receipt = provider_receipt("dingtalk", result)

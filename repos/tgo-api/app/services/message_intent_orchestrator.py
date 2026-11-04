@@ -72,6 +72,8 @@ class MessageIntentOrchestrator:
         reuse_existing: bool = False,
         defer_business_tools: bool = False,
         shadow_only: bool = False,
+        conversation_context: list[str] | None = None,
+        media_input: dict[str, object] | None = None,
     ) -> MessageIntentRoutingOutcome:
         """Classify one text message, persist it, then enforce a workflow route."""
         normalized_text = user_text.strip()
@@ -123,6 +125,8 @@ class MessageIntentOrchestrator:
                 project=project,
                 user_text=normalized_text,
                 prior_turns=prior_turns,
+                conversation_context=conversation_context,
+                media_input=media_input,
             )
             dependency = result_payload.pop("context_dependency", None)
             request = IntentResultUpsertRequest.model_validate({
@@ -235,6 +239,8 @@ class MessageIntentOrchestrator:
         project: Project,
         user_text: str,
         prior_turns: list[ConversationTurn] | None = None,
+        conversation_context: list[str] | None = None,
+        media_input: dict[str, object] | None = None,
     ) -> dict[str, object]:
         config = (
             self._db.query(ProjectAIConfig)
@@ -256,7 +262,7 @@ class MessageIntentOrchestrator:
             return self._fail_closed_payload()
 
         try:
-            classification_input: dict[str, object] = {"user_text": user_text}
+            classification_input: dict[str, object] = {"user_text": user_text, **(media_input or {}), "conversation_context": (conversation_context or [])[-12:]}
             if prior_turns is not None:
                 classification_input["prior_turns"] = [
                     {"role": turn.role, "content": turn.content[:600]}

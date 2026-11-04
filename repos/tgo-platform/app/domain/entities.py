@@ -72,6 +72,10 @@ class ChatCompletionRequest(BaseModel):
     expected_output: str | None = None
     msg_type: int | None = 1
     media_file_id: str | None = None
+    media_pending: bool = False
+    media_error: str | None = None
+    visitor_name: str | None = None
+    visitor_avatar: str | None = None
     source_message_id: str | None = None
     extra: dict | None = None
     timeout_seconds: int | None = 120

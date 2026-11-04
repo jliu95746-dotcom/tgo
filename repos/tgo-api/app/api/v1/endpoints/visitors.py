@@ -17,9 +17,13 @@ from app.core.config import settings
 from app.core.security import verify_token
 
 from app.services.wukongim_client import wukongim_client
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
 from app.services.im_access import issue_visitor_im_token
 from app.schemas.visitor_access import VisitorAccessInput
 from app.services.visitor_access import registration_access, require_access, denied as visitor_access_denied
+from app.services.wechat_local_bridge import authorize_bridge_visitor, require_scoped_target
+from app.utils.wechat_local import is_filehelper_identity, is_scoped_identity
 from app.services.reply_history import reconcile_reply_history
 from app.core.exceptions import TGOAPIException
 from app.services.visitor_data_access import (
@@ -116,6 +120,10 @@ async def _visitor_mutation_response(
     guard = scope.guard()
     request.state.operation_guard = guard
     guard.check()
+    if settings.CUSTOMER_TURNS_ENABLED and visitor.service_mode != "auto":
+        from app.services.customer_turn_ingress import cancel_customer_turns
+        await cancel_customer_turns(db, visitor)
+        guard.check()
     await notify_visitor_profile_updated(db, visitor)
     guard.check()
     response = VisitorResponse.model_validate(visitor)
@@ -415,7 +423,9 @@ async def register_visitor(
 
     local_wechat = platform.type == PlatformType.WECHAT_LOCAL.value
     if local_wechat and (
-        not is_filehelper_identity(req.platform_open_id) or req.customer_sessions
+        req.customer_sessions or not (
+            is_filehelper_identity(req.platform_open_id) or is_scoped_identity(req.platform_open_id)
+        )
     ):
         raise visitor_access_denied()
     if platform.type != "website" and not local_wechat:
@@ -426,6 +436,22 @@ async def register_visitor(
         platform.project_id, platform.id, SecretStr(req.platform_api_key), platform.type,
     )
     origin.check(db)
+    if platform.type == PlatformType.WECHAT_LOCAL.value:
+        if is_filehelper_identity(req.platform_open_id):
+            nickname = "文件传输助手（个人微信）"
+        else:
+            target = await require_scoped_target(platform, req.platform_open_id or "")
+            nickname = (req.nickname or ("微信群聊" if target.is_group else "微信联系人"))[:80]
+        req = VisitorRegisterRequest(
+            platform_api_key=req.platform_api_key,
+            platform_open_id=req.platform_open_id,
+            nickname=nickname,
+            visitor_access_token=req.visitor_access_token,
+            im_token=req.im_token,
+            visitor_id=req.visitor_id,
+            language="zh-CN",
+            source="wechat-local-bridge",
+        )
 
     # 2) Find existing or create new visitor
     normalized_open_id = (req.platform_open_id or "").strip() or None
@@ -1208,7 +1234,7 @@ async def sync_visitor_channel_messages(
     response: Response,
     db: Session = Depends(get_db),
     x_platform_api_key: Optional[str] = Header(None, alias="X-Platform-API-Key"),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> WuKongIMChannelMessageSyncResponse:
     """A public platform identifier never grants access to visitor messages."""
     # 1) Authenticate platform via API key (body param or header)
@@ -1228,6 +1254,8 @@ async def sync_visitor_channel_messages(
     if not platform:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform_api_key")
 
+    if platform.type == PlatformType.WECHAT_LOCAL.value:
+        await authorize_bridge_visitor(db, platform, req.channel_id, req.channel_type, credentials)
     access = require_visitor_data_access(db,platform,credentials)
     authorize_visitor_data_channel(access,req.channel_id,req.channel_type)
     login_uid = f"{access.visitor_id}-vtr"
@@ -1274,6 +1302,9 @@ async def sync_visitor_channel_messages(
             result, project_id=str(platform.project_id),
             channel_id=req.channel_id, channel_type=req.channel_type,
         )
+        if platform.type == PlatformType.WECHAT_LOCAL.value:
+            from app.services.wechat_staff_delivery import mask_bridge_history
+            reconciled = mask_bridge_history(reconciled)
         reauthorize_visitor_data(db,access)
         require_owned_history_batch(access,req.channel_id,req.channel_type,reconciled)
         response.headers['Cache-Control'] = 'no-store'

@@ -17,6 +17,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.platform import PlatformType
 from app.models.staff_message_delivery import StaffMessageDelivery, utc_now
 from app.models.platform import PlatformType
 from app.schemas.staff_delivery import (
@@ -38,6 +39,8 @@ EXTERNAL_RECEIPT_WAIT = timedelta(minutes=5)
 
 
 def receipt(row: StaffMessageDelivery) -> StaffDeliveryResponse:
+    extra = row.payload.get("extra")
+    is_wechat = isinstance(extra, dict) and bool(extra.get("wechat_local_delivery_id"))
     training_status: Literal["none", "pending", "saved", "unavailable"] = "none"
     if row.training_status == "pending":
         training_status = "pending"
@@ -64,9 +67,14 @@ def receipt(row: StaffMessageDelivery) -> StaffDeliveryResponse:
             else row.updated_at
         )
         delivery_status = (
-            "processing" if utc_now() - started < EXTERNAL_RECEIPT_WAIT else "unknown"
+            "processing"
+            if utc_now() - started < timedelta(seconds=120 if is_wechat else 300)
+            else "unknown"
         )
     return StaffDeliveryResponse(
+        delivery_transport="wechat_local" if is_wechat else (
+            "web" if row.external_status == "not_required" else "platform"
+        ),
         training_status=training_status,
         training_skill_name=training_skill if isinstance(training_skill, str) else None,
         client_msg_no=row.client_msg_no,
@@ -389,7 +397,7 @@ async def deliver(
     if target.platform_type == "wechat_personal":
         raise HTTPException(410, "该渠道已下线，无法发送消息")
     if target.platform_type == PlatformType.WECHAT_LOCAL.value and request.payload.get("type") != 1:
-        raise HTTPException(400, "个人微信测试渠道仅支持文字回复")
+        raise HTTPException(400, "个人微信人工接待目前支持文字回复")
     if (request.channel_id, request.channel_type) != (
         target.channel_id,
         target.channel_type,
@@ -412,6 +420,16 @@ async def deliver(
             "humanization_skill_name": style.skill_name,
             "humanization_skill_enabled": style.enabled,
         })
+    if target.platform_type == PlatformType.WECHAT_LOCAL.value:
+        from app.models.visitor import Visitor
+        from app.services.customer_turn_ingress import cancel_customer_turns
+        from app.services.wechat_staff_delivery import enqueue
+
+        row = enqueue(db, target, request)
+        visitor = db.get(Visitor, target.visitor_id)
+        if visitor is not None:
+            await cancel_customer_turns(db, visitor)
+        return receipt(row)
     row, claimed = _claim(db, target, request)
     if claimed and target.requires_external_delivery:
         try:

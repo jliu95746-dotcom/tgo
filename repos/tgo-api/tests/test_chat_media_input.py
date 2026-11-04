@@ -126,3 +126,26 @@ async def test_local_read_is_bounded_and_confined(tmp_path):
     for path in ["../secret", str(Path(tmp_path).parent / "secret")]:
         with pytest.raises(ValueError):
             await storage.read(path, max_bytes=10)
+
+
+def test_wechat_media_checks_ownership_before_forwarding(media, monkeypatch):
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from app.schemas.chat import ChatCompletionRequest
+    from app.services import wechat_media
+
+    db, row, request, storage, _ = media
+    monkeypatch.setattr(wechat_media, "ChatMediaService", lambda db: ChatMediaService(db, storage=storage))
+    platform = SimpleNamespace(id=request.platform_id, project_id=request.project_id)
+    visitor = SimpleNamespace(id=request.visitor_id)
+    incoming = ChatCompletionRequest(api_key="fixture", from_uid="fixture", message=request.reference,
+                                    msg_type=2, media_file_id=row.id, source_message_id="wxlocal:"+"a"*64)
+    wechat_media.authorize_wechat_media(db, platform, visitor, incoming)
+    for changed in (incoming.model_copy(update={"message": "https://foreign.invalid/v1/chat/files/"+str(row.id)}),
+                    incoming.model_copy(update={"media_file_id": uuid4()})):
+        with pytest.raises((HTTPException, MediaInputError)):
+            wechat_media.authorize_wechat_media(db, platform, visitor, changed)
+    row.channel_id = build_visitor_channel_id(uuid4())
+    db.commit()
+    with pytest.raises(MediaInputError):
+        wechat_media.authorize_wechat_media(db, platform, visitor, incoming)

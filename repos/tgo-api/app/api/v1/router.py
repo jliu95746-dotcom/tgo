@@ -26,6 +26,8 @@ from app.api.v1.endpoints import agent_business_trials
 from app.api.v1.endpoints import agent_activation_requests
 from app.api.v1.endpoints import workflow_events
 from app.api.v1.endpoints import workflow_webhook_ingress
+from app.api.v1.endpoints import customer_turns
+from app.api.v1.endpoints import wechat_staff_deliveries
 
 from app.api.v1.endpoints import (
     ai_agents,
@@ -107,6 +109,8 @@ api_router.include_router(agent_trials.router, prefix="/ai/agents", tags=["Agent
 api_router.include_router(agent_activation_policies.router, prefix="/ai/agents", tags=["Agent activation policies"])
 api_router.include_router(agent_activation_requests.router, prefix="/ai/agents", tags=["Agent activation requests"])
 api_router.include_router(business_scenarios.router, prefix="/business-scenarios", tags=["Business scenarios"])
+api_router.include_router(customer_turns.router, prefix="/chat/turns", tags=["Chat turns"])
+api_router.include_router(wechat_staff_deliveries.router, prefix="/chat/wechat-local-deliveries", tags=["WeChat staff delivery"])
 api_router.include_router(billing.router, prefix="/billing", tags=["Billing"])
 api_router.include_router(operations_billing.router, prefix="/ops", tags=["Operations billing"])
 api_router.include_router(operations_tasks.router, prefix="/ops", tags=["Operations tasks"])

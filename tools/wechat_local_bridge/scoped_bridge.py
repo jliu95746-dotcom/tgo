@@ -1,0 +1,400 @@
+"""Run independent ledgers for locally authorized customer conversations."""
+
+from __future__ import annotations
+
+import hashlib
+import re
+import sqlite3
+import threading
+import time
+from collections.abc import Mapping
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+
+from .crypto import open_snapshot
+from .local_media import LocalMediaReader
+from .media_pipeline import MediaPipeline
+from .reader import WeChatReader, conversation_table, read_messages
+from .reception_scope import Grant, Scope
+from .rpa import RpaNotReady
+from .tgo_bridge import TgoBridge
+from .tgo_client import TgoClient, TgoError, TgoUnavailable, TgoAuthorizationError, visitor_token_expired
+from .tgo_store import TgoStore
+from .window_control import WindowControl
+from .window_ocr import normalized_title
+
+
+def cloud_identity(account_tag: str, grant: Grant) -> str:
+    kind = "group" if grant.contact.is_group else "private"
+    opaque = hashlib.sha256(f"{grant.revision}:{grant.contact.id}".encode()).hexdigest()
+    return f"wechat-local:{account_tag}:{kind}:{opaque}"
+
+
+@dataclass
+class Worker:
+    grant: Grant
+    bridge: TgoBridge
+    connected: bool = False
+    next_poll: float = 0
+    error: str = ""
+    target_title: str = ""
+    target_same_title: bool = False
+    future: Future[None] | None = None
+    delivery_future: Future[None] | None = None
+    refresh_session: bool = False
+    receipt_error: str = ""
+
+
+class ScopedBridge:
+    def __init__(self, scope: Scope, client: TgoClient, runtime: Path, allow_send: bool,
+                 window: WindowControl | None = None):
+        self.scope, self.client, self.runtime = scope, client, runtime
+        self.allow_send = allow_send
+        self.window = window
+        self.window_ready = False
+        self.key_file = runtime / "keys.private.json"
+        self.workers: dict[str, Worker] = {}
+        self.signatures: dict[str, object] = {}
+        self.stop = threading.Event()
+        self.lock = threading.RLock()
+        self.desktop_lock = threading.Lock()
+        self.healthy = False
+        self.error = ""
+        self.status_snapshot: dict[str, dict[str, object]] = {}
+        self.next_publish = 0.0
+        self.published: list[Mapping[str, object]] | None = None
+        self.network_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="wechat-network")
+        self.delivery_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="wechat-send")
+        self.retired: list[Worker] = []
+
+    def target_runtime(self, grant: Grant) -> Path:
+        if not re.fullmatch(r"[a-f0-9]{32}", grant.revision):
+            raise ValueError("本机会话授权编号无效")
+        identity = hashlib.sha256(grant.contact.id.encode()).hexdigest()
+        key = hashlib.sha256(f"{grant.revision}:{identity}".encode()).hexdigest()[:32]
+        targets = self.runtime / "targets"
+        path = targets / key
+        legacy = targets / identity / grant.revision
+        if legacy.is_dir():
+            if path.exists():
+                raise ValueError("本机会话有两份记录，已暂停以避免重复处理")
+            legacy.rename(path)
+        return path
+
+    def _same_title_enterprise_pair(self, grant: Grant, active: Mapping[str, Grant]) -> bool:
+        if not grant.contact.id.endswith("@openim"):
+            return False
+        title = normalized_title(grant.contact.title)
+        matches = [contact.id for contact in self.scope.contacts.values()
+                   if normalized_title(contact.title) == title]
+        return len(matches) == 2 and all(identity.endswith("@openim") and identity in active for identity in matches)
+
+    def authorize(self, grant: Grant, *, check_title: bool = False, verify_same_title: bool = False) -> None:
+        with self.scope.lock:
+            self.scope.refresh()
+            active = self.scope.grants()
+            current = active.get(grant.contact.id)
+            if self.stop.is_set() or current is None or current.revision != grant.revision:
+                raise RpaNotReady("会话接待权限已撤销或暂停")
+            if check_title and (
+                current.contact.title != grant.contact.title
+                or (
+                    not self.scope.unique_title(grant.contact.id)
+                    and not (verify_same_title and self._same_title_enterprise_pair(current, active))
+                )
+            ):
+                raise RpaNotReady("会话已改名或名称不唯一，需要人工核对")
+
+    def _active(self, grant: Grant) -> bool:
+        try:
+            self.authorize(grant)
+        except RpaNotReady:
+            return False
+        return self.healthy
+
+    def _publish(self, grants: dict[str, Grant], *, force: bool = False) -> None:
+        targets = [
+            {"identity": cloud_identity(self.client.account_tag, grant), "keywords": list(grant.keywords)}
+            for _, grant in sorted(grants.items())
+        ]
+        now = time.monotonic()
+        if force or targets != self.published or now >= self.next_publish:
+            self.client.publish_scope(targets)
+            self.published, self.next_publish = targets, now + 12
+
+    def _worker(self, grant: Grant) -> Worker:
+        contact = grant.contact
+        path = self.target_runtime(grant)
+        store = TgoStore(path / "state.sqlite3", chat_id=contact.id)
+        client = TgoClient(
+            self.client.config_file, path, self.client.account_tag, scoped=True,
+            identity=cloud_identity(self.client.account_tag, grant),
+            nickname=(contact.remark or contact.nickname or ("微信群聊" if contact.is_group else "微信联系人"))[:80],
+        )
+        reader = WeChatReader(self.key_file, contact.id, scoped=True)
+        active = lambda: self._active(grant)
+        media = MediaPipeline(LocalMediaReader(reader, self.key_file, path, active), client, path, active)
+        bridge = TgoBridge(
+            reader, store, path, "", client, None, self.allow_send, float("inf"), float("inf"),
+            scoped=True, active=active, media=media,
+        )
+        bridge.desktop_lock = self.desktop_lock
+        return Worker(grant, bridge)
+
+    def _reconcile(self, grants: dict[str, Grant]) -> None:
+        for identity, worker in list(self.workers.items()):
+            current = grants.get(identity)
+            if current is None or current.revision != worker.grant.revision:
+                worker.bridge.stop.set()
+                if worker.bridge.media is not None:
+                    worker.bridge.media.close()
+                self.retired.append(worker)
+                del self.workers[identity]
+        for identity, grant in grants.items():
+            if identity not in self.workers:
+                self.workers[identity] = self._worker(grant)
+
+    def _ingest(self) -> None:
+        if not self.workers:
+            return
+        reader = self.scope.reader
+        known = {entry.path for entry in reader.shards}
+        found = {path.resolve() for path in reader.root.rglob("message_*.db")
+                 if path.stem.removeprefix("message_").isdigit()}
+        if found - known:
+            raise ValueError("发现新消息分库，请重新执行本机取钥")
+        pending = {key: {} for key, item in self.workers.items() if not item.bridge.ledger.initialized()}
+        for entry in reader.shards:
+            shard = reader.shard_name(entry.path)
+            signature = reader._signature(entry.path)
+            if not pending and self.signatures.get(shard) == signature:
+                continue
+            full = False
+            connection = open_snapshot(entry.path, entry.key)
+            try:
+                tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                for identity, worker in self.workers.items():
+                    if not self._active(worker.grant):
+                        continue
+                    table = conversation_table(identity)
+                    exists = table in tables
+                    if identity in pending:
+                        pending[identity][shard] = int(connection.execute(
+                            f'SELECT COALESCE(MAX(local_id),0) FROM "{table}"'
+                        ).fetchone()[0]) if exists else 0
+                        continue
+                    if not exists:
+                        continue
+                    cursor = worker.bridge.ledger.cursors().get(shard, 0)
+                    maximum = connection.execute(f'SELECT COALESCE(MAX(local_id),0) FROM "{table}"').fetchone()[0]
+                    if maximum < cursor:
+                        worker.error = "消息序号回退，暂停该会话"
+                        continue
+                    if not worker.error and maximum > cursor:
+                        batch = read_messages(connection, shard, identity, reader.self_username, cursor, 100)
+                        worker.bridge.observe(batch)
+                        full |= len(batch) == 100
+            finally:
+                connection.close()
+            if not full:
+                self.signatures[shard] = signature
+        for identity, maxima in pending.items():
+            worker = self.workers[identity]
+            if self._active(worker.grant):
+                worker.bridge.ledger.baseline(maxima)
+
+    def _load_backend(self, worker: Worker) -> None:
+        from .scoped_rpa import ScopedRpa
+
+        active = self.scope.grants()
+        current = active.get(worker.grant.contact.id)
+        if self.window is None or not self.window_ready or current is None:
+            worker.bridge.backend = None
+            return
+        same_title = self._same_title_enterprise_pair(current, active)
+        if (worker.bridge.backend is not None and current.contact.title == worker.target_title
+                and same_title == worker.target_same_title):
+            return
+
+        def check() -> None:
+            if not self.window_ready or not self.healthy:
+                raise RpaNotReady("微信窗口暂不可用，回复待人工处理")
+            self.authorize(current, check_title=True, verify_same_title=same_title)
+
+        worker.bridge.backend = ScopedRpa(
+            self.window, worker.bridge.runtime, current.contact.id, current.contact.title,
+            check, self.scope.lock, worker.bridge.reader.draft_matches,
+            unread_state=worker.bridge.reader.session_unread if same_title else None,
+        )
+        worker.target_title = current.contact.title
+        worker.target_same_title = same_title
+
+    def _pause_worker(self, worker: Worker, error: str) -> None:
+        worker.error = error
+        worker.receipt_error = error if worker.bridge.ledger.staff_receipt_recovery_needed() else ""
+
+    def _recover_staff_receipts(self, worker: Worker) -> None:
+        """Frozen sends may inspect receipts, but may never repeat a desktop action."""
+        if worker.error != worker.receipt_error or not worker.receipt_error:
+            return
+        if worker.delivery_future is not None and not worker.delivery_future.done():
+            return
+        bridge = worker.bridge
+        worker.next_poll = time.monotonic() + 2
+        try:
+            if worker.refresh_session:
+                bridge.client.connect(force_refresh=True)
+                worker.refresh_session = False
+            elif visitor_token_expired(bridge.client.session.get("im_token")):
+                bridge.client.connect()
+            with bridge.lock:
+                bridge._reconcile_receipts()
+                bridge._report_staff_receipts()
+                if (worker.error == worker.receipt_error
+                        and not bridge.ledger.staff_receipt_recovery_needed()
+                        and not bridge.ledger.delivery_stats().get("uncertain")):
+                    worker.error = worker.receipt_error = ""
+                    bridge.rpa_status = "迟到发送回执已核对，接待已恢复"
+        except TgoAuthorizationError as error:
+            self._retry_authorization(worker, error)
+        except (RuntimeError, ValueError, OSError, sqlite3.Error):
+            worker.next_poll = time.monotonic() + 6
+            bridge.rpa_status = "发送回执仍待核对，稍后继续查询"
+
+    def _process(self, worker: Worker) -> None:
+        bridge = worker.bridge
+        if not bridge.ledger.initialized() or not self._active(worker.grant):
+            return
+        if worker.error:
+            self._recover_staff_receipts(worker)
+            return
+        if not worker.connected and not bridge.ledger.next_inbound() and bridge.ledger.value("tgo_channel") is None:
+            return
+        expected = {"identity": cloud_identity(self.client.account_tag, worker.grant),
+                    "keywords": list(worker.grant.keywords)}
+        if expected not in (self.published or []):
+            return  # A newly selected/revised grant must reach the cloud first.
+        try:
+            if worker.refresh_session:
+                bridge.client.connect(force_refresh=True)
+                worker.refresh_session = False
+            if not worker.connected:
+                bridge.initialize()
+                worker.connected = True
+            elif visitor_token_expired(bridge.client.session.get("im_token")):
+                bridge.client.connect()
+            bridge.poll(read_local=False, deliver=False)
+        except TgoAuthorizationError as error:
+            self._retry_authorization(worker, error)
+        except TgoUnavailable:
+            worker.next_poll = time.monotonic() + 6
+        except (RuntimeError, ValueError, OSError, sqlite3.Error, KeyError) as exc:
+            reason = str(exc) if isinstance(exc, (TgoError, RpaNotReady)) else type(exc).__name__
+            self._pause_worker(worker, f"需人工核对（{reason}）")
+
+    def _retry_authorization(self, worker: Worker, error: TgoAuthorizationError) -> None:
+        worker.connected = False
+        worker.refresh_session |= error.status_code == 401
+        worker.next_poll = time.monotonic() + 1
+        self.next_publish = 0
+        worker.bridge.rpa_status = "会话授权重新核对，稍后自动恢复"
+
+    def poll(self) -> None:
+        self.scope.refresh()
+        grants = self.scope.grants()
+        self.healthy = self.scope.ready
+        self._reconcile(grants)
+        self._ingest()
+
+    def _network_loop(self) -> None:
+        while not self.stop.is_set():
+            try:
+                self._publish(self.scope.grants())
+                now = time.monotonic()
+                for worker in list(self.workers.values()):
+                    if worker.next_poll <= now and (worker.future is None or worker.future.done()):
+                        worker.next_poll = now + .25
+                        worker.future = self.network_pool.submit(self._process, worker)
+                if self.desktop_lock.acquire(blocking=False):
+                    try:
+                        for worker in list(self.retired):
+                            if ((worker.future is None or worker.future.done())
+                                    and (worker.delivery_future is None or worker.delivery_future.done())):
+                                worker.bridge.ledger.close()
+                                self.retired.remove(worker)
+                    finally:
+                        self.desktop_lock.release()
+            except (TgoError, OSError, ValueError) as error:
+                self.error = f"云端连接等待恢复（{type(error).__name__}）"
+            self.stop.wait(.25)
+
+    def _deliver_worker(self, worker: Worker) -> None:
+        bridge = worker.bridge
+        try:
+            with self.desktop_lock:
+                self._load_backend(worker)
+            bridge._deliver()
+        except TgoAuthorizationError as error:
+            self._retry_authorization(worker, error)
+            bridge.next_delivery_at = time.monotonic() + 1
+        except TgoUnavailable:
+            bridge.next_delivery_at = time.monotonic() + 1
+        except (RuntimeError, ValueError, OSError, sqlite3.Error) as error:
+            self._pause_worker(worker, f"发送待核对（{type(error).__name__}）")
+
+    def _desktop_loop(self) -> None:
+        while not self.stop.is_set():
+            for worker in list(self.workers.values()):
+                bridge = worker.bridge
+                if (not worker.connected or worker.error or not self._active(worker.grant)
+                        or time.monotonic() < bridge.next_delivery_at or not bridge.ledger.next_delivery()):
+                    continue
+                if worker.delivery_future is None or worker.delivery_future.done():
+                    worker.delivery_future = self.delivery_pool.submit(self._deliver_worker, worker)
+            self.stop.wait(.05)
+
+    def run(self) -> None:
+        threads = [threading.Thread(target=self._network_loop, name="wechat-cloud", daemon=True),
+                   threading.Thread(target=self._desktop_loop, name="wechat-desktop", daemon=True)]
+        for thread in threads:
+            thread.start()
+        try:
+            while not self.stop.is_set():
+                try:
+                    with self.lock:
+                        self.poll()
+                        self.error = self.scope.error
+                except (TgoError, ValueError, OSError, sqlite3.Error) as exc:
+                    self.healthy = False
+                    reason = str(exc) if isinstance(exc, (TgoError, TgoUnavailable)) else type(exc).__name__
+                    self.error = f"接待暂停（{reason}）"
+                    try:
+                        self._publish({}, force=True)
+                    except (TgoError, OSError):
+                        pass  # The cloud grant will expire on its own.
+                active_ids = self.scope.grants()
+                self.status_snapshot = {
+                    key: {
+                        "state": worker.error or worker.bridge.rpa_status,
+                        "sent": worker.bridge.ledger.delivery_stats().get("sent", 0),
+                    }
+                    for key, worker in self.workers.items() if key in active_ids
+                }
+                self.stop.wait(.25)
+        finally:
+            self.stop.set()
+            self.healthy = False
+            for thread in threads:
+                thread.join(timeout=20)
+            self.network_pool.shutdown(wait=True, cancel_futures=True)
+            self.delivery_pool.shutdown(wait=True, cancel_futures=True)
+            try:
+                self._publish({}, force=True)
+            except (TgoError, OSError):
+                pass
+            for worker in [*self.workers.values(), *self.retired]:
+                worker.bridge.stop.set()
+                if worker.bridge.media is not None:
+                    worker.bridge.media.close()
+                worker.bridge.ledger.close()

@@ -475,7 +475,7 @@ class SupervisorRuntimeService:
         )
         if (
             context.response_purpose != "expression"
-            and not context.disable_tools
+            and (not context.disable_tools or context.require_current_knowledge)
             and context.rag_url
             and context.knowledge_channel is not None
             and not (

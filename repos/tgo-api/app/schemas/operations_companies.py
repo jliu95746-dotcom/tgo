@@ -15,6 +15,7 @@ class OperationsCompany(BaseModel):
     used: int
     reserved: int
     ai_remaining: int
+    ai_expiring_soon: int
     order_exceptions: int
 
 

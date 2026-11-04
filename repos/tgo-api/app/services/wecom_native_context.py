@@ -283,5 +283,5 @@ def pending_native_visitors(db: Session, platform_id: UUID) -> NativePendingResu
                 release_requested=row.service_status == "closed",
             )
             for row in rows
-        ]
+        ],
     )

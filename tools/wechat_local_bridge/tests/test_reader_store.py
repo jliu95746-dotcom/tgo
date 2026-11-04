@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -7,6 +8,7 @@ import zstandard
 
 from tools.wechat_local_bridge.reader import Message, conversation_table, read_messages
 from tools.wechat_local_bridge.store import InboxStore
+from tools.wechat_local_bridge.tgo_store import TgoStore
 
 
 class ReaderTests(unittest.TestCase):
@@ -37,6 +39,26 @@ class ReaderTests(unittest.TestCase):
 
 
 class StoreTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows rollback journal path")
+    def test_long_ledger_path_can_create_journal_and_reopen(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
+            root = Path(directory).resolve()
+            suffix = "state.sqlite3"
+            length = 255 - len(str(root)) - len(suffix) - 2
+            path = root / ("微信数据 " + "a" * (length - len("微信数据 "))) / suffix
+            self.assertEqual(len(str(path)), 255)
+            store = TgoStore(path, chat_id="test_contact")
+            try:
+                store.baseline({"message_0.db": 7})
+                self.assertTrue(store.initialized())
+            finally:
+                store.close()
+            reopened = TgoStore(path, chat_id="test_contact")
+            try:
+                self.assertEqual(reopened.cursors(), {"message_0.db": 7})
+            finally:
+                reopened.close()
+
     def test_baseline_dedup_and_restart_preserve_pending_draft(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state.sqlite3"

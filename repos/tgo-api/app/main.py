@@ -200,6 +200,8 @@ def create_app(
         start_visitor_avatar_retention()
         from app.tasks.visitor_end_recovery import start_visitor_end_recovery
         start_visitor_end_recovery()
+        from app.services.customer_turn_worker import start
+        start()
 
         # Start background sync monitor
         try:
@@ -280,6 +282,8 @@ def create_app(
     # Register shutdown event
     @application.on_event("shutdown")
     async def shutdown_event():
+        from app.services.customer_turn_worker import stop
+        await stop()
         """Application shutdown event: stop background tasks."""
         from app.tasks.recover_staff_delivery_history import stop_staff_history_recovery
         await stop_staff_history_recovery()

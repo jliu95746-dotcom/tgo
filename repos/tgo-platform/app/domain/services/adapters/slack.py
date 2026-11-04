@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 
 from app.domain.entities import StreamEvent
-from app.domain.services.adapters.base import BasePlatformAdapter
+from app.domain.services.adapters.base import BasePlatformAdapter, provider_receipt
 from app.core.config import settings
 
 from app.api.slack_utils import slack_send_text
@@ -87,3 +87,4 @@ class SlackAdapter(BasePlatformAdapter):
             logger.debug("Slack reply send completed")
         else:
             logger.warning("Slack reply send failed")
+        self.delivery_receipt = provider_receipt("slack", result)

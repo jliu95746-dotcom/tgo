@@ -581,6 +581,10 @@ async def try_store_wecom_inbox(
                 # The job has a foreign key to media; persist the parent first.
                 await db.flush()
                 db.add(media_job)
+        if settings.saas_internal_token is not None:
+            from app.domain.services.wecom_turn_capture import capture_inbox
+            await db.flush()
+            await capture_inbox(db, record)
         await db.commit()
         return InboxStoreResult.STORED
     except IntegrityError as exc:

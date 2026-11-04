@@ -3,12 +3,28 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import threading
+from functools import wraps
 from dataclasses import asdict
 from pathlib import Path
-from typing import TypedDict
+from typing import TypedDict, TypeVar, ParamSpec, Callable, Concatenate
 
 from .reader import Message
+
+
+StoreT = TypeVar("StoreT", bound="InboxStore")
+ResultT = TypeVar("ResultT")
+Parameters = ParamSpec("Parameters")
+
+
+def locked(method: Callable[Concatenate[StoreT, Parameters], ResultT]) -> Callable[Concatenate[StoreT, Parameters], ResultT]:
+    @wraps(method)
+    def call(self: StoreT, *args: Parameters.args, **kwargs: Parameters.kwargs) -> ResultT:
+        with self._db_lock:
+            return method(self, *args, **kwargs)
+    return call
 
 
 class PendingDraft(TypedDict):
@@ -19,6 +35,17 @@ class PendingDraft(TypedDict):
 
 class InboxStore:
     def __init__(self, path: Path):
+        self._db_lock = threading.RLock()
+        if os.name == "nt":
+            filename = os.path.abspath(path)
+            if not filename.startswith("\\\\?\\"):
+                # SQLite appends a journal suffix that can exceed MAX_PATH.
+                filename = (
+                    "\\\\?\\UNC\\" + filename[2:]
+                    if filename.startswith("\\\\")
+                    else "\\\\?\\" + filename
+                )
+            path = Path(filename)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path, check_same_thread=False)
         self.connection.executescript("""
@@ -27,6 +54,7 @@ class InboxStore:
             CREATE TABLE IF NOT EXISTS metadata(name TEXT PRIMARY KEY,value TEXT NOT NULL);
         """)
 
+    @locked
     def initialized(self) -> bool:
         return bool(
             self.connection.execute(
@@ -34,6 +62,7 @@ class InboxStore:
             ).fetchone()
         )
 
+    @locked
     def baseline(self, maxima: dict[str, int]) -> None:
         if self.initialized():
             return
@@ -43,6 +72,7 @@ class InboxStore:
             )
             self.connection.execute("INSERT INTO metadata VALUES ('baseline','ready')")
 
+    @locked
     def cursors(self) -> dict[str, int]:
         return dict(self.connection.execute("SELECT source,last_id FROM cursors"))
 
@@ -113,5 +143,6 @@ class InboxStore:
             self.connection.execute("SELECT status,COUNT(*) FROM inbox GROUP BY status")
         )
 
+    @locked
     def close(self) -> None:
         self.connection.close()

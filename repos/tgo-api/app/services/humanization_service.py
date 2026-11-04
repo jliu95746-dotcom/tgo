@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from app.services.wecom_native_context import CONVERSATION_EVIDENCE_PROMPT
 import re
 from typing import Literal, Optional, Sequence
 from app.core.logging import get_logger
@@ -10,7 +11,6 @@ from app.schemas.humanization import ConversationTurn, HumanizationContext
 from app.schemas.knowledge_evidence import KnowledgeEvidence
 from app.services.current_knowledge import UNCONFIRMED_REPLY
 from app.services.customer_content import customer_question
-from app.services.wecom_native_context import CONVERSATION_EVIDENCE_PROMPT
 from app.services.ai_client import AIServiceClient, ai_client
 from app.services.ai_reply_control import tracked_ai_request
 from app.services.grounded_calculations import CALCULATION_REPLY_PROMPT
@@ -161,6 +161,8 @@ async def recent_customer_messages(
     from app.services.wukongim_client import wukongim_client
 
     try:
+        from app.services.customer_history import history_scope
+        scope = await asyncio.to_thread(history_scope, channel_id)
         for delay in (0.0, 0.2, 0.4, 0.6):
             if delay:
                 await asyncio.sleep(delay)
@@ -204,10 +206,17 @@ async def recent_customer_messages(
             payload = message.payload
             if not isinstance(payload, dict):
                 continue
+            extra = payload.get("extra")
+            extra = extra if isinstance(extra, dict) else {}
             content = payload.get("content")
             role: Literal["customer", "staff", "assistant"] = (
                 "customer" if message.from_uid.endswith("-vtr") else "staff"
             )
+            if scope.author is not None:
+                if role == "customer" and any(extra.get(key) != value for key, value in scope.selectors.items()):
+                    continue
+                if role != "customer" and message.client_msg_no not in scope.replies:
+                    continue
             if payload.get("type") == 100:
                 meta = message.event_meta or {}
                 if message.error or not (
@@ -226,6 +235,11 @@ async def recent_customer_messages(
                         ):
                             content = snapshot.get("text")
                 role = "assistant"
+            elif payload.get("type") in (2, 4) and role == "customer":
+                recognized = scope.media.get(str(extra.get("message_id") or ""))
+                if not recognized:
+                    continue
+                content = "客户媒体识别（仅用于理解，不证明业务事实）：" + recognized
             elif payload.get("type") not in (None, 1):
                 continue
             if isinstance(content, str) and content.strip():

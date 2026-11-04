@@ -126,3 +126,59 @@ test('retry after restore uses the original training skill and context', async (
   assert.equal(retried.training.ai_draft, '原草稿');
   await assert.rejects(store.getState().submit('staff-a', { ...original, training: { ...original.training, skill_name: 'style-b' } }));
 });
+
+test('cloud queued WeChat reply remains pending until the bridge receipt and uses GET only', async () => {
+  let posts = 0, state = 'pending';
+  const store = fixture({
+    deliverStaffMessage: async () => { posts++; return { ...receipt(state, 'pending'), delivery_transport: 'wechat_local' }; },
+    getStaffDelivery: async () => ({ ...receipt(state, state === 'sent' ? 'sent' : 'pending'), delivery_transport: 'wechat_local' }),
+  });
+  assert.equal((await store.getState().submit('staff-b', request())).delivery_status, 'pending');
+  await store.getState().submit('staff-b', request());
+  state = 'sent';
+  assert.equal((await store.getState().refresh('staff-b', 'local-1')).delivery_status, 'sent');
+  assert.equal(posts, 1);
+});
+
+test('transferred conversation stops receipt polling after access is revoked', async () => {
+  let gets = 0;
+  const store = fixture({
+    deliverStaffMessage: async () => ({ ...receipt('pending', 'pending'), delivery_transport: 'wechat_local' }),
+    getStaffDelivery: async () => { gets++; throw { status: 403 }; },
+  });
+  await store.getState().submit('staff-b', request());
+  await store.getState().refresh('staff-b', 'local-1');
+  await store.getState().refresh('staff-b', 'local-1');
+  assert.equal(store.getState().entries['staff-b:local-1'].accessDenied, true);
+  assert.equal(gets, 1);
+});
+
+test('restored queue cannot mix a different conversation into the active one', async () => {
+  const store = fixture({ getPendingStaffDeliveries: async () => [{
+    request: request({ channel_id: 'other-vtr' }), receipt: receipt('pending'), created_at: '2026-09-07T00:00:00Z',
+  }] });
+  await assert.rejects(store.getState().restore('staff-b', 'visitor-vtr'));
+  assert.equal(Object.keys(store.getState().entries).length, 0);
+});
+
+test('opening a conversation again refreshes an existing queued receipt', async () => {
+  const store = fixture({
+    deliverStaffMessage: async () => receipt('pending', 'pending'),
+    getPendingStaffDeliveries: async () => [{ request: request(), receipt: receipt('sent', 'pending'), created_at: '2026-09-07T00:00:00Z' }],
+  });
+  await store.getState().submit('staff-b', request());
+  await store.getState().restore('staff-b', 'visitor-vtr');
+  assert.equal(store.getState().entries['staff-b:local-1'].receipt.delivery_status, 'sent');
+});
+
+test('failed WeChat task is never revived with the same message identity', async () => {
+  let posts = 0;
+  const failed = { ...receipt('failed', 'pending'), delivery_transport: 'wechat_local', error_message: '接待授权已取消' };
+  const store = fixture({
+    deliverStaffMessage: async () => { posts++; return failed; },
+    getStaffDelivery: async () => failed,
+  });
+  await store.getState().submit('staff-b', request());
+  assert.equal((await store.getState().submit('staff-b', request())).delivery_status, 'failed');
+  assert.equal(posts, 1);
+});

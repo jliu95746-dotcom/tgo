@@ -42,6 +42,7 @@ from app.services.queue_lifecycle import (
     lock_waiting_entry,
 )
 from app.services.queue_events import schedule_queue_update
+from app.services.visitor_notifications import notify_visitor_profile_updated
 from app.utils.encoding import build_visitor_channel_id
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_STAFF
 
@@ -316,11 +317,15 @@ async def transfer_to_staff(
                 ai_disabled=ai_disabled,
             )
         
+        # A seat-to-seat transfer hands reception to a person, including assist/auto chats.
+        if source == AssignmentSource.TRANSFER:
+            ai_disabled = True
         # 6. Update visitor - set AI disabled status (only if explicitly provided)
         if ai_disabled is not None:
             visitor.ai_disabled = ai_disabled
             if ai_disabled:
                 visitor.service_mode = "manual"
+                visitor.humanization_skill_enabled = False
         if assigned_staff_id:
             # Staff assigned - set to ACTIVE
             visitor.set_status_active()
@@ -418,6 +423,8 @@ async def transfer_to_staff(
             # Commit channel member changes
             if auto_commit:
                 db.commit()
+                if source == AssignmentSource.TRANSFER:
+                    await notify_visitor_profile_updated(db, visitor)
         
         logger.info(
             f"Transferred visitor {visitor_id} to human service. "

@@ -4,8 +4,11 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
+from uuid import uuid4
 
 from tools.wechat_local_bridge.tgo_client import TgoClient, TgoError, bridge_base_url
+from tools.wechat_local_bridge.media_types import MediaContent
 
 
 class TgoClientTests(unittest.TestCase):
@@ -38,6 +41,11 @@ class TgoClientTests(unittest.TestCase):
                     )
                 elif self.path.endswith("sync"):
                     status, result = 200, {"messages": []}
+                elif self.path.endswith("wechat-local-deliveries/ready"):
+                    status, result = 200, {"replies": []}
+                elif "/wechat-local-deliveries/" in self.path:
+                    status, result = 200, ({"claim_id": "00000000-0000-0000-0000-000000000072"}
+                        if self.path.endswith("claim") else {"accepted": True})
                 elif self.path.endswith("/heartbeat"):
                     heartbeat_headers.append(self.headers.get("X-Platform-API-Key"))
                     status, result = 200, {"connected": True}
@@ -92,6 +100,25 @@ class TgoClientTests(unittest.TestCase):
         self.assertEqual(self.calls[-1][2]["source_message_id"], "wxlocal:wechat-22")
         self.assertEqual(self.calls[-1][2]["channel_id"], "visitor-vtr")
 
+    def test_staff_delivery_uses_bound_cloud_channel_and_idempotent_attempt(self):
+        self.client.connect()
+        self.client.scoped = True
+        self.assertEqual(self.client.staff_replies(), [])
+        identity, attempt = str(uuid4()), str(uuid4())
+        self.client.staff_action(identity, "claim", attempt_id=attempt)
+        first = self.calls[-1]
+        self.client.staff_action(identity, "claim", attempt_id=attempt)
+        self.assertEqual(first, self.calls[-1])
+        self.assertEqual(first, (
+            f"/v1/chat/wechat-local-deliveries/{identity}/claim", "Bearer fake-im",
+            {"platform_api_key": "test-channel-key", "channel_id": "visitor-vtr", "channel_type": 251,
+             "attempt_id": attempt},
+        ))
+        self.client.staff_action(identity, "receipt", claim_id="00000000-0000-0000-0000-000000000072",
+                                 result="sent", receipt="a" * 64)
+        with self.assertRaises(ValueError):
+            self.client.staff_action("../other-target", "claim", attempt_id=attempt)
+
     def test_redirect_does_not_forward_visitor_credentials(self):
         self.client.connect()
         with self.assertRaisesRegex(TgoError, "HTTP 307"):
@@ -106,9 +133,24 @@ class TgoClientTests(unittest.TestCase):
         client.connect()
         client.heartbeat()
         self.assertEqual(self.calls[-1], (
-            "/v1/platforms/test-platform/wechat-local/heartbeat", "Bearer fake-im", {},
+            "/v1/platforms/test-platform/wechat-local/heartbeat", "Bearer fake-im", {"channel_id": "visitor-vtr"},
         ))
         self.assertEqual(self.heartbeat_headers, ["test-channel-key"])
+
+    def test_first_class_platform_renews_an_expired_cached_grant(self):
+        config = json.loads(self.config_file.read_text(encoding="utf-8"))
+        config["platform_type"] = "wechat_local"
+        self.config_file.write_text(json.dumps(config), encoding="utf-8")
+        first = TgoClient(self.config_file, self.root, "account-a")
+        first.connect()
+        restarted = TgoClient(self.config_file, self.root, "account-a")
+        restarted.connect()
+        registrations = [body for path, _, body in self.calls if path.endswith("/register")]
+        self.assertEqual(len(registrations), 2)
+        self.assertNotIn("visitor_access_token", registrations[0])
+        self.assertEqual(registrations[1]["visitor_access_token"], first.session["visitor_access_token"])
+        self.assertEqual(registrations[0]["platform_open_id"], registrations[1]["platform_open_id"])
+        self.assertEqual(first.channel_id, restarted.channel_id)
 
     def test_only_first_class_platform_can_bind_https(self):
         self.assertEqual(
@@ -122,3 +164,32 @@ class TgoClientTests(unittest.TestCase):
         ):
             with self.subTest(url=url, channel=channel), self.assertRaises(ValueError):
                 bridge_base_url(url, channel)
+
+    def test_media_upload_uses_visitor_token_platform_key_and_owned_channel(self):
+        config = json.loads(self.config_file.read_text())
+        config.update(chat_id="scoped", platform_type="wechat_local")
+        self.config_file.write_text(json.dumps(config))
+        client = TgoClient(self.config_file, self.root, "account-a", scoped=True, identity="fixture-identity")
+        client.session = {"channel_id": "visitor-vtr", "id": "visitor", "im_token": "fixture-token",
+                          "platform_open_id": "fixture-identity"}
+        file_id = str(uuid4())
+        with patch("tools.wechat_local_bridge.tgo_client.request_json", return_value={
+            "channel_id": "visitor-vtr", "channel_type": 251, "file_id": file_id,
+        }) as upload:
+            media = client.upload_media(MediaContent("voice", "audio/silk", b"fixture-silk"))
+            request = upload.call_args.args[1]
+            self.assertEqual(request.get_header("Authorization"), "Bearer fixture-token")
+            self.assertEqual(request.get_header("X-platform-api-key"), "test-channel-key")
+            self.assertIn(b'name="channel_id"\r\n\r\nvisitor-vtr', request.data)
+            self.assertIn(b"Content-Type: audio/silk", request.data)
+            self.assertEqual(media.file_id, file_id)
+        client.submit("a" * 64, "", media=media)
+        body = self.calls[-1][2]
+        self.assertEqual(body["msg_type"], 4)
+        self.assertEqual(body["media_file_id"], file_id)
+        self.assertEqual(body["source_message_id"], "wxlocal:"+"a"*64)
+        with patch("tools.wechat_local_bridge.tgo_client.request_json", return_value={
+            "channel_id": "other-vtr", "channel_type": 251, "file_id": file_id,
+        }):
+            with self.assertRaises(TgoError):
+                client.upload_media(MediaContent("image", "image/png", b"fixture"))

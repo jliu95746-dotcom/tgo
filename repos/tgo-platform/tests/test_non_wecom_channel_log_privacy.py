@@ -325,6 +325,7 @@ def test_slack_listener_diagnostics_do_not_expose_customer_or_response(
     listener = slack_listener.SlackChannelListener.__new__(
         slack_listener.SlackChannelListener
     )
+    listener._tgo_api_client = SimpleNamespace(durable_turns=False)
     listener._process_slack_message_sync(
         platform,
         {

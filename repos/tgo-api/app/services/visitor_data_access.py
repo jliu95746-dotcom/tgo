@@ -14,7 +14,7 @@ from app.services.im_access import authenticate_im_actor, read_visitor_im_access
 from app.services.visitor_access import denied
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 from app.utils.encoding import parse_visitor_channel_id
-from app.utils.wechat_local import is_filehelper_identity
+from app.utils.wechat_local import is_filehelper_identity, is_scoped_identity
 
 
 def _current_platform(db: Session, platform_id: UUID) -> Platform:
@@ -58,7 +58,7 @@ def require_visitor_data_access(
         or actor.project_id != platform.project_id
         or (
             platform.type == PlatformType.WECHAT_LOCAL.value
-            and not is_filehelper_identity(actor.platform_open_id)
+            and not (is_filehelper_identity(actor.platform_open_id) or is_scoped_identity(actor.platform_open_id))
         )
     ):
         raise denied()
@@ -91,7 +91,7 @@ def reauthorize_visitor_data(db: Session, access: VisitorDataAccess) -> Visitor:
         or actor.project_id != access.project_id
         or (
             platform.type == PlatformType.WECHAT_LOCAL.value
-            and not is_filehelper_identity(actor.platform_open_id)
+            and not (is_filehelper_identity(actor.platform_open_id) or is_scoped_identity(actor.platform_open_id))
         )
     ):
         raise denied()

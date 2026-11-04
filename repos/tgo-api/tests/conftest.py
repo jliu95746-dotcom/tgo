@@ -80,6 +80,9 @@ def isolated_reply_service_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pipeline fixtures use synthetic identities rather than the live DB."""
     from unittest.mock import AsyncMock
     from app.services import chat_service
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CUSTOMER_TURNS_ENABLED", False)
 
     monkeypatch.setattr(
         chat_service, "ensure_customer_auto_reply", AsyncMock(), raising=False

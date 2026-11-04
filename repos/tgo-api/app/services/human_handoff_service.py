@@ -406,6 +406,10 @@ async def request_human_handoff(
             if previous_receipt is not None:
                 return previous_receipt
         raise
+    from app.core.config import settings
+    if settings.CUSTOMER_TURNS_ENABLED:
+        from app.services.customer_turn_ingress import cancel_customer_turns
+        await cancel_customer_turns(db, visitor)
 
     existing_queue = (
         db.query(VisitorWaitingQueue)

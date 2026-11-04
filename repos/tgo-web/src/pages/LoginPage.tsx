@@ -111,8 +111,10 @@ const LoginPage: React.FC = () => {
     try {
       await login(formData);
       // On success, navigate to intended destination or main app
-      const from = (location.state as any)?.from?.pathname || '/';
-      navigate(from, { replace: true });
+      const from = (location.state as { from?: Pick<ReturnType<typeof useLocation>, 'pathname' | 'search' | 'hash'> } | null)?.from;
+      navigate(from?.pathname.startsWith('/') && !from.pathname.startsWith('//')
+        ? { pathname: from.pathname, search: from.search, hash: from.hash }
+        : '/', { replace: true });
     } catch (error) {
       let errorMessage = t('auth.validation.loginFailed');
 

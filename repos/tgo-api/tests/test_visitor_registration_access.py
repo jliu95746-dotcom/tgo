@@ -90,7 +90,7 @@ async def test_registration_returns_only_messaging_and_public_profile(register_a
 
 
 @pytest.mark.asyncio
-async def test_personal_wechat_only_registers_the_filehelper_test_identity(register_api):
+async def test_personal_wechat_rejects_invalid_identity_and_requires_bound_heartbeat(register_api):
     from app.api.v1.endpoints import platforms
 
     app, _, db, visitor, _, _, _, _, _ = register_api
@@ -117,10 +117,11 @@ async def test_personal_wechat_only_registers_the_filehelper_test_identity(regis
             })
             assert registered.status_code == 201
             headers = {"X-Platform-API-Key": key}
-            assert (await client.post(endpoint, headers=headers)).status_code == 401
+            body = {"channel_id": registered.json()["channel_id"]}
+            assert (await client.post(endpoint, headers=headers, json=body)).status_code == 401
             heartbeat.assert_not_awaited()
             headers["Authorization"] = "Bearer " + registered.json()["im_token"]
-            response = await client.post(endpoint, headers=headers)
+            response = await client.post(endpoint, headers=headers, json=body)
             assert response.status_code == 200
             assert response.json()["connected"] is True
             heartbeat.assert_awaited_once()

@@ -10,6 +10,7 @@ from app.core.contextual_reply_config import ReviewedFAQ
 
 
 class Settings(BaseSettings):
+    CUSTOMER_TURNS_ENABLED: bool = True
     """Application settings."""
 
     model_config = SettingsConfigDict(
@@ -72,6 +73,8 @@ class Settings(BaseSettings):
     WORKFLOW_EVENT_DELIVERY_ACTIVE_KEY_ID: str | None = None
 
     SAAS_ENABLED: bool = Field(default=False)
+    WECHAT_LOCAL_SCOPED_ENABLED: bool = Field(default=False)
+    WECHAT_LOCAL_SCOPED_PLATFORM_IDS: set[UUID] = Field(default_factory=set)
     SAAS_NEW_PURCHASES_ENABLED: bool = Field(default=False)
     SAAS_BILLING_ENABLED: bool = Field(default=False)
     SAAS_INTERNAL_TOKEN: Optional[SecretStr] = Field(default=None)

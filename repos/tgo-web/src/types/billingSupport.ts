@@ -30,5 +30,6 @@ export interface Reconciliation {
 export interface OperationsCompany {
   id: string; name: string; status: string; plan_name: string | null; expires_at: string | null;
   seats: number | null; used: number; reserved: number; ai_remaining: number; order_exceptions: number;
+  ai_expiring_soon?: number;
 }
 export interface CreditAdjustment { request_id: string; delta: number; expires_at?: string; reason: string }

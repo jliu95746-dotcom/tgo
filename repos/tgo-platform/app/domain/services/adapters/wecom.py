@@ -6,7 +6,7 @@ from typing import Optional
 
 
 from app.domain.entities import StreamEvent
-from app.domain.services.adapters.base import BasePlatformAdapter
+from app.domain.services.adapters.base import BasePlatformAdapter, provider_receipt, DeliveryRejected
 from app.core.config import settings
 
 from app.api.wecom_utils import (
@@ -72,6 +72,8 @@ class WeComAdapter(BasePlatformAdapter):
             # Nothing to send
             return
 
+        if content.get("delivery_fenced") and len(text.encode("utf-8")) > 2048:
+            raise DeliveryRejected("Reply exceeds WeCom text limit")
         access_token = await self._get_access_token()
         bounded_text = _truncate_utf8(text)
 
@@ -79,7 +81,7 @@ class WeComAdapter(BasePlatformAdapter):
             # Send via standard app message API to internal colleague (touser = UserID)
             if not self.agent_id:
                 raise RuntimeError("WeCom colleague reply requires agent_id")
-            await wecom_send_app_message(
+            result = await wecom_send_app_message(
                 access_token=access_token,
                 to_user=self.to_user,
                 agent_id=self.agent_id,
@@ -97,7 +99,7 @@ class WeComAdapter(BasePlatformAdapter):
             if self.source_message_id:
                 digest = hashlib.sha256(self.source_message_id.encode("utf-8")).hexdigest()
                 reply_message_id = f"tgo_{digest[:28]}"
-            await wecom_kf_send_msg(
+            result = await wecom_kf_send_msg(
                 access_token=access_token,
                 open_kfid=self.open_kfid,
                 external_userid=ext_uid,
@@ -105,7 +107,7 @@ class WeComAdapter(BasePlatformAdapter):
                 content={"content": bounded_text},
                 message_id=reply_message_id,
             )
-
+        self.delivery_receipt = provider_receipt("wecom", result)
 
 
 # WeCom API helpers moved to app/api/wecom_utils.py to centralize integration logic.

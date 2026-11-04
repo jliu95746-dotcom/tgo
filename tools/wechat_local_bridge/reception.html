@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>个人微信接待范围</title>
+<style>
+  *{box-sizing:border-box}body{font:16px/1.6 system-ui,sans-serif;margin:0;background:#f5f7fa;color:#152238}
+  main{max-width:900px;margin:32px auto;padding:0 20px}section{background:white;border:1px solid #dbe3ee;border-radius:12px;padding:20px;margin-block:16px}
+  h1,h2,p{margin:0 0 10px}h2{font-size:18px}.muted,small{color:#4b5f78}
+  button,input,select{font:inherit;padding:6px 10px;border:1px solid #b9c8dc;border-radius:6px;background:white;color:inherit}
+  button{cursor:pointer}button:disabled{opacity:.55;cursor:default}.primary{background:#1558dd;color:white;border-color:#1558dd}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.row p{margin:0}.list{max-height:460px;overflow:auto;margin-top:12px}
+  [hidden]{display:none}
+  .item{padding:10px 4px;border-top:1px solid #e4ebf4}.item small{display:block}.item .name{flex:1;overflow-wrap:anywhere}.keywords{width:100%;margin-top:6px}
+  .state{min-height:1.6em;color:#814313}.actions{position:sticky;bottom:0;background:#f5f7fa;padding:12px 0}
+</style>
+<main>
+  <h1>个人微信接待范围</h1>
+  <p class="muted">选择要接待的会话。通讯录和分组保存在这台电脑。</p>
+  <p class="muted">支持接收文字、图片和语音，客服以文字回复。</p>
+  <p id="status" role="status" class="state"></p>
+  <div class="row">
+    <small id="window-status" role="status"></small>
+    <button id="window-check" type="button" hidden>重新检查微信窗口</button>
+  </div>
+  <section>
+    <div class="row">
+      <label for="search">搜索备注或昵称</label>
+      <input id="search" type="search" autocomplete="off">
+      <button id="refresh" type="button">刷新联系人</button>
+    </div>
+  </section>
+  <section>
+    <h2>联系人与分组</h2>
+    <div class="row">
+      <label for="group">查看</label>
+      <select id="group"></select>
+      <input id="group-name" maxlength="60" aria-label="新分组名称" placeholder="例如 售后客户">
+      <button id="new-group" type="button">新建分组</button>
+    </div>
+    <div id="group-actions" class="row" hidden></div>
+    <div id="people" class="list"></div>
+  </section>
+  <section>
+    <h2>群聊</h2>
+    <p class="muted">勾选的群聊会接入新消息。文字明确 @ 本账号或命中关键词时自动回复；图片和语音需明确 @ 本账号，其他消息交由人工处理。</p>
+    <div id="rooms" class="list"></div>
+  </section>
+  <section id="suspended-section" hidden>
+    <h2>已暂停的会话</h2>
+    <p class="muted">会话重新出现后，可以在这里确认恢复。</p>
+    <div id="suspended"></div>
+  </section>
+  <div class="row actions">
+    <button id="enable" class="primary" type="button">保存并启用</button>
+    <button id="save" type="button">保存配置</button>
+    <button id="pause" type="button">暂停接待</button>
+    <span id="result" role="status"></span>
+  </div>
+</main>
+<script src="/reception.js" defer></script>
+</html>

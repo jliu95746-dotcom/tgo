@@ -1,14 +1,17 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import type { Platform, PlatformConfig, PlatformType } from '@/types';
-import platformsApiService, { type PlatformResponse, type PlatformUpdateRequest } from '@/services/platformsApi';
+import platformsApiService, { type PlatformResponse, type PlatformUpdateRequest, type WeChatLocalStatus } from '@/services/platformsApi';
 import { useOnboardingStore } from './onboardingStore';
 import i18n from '@/i18n';
+
+type WeChatLocalStatuses = Partial<Record<string, WeChatLocalStatus | 'error'>>;
 
 interface PlatformState {
   // 平台数据
   platforms: Platform[];
   selectedPlatform: Platform | null;
+  weChatLocalStatuses: WeChatLocalStatuses;
 
   // 搜索和筛选
   searchQuery: string;
@@ -31,6 +34,7 @@ interface PlatformState {
   // Actions
   setPlatforms: (platforms: Platform[]) => void;
   setSelectedPlatform: (platform: Platform | null) => void;
+  setWeChatLocalStatuses: (statuses: WeChatLocalStatuses) => void;
   setSearchQuery: (query: string) => void;
   setStatusFilter: (filter: PlatformState['statusFilter']) => void;
   setTypeFilter: (filter: PlatformState['typeFilter']) => void;
@@ -77,6 +81,7 @@ export const usePlatformStore = create<PlatformState>()(
         // 初始状态 - empty arrays, will be populated in development with mock data
         platforms: [],
         selectedPlatform: null,
+        weChatLocalStatuses: {},
         searchQuery: '',
         statusFilter: 'all',
         typeFilter: 'all',
@@ -93,6 +98,7 @@ export const usePlatformStore = create<PlatformState>()(
         // Actions
         setPlatforms: (platforms) => set({ platforms }, false, 'setPlatforms'),
         setSelectedPlatform: (platform) => set({ selectedPlatform: platform }, false, 'setSelectedPlatform'),
+        setWeChatLocalStatuses: (weChatLocalStatuses) => set({ weChatLocalStatuses }, false, 'setWeChatLocalStatuses'),
         setSearchQuery: (query) => set({ searchQuery: query }, false, 'setSearchQuery'),
         setStatusFilter: (filter) => set({ statusFilter: filter }, false, 'setStatusFilter'),
         setTypeFilter: (filter) => set({ typeFilter: filter }, false, 'setTypeFilter'),

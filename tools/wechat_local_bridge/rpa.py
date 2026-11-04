@@ -6,7 +6,7 @@ from typing import NotRequired, Protocol, TypedDict
 
 
 class RpaNotReady(RuntimeError):
-    """A precondition failed before any input. Waiting is safe."""
+    """Reply input has not started; a tracked local probe may need recovery."""
 
 
 class RpaBackend(Protocol):
@@ -27,8 +27,8 @@ class RpaResult(TypedDict):
 
 
 def fill_draft(reply: str, backend: RpaBackend) -> RpaResult:
-    if not reply.strip() or len(reply) > 1000 or "\n" in reply or "\r" in reply:
-        raise ValueError("本轮草稿仅允许 1～1000 字符的单行文字")
+    if not reply.strip() or len(reply) > 8000 or "\n" in reply or "\r" in reply:
+        raise ValueError("本轮草稿仅允许 1～8000 字符的单行文字")
     backend.ensure_ready()
     clipboard = backend.get_clipboard()
     try:

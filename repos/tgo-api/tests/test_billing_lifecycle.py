@@ -1,9 +1,11 @@
 """One company's paid lifecycle preserves time, consumed credits and add-ons."""
 
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 
+from app.api.v1.endpoints.billing import subscription
 from app.core.exceptions import TGOAPIException
 from app.models.ai_usage import AIUsageMovement, AIUsageReservation
 from app.models.billing import (
@@ -16,11 +18,57 @@ from app.models.billing import (
 from app.models.company_account import AICreditBatch
 from app.schemas.billing import QuoteRequest
 from app.services.ai_usage import begin_publication, require_service, reserve, settle
+from app.services.billing_credit_summary import credit_summary
 from app.services.billing_fulfillment import fulfill_order
 from app.services.billing_orders import create_order, record_verified_payment
 from app.services.billing_quotes import create_quote
 from app.services.company_email import utc
+from app.services.operations_companies import companies
 from tests.test_billing_quotes import commercial_company  # noqa: F401
+
+
+def test_subscription_credit_totals(commercial_company):  # noqa: F811
+    db, staff, _, account, _ = commercial_company
+    now = datetime.now(timezone.utc)
+    account.expires_at = now + timedelta(days=7)
+    AICreditBatch.__table__.create(db.get_bind())
+
+    for source, project_id, amount, remaining, days in (
+        ("trial", staff.project_id, 100, 36, 2),
+        ("operator", staff.project_id, 50, 0, 2),
+        ("current", staff.project_id, 1000, 1000, 30),
+        ("expired", staff.project_id, 200, 200, -1),
+        ("other", uuid4(), 300, 300, 7),
+    ):
+        db.add(
+            AICreditBatch(
+                project_id=project_id,
+                source_key=f"test:{source}",
+                kind=source,
+                amount=amount,
+                remaining=remaining,
+                expires_at=now + timedelta(days=days),
+            )
+        )
+    db.commit()
+
+    result = subscription(db=db, actor=staff)
+
+    assert result.status == "trial"
+    assert result.plan is None
+    assert result.ai_total == 1150
+    assert result.ai_remaining == 1036
+    assert result.ai_expiring_soon == 36
+
+    BillingOrder.__table__.create(db.get_bind())
+    company = companies(db, 0, 1, project_id=staff.project_id)[0]
+    assert company.ai_remaining == result.ai_remaining
+    assert company.ai_expiring_soon == result.ai_expiring_soon
+    assert credit_summary(db, staff.project_id, now + timedelta(days=2)) == (
+        1000,
+        1000,
+        0,
+    )
 
 
 def test_paid_company_full_lifecycle(commercial_company):

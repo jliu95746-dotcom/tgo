@@ -7,7 +7,7 @@ from typing import Optional
 import httpx
 
 from app.domain.entities import StreamEvent
-from app.domain.services.adapters.base import BasePlatformAdapter
+from app.domain.services.adapters.base import BasePlatformAdapter, provider_receipt
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,7 @@ class VisionAgentAdapter(BasePlatformAdapter):
                 result = response.json()
 
                 if result.get("success"):
+                    self.delivery_receipt = provider_receipt("vision_agent", result)
                     logger.info(
                         "VisionAgentAdapter: message sent to %s (%s)",
                         self.contact_name or self.contact_id,

@@ -1,6 +1,7 @@
 """Chat service for handling chat completion business logic."""
 
 import asyncio
+from app.schemas.knowledge import KnowledgeChannel
 import hashlib
 import json
 import re
@@ -50,6 +51,7 @@ from app.services.wukongim_client import wukongim_client
 from app.services.reply_service_mode import ensure_customer_auto_reply
 from app.services.visitor_chat_access import ChatAccess, scoped_chat_access, check_current_chat_access, guarded_chat_call
 from app.utils.const import MessageType, PUBLIC_AI_FAILURE_MESSAGE
+from app.utils.platform_ai_mode import effective_platform_ai_mode
 
 logger = get_logger("services.chat")
 
@@ -106,6 +108,12 @@ def read_business_query_signals(
         links.append((signal.query_id, signal.operation, signal.outcome))
     return links
 
+def _delivery_event_id(client_msg_no: str, kind: str) -> str:
+    from app.services.customer_turn_context import current_execution
+    if current_execution.get() is None:
+        return uuid4().hex
+    return hashlib.sha256(f"customer-turn:{client_msg_no}:{kind}".encode()).hexdigest()[:32]
+
 # ============================================================================
 # Validation & Helpers
 # ============================================================================
@@ -157,7 +165,9 @@ def resolve_service_mode(platform: Platform, visitor: Optional[Visitor]) -> str:
         if visitor_ai_disabled is not None:
             return "manual" if visitor_ai_disabled else "auto"
 
-    platform_mode = getattr(platform, "ai_mode", None)
+    platform_mode = effective_platform_ai_mode(
+        getattr(platform, "type", None), getattr(platform, "ai_mode", None)
+    )
     if platform_mode == "assist":
         return "assist"
     if platform_mode == "auto":
@@ -280,6 +290,9 @@ async def forward_ai_event_to_wukongim(
         elif event_type in {"workflow_completed", "agent_response_complete"}:
             final_content = data.get("final_content")
             from app.services.ai_usage_runtime import begin_delivery, confirm_im_delivery, current_permit
+            from app.services.customer_turn_context import current_execution
+            if current_execution.get() is not None and not wukongim_client.enabled:
+                raise RuntimeError("Message delivery is unavailable")
             if current_permit() is not None:
                 if data.get("success") is False or not isinstance(final_content, str) or not final_content.strip():
                     raise RuntimeError("Cannot bill an unsuccessful or empty reply")
@@ -294,7 +307,7 @@ async def forward_ai_event_to_wukongim(
                     channel_id=channel_id,
                     channel_type=channel_type,
                     client_msg_no=client_msg_no,
-                    event_id=uuid4().hex,
+                    event_id=_delivery_event_id(client_msg_no, "final-delta"),
                     event_type="stream.delta",
                     event_key="main",
                     from_uid=from_uid,
@@ -306,7 +319,7 @@ async def forward_ai_event_to_wukongim(
                 channel_id=channel_id,
                 channel_type=channel_type,
                 client_msg_no=client_msg_no,
-                event_id=uuid4().hex,
+                event_id=_delivery_event_id(client_msg_no, "final-close"),
                 event_type="stream.close",
                 event_key="main",
                 from_uid=from_uid,
@@ -315,7 +328,7 @@ async def forward_ai_event_to_wukongim(
                 channel_id=channel_id,
                 channel_type=channel_type,
                 client_msg_no=client_msg_no,
-                event_id=uuid4().hex,
+                event_id=_delivery_event_id(client_msg_no, "final-finish"),
                 event_type="stream.finish",
                 event_key="main",
                 from_uid=from_uid,
@@ -353,9 +366,16 @@ async def forward_ai_event_to_wukongim(
             extra={"error_type": type(exc).__name__},
         )
         from app.services.ai_usage_runtime import current_permit
-        if current_permit() is not None:
+        from app.services.customer_turn_context import current_execution
+        if current_permit() is not None or current_execution.get() is not None:
             raise
     return None
+
+
+def _isolated_customer_turn() -> bool:
+    from app.services.customer_turn_context import current_execution
+    context = current_execution.get()
+    return bool(context and context.isolated_history)
 
 
 async def process_ai_stream_to_wukongim(
@@ -423,28 +443,35 @@ async def _process_ai_stream_core(
         try:
             async with metered_reply(project_id, client_msg_no, channel_id, channel_type):
                 from app.services.ai_usage_intent import route_reply_intent
+                from app.services.customer_turn_context import current_execution, prepare_input
+                turn_message = message
                 routed_system = system_message
+                routed_disable_tools = False
+                if current_execution.get() is not None:
+                    turn_message, turn_system = await prepare_input()
+                    routed_system = (routed_system or "") + "\n" + turn_system
                 routed_excluded = excluded_tool_ids
                 routed_evidence: tuple[BusinessToolEvidence, ...] = ()
                 routed_context = contextual_reply
                 if channel_type == 251 and media_input is None:
-                    outcome = await route_reply_intent(project_id, client_msg_no, message,
+                    outcome = await route_reply_intent(project_id, client_msg_no, turn_message,
                         defer_business_tools=business_authorization is not None)
                     if outcome is not None:
+                        routed_disable_tools = outcome.routing_target == "clarify"
                         routed_context = outcome.contextual_reply or routed_context
                         if outcome.routing_target == "human_handoff":
                             yield {"event_type": "human_handoff", "data": {"message": "该问题需要人工客服处理，已停止 AI 自动回复。"}}
                             return
-                        context = "本轮只询问一个必要的澄清问题，不得猜测订单号或客户意图。" if outcome.routing_target == "clarify" else outcome.tool_context
+                        context = "保留只读知识检索，资料能直接回答时直接回答；只有缺少必要条件才澄清，不猜测订单号或执行业务操作。" if outcome.routing_target == "clarify" else outcome.tool_context
                         if context:
-                            routed_system = (system_message or "") + "\n" + context
+                            routed_system = (routed_system or "") + "\n" + context
                             routed_evidence = (BusinessToolEvidence(
                                 name=outcome.routing_target, content=context,
                                 success=True,
                             ),)
                         routed_excluded = tuple(set(excluded_tool_ids) | set(outcome.excluded_tool_ids))
                 async for event in _process_ai_reply_to_wukongim(
-            project_id=project_id, user_id=user_id, message=message,
+            project_id=project_id, user_id=user_id, message=turn_message,
             channel_id=channel_id, channel_type=channel_type,
             client_msg_no=client_msg_no, from_uid=from_uid,
             session_id=session_id, system_message=routed_system,
@@ -455,6 +482,7 @@ async def _process_ai_stream_core(
                     business_authorization=business_authorization,
                     interaction_run_id=interaction_run_id,
                     contextual_reply=routed_context,
+                    disable_business_tools=routed_disable_tools,
                 ):
                     yield event
         except TGOAPIException as exc:
@@ -476,6 +504,7 @@ async def _process_ai_reply_to_wukongim(
     business_authorization: BusinessRequestAuthorization | None = None,
     interaction_run_id: UUID | None = None,
     contextual_reply: ContextualReply | None = None,
+    disable_business_tools: bool = False,
 ) -> AsyncGenerator[ReplyEvent, None]:
     """Release one checked result to both SSE consumers and persisted IM history."""
     customer_facing = channel_type == 251
@@ -552,11 +581,15 @@ async def _process_ai_reply_to_wukongim(
         final_data: ReplyEvent = {
             "success": True, "final_content": reply, "total_chunks": 0,
         }
-        await guarded_chat_call(lambda: forward_ai_event_to_wukongim(
-            event_type="workflow_completed", event_data={"data": final_data},
-            channel_id=channel_id, channel_type=channel_type,
-            client_msg_no=client_msg_no, from_uid=from_uid,
-        ))
+        from app.services.customer_turn_context import stage_reply, confirm_im
+        deferred = await guarded_chat_call(lambda: stage_reply(reply, from_uid))
+        if not deferred:
+            await guarded_chat_call(lambda: forward_ai_event_to_wukongim(
+                event_type="workflow_completed", event_data={"data": final_data},
+                channel_id=channel_id, channel_type=channel_type,
+                client_msg_no=client_msg_no, from_uid=from_uid,
+            ))
+            await guarded_chat_call(lambda: confirm_im())
         if fast:
             logger.info(
                 "Reviewed FAQ published", extra={"client_msg_no": client_msg_no},
@@ -591,6 +624,8 @@ async def _process_ai_reply_to_wukongim(
                     yield event
                 return
         media_options: MediaModelOptions = {}
+        if disable_business_tools:
+            media_options["disable_tools"] = True
         if media_input is not None:
             prepared = await guarded_chat_call(lambda: prepare_chat_media(media_input))
             message = prepared.customer_message
@@ -620,7 +655,7 @@ async def _process_ai_reply_to_wukongim(
         knowledge_evidence: KnowledgeEvidence | None = None
         async for stream_event_type, data in tracked_ai_stream(lambda phase: ai_client.run_supervisor_agent_stream(
             project_id=project_id, agent_id=agent_id, user_id=user_id, message=message,
-            session_id=session_id, enable_memory=True, system_message=system_message,
+            session_id=session_id, enable_memory=not _isolated_customer_turn(), system_message=system_message,
             expected_output=expected_output, knowledge_channel=knowledge_channel,
             excluded_tool_ids=list(excluded_tool_ids),
             cancel_on_disconnect=True,

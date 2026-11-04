@@ -1,60 +1,98 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { IoLogoWechat } from 'react-icons/io5';
 import PlatformAISettings from './PlatformAISettings';
 import { useToast } from '@/hooks/useToast';
 import { getApiBaseUrl } from '@/services/api';
-import { platformsApiService, type WeChatLocalStatus } from '@/services/platformsApi';
+import { platformsApiService } from '@/services/platformsApi';
+import { findLocalReceptionEntry, openLocalReceptionEntry } from '@/services/weChatLocalReception';
 import { usePlatformStore } from '@/stores/platformStore';
-import type { Platform, PlatformAIMode } from '@/types';
+import type { Platform } from '@/types';
 import { showApiError, showSuccess } from '@/utils/toastHelpers';
 
 export default function WeChatLocalPlatformConfig({ platform }: { platform: Platform }) {
   const { t } = useTranslation();
+  const { hash } = useLocation();
   const { showToast } = useToast();
   const updatePlatform = usePlatformStore(state => state.updatePlatform);
   const isSaving = usePlatformStore(state => state.isUpdating);
-  const [status, setStatus] = useState<WeChatLocalStatus | 'error' | null>(null);
+  const [isPairing, setIsPairing] = useState(false);
+  const status = usePlatformStore(state => state.weChatLocalStatuses[platform.id]) ?? null;
   const [agentIds, setAgentIds] = useState<string[]>(platform.agent_id ? [platform.agent_id] : []);
-  const [aiMode, setAiMode] = useState<PlatformAIMode>(platform.ai_mode ?? 'auto');
-  const [timeout, setTimeoutSeconds] = useState(platform.fallback_to_ai_timeout ?? null);
   const disabled = platform.status === 'disabled';
-
-  useEffect(() => {
-    if (disabled) return;
-    let disposed = false;
-    let timer: number;
-    const refresh = async () => {
-      try {
-        const latest = await platformsApiService.getWeChatLocalStatus(platform.id);
-        if (!disposed) setStatus(latest);
-      } catch {
-        if (!disposed) setStatus('error');
-      } finally {
-        if (!disposed) timer = window.setTimeout(refresh, 5000);
-      }
-    };
-    setStatus(null);
-    void refresh();
-    return () => {
-      disposed = true;
-      window.clearTimeout(timer);
-    };
-  }, [disabled, platform.id]);
+  const agentChanged = (agentIds[0] ?? null) !== (platform.agent_id ?? null);
 
   const connected = !disabled && status !== 'error' && status?.connected === true;
   const lastSeen = !disabled && status !== 'error' ? status?.last_seen_at : null;
+  const scopedEnabled = !disabled && status !== 'error' && status?.scoped_enabled === true;
   const statusLabel = disabled ? t('platforms.wechatLocal.disabled', '已停用')
     : status === 'error' ? t('platforms.wechatLocal.unavailable', '状态暂不可用')
     : status === null ? t('platforms.wechatLocal.checking', '正在检查')
     : connected ? t('platforms.wechatLocal.online', '桥接在线')
     : t('platforms.wechatLocal.offline', '待连接');
   const apiBase = new URL(getApiBaseUrl(), window.location.origin).href.replace(/\/$/, '');
-  // PowerShell single-quoted arguments are literal and escape a quote by doubling it.
-  const runtime = `.tmp/wechat-local-bridge/channels/${platform.id}`;
-  const bridgeCommand = `python -m tools.wechat_local_bridge.cli --runtime ${runtime}`;
-  const bindCommand = `${bridgeCommand} bind-tgo --platform-type wechat_local --base-url '${apiBase.replace(/'/g, "''")}' --platform-id ${platform.id} --calibration-runtime .tmp/wechat-local-bridge`;
-  const startCommand = `${bridgeCommand} serve --rpa-binding ${runtime}/rpa-binding.private.json --tgo-config ${runtime}/tgo.private.json --test-prefix '个人微信测试：' --allow-send`;
+  const backendUrl = new URL(`/platforms/${platform.id}`, window.location.origin).href;
+  const downloadUrl = new URL('/downloads/wechat-local-bridge-v2.zip', window.location.origin).href;
+  const startCommand = `.\\start-wechat-bridge.cmd "${apiBase}" "${platform.id}" ${scopedEnabled ? '--connect' : '--preview'}`;
+  const setupInstruction = t(scopedEnabled ? 'platforms.wechatLocal.v2SetupBind' : 'platforms.wechatLocal.v2SetupPreview');
+  const prompt = t('platforms.wechatLocal.v2Prompt', {
+    backendUrl, downloadUrl, apiBase, channelId: platform.id, startCommand, setupInstruction,
+  });
+
+  const pairParams = new URLSearchParams(hash.slice(1));
+  const challenge = pairParams.get('wechat_pair') ?? '';
+  const port = Number(pairParams.get('port'));
+  const hasPairRequest = /^[a-f0-9]{64}$/.test(challenge) && Number.isInteger(port) && port >= 1024 && port <= 65535;
+  const canCheckReception = scopedEnabled && connected && !hasPairRequest;
+  const [reception, setReception] = useState<{ channelId: string; endpoint: string | null } | null>(null);
+  const [openingReception, setOpeningReception] = useState(false);
+  const receptionEndpoint = canCheckReception && reception?.channelId === platform.id ? reception.endpoint : null;
+
+  useEffect(() => {
+    if (!canCheckReception) {
+      setReception(null);
+      return;
+    }
+    const controller = new AbortController();
+    let timer: number;
+    const check = async () => {
+      const endpoint = await findLocalReceptionEntry(platform.id, controller.signal);
+      if (controller.signal.aborted) return;
+      setReception({ channelId: platform.id, endpoint });
+      timer = window.setTimeout(check, 5_000);
+    };
+    void check();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [canCheckReception, platform.id]);
+
+  const openReception = async () => {
+    if (!receptionEndpoint || openingReception) return;
+    setOpeningReception(true);
+    const opened = await openLocalReceptionEntry(receptionEndpoint);
+    setOpeningReception(false);
+    if (!opened) {
+      setReception({ channelId: platform.id, endpoint: null });
+      showToast('error', t('platforms.wechatLocal.receptionUnavailable'));
+    }
+  };
+
+  const pair = async () => {
+    if (!scopedEnabled || !hasPairRequest || isPairing) return;
+    setIsPairing(true);
+    try {
+      const { code } = await platformsApiService.authorizeWeChatLocalPair(platform.id, challenge);
+      const callback = new URL('/wechat-pair', `http://127.0.0.1:${port}`);
+      callback.search = new URLSearchParams({ code, state: challenge }).toString();
+      window.location.replace(callback.href);
+    } catch (error) {
+      setIsPairing(false);
+      showApiError(showToast, error);
+    }
+  };
 
   const copy = async (value: string) => {
     try {
@@ -69,8 +107,6 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
     try {
       await updatePlatform(platform.id, {
         agent_id: agentIds[0] ?? null,
-        ai_mode: aiMode,
-        fallback_to_ai_timeout: aiMode === 'assist' ? timeout : null,
         status: disabled ? 'disabled' : 'connected',
       });
       showSuccess(showToast, t('platforms.wechatLocal.saved', '已保存客服设置'));
@@ -98,51 +134,71 @@ export default function WeChatLocalPlatformConfig({ platform }: { platform: Plat
             {statusLabel}
           </span>
         </header>
+        {receptionEndpoint ? (
+          <button type="button" disabled={openingReception}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            onClick={() => void openReception()}>
+            {t('platforms.wechatLocal.manageReception')}
+          </button>
+        ) : canCheckReception && reception?.channelId === platform.id && (
+          <p className="text-sm text-gray-500">{t('platforms.wechatLocal.receptionOnBridgeComputer')}</p>
+        )}
+        {scopedEnabled && hasPairRequest && (
+          <section className="space-y-3 rounded-xl border border-blue-200 bg-white p-5 dark:border-blue-900 dark:bg-gray-900">
+            <p className="text-sm text-gray-600 dark:text-gray-300">{t('platforms.wechatLocal.v2PairConfirm')}</p>
+            <button type="button" disabled={isPairing}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              onClick={() => void pair()}>
+              {t('platforms.wechatLocal.v2PairButton')}
+            </button>
+          </section>
+        )}
         <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
-          <div>
-            <h2 className="font-semibold">{t('platforms.wechatLocal.bridge', 'Windows 本机桥接')}</h2>
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-              {t('platforms.wechatLocal.scope', '当前仅测试「文件传输助手」的文字收发。桥接程序需在已登录微信的 Windows 电脑上运行。')}
+          <h2 className="font-semibold">{t('platforms.wechatLocal.v2Assistant', '把提示词交给办公助手')}</h2>
+          {!scopedEnabled && (
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              {t('platforms.wechatLocal.v2Preview', '好友和群聊接待正在验收，目前可以预览配置步骤。')}
             </p>
-            {lastSeen && (
-              <p className="mt-1 text-sm text-gray-500">
-                {t('platforms.wechatLocal.lastSeen', '最近上报 {{time}}', { time: new Date(lastSeen).toLocaleString() })}
-              </p>
-            )}
-          </div>
-          <details className="text-sm" open={connected ? undefined : true}>
-            <summary className="cursor-pointer font-medium">{t('platforms.wechatLocal.setup', '连接步骤')}</summary>
-            <p className="my-3 text-gray-600 dark:text-gray-300">
-              {t('platforms.wechatLocal.setupHint', '在已完成微信读取和窗口校准的项目目录中打开 PowerShell。执行绑定命令，按提示粘贴渠道密钥，然后执行启动命令。用「个人微信测试：」开头的消息进行试发。')}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" className="rounded-md border px-3 py-1.5" onClick={() => void copy(bindCommand)}>
-                {t('platforms.wechatLocal.copyBind', '复制绑定命令')}
+          )}
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            {t('platforms.wechatLocal.v2AssistantHint', '提示词已填好当前渠道。请在运行微信的 Windows 电脑上配置，最后由你选择接待范围。')}
+          </p>
+          <button type="button" className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white" onClick={() => void copy(prompt)}>
+            {t('platforms.wechatLocal.v2CopyPrompt', '复制配置提示词')}
+          </button>
+          {lastSeen && <p className="text-sm text-gray-500">
+            {t('platforms.wechatLocal.lastSeen', '最近上报 {{time}}', { time: new Date(lastSeen).toLocaleString() })}
+          </p>}
+        </section>
+        <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
+          <h2 className="font-semibold">{t('platforms.wechatLocal.v2Manual', '助手做不到时，自己接着做')}</h2>
+          <ol className="list-decimal space-y-3 pl-5 text-sm text-gray-600 dark:text-gray-300">
+            <li>
+              <a className="text-blue-600 underline dark:text-blue-300" href={downloadUrl} download>
+                {t('platforms.wechatLocal.v2Download', '下载并打开工具')}
+              </a>
+              {' '}{t('platforms.wechatLocal.v2Open', '解压后在工具目录打开 PowerShell，粘贴启动命令。')}
+              <button type="button" className="ml-2 rounded-md border px-2 py-1" onClick={() => void copy(startCommand)}>
+                {t('platforms.wechatLocal.v2CopyStart', '复制启动命令')}
               </button>
-              <button type="button" className="rounded-md border px-3 py-1.5" disabled={!platform.config.apiKey}
-                onClick={() => void copy(platform.config.apiKey ?? '')}>
-                {t('platforms.wechatLocal.copyKey', '复制渠道密钥')}
-              </button>
-              <button type="button" className="rounded-md border px-3 py-1.5" onClick={() => void copy(startCommand)}>
-                {t('platforms.wechatLocal.copyStart', '复制启动命令')}
-              </button>
-            </div>
-          </details>
+            </li>
+            <li>{t('platforms.wechatLocal.v2Login')}</li>
+            <li>
+              {scopedEnabled ? t('platforms.wechatLocal.v2ManualBind') : t('platforms.wechatLocal.v2ManualPreview')}
+
+            </li>
+          </ol>
         </section>
         <section className="space-y-3">
           <PlatformAISettings
             platform={platform}
             agentIds={agentIds}
-            aiMode={aiMode}
-            fallbackTimeout={timeout}
             onAgentIdsChange={setAgentIds}
-            onAIModeChange={setAiMode}
-            onFallbackTimeoutChange={setTimeoutSeconds}
           />
-          <button type="button" disabled={isSaving} onClick={() => void save()}
+          {agentChanged && <button type="button" disabled={isSaving} onClick={() => void save()}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-            {t('platforms.wechatLocal.save', '保存客服设置')}
-          </button>
+            {t('common.save', '保存')}
+          </button>}
         </section>
       </div>
     </div>

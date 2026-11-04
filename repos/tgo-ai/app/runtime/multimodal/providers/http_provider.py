@@ -357,6 +357,8 @@ class HTTPMediaProvider:
             "max_tokens": 2048,
             "messages": messages,
         }
+        if self._model.model.startswith(("qwen3-", "qwen3.")) and not qwen_ocr:
+            body["enable_thinking"] = False
         raw = await self._post("/chat/completions", body=body)
         return completion_text(raw, "图片模型没有返回完整有效结果")
 
