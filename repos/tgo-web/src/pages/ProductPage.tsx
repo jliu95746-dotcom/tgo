@@ -44,7 +44,11 @@ export default function ProductPage() {
       {!loading && !error && plans.length === 0 && <p className="mt-8 rounded-xl border border-slate-200 bg-white p-7 text-slate-500">{t('product.noPlans')}</p>}
       <div className="mt-8 grid gap-5 md:grid-cols-3">{plans.map(plan => <article key={plan.id} className="rounded-2xl border border-slate-200 bg-white p-7">
         <h3 className="text-xl font-semibold">{plan.definition.name}</h3><p className="my-6 text-4xl font-semibold">{new Intl.NumberFormat(i18n.language, { style: 'currency', currency: 'CNY', maximumFractionDigits: 2 }).format((annual ? plan.definition.annual_price : plan.definition.monthly_price) / 100)}</p>
-        <ul className="space-y-3 text-sm text-slate-600"><li>{t('billing.planSeats', { count: plan.definition.seats })}</li><li>{t('billing.planAi', { count: plan.definition.monthly_ai })}</li><li>{t('billing.planChannels', { count: plan.definition.channel_limit })}</li></ul>
+        <ul className="space-y-3 text-sm text-slate-600">
+          <li>{t('billing.planAccounts', { count: plan.definition.seats - 1 })}</li>
+          <li>{t('billing.planAi', { amount: plan.definition.monthly_ai.toLocaleString(i18n.language) })}</li>
+          <li>{plan.definition.channel_limit === null ? t('billing.allChannels') : t('billing.planChannels', { count: plan.definition.channel_limit })}</li>
+        </ul>
         <Link to="/settings/billing" className="mt-7 inline-block text-sm font-medium text-indigo-600 hover:underline">{t('product.more')}</Link>
       </article>)}</div>
     </section><footer className="border-t border-slate-200 px-6 py-7 text-center text-sm text-slate-500">{t('product.footer')}</footer>

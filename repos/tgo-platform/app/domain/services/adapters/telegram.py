@@ -3,12 +3,15 @@
 Sends messages to Telegram using the Bot API sendMessage endpoint.
 """
 from __future__ import annotations
+import logging
 
 from app.domain.entities import StreamEvent
 from app.domain.services.adapters.base import BasePlatformAdapter
 from app.core.config import settings
 
 from app.api.telegram_utils import telegram_send_text
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramAdapter(BasePlatformAdapter):
@@ -58,10 +61,10 @@ class TelegramAdapter(BasePlatformAdapter):
             RuntimeError: If bot_token or chat_id is missing
         """
         text = (content or {}).get("text") or ""
-        print(f"[TELEGRAM ADAPTER] send_final called with text length: {len(text)}")
+        logger.debug("Telegram reply prepared")
         
         if not text:
-            print("[TELEGRAM ADAPTER] Empty text, skipping send")
+            logger.debug("Telegram empty reply skipped")
             return
 
         if not self.bot_token:
@@ -70,14 +73,14 @@ class TelegramAdapter(BasePlatformAdapter):
         if not self.chat_id:
             raise RuntimeError("Telegram adapter requires chat_id")
 
-        print(f"[TELEGRAM ADAPTER] Sending to chat_id={self.chat_id}: {text[:100]}...")
+        logger.debug("Telegram reply sending")
         
         # Send text message via Telegram Bot API
-        result = await telegram_send_text(
+        await telegram_send_text(
             bot_token=self.bot_token,
             chat_id=self.chat_id,
             text=text[:4096],  # Telegram text limit
             parse_mode=self.parse_mode,
             timeout=self.http_timeout,
         )
-        print(f"[TELEGRAM ADAPTER] Send result: {result}")
+        logger.debug("Telegram reply send completed")

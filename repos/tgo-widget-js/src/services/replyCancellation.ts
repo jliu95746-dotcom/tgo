@@ -1,13 +1,15 @@
 /** A queued request or an HTTP success without confirmation is not a stop. */
+import { captureVisitorDataAccess } from './visitorDataAccess'
 export async function requestReplyCancellation(params: {
   apiBase: string;
   platformApiKey: string;
   clientMsgNo: string;
   reason?: string;
 }): Promise<void> {
+  const access = captureVisitorDataAccess(params)
   const response = await fetch(`${params.apiBase.replace(/\/$/, '')}/v1/ai/runs/cancel-by-client`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...access.headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       platform_api_key: params.platformApiKey,
       client_msg_no: params.clientMsgNo,
@@ -15,7 +17,10 @@ export async function requestReplyCancellation(params: {
     }),
     signal: AbortSignal.timeout(12000),
   });
+  access.assertCurrent();
   const data: unknown = await response.json();
+  access.assertCurrent();
+  access.assertSafeValue(data);
   if (
     !response.ok || !data || typeof data !== 'object' ||
     !('accepted' in data) || data.accepted !== true ||

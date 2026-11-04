@@ -33,9 +33,11 @@ WuKongIMService.prototype.getUid = function () {
 WuKongIMService.prototype.init = function (opts) {
   var self = this
   this._cfg = Object.assign({}, opts, { channelType: opts.channelType || 'person' })
+  var config = this._cfg
   this._uid = opts.uid
 
   return this._fetchRouteWsAddr(opts.apiBase, opts.uid, 10000).then(function (wsAddr) {
+    if (self._cfg !== config) throw new Error('聊天身份已变化，请重新连接。')
     if (self._im && self._bound) {
       try { self._unbindInternalEvents() } catch (e) {}
     }
@@ -48,12 +50,15 @@ WuKongIMService.prototype.init = function (opts) {
 WuKongIMService.prototype._bindInternalEvents = function () {
   if (!this._im || this._bound) return
   var self = this
+  var connection = this._im
+  var config = this._cfg
+  function current() { return self._im === connection && self._cfg === config }
 
-  this._hConnect = function (result) { self._emitStatus('connected', result) }
-  this._hDisconnect = function (info) { self._emitStatus('disconnected', info) }
-  this._hError = function (err) { self._emitStatus('error', err) }
-  this._hMessage = function (message) { self._emitMessage(message) }
-  this._hCustom = function (ev) { self._emitCustom(ev) }
+  this._hConnect = function (result) { if (current()) self._emitStatus('connected', result) }
+  this._hDisconnect = function (info) { if (current()) self._emitStatus('disconnected', info) }
+  this._hError = function (err) { if (current()) self._emitStatus('error', err) }
+  this._hMessage = function (message) { if (current()) self._emitMessage(message) }
+  this._hCustom = function (ev) { if (current()) self._emitCustom(ev) }
 
   this._im.on(WKIMEvent.Connect, this._hConnect)
   this._im.on(WKIMEvent.Disconnect, this._hDisconnect)
@@ -120,9 +125,14 @@ WuKongIMService.prototype.connect = function () {
 }
 
 WuKongIMService.prototype.disconnect = function () {
-  if (!this._im) return Promise.resolve()
-  if (typeof this._im.disconnect === 'function') {
-    try { return this._im.disconnect() } catch (e) { return Promise.resolve() }
+  var connection = this._im
+  this._unbindInternalEvents()
+  this._im = null
+  this._cfg = null
+  this._uid = null
+  this._inited = false
+  if (connection && typeof connection.disconnect === 'function') {
+    try { return Promise.resolve(connection.disconnect()) } catch (e) { return Promise.resolve() }
   }
   return Promise.resolve()
 }

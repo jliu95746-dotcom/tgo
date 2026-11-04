@@ -6,8 +6,13 @@ import ts from 'typescript';
 
 const source = readFileSync(new URL('../src/components/ai/EditAgentModal.tsx', import.meta.url), 'utf8');
 const tree = ts.createSourceFile('EditAgentModal.tsx', source, ts.ScriptTarget.Latest, true);
+const changesSource = readFileSync(new URL('../src/utils/agentEditChanges.ts', import.meta.url), 'utf8');
+const changesModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(changesSource, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText, changesModule);
 function evaluate(expression, scope) {
-  const context = { Error, console: { error() {} }, ...scope };
+  const context = { Error, structuredClone, console: { error() {} }, ...scope };
   vm.runInNewContext(ts.transpileModule(`globalThis.result = ${expression}`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText, context);
@@ -38,7 +43,8 @@ const saved = {
 
 test('reset restores string tool IDs and all saved resource bindings', () => {
   let result;
-  callback('handleReset', { agent: saved, isLoadingAgent: false, t, reset: value => { result = value; } })();
+  callback('handleReset', { agent: saved, isLoadingAgent: false, t,
+    reset: value => { result = value; }, setRefreshWorkflowReleases() {}, setSelectedReleaseVersions() {} })();
   assert.deepEqual(Array.from(result.tools), saved.tools);
   assert.equal(result.toolConfigs, saved.toolConfigs);
   assert.deepEqual(Array.from(result.knowledgeBases), ['kb-a']);
@@ -55,7 +61,7 @@ test('reset restores string tool IDs and all saved resource bindings', () => {
 test('reset does not invent a model when the saved employee has none', () => {
   let result;
   callback('handleReset', { agent: { ...saved, llmModel: '' }, isLoadingAgent: false,
-    t, reset: value => { result = value; } })();
+    t, reset: value => { result = value; }, setRefreshWorkflowReleases() {}, setSelectedReleaseVersions() {} })();
   assert.equal(result.llmModel, '');
 });
 
@@ -65,7 +71,8 @@ test('initializing an unconfigured employee also leaves the model empty', () => 
     && node.arguments[0].getText(tree).includes('initializedAgent.current !== agent'));
   evaluate(effect.arguments[0].getText(tree), {
     agent: { ...saved, llmModel: '' }, initializedAgent: { current: null }, isLoadingAgent: false,
-    t, reset: value => { result = value; },
+    originalForm: { current: null }, t, reset: value => { result = value; },
+    setRefreshWorkflowReleases() {}, setSelectedReleaseVersions() {},
   })();
   assert.equal(result.llmModel, '');
 });
@@ -89,6 +96,7 @@ for (const options of [[], [{ value: 'provider-a:chat' }],
     const submit = callback('handleSubmit', {
       agent: saved, agentId: saved.id, formData: { ...saved, tools: [], llmModel: 'chat' },
       addedAiTools: [], aiTools: [], llmOptions: options, t, setIsUpdating() {},
+      selectedReleaseVersions: {}, refreshWorkflowReleases: false,
       updateAgent: async () => { writes++; }, refreshAgents: async () => {},
       showToast: (...args) => feedback.push(args), onClose: () => { closed = true; },
     });
@@ -99,23 +107,39 @@ for (const options of [[], [{ value: 'provider-a:chat' }],
   });
 }
 
-test('an explicit provider and colon-containing model is saved with all selected bindings', async () => {
+test('an explicit provider and changed bindings are saved without overwriting other fields', async () => {
   const writes = [];
+  const feedback = [];
   const formData = { ...saved, tools: [], profession: saved.role, toolConfigs: {},
-    markdown: false, num_history_runs: 0 };
+    knowledgeBases: ['kb-a', 'kb-b'], workflows: ['workflow-a', 'workflow-b'],
+    boundDeviceId: 'device-b', markdown: false, num_history_runs: 0 };
+  const originalForm = { current: { ...formData,
+    llmModel: 'provider-a:old', tools: saved.tools, toolConfigs: saved.toolConfigs,
+    knowledgeBases: saved.knowledgeBases, workflows: saved.workflows,
+    boundDeviceId: saved.boundDeviceId } };
   const submit = callback('handleSubmit', {
     agent: saved, agentId: saved.id, formData, addedAiTools: [], aiTools: [], llmOptions: [], t,
+    selectedReleaseVersions: { 'workflow-b': 2 }, refreshWorkflowReleases: false,
+    SYSTEM_DEFAULT_MODEL: 'system-default',
+    originalForm, agentEditChanges: changesModule.exports.agentEditChanges,
+    editingIdentity: 'project-a:admin-a', useAuthStore: {
+      getState: () => ({ user: { id: 'admin-a', project_id: 'project-a', role: 'admin' } }),
+    },
+    console: { error: (_label, error) => feedback.push([error?.name, error?.message]) },
     setIsUpdating() {}, updateAgent: async (...args) => writes.push(args),
-    refreshAgents: async () => {}, showToast() {}, onClose() {},
+    refreshAgents: async () => {}, showToast: (...args) => feedback.push(args), onClose() {},
   });
   await submit({ preventDefault() {} });
-  assert.equal(writes.length, 1);
+  assert.equal(writes.length, 1, JSON.stringify(feedback));
   const [id, payload] = writes[0];
   assert.equal(id, saved.id);
   assert.equal(payload.llmModel, saved.llmModel);
-  assert.equal(payload.knowledgeBases, saved.knowledgeBases);
-  assert.equal(payload.workflows, saved.workflows);
-  assert.equal(payload.skills_enabled, false);
-  assert.equal(payload.humanization_skill_name, 'brand-style');
-  assert.equal(payload.humanization_skill_enabled, true);
+  assert.deepEqual(Array.from(payload.knowledgeBases), formData.knowledgeBases);
+  assert.deepEqual(Array.from(payload.workflows), formData.workflows);
+  assert.equal(payload.boundDeviceId, 'device-b');
+  assert.equal('skills_enabled' in payload, false);
+  assert.equal('humanization_skill_name' in payload, false);
+  assert.equal('humanization_skill_enabled' in payload, false);
+  assert.equal(writes[0][3], false);
+  assert.equal(writes[0][4]['workflow-b'], 2);
 });

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -20,6 +21,7 @@ from app.exceptions import TGOAIServiceException
 
 request_logger = logging.getLogger("app.requests")
 request_logger.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
+SAFE_REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 
 
 @asynccontextmanager
@@ -28,14 +30,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Start periodic embedding sync retry loop (if enabled)
     from app.tasks.embedding_sync_retry import start_embedding_sync_retry_loop
+    from app.tasks.script_evidence_retention import run_retention
     stop_event = asyncio.Event()
     task = asyncio.create_task(start_embedding_sync_retry_loop(stop_event))
+    retention_task = asyncio.create_task(run_retention(stop_event))
 
     try:
         yield
     finally:
         # Shutdown
         stop_event.set()
+        retention_task.cancel()
+        await asyncio.gather(retention_task, return_exceptions=True)
         try:
             await asyncio.wait_for(task, timeout=5)
         except Exception:
@@ -141,21 +147,24 @@ app.add_middleware(
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """Log incoming requests and their outcomes."""
-    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    supplied_id = request.headers.get("X-Request-ID", "")
+    request_id = (
+        supplied_id
+        if SAFE_REQUEST_ID.fullmatch(supplied_id)
+        else str(uuid.uuid4())
+    )
     request.state.request_id = request_id
 
     client_host = request.client.host if request.client else "unknown"
     method = request.method
     path = request.url.path
-    query_string = request.url.query
     start_time = time.perf_counter()
 
     request_logger.info(
-        "request.start request_id=%s method=%s path=%s query=%s client=%s",
+        "request.start request_id=%s method=%s path=%s client=%s",
         request_id,
         method,
         path,
-        query_string or "-",
         client_host,
     )
 
@@ -206,7 +215,7 @@ async def tgo_ai_service_exception_handler(
         status_code = status.HTTP_404_NOT_FOUND
     elif exc.code == "VALIDATION_ERROR":
         status_code = status.HTTP_400_BAD_REQUEST
-    elif exc.code.endswith("_CONFLICT"):
+    elif exc.code == "CONFLICT" or exc.code.endswith("_CONFLICT"):
         status_code = status.HTTP_409_CONFLICT
     elif exc.code == "RATE_LIMIT_EXCEEDED":
         status_code = status.HTTP_429_TOO_MANY_REQUESTS

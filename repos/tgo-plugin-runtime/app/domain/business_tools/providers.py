@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Literal, Protocol
 
 from app.domain.business_tools.models import (
     BusinessQueryAuditEvent,
@@ -16,6 +16,19 @@ from app.domain.business_tools.models import (
 
 class BusinessProviderAccessDenied(ValueError):
     """The upstream response did not prove customer ownership."""
+
+
+BusinessResultCode = Literal[
+    "not_found", "not_shipped", "authentication_failed", "business_failed"
+]
+
+
+class BusinessProviderResultError(ValueError):
+    """A classified upstream outcome with no raw data or exception text."""
+
+    def __init__(self, code: BusinessResultCode) -> None:
+        self.code = code
+        super().__init__(code)
 
 
 class ReadOnlyBusinessProvider(Protocol):

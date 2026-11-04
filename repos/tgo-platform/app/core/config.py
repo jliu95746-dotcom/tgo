@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     # tgo-api base URL
     api_base_url: str
+    api_internal_service_url: str | None = None
     saas_internal_token: SecretStr | None = None
 
     # PostgreSQL DSN for SQLAlchemy async engine

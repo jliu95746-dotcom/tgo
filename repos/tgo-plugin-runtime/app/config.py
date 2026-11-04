@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     DATABASE_MAX_OVERFLOW: int = Field(default=10)
 
     # Security
+    BUSINESS_CONNECTION_SERVICE_TOKEN: Optional[SecretStr] = None
+    BUSINESS_CONNECTION_API_URL: str = 'http://tgo-api:8001'
     SECRET_KEY: str = Field(
         default="secret-key-at-least-32-chars-long!!",
         description="Secret key for JWT verification (must match tgo-api)",

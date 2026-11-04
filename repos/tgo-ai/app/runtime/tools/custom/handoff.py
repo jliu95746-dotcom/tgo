@@ -23,9 +23,9 @@ def create_handoff_tool(
 
     error_messages = {
         "not_configured": "抱歉，当前无法为您发起人工服务请求，我们已记录该问题并会尽快处理。请稍后再试或直接联系客服。",
-        "api_error": "抱歉，人工服务请求未能成功提交。请稍后重试或联系技术支持。",
-        "http_error": "抱歉，网络异常导致人工服务请求未能提交。请稍后重试或联系技术支持。",
-        "unexpected_error": "抱歉，出现异常，暂时无法为您发起人工服务。请稍后重试或联系技术支持。",
+        "api_error": "人工服务请求状态未确认，请联系客服核对，暂勿重复提交。",
+        "http_error": "网络异常，人工服务请求状态未知，请联系客服核对，暂勿重复提交。",
+        "unexpected_error": "人工服务请求状态未知，请联系客服核对，暂勿重复提交。",
     }
 
     async def request_human_support(
@@ -45,9 +45,15 @@ def create_handoff_tool(
         if not result.success:
             return result.message
 
+        if result.notification_status != "submitted":
+            return (
+                f"[handoff_requested] 人工转接已记录，编号 {result.request_id}。"
+                "通知状态未知，请人工核对，暂勿重复提交。"
+            )
+
         return (
-            f"[handoff_requested] agent={agent_id} session={session_id or ''} "
-            f"urgency={urgency} reason={reason} (event sent)"
+            f"[handoff_requested] 人工转接已记录，编号 {result.request_id}。"
+            "已提交客服通知。"
         )
 
     return Function(

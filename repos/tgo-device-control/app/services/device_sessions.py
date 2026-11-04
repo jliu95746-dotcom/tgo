@@ -77,6 +77,7 @@ class DeviceSessionService:
             device_name=device_name,
             agent_id=session.agent_id,
             agent_name=session.agent_name,
+            workflow_execution_id=session.workflow_execution_id,
             status=status,
             started_at=session.started_at,
             ended_at=session.lease_expires_at
@@ -110,6 +111,7 @@ class DeviceSessionService:
             if (
                 existing.device_id != device
                 or existing.agent_id != request.agent_id
+                or existing.workflow_execution_id != request.workflow_execution_id
             ):
                 raise HTTPException(409, "Device session identity conflict")
             summary = self._summary(existing, device_row.device_name)
@@ -121,6 +123,7 @@ class DeviceSessionService:
             device_id=device,
             agent_id=request.agent_id,
             agent_name=request.agent_name,
+            workflow_execution_id=request.workflow_execution_id,
             status="running",
             started_at=now,
             lease_expires_at=now + timedelta(seconds=LEASE_SECONDS),
@@ -298,6 +301,7 @@ class DeviceSessionService:
         project: UUID,
         *,
         device_id: UUID | None = None,
+        workflow_execution_id: UUID | None = None,
         skip: int = 0,
         limit: int = 20,
     ) -> SessionList:
@@ -308,6 +312,10 @@ class DeviceSessionService:
         )
         if device_id is not None:
             query = query.where(Device.id == device_id)
+        if workflow_execution_id is not None:
+            query = query.where(
+                DeviceSession.workflow_execution_id == workflow_execution_id
+            )
         count = await self.db.scalar(
             select(func.count()).select_from(query.subquery())
         )

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+import stat
 import uuid
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
@@ -12,6 +15,8 @@ from app.domain.services.media.types import DownloadedMedia, StoredMediaObject
 
 
 _FILE_HEADER = b"TGOMEDIA1"
+_ATOMIC_TEMPORARY_NAME = re.compile(r"\.tmp-[0-9a-f]{32}\Z")
+_UUID_HEX_DIRECTORY = re.compile(r"[0-9a-f]{32}\Z")
 
 
 class MediaStorage(Protocol):
@@ -40,6 +45,12 @@ class MediaObjectDeleter(Protocol):
     async def delete(self, *, object_key: str) -> None: ...
 
 
+class MediaTemporaryObjectCleaner(Protocol):
+    async def cleanup_expired_temporary_objects(
+        self, *, older_than: datetime, limit: int
+    ) -> int: ...
+
+
 class LocalMediaObjectDeleter:
     """Delete local media objects without requiring a decryption key."""
 
@@ -49,6 +60,61 @@ class LocalMediaObjectDeleter:
     async def delete(self, *, object_key: str) -> None:
         path = self._resolve_object_path(object_key)
         await asyncio.to_thread(path.unlink, True)
+
+    async def cleanup_expired_temporary_objects(
+        self, *, older_than: datetime, limit: int
+    ) -> int:
+        """Remove abandoned atomic writes, never committed media or recent writes."""
+        if limit < 1:
+            raise ValueError("temporary media cleanup limit must be positive")
+        if older_than.tzinfo is None:
+            raise ValueError("temporary media cleanup cutoff must include a timezone")
+        return await asyncio.to_thread(
+            self._cleanup_expired_temporary_objects, older_than.timestamp(), limit
+        )
+
+    def _cleanup_expired_temporary_objects(self, cutoff: float, limit: int) -> int:
+        wecom_root = self._root / "wecom"
+        if wecom_root.is_symlink() or not wecom_root.is_dir():
+            return 0
+        if wecom_root.resolve() != self._root / "wecom":
+            return 0
+
+        removed = 0
+        for current_dir, child_directories, filenames in os.walk(
+            wecom_root, followlinks=False
+        ):
+            relative_parts = Path(current_dir).relative_to(wecom_root).parts
+            if len(relative_parts) >= 3:
+                child_directories.clear()
+            if (
+                len(relative_parts) != 3
+                or not _UUID_HEX_DIRECTORY.fullmatch(relative_parts[0])
+                or not _UUID_HEX_DIRECTORY.fullmatch(relative_parts[1])
+                or not 1 <= len(relative_parts[2]) <= 64
+                or not relative_parts[2].isalnum()
+            ):
+                continue
+            for filename in filenames:
+                if not _ATOMIC_TEMPORARY_NAME.fullmatch(filename):
+                    continue
+                candidate = Path(current_dir) / filename
+                try:
+                    metadata = candidate.lstat()
+                except FileNotFoundError:
+                    continue
+                if not stat.S_ISREG(metadata.st_mode) or metadata.st_mtime > cutoff:
+                    continue
+                if self._root not in candidate.resolve().parents:
+                    continue
+                try:
+                    candidate.unlink()
+                except FileNotFoundError:
+                    continue
+                removed += 1
+                if removed >= limit:
+                    return removed
+        return removed
 
     def _resolve_object_path(self, object_key: str) -> Path:
         candidate = self._root.joinpath(*PurePosixPath(object_key).parts).resolve()

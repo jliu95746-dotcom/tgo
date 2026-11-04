@@ -53,6 +53,10 @@ class StaffMessageDelivery(Base):
             "external_status",
             "next_retry_at",
         ),
+        Index(
+            "ix_staff_delivery_shadow_source",
+            "project_id", "visitor_id", "source_message_id",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -68,6 +72,10 @@ class StaffMessageDelivery(Base):
     channel_id: Mapped[str] = mapped_column(String(255))
     channel_type: Mapped[int] = mapped_column(Integer)
     client_msg_no: Mapped[str] = mapped_column(String(100))
+    source_message_id: Mapped[str | None] = mapped_column(String(255))
+    assist_draft_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("api_assist_draft_records.id", ondelete="SET NULL")
+    )
     request_fingerprint: Mapped[str] = mapped_column(String(64))
     payload: Mapped[dict[str, JsonValue]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql")

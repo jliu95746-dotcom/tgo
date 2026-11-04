@@ -141,6 +141,8 @@ async def create_change(db: AsyncSession, project: UUID, kind: SourceKind,
     ).order_by(KnowledgeVersion.number.desc()))).scalars().first()
     if pending and pending.state == 'processing':
         raise VersionConflict('正在处理上一份修改，请稍后再试。')
+    if kind == 'file' and request.action == 'publish':
+        source.disabled = False
     content = request.content
     if isinstance(parent, QAPair):
         content = VersionInput(

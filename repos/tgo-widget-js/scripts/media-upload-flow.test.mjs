@@ -4,6 +4,7 @@ import { setImmediate } from 'node:timers/promises'
 import { test } from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
+import {generationFixture} from './lifecycle-fixture.mjs'
 
 const source = readFileSync(new URL('../src/store/chatStore.ts', import.meta.url), 'utf8')
 const tree = ts.createSourceFile('chatStore.ts', source, ts.ScriptTarget.Latest, true)
@@ -27,6 +28,7 @@ function fixture(mime, { delivery = true, replyFailure = false, uploadFailure = 
   const pendingFiles = new Map()
   let failUpload = uploadFailure
   vm.runInNewContext(compiled, {
+    ...generationFixture(),
     exports, AbortController, Date, Math, crypto: { randomUUID: () => 'owned-source' },
     get: () => state,
     set: update => { state = { ...state, ...(typeof update === 'function' ? update(state) : update) } },
@@ -64,7 +66,10 @@ for (const mime of ['image/png', 'audio/wav']) {
       assert.equal(f.replies.length, 1)
       assert.equal(f.replies[0].sourceMessageId, f.sends[0][1].clientMsgNo)
       assert.equal(f.sends[0][0].file_id, 'owned-file')
-      if (mime.startsWith('audio/')) assert.equal(f.sends[0][0].mime_type, mime)
+      if (mime.startsWith('audio/')) {
+        assert.equal(f.sends[0][0].type, 4)
+        assert.equal(f.sends[0][0].mime_type, mime)
+      }
       assert.equal(f.pendingFiles.size, 0)
     })
   }

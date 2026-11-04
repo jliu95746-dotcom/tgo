@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from hashlib import sha256
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 Identifier = Annotated[
     str,
@@ -44,6 +45,11 @@ MaskedTrackingNumber = Annotated[
 ]
 
 
+def message_lookup_digest(project_id: UUID, message_id: str) -> str:
+    """Index a trusted message identity without storing its original value."""
+    return sha256(f"{project_id.hex}\0{message_id}".encode()).hexdigest()
+
+
 class StrictBusinessModel(BaseModel):
     """Common fail-closed Pydantic configuration for business contracts."""
 
@@ -65,6 +71,14 @@ class BusinessQueryContext(StrictBusinessModel):
     conversation_id: Identifier
     request_id: Identifier
     actor_id: Identifier
+    source_message_id: str | None = Field(default=None, min_length=1, max_length=255)
+    response_client_msg_no: str | None = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def complete_message_scope(self) -> "BusinessQueryContext":
+        if (self.source_message_id is None) != (self.response_client_msg_no is None):
+            raise ValueError("Message audit scope is incomplete")
+        return self
 
 
 class OrderOwnership(StrictBusinessModel):
@@ -129,7 +143,9 @@ class OwnedLogisticsQueryResult(StrictBusinessModel):
     result: LogisticsQueryResult
 
 
-BusinessQueryOperation = Literal["order_query", "logistics_query"]
+BusinessQueryOperation = Literal[
+    "order_query", "logistics_query", "customer_profile_query", "membership_query"
+]
 BusinessQueryOutcome = Literal["success", "denied", "timeout", "failed"]
 
 
@@ -144,7 +160,15 @@ class BusinessQueryAuditEvent(StrictBusinessModel):
     outcome: BusinessQueryOutcome
     visitor_fingerprint: HexDigest
     parameter_fingerprint: HexDigest
+    source_message_digest: HexDigest | None = None
+    response_message_digest: HexDigest | None = None
     duration_ms: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def complete_message_scope(self) -> "BusinessQueryAuditEvent":
+        if (self.source_message_digest is None) != (self.response_message_digest is None):
+            raise ValueError("Message audit scope is incomplete")
+        return self
 
 
 class BusinessQueryContextRequest(BusinessTransportModel):

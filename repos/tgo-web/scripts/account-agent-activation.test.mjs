@@ -21,7 +21,8 @@ function fixture({ pause = null, failRefresh = false } = {}) {
   const scope = {
     get: () => state,
     set: value => { state = { ...state, ...(typeof value === 'function' ? value(state) : value) }; },
-    useAuthStore: { getState: () => ({ user: { project_id: 'fixture' } }) },
+    useAuthStore: { getState: () => ({ user: { id: 'admin-a', project_id: 'fixture', role: 'admin' } }) },
+    useAgentActivationStore: { getState: () => ({ invalidate() {} }) },
     i18n: { t: key => key }, console: { error() {} },
     AIAgentsTransformUtils: { transformAgentPatch: (_agent, updates) => ({ is_active: updates.status === 'active' }), transformApiAgentToAgent: agent => agent },
     AIAgentsApiService: {

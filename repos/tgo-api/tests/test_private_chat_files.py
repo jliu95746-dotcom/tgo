@@ -1,6 +1,6 @@
 """Attachments require tenant authority or a scoped, expiring capability."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
@@ -13,14 +13,18 @@ from app.api.v1.endpoints import chat
 from app.core.config import settings
 from app.core.security import create_access_token, verify_token
 from app.models import ChatFile, Platform, Project, Visitor
-from tests.test_conversation_tenant_boundary import channel_app
+from app.models.business_customer_identity import BusinessCustomerBinding
+from app.models.visitor_business_scope import VisitorBusinessScope
+from app.services.im_access import issue_visitor_im_token
+from tests.test_conversation_tenant_boundary import channel_app as channel_app
 
 
 @pytest.fixture
 def private_files(channel_app, tmp_path, monkeypatch):
     app, db, companies, staff, visitors, _ = channel_app
     app.include_router(chat.router, prefix="/chat")
-    for model in (Platform, ChatFile):
+    app.include_router(chat.router, prefix="/v1/chat")
+    for model in (Platform, ChatFile, BusinessCustomerBinding, VisitorBusinessScope):
         model.__table__.create(db.get_bind())
     monkeypatch.setattr(settings, "UPLOAD_BASE_DIR", str(tmp_path))
     monkeypatch.setattr(settings, "STORAGE_TYPE", "local")
@@ -85,8 +89,10 @@ async def test_file_link_is_expiring_bound_to_file_and_not_a_login(private_files
 
 @pytest.mark.asyncio
 async def test_platform_cannot_access_another_company_file(private_files):
-    app, _, _, platforms, files, _ = private_files
-    headers = {"X-Platform-API-Key": platforms[0].api_key}
+    app, db, _, platforms, files, _ = private_files
+    visitor = db.get(Visitor, UUID(files[0].channel_id[:-4]))
+    headers = {"X-Platform-API-Key": platforms[0].api_key,
+               "Authorization": "Bearer " + issue_visitor_im_token(visitor, timedelta(hours=1))}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         assert (await client.get(f"/chat/files/{files[0].id}", headers=headers)).status_code == 200
         assert (await client.get(f"/chat/files/{files[1].id}", headers=headers)).status_code == 404
@@ -101,7 +107,9 @@ async def test_platform_cannot_access_another_company_file(private_files):
 async def test_issued_link_rechecks_current_authority(private_files, change):
     app, db, staff, platforms, files, headers = private_files
     if change.startswith("platform_"):
-        headers = {"X-Platform-API-Key": platforms[0].api_key}
+        visitor = db.get(Visitor, UUID(files[0].channel_id[:-4]))
+        headers = {"X-Platform-API-Key": platforms[0].api_key,
+                   "Authorization": "Bearer " + issue_visitor_im_token(visitor, timedelta(hours=1))}
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test",
     ) as client:
@@ -174,7 +182,6 @@ async def test_local_metadata_cannot_escape_upload_root(private_files, tmp_path)
 @pytest.mark.asyncio
 async def test_upload_link_downloads_using_the_real_route_prefix(private_files, monkeypatch):
     app, db, _, _, files, headers = private_files
-    app.include_router(chat.router, prefix="/v1/chat")
     from app.services.storage.local import LocalStorageBackend
     from app.services import storage
 

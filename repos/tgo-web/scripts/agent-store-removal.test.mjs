@@ -20,11 +20,11 @@ test('recruitment-only components and types are removed', () => {
   assert.doesNotMatch(read('components/ai/store/types.ts'), /AgentStoreCategory|'agent'/);
 });
 
-test('store API keeps model and tool installation, not employee recruitment', () => {
+test('store API keeps account setup, not retired installation or employee recruitment', () => {
   const api = read('services/storeApi.ts');
   assert.doesNotMatch(api, /getAgentCategories|checkAgentDependencies|installAgent|uninstallAgent|getAgents:|getAgent:/);
   assert.doesNotMatch(api, /installTool:/);
-  assert.match(api, /installModel:/);
+  assert.doesNotMatch(api, /installModel:/);
   assert.match(api, /getStoreConfig:/);
 });
 

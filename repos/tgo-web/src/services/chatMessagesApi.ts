@@ -2,6 +2,7 @@ import { BaseApiService } from './base/BaseApiService';
 import type { ConversationTurn } from './skillsApi';
 import { apiClient } from './api';
 import type { StaffDeliveryRequest, StaffDeliveryReceipt, StaffDeliveryQuery, StaffDeliveryRecord } from '@/types/staffDelivery';
+import type { AssistRunTrace } from '@/types/shadowReview';
 
 // Request type based on OpenAPI docs#/components/schemas/StaffSendPlatformMessageRequest
 export interface StaffSendPlatformMessageRequest {
@@ -36,16 +37,19 @@ export interface AssistDraftRequest {
   customer_message: string;
   humanization_skill_name?: string | null;
   source_message_id?: string | null;
+  source_client_msg_no?: string | null;
   message_type?: 1 | 2 | 4;
   media_file_id?: string | null;
 }
 
 export interface AssistDraftResponse {
   draft: string;
+  draft_id?: string | null;
   humanization_skill_name?: string | null;
   source_message_id?: string | null;
   recent_messages: ConversationTurn[];
   customer_message?: string | null;
+  generation_trace?: AssistRunTrace[];
 }
 
 class ChatMessagesApiService extends BaseApiService {

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
-from app.domain.services.media.storage import EncryptedLocalMediaStorage
+from app.domain.services.media.storage import (
+    EncryptedLocalMediaStorage,
+    LocalMediaObjectDeleter,
+)
 from app.domain.services.media.types import DownloadedMedia
 
 
@@ -56,3 +61,70 @@ def test_local_storage_rejects_invalid_key_length(tmp_path: Path) -> None:
             encryption_key=b"too-short",
             key_id="test-key",
         )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_removes_only_expired_atomic_write_files(tmp_path: Path) -> None:
+    storage = LocalMediaObjectDeleter(root=tmp_path)
+    media_dir = tmp_path / "wecom" / uuid4().hex / uuid4().hex / uuid4().hex
+    media_dir.mkdir(parents=True)
+    stale = media_dir / f".tmp-{'a' * 32}"
+    recent = media_dir / f".tmp-{'b' * 32}"
+    committed = media_dir / f"{'c' * 32}.jpg.enc"
+    unrelated = media_dir / ".tmp-unrecognized"
+    unrelated_dir = tmp_path / "wecom" / "misc"
+    unrelated_dir.mkdir()
+    unrelated_temporary = unrelated_dir / f".tmp-{'d' * 32}"
+    for path in (stale, recent, committed, unrelated):
+        path.write_bytes(b"encrypted")
+    unrelated_temporary.write_bytes(b"unrelated")
+    cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+    old_time = (cutoff - timedelta(hours=1)).timestamp()
+    for path in (stale, committed, unrelated, unrelated_temporary):
+        os.utime(path, (old_time, old_time))
+
+    removed = await storage.cleanup_expired_temporary_objects(
+        older_than=cutoff, limit=10
+    )
+
+    assert removed == 1
+    assert not stale.exists()
+    assert recent.exists()
+    assert committed.exists()
+    assert unrelated.exists()
+    assert unrelated_temporary.exists()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_limits_batch_and_does_not_follow_directory_symlinks(
+    tmp_path: Path,
+) -> None:
+    storage = LocalMediaObjectDeleter(root=tmp_path)
+    media_dir = tmp_path / "wecom" / uuid4().hex / uuid4().hex / uuid4().hex
+    media_dir.mkdir(parents=True)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+    old_time = (cutoff - timedelta(hours=1)).timestamp()
+    for index in range(2):
+        path = media_dir / f".tmp-{index:032x}"
+        path.write_bytes(b"encrypted")
+        os.utime(path, (old_time, old_time))
+    outside = tmp_path.parent / f"outside-media-{uuid4().hex}"
+    outside.mkdir()
+    outside_file = outside / f".tmp-{'f' * 32}"
+    outside_file.write_bytes(b"outside")
+    os.utime(outside_file, (old_time, old_time))
+    try:
+        (media_dir / "outside-link").symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pass
+
+    try:
+        assert (
+            await storage.cleanup_expired_temporary_objects(older_than=cutoff, limit=1)
+            == 1
+        )
+        assert len(list(media_dir.glob(".tmp-*"))) == 1
+        assert outside_file.exists()
+    finally:
+        outside_file.unlink()
+        outside.rmdir()

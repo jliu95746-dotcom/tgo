@@ -18,7 +18,7 @@ function implementation(kind, name) {
   }
   visit(ast);
   assert.ok(action, `${kind}:${name}`);
-  return ts.transpileModule(`globalThis.action = ${action.getText(ast)}`, {
+  return ts.transpileModule(`globalThis.extractedAction = ${action.getText(ast)}`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
 }
@@ -31,9 +31,16 @@ function fixture(kind, name) {
     fetchStaffInfo: async () => {}, incrementUnreadCount() {}, finalizeStreamMessage() {},
     markStreamingStart: id => set({ isStreaming: true, streamingClientMsgNo: id }),
   };
+  const guardedAction = {
+    isCurrent: () => true,
+    get: () => ({ ...state, ...actions }),
+    set,
+    guard: callback => callback,
+  };
   const self = { get _state() { return state; }, _setState: set, ...actions };
   const scope = {
-    get: () => ({ ...state, ...actions }), set, self, uidForIM: 'visitor-vtr', console: { log() {}, warn() {}, error() {} },
+    action: guardedAction, get: () => ({ ...state, ...actions }), set, self,
+    uidForIM: 'visitor-vtr', console: { log() {}, warn() {}, error() {} },
     toPayloadFromAny: value => value, types: { toPayloadFromAny: value => value },
     mergeHistoryMessages: (old, incoming) => [...old, ...incoming],
     playNotificationSound() {}, showBrowserNotification: async () => {},
@@ -44,12 +51,12 @@ function fixture(kind, name) {
     streamTimer: 'timer', clearTimeout: timer => timers.push(timer),
   };
   vm.runInNewContext(implementation(kind, 'markStreamingEnd'), scope);
-  const endAction = scope.action;
+  const endAction = scope.extractedAction;
   // Keep the real end implementation bound when loading the actual listener.
   actions.markStreamingEnd = id => endAction.call(self, id);
   self.markStreamingEnd = actions.markStreamingEnd;
   vm.runInNewContext(implementation(kind, name), scope);
-  return { state: () => state, set, timers, call: value => scope.action.call(self, value) };
+  return { state: () => state, set, timers, call: value => scope.extractedAction.call(self, value) };
 }
 
 function anchor(extra = {}) {

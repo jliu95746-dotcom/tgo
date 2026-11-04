@@ -10,6 +10,22 @@ from app.api.v1.endpoints import operations_shared_models
 from app.api.v1.endpoints import operations_management
 from app.api.v1.endpoints import trial_activation
 from app.api.v1.endpoints import billing_refunds
+from app.api.v1.endpoints import business_scenarios
+from app.api.v1.endpoints import business_connections
+from app.api.v1.endpoints import business_customer_identity
+from app.api.v1.endpoints import visitor_access
+from app.api.v1.endpoints import agent_trials
+from app.api.v1.endpoints import agent_activation_policies
+from app.api.v1.endpoints import agent_business_connections
+from app.api.v1.endpoints import agent_device_script_bindings
+from app.api.v1.endpoints import agent_device_script_trials
+from app.api.v1.endpoints import agent_device_script_cases
+from app.api.v1.endpoints import agent_device_script_runs
+from app.api.v1.endpoints import agent_device_script_selection
+from app.api.v1.endpoints import agent_business_trials
+from app.api.v1.endpoints import agent_activation_requests
+from app.api.v1.endpoints import workflow_events
+from app.api.v1.endpoints import workflow_webhook_ingress
 
 from app.api.v1.endpoints import (
     ai_agents,
@@ -17,8 +33,12 @@ from app.api.v1.endpoints import (
     ai_skills,
     ai_tools,
     ai_workflows,
+    workflow_schedules,
+    workflow_webhooks,
     conversations,
     device_control,
+    device_screen_policies,
+    device_script_policies,
     docs,
     email,
     onboarding,
@@ -53,12 +73,40 @@ from app.api.v1.endpoints import (
     store,
     utils,
     message_analysis,
+    hidden_shadow_protocol,
     knowledge_governance,
     knowledge_versions,
     customer_logistics,
 )
 
 api_router = APIRouter()
+api_router.include_router(workflow_webhook_ingress.router,
+                          prefix="/workflow-webhooks", tags=["Webhook ingress"])
+api_router.include_router(visitor_access.router, prefix="/visitors", tags=["Visitors"])
+api_router.include_router(agent_business_connections.router, prefix="/ai/agents", tags=["AI business configuration"])
+api_router.include_router(
+    agent_device_script_bindings.router, prefix="/ai/agents", tags=["员工脚本配置"]
+)
+api_router.include_router(
+    agent_device_script_trials.router, prefix="/ai/agents", tags=["员工脚本试验"]
+)
+api_router.include_router(
+    agent_device_script_cases.router, prefix="/ai/agents", tags=["员工脚本用例"]
+)
+api_router.include_router(
+    agent_device_script_runs.router, prefix="/ai/agents", tags=["员工脚本业务执行"]
+)
+api_router.include_router(
+    agent_device_script_selection.router,
+    prefix="/ai/agents", tags=["员工脚本固定审批"],
+)
+api_router.include_router(agent_business_trials.router, prefix="/ai/agents", tags=["AI business trials"])
+api_router.include_router(business_connections.router, prefix="/business-connections", tags=["企业业务连接"])
+api_router.include_router(business_customer_identity.router, prefix="/business-connections", tags=["商户客户身份"])
+api_router.include_router(agent_trials.router, prefix="/ai/agents", tags=["Agent trials"])
+api_router.include_router(agent_activation_policies.router, prefix="/ai/agents", tags=["Agent activation policies"])
+api_router.include_router(agent_activation_requests.router, prefix="/ai/agents", tags=["Agent activation requests"])
+api_router.include_router(business_scenarios.router, prefix="/business-scenarios", tags=["Business scenarios"])
 api_router.include_router(billing.router, prefix="/billing", tags=["Billing"])
 api_router.include_router(operations_billing.router, prefix="/ops", tags=["Operations billing"])
 api_router.include_router(operations_tasks.router, prefix="/ops", tags=["Operations tasks"])
@@ -225,14 +273,33 @@ api_router.include_router(
 
 # AI Workflows endpoints
 api_router.include_router(
+    workflow_events.router,
+    dependencies=[Depends(require_configuration_write)],
+    prefix="/ai/workflows",
+    tags=["AI Workflows"]
+)
+api_router.include_router(
     ai_workflows.router,
     dependencies=[Depends(require_configuration_write)],
     prefix="/ai/workflows",
     tags=["AI Workflows"]
 )
+api_router.include_router(
+    workflow_schedules.router,
+    dependencies=[Depends(require_configuration_write)],
+    prefix="/ai/workflows",
+    tags=["Workflow Schedules"],
+)
 
 
 # WuKongIM Public Endpoints
+api_router.include_router(
+    workflow_webhooks.router,
+    dependencies=[Depends(require_configuration_write)],
+    prefix="/ai/workflows",
+    tags=["Workflow Webhooks"],
+)
+
 api_router.include_router(
     wukongim.router,
     prefix="/wukongim",
@@ -323,6 +390,12 @@ api_router.include_router(
 
 # Device Control endpoints (proxy to tgo-device-control service)
 api_router.include_router(
+    device_script_policies.router,
+    prefix="/device-control",
+    tags=["Device Control"],
+)
+api_router.include_router(device_screen_policies.router, prefix="/device-control", tags=["Device Control"])
+api_router.include_router(
     device_control.router,
     prefix="/device-control",
     tags=["Device Control"],
@@ -333,6 +406,12 @@ api_router.include_router(
     message_analysis.router,
     prefix="/message-analysis",
     tags=["Message Analysis"],
+)
+
+api_router.include_router(
+    hidden_shadow_protocol.router,
+    prefix="/message-analysis/staff/hidden-shadow-protocols",
+    tags=["Independent Shadow Review"],
 )
 
 api_router.include_router(

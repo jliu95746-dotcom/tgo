@@ -9,11 +9,20 @@ from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.schemas.scenario_resources import KnowledgeAvailability
 
 logger = get_logger("rag_client")
 
 
 class RAGServiceClient:
+    async def knowledge_availability(self, project_id: str, channel: str) -> KnowledgeAvailability:
+
+        response = await self._make_request(
+            "GET", "/v1/knowledge-governance/availability",
+            params={"project_id": project_id, "channel": channel},
+        )
+        return KnowledgeAvailability.model_validate(await self._handle_response(response))
+
     """Client for communicating with the external RAG service."""
 
     async def knowledge_version_request(self, method: str, path: str, project_id: str,

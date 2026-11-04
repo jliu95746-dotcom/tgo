@@ -1,30 +1,48 @@
-"""MCP Server - Pure transparent proxy for device tools.
+"""MCP Server - device proxy with published read-policy enforcement.
 
 This module implements the MCP Streamable HTTP protocol as a transparent
 proxy to connected devices. It does NOT define any static tools, nor
 perform any tool name mapping or argument transformation. All tool
-definitions come from the devices themselves via TCP RPC ``tools/list``,
-and all tool calls are forwarded as-is via ``tools/call``.
+definitions come from the devices themselves via TCP RPC ``tools/list``.
+The published policy narrows tool discovery and calls before forwarding.
 
 The ``device_id`` is resolved from the URL path (``/mcp/{device_id}``).
 """
 
 from typing import Any, Dict, Optional
 
+from fastapi import HTTPException
+
 from app.config import settings
 from app.core.logging import get_logger
 from app.services.tcp_connection_manager import tcp_connection_manager
 from app.schemas.device_access import DeviceServicePrincipal
 from app.services.device_session_recording import record_device_tool
+from app.services.device_read_policy import allowed_read_arguments
 
 logger = get_logger("services.mcp_server")
 
 
 class MCPProxy:
-    """Transparent MCP proxy that forwards all requests to connected devices.
+    """MCP proxy that narrows discovery and execution to active device policy.
 
     No static tool definitions, no name mapping, no argument transformation.
     """
+
+    @staticmethod
+    def _policy_rejection_reason(
+        connection: object, principal: DeviceServicePrincipal | None
+    ) -> str | None:
+        if getattr(connection, "script_policy_required", False) is True:
+            return "Script business execution is not available"
+        if principal is None or principal.sub != "tgo-ai":
+            return None
+        desired_digest = getattr(connection, "desired_read_policy_digest", None)
+        if not isinstance(desired_digest, str):
+            return "Device policy is not published"
+        if principal.read_policy_digest != desired_digest:
+            return "Bound device policy changed"
+        return None
 
     # ------------------------------------------------------------------ #
     #  MCP protocol handlers                                              #
@@ -43,8 +61,10 @@ class MCPProxy:
             },
         }
 
-    async def handle_list_tools(self, device_id: str) -> Dict[str, Any]:
-        """Fetch tool list from device and return as-is.
+    async def handle_list_tools(
+        self, device_id: str, principal: DeviceServicePrincipal | None = None
+    ) -> Dict[str, Any]:
+        """Fetch the connected device's tools within its active policy.
 
         Args:
             device_id: Target device identifier.
@@ -52,13 +72,55 @@ class MCPProxy:
         Returns:
             ``{"tools": [...]}`` with raw tool definitions from the device.
         """
-        connection = tcp_connection_manager.get_connection(device_id)
-        if not connection:
-            logger.warning(f"list_tools: device {device_id} not connected")
-            return {"tools": []}
+        async with tcp_connection_manager.lifecycle_lock(device_id):
+            connection = tcp_connection_manager.get_connection(device_id)
+            if not connection:
+                logger.warning(f"list_tools: device {device_id} not connected")
+                return {"tools": []}
 
-        raw_tools = await connection.list_tools()
-        return {"tools": raw_tools or []}
+            policy_error = self._policy_rejection_reason(connection, principal)
+            if policy_error is not None:
+                return {"error": {
+                    "code": -32001,
+                    "message": policy_error,
+                }}
+
+            desired_digest = getattr(connection, "desired_read_policy_digest", None)
+            if isinstance(desired_digest, str) and (
+                getattr(connection, "applied_read_policy_digest", None)
+                != desired_digest
+            ):
+                return {"error": {
+                    "code": -32001,
+                    "message": "Device policy is pending acknowledgement",
+                }}
+            if isinstance(desired_digest, str) and (
+                getattr(connection, "read_policy_verified_digest", None)
+                != desired_digest
+            ):
+                return {"error": {
+                    "code": -32001,
+                    "message": "Device read action requires a current test",
+                }}
+
+            raw_tools = await connection.list_tools()
+            # Screen negotiation alone is not durable publication or business
+            # verification. Keep these tools private until that path exists.
+            raw_tools = [tool for tool in raw_tools or [] if not (
+                isinstance(tool, dict) and str(tool.get("name", "")).startswith("screen_")
+            )]
+            if not isinstance(desired_digest, str):
+                return {"tools": raw_tools or []}
+            read_tools = [
+                tool for tool in raw_tools or []
+                if isinstance(tool, dict) and tool.get("name") == "fs_read"
+            ]
+            if not read_tools:
+                return {"error": {
+                    "code": -32001,
+                    "message": "Required device read action is unavailable",
+                }}
+            return {"tools": read_tools}
 
     async def handle_call_tool(
         self, device_id: str, params: Dict[str, Any],
@@ -73,27 +135,97 @@ class MCPProxy:
         Returns:
             Raw tool call result from the device.
         """
+        if principal is not None and principal.sub != "tgo-ai":
+            raise HTTPException(403, "Device tool execution requires an AI run")
         name: str = params.get("name", "")
-        if principal is not None and principal.session_id is not None:
+        if principal is not None and principal.sub == "tgo-ai":
+            if principal.session_id is None:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": "Error: Device execution session required",
+                    }],
+                    "isError": True,
+                }
             return await record_device_tool(
                 principal, device_id, name,
-                lambda: self.handle_call_tool(device_id, params),
+                lambda: self._forward_tool(device_id, params, principal),
             )
+        return await self._forward_tool(device_id, params, principal)
+
+    async def _forward_tool(
+        self, device_id: str, params: Dict[str, Any],
+        principal: DeviceServicePrincipal | None,
+    ) -> Dict[str, Any]:
+        name: str = params.get("name", "")
         arguments: Dict[str, Any] = params.get("arguments", {})
 
-        connection = tcp_connection_manager.get_connection(device_id)
-        if not connection:
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"Error: Device {device_id} is not connected",
-                    }
-                ],
-                "isError": True,
-            }
+        if isinstance(name, str) and name.startswith("screen_"):
+            return {"content": [{"type": "text", "text":
+                "Error: Screen scope negotiation requires verified publication before business execution"}], "isError": True}
 
-        result = await connection.call_tool(name, arguments)
+        async with tcp_connection_manager.lifecycle_lock(device_id):
+            connection = tcp_connection_manager.get_connection(device_id)
+            if not connection:
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Error: Device {device_id} is not connected",
+                        }
+                    ],
+                    "isError": True,
+                }
+
+            policy_error = self._policy_rejection_reason(connection, principal)
+            if policy_error is not None:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"Error: {policy_error}",
+                    }],
+                    "isError": True,
+                }
+
+            desired_digest = getattr(connection, "desired_read_policy_digest", None)
+            if isinstance(desired_digest, str):
+                if (
+                    getattr(connection, "applied_read_policy_digest", None)
+                    != desired_digest
+                ):
+                    return {
+                        "content": [{
+                            "type": "text",
+                            "text": "Error: Device policy is pending acknowledgement",
+                        }],
+                        "isError": True,
+                    }
+                if (
+                    getattr(connection, "read_policy_verified_digest", None)
+                    != desired_digest
+                ):
+                    return {
+                        "content": [{
+                            "type": "text",
+                            "text": "Error: Device read action requires a current test",
+                        }],
+                        "isError": True,
+                    }
+                if name != "fs_read" or not allowed_read_arguments(
+                    connection.read_policy_directory,
+                    connection.read_policy_max_lines,
+                    connection.read_policy_max_offset,
+                    arguments,
+                ):
+                    return {
+                        "content": [{
+                            "type": "text",
+                            "text": "Error: Action is outside the active device policy",
+                        }],
+                        "isError": True,
+                    }
+
+            result = await connection.call_tool(name, arguments)
         if result is None:
             return {
                 "content": [
@@ -138,7 +270,9 @@ class MCPProxy:
         if method == "initialize":
             result = self.handle_initialize()
         elif method == "tools/list":
-            result = await self.handle_list_tools(device_id)
+            result = await self.handle_list_tools(device_id, principal)
+            if set(result) == {"error"}:
+                return {"jsonrpc": "2.0", "id": request_id, "error": result["error"]}
         elif method == "tools/call":
             result = await self.handle_call_tool(device_id, params, principal)
             if set(result) == {"error"}:

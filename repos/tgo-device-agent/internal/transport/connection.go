@@ -11,14 +11,15 @@ import (
 
 // connection owns all state that must never be reused by a reconnect.
 type connection struct {
-	conn      net.Conn
-	reader    *bufio.Scanner
-	writer    *bufio.Writer
-	writeMu   sync.Mutex
-	pending   sync.Map // numeric request ID -> chan *protocol.Response
-	ctx       context.Context
-	cancel    context.CancelFunc
-	stopClose func() bool
+	conn          net.Conn
+	reader        *bufio.Scanner
+	writer        *bufio.Writer
+	writeMu       sync.Mutex
+	pending       sync.Map // numeric request ID -> chan *protocol.Response
+	ctx           context.Context
+	cancel        context.CancelFunc
+	stopClose     func() bool
+	scriptBinding string
 }
 
 func newConnection(parent context.Context, conn net.Conn) *connection {

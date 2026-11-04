@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import '../models/api_types.dart';
 import 'api_client.dart';
 
@@ -46,8 +45,6 @@ class UploadService {
 
     final name = fileName ?? file.path.split('/').last;
 
-    debugPrint('[UploadService] Uploading file: $name');
-
     try {
       final formData = FormData.fromMap({
         'channel_id': channelId,
@@ -77,7 +74,6 @@ class UploadService {
       if (e.type == DioExceptionType.cancel) {
         throw Exception('Upload cancelled');
       }
-      debugPrint('[UploadService] Upload error: ${e.message}');
       rethrow;
     }
   }
@@ -93,8 +89,6 @@ class UploadService {
     CancelToken? cancelToken,
   }) async {
     const url = 'v1/chat/upload';
-
-    debugPrint('[UploadService] Uploading bytes: $fileName');
 
     try {
       final formData = FormData.fromMap({
@@ -129,7 +123,6 @@ class UploadService {
       if (e.type == DioExceptionType.cancel) {
         throw Exception('Upload cancelled');
       }
-      debugPrint('[UploadService] Upload error: ${e.message}');
       rethrow;
     }
   }

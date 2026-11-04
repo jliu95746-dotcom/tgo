@@ -15,7 +15,7 @@ from app.services.message_intent_orchestrator import (
 
 
 async def route_reply_intent(
-    project_id: str, client_msg_no: str, message: str
+    project_id: str, client_msg_no: str, message: str, *, defer_business_tools: bool = False,
 ) -> MessageIntentRoutingOutcome | None:
     if not settings.SAAS_ENABLED or not settings.SAAS_BILLING_ENABLED:
         return None
@@ -40,4 +40,5 @@ async def route_reply_intent(
             source_message_id=run.source_message_id,
             user_text=message,
             reuse_existing=True,
+            defer_business_tools=defer_business_tools,
         )

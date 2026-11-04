@@ -42,6 +42,9 @@ class MessageIntentResult(Base):
         nullable=False,
     )
     source_message_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    analysis_mode: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="active", server_default="active"
+    )
     media_analysis_result_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("api_media_analysis_results.id", ondelete="SET NULL"),
         nullable=True,
@@ -98,6 +101,10 @@ class MessageIntentResult(Base):
         CheckConstraint(
             "classification_source IN ('model', 'rule', 'fail_closed')",
             name="ck_message_intent_classification_source",
+        ),
+        CheckConstraint(
+            "analysis_mode IN ('active', 'shadow')",
+            name="ck_message_intent_analysis_mode",
         ),
         Index(
             "ix_message_intent_project_visitor_created",

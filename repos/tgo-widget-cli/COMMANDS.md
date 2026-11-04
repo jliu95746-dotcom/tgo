@@ -21,6 +21,8 @@ tgo-widget init --api-key <key> --server <url> [--name <n>] [--email <e>] [--pho
 
 ### chat send
 
+可选 `--customer-sessions-stdin` 只从标准输入读取本次签名客户会话，不写配置或命令参数。JSON/SSE、测试配置隔离和使用边界详见[客户业务 SDK 接入说明](../../docs/business-customer-sdk-integration.md)。
+
 Send a message and get AI response (SSE streaming by default).
 
 ```bash

@@ -11,6 +11,12 @@ from app.schemas.model_usage import ModelCostRate
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+    agent_trial_review_validity_hours: int = Field(default=168, ge=1, le=8760)
+    script_trial_evidence_key: SecretStr | None = None
+    script_trial_body_retention_days: int = Field(default=90, ge=1, le=3650)
+    script_trial_cleanup_interval_seconds: int = Field(
+        default=3600, ge=60, le=86400
+    )
     saas_enabled: bool = False
     saas_billing_enabled: bool = False
     saas_internal_token: SecretStr | None = None

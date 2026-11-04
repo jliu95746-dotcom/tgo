@@ -7,6 +7,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models import Platform, Visitor, VisitorSession, VisitorWaitingQueue
+from app.models.platform import DIRECT_VISITOR_PLATFORM_TYPES
 from app.schemas.queue_timeout import QUEUE_TIMEOUT_NOTICE_KEY, QueueTimeoutNotice
 from app.services.queue_events import schedule_queue_update
 from app.utils.encoding import build_visitor_channel_id
@@ -125,7 +126,7 @@ def expire_entry(db: Session, entry_id: UUID) -> bool:
         platform_type=platform.type,
         recipient=visitor.platform_open_id,
         external_status="not_required"
-        if platform.type == "website"
+        if platform.type in DIRECT_VISITOR_PLATFORM_TYPES
         or visitor.platform_open_id == build_visitor_channel_id(visitor.id)
         else "pending",
     )

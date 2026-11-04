@@ -3,12 +3,38 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
 import pytest
 
 import app.services.ai_client as ai_client_module
 import app.services.chat_service as chat_service
+import app.services.ai_interaction_run_service as interaction_runs
+
+
+@pytest.mark.asyncio
+async def test_ai_stream_anchor_identifies_sender_without_changing_reply_text(
+    monkeypatch,
+) -> None:
+    send_anchor = AsyncMock()
+    monkeypatch.setattr(chat_service.wukongim_client, "send_stream_message", send_anchor)
+
+    await chat_service.forward_ai_event_to_wukongim(
+        event_type="agent_execution_started",
+        event_data={"data": {}},
+        channel_id="customer-channel",
+        channel_type=251,
+        client_msg_no="ai-reply-1",
+        from_uid="staff-1-staff",
+    )
+
+    assert send_anchor.await_args.kwargs["payload"] == {
+        "type": 100,
+        "content": "",
+        "sender_kind": "ai",
+    }
+    assert send_anchor.await_args.kwargs["client_msg_no"] == "ai-reply-1"
 
 
 @pytest.mark.asyncio
@@ -119,7 +145,7 @@ async def test_forward_ai_event_to_wukongim_reports_workflow_failed(
 
     await chat_service.forward_ai_event_to_wukongim(
         event_type="workflow_failed",
-        event_data={"data": {"error": "boom"}},
+        event_data={"data": {"error": "private-provider-token"}},
         channel_id="channel-1",
         channel_type=1,
         client_msg_no="msg-1",
@@ -131,6 +157,69 @@ async def test_forward_ai_event_to_wukongim_reports_workflow_failed(
         "stream.close",
         "stream.finish",
     ]
+    assert "private-provider-token" not in str(sent_events)
+
+
+@pytest.mark.asyncio
+async def test_background_failure_stores_code_without_logging_provider_content(
+    monkeypatch, caplog,
+) -> None:
+    private_error = "private-background-provider-response"
+
+    async def failed_background(**_kwargs):
+        raise RuntimeError(private_error)
+
+    finish = Mock()
+    monkeypatch.setattr(chat_service, "run_background_ai_interaction", failed_background)
+    monkeypatch.setattr(interaction_runs, "mark_ai_interaction_finished", finish)
+    run_id = uuid4()
+    task = chat_service.schedule_background_ai_interaction(
+        project_id="project-1", user_id="visitor-1", message="咨询商品",
+        channel_id="channel-1", channel_type=251,
+        client_msg_no="ai-background-1", from_uid="staff-1-staff",
+        interaction_run_id=run_id,
+    )
+    await asyncio.gather(task, return_exceptions=True)
+    await asyncio.sleep(0)
+
+    assert finish.call_args.args == (run_id,)
+    assert finish.call_args.kwargs["error_message"] == "ai_processing_failed"
+    assert private_error not in str(caplog.records)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_mode", ["event", "exception"])
+async def test_internal_ai_stream_does_not_forward_provider_failure_details(
+    monkeypatch, caplog, failure_mode: str,
+) -> None:
+    private_error = "private-internal-provider-response"
+    forwarded = AsyncMock()
+    monkeypatch.setattr(
+        chat_service, "forward_ai_event_to_wukongim", forwarded,
+    )
+
+    async def provider_events(_source_factory):
+        if failure_mode == "exception":
+            raise RuntimeError(private_error)
+        yield "workflow_failed", {
+            "event_type": "workflow_failed",
+            "data": {"error_message": private_error},
+        }
+
+    monkeypatch.setattr(chat_service, "tracked_ai_stream", provider_events)
+    events = [event async for event in (
+        chat_service._process_internal_ai_stream_to_wukongim(
+            project_id="project-1", user_id="staff-1", message="测试",
+            channel_id="staff-channel", channel_type=249,
+            client_msg_no="ai-internal-1", from_uid="staff-1-staff",
+        )
+    )]
+
+    assert len(events) == 1
+    assert events[0]["event_type"] == "workflow_failed"
+    assert events[0]["data"]["error_message"] == chat_service.PUBLIC_AI_FAILURE_MESSAGE
+    assert private_error not in str(forwarded.await_args_list)
+    assert private_error not in str(caplog.records)
 
 
 @pytest.mark.asyncio
@@ -442,7 +531,7 @@ async def test_run_supervisor_agent_stream_omits_legacy_team_selectors(
     events = [
         event
         async for event in client.run_supervisor_agent_stream(
-            project_id="project-1",
+            project_id="11111111-1111-1111-1111-111111111111",
             agent_id="agent-1",
             user_id="user-1",
             message="hello",

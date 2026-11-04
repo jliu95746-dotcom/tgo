@@ -7,7 +7,7 @@ from app.core.config import settings
 
 
 def transport_token(uid: str, browser_token: str) -> str:
-    if not settings.SAAS_ENABLED:
+    if not settings.SAAS_ENABLED and not uid.endswith("-vtr"):
         return browser_token
     return hmac.new(
         settings.SECRET_KEY.encode("utf-8"),

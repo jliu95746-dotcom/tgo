@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Search, ExternalLink, FolderOpen, RefreshCw } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 import { useTranslation } from 'react-i18next';
 
 import { getIconComponent, getIconColor } from '@/components/knowledge/IconPicker';
@@ -39,7 +40,7 @@ const KnowledgeBaseSelectionModal: React.FC<KnowledgeBaseSelectionModalProps> = 
   selectedKnowledgeBases,
   onConfirm
 }) => {
-  const navigate = useNavigate();
+  const dialogRef = useDialogFocus<HTMLDivElement>(onClose, isOpen);
   const {
     knowledgeBases,
     isLoading,
@@ -123,12 +124,13 @@ const KnowledgeBaseSelectionModal: React.FC<KnowledgeBaseSelectionModalProps> = 
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="knowledge-selection-title" className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('knowledge.selectModal.title', '选择知识库')}</h3>
+          <h3 id="knowledge-selection-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('knowledge.selectModal.title', '选择知识库')}</h3>
           <button
             onClick={onClose}
+            aria-label={t('common.close', '关闭')}
             className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -261,6 +263,8 @@ const KnowledgeBaseSelectionModal: React.FC<KnowledgeBaseSelectionModalProps> = 
                     <div className="flex items-center">
                       <input
                         type="checkbox"
+                        aria-label={knowledgeBase.title}
+                        onClick={event => event.stopPropagation()}
                         checked={isSelected}
                         onChange={() => handleKnowledgeBaseClick(knowledgeBase)}
                         className="rounded border-gray-300 dark:border-gray-600 text-blue-600 dark:text-blue-500 focus:ring-blue-500 dark:bg-gray-700"
@@ -277,16 +281,12 @@ const KnowledgeBaseSelectionModal: React.FC<KnowledgeBaseSelectionModalProps> = 
 
         {/* Knowledge Base Management Link */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <button
+          <Link to="/knowledge" target="_blank" rel="noopener noreferrer"
             className="flex items-center space-x-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm"
-            onClick={() => {
-              navigate('/knowledge');
-              onClose();
-            }}
           >
             <span>{t('knowledge.manage', '管理知识库')}</span>
             <ExternalLink className="w-4 h-4" />
-          </button>
+          </Link>
         </div>
 
         {/* Footer - Always Visible */}

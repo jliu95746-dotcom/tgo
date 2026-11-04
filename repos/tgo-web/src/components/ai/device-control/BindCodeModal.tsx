@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, Copy, RefreshCw, Check, Monitor, Clock } from 'lucide-react';
 import { useDeviceControlStore } from '@/stores/deviceControlStore';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 
 interface BindCodeModalProps {
   isOpen: boolean;
@@ -24,12 +25,13 @@ const BindCodeModal: React.FC<BindCodeModalProps> = ({ isOpen, onClose }) => {
     isGeneratingCode,
     generateBindCode,
     clearBindCode,
+    error,
   } = useDeviceControlStore();
 
   // Generate code on open
   useEffect(() => {
     if (isOpen && !bindCode) {
-      generateBindCode();
+      void generateBindCode().catch(() => {});
     }
   }, [isOpen, bindCode, generateBindCode]);
 
@@ -68,7 +70,7 @@ const BindCodeModal: React.FC<BindCodeModalProps> = ({ isOpen, onClose }) => {
   // Refresh code
   const handleRefresh = useCallback(() => {
     clearBindCode();
-    generateBindCode();
+    void generateBindCode().catch(() => {});
   }, [clearBindCode, generateBindCode]);
 
   // Close and cleanup
@@ -76,6 +78,7 @@ const BindCodeModal: React.FC<BindCodeModalProps> = ({ isOpen, onClose }) => {
     clearBindCode();
     onClose();
   }, [clearBindCode, onClose]);
+  const dialogRef = useDialogFocus<HTMLDivElement>(handleClose, isOpen);
 
   // Format time
   const formatTime = (seconds: number) => {
@@ -88,18 +91,19 @@ const BindCodeModal: React.FC<BindCodeModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md shadow-2xl">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="bind-device-title" className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
               <Monitor className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             </div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+            <h2 id="bind-device-title" className="text-lg font-bold text-gray-900 dark:text-gray-100">
               {t('deviceControl.bindCode.title', '添加设备')}
             </h2>
           </div>
           <button
+            aria-label={t('businessScenarios.close')}
             onClick={handleClose}
             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors"
           >
@@ -109,6 +113,9 @@ const BindCodeModal: React.FC<BindCodeModalProps> = ({ isOpen, onClose }) => {
 
         {/* Content */}
         <div className="p-6">
+          {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/20">
+            {t('businessScenarios.deviceGuide.bindFailed')}<span className="mt-1 block break-words text-xs">{error}</span>
+          </p>}
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 text-center">
             {t('deviceControl.bindCode.description', '在控制端软件中输入以下绑定码来连接您的设备')}
           </p>
@@ -142,7 +149,7 @@ const BindCodeModal: React.FC<BindCodeModalProps> = ({ isOpen, onClose }) => {
               </>
             ) : (
               <div className="text-center py-4 text-gray-500">
-                {t('deviceControl.bindCode.expired', '绑定码已过期')}
+                {error ? t('businessScenarios.deviceGuide.bindEmpty') : t('deviceControl.bindCode.expired', '绑定码已过期')}
               </div>
             )}
           </div>

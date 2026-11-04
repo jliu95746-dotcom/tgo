@@ -1,20 +1,21 @@
-"""Internal AI events endpoint (no authentication required).
+"""Authenticated internal AI events endpoint.
 
 This endpoint is designed for the AI Service to send events to the TGO API
-without requiring JWT authentication. It runs on a separate port (8001) and
-should only be accessible from the internal network.
+using the shared internal service key. It runs on the internal port (8001).
 """
 
 from __future__ import annotations
 
 import logging
+from secrets import compare_digest
 from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models import (
     Project,
@@ -57,9 +58,6 @@ def parse_user_id(user_id: str) -> tuple[str, str]:
     
     Types: 'visitor', 'staff'
     """
-    if not isinstance(user_id, str):
-        return "visitor", str(user_id)
-        
     if user_id.endswith(VISITOR_UID_SUFFIX):
         return "visitor", user_id[:-len(VISITOR_UID_SUFFIX)]
     elif user_id.endswith(STAFF_UID_SUFFIX):
@@ -83,7 +81,22 @@ VISITOR_FIELD_MAP = {
     "source": "source",
 }
 
-router = APIRouter()
+
+def require_ai_event_service(
+    x_internal_api_key: str | None = Header(None),
+) -> None:
+    if (
+        not settings.SECRET_KEY
+        or not x_internal_api_key
+        or not compare_digest(
+            x_internal_api_key.encode("utf-8"),
+            settings.SECRET_KEY.encode("utf-8"),
+        )
+    ):
+        raise HTTPException(403, "内部服务身份无效")
+
+
+router = APIRouter(dependencies=[Depends(require_ai_event_service)])
 
 
 async def _handle_manual_service_request(event: AIServiceEvent, project: Project, db: Session) -> dict:
@@ -115,6 +128,16 @@ async def _handle_manual_service_request(event: AIServiceEvent, project: Project
             )
         channel_id, channel_type_raw = session_parts
         channel_type = int(channel_type_raw)
+    request_id = payload.metadata.get("request_id")
+    if request_id is not None and (
+        not isinstance(request_id, str)
+        or not request_id.strip()
+        or len(request_id) > 252
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="metadata.request_id must be a nonempty string of at most 252 characters",
+        )
     return await request_human_handoff(
         db=db,
         project=project,
@@ -124,6 +147,8 @@ async def _handle_manual_service_request(event: AIServiceEvent, project: Project
         channel=payload.channel,
         channel_id=channel_id,
         channel_type=channel_type,
+        source_message_id=f"ai:{request_id}" if request_id else None,
+        strict_source_receipt=bool(request_id),
     )
 
 
@@ -550,10 +575,10 @@ def _handle_visitor_tag(event: AIServiceEvent, project: Project, db: Session) ->
 
 
 INTERNAL_AI_EVENTS_DESCRIPTION = """
-**Internal endpoint for AI Service (no authentication required).**
+**Internal endpoint for AI Service (shared service key required).**
 
 This endpoint is designed for inter-service communication and should only be
-accessible from the internal network. It does NOT require JWT authentication.
+accessible from the internal network. It requires `X-Internal-API-Key`.
 
 **Security Note**: This endpoint runs on a separate port (8001) and should be
 protected by network-level security (firewall, VPC, etc.).
@@ -606,7 +631,7 @@ You do not need to provide `project_id` in the request.
 @router.post(
     "",
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Ingest AI-generated events (Internal - No Auth)",
+    summary="Ingest AI-generated events (Internal Service Auth)",
     description=INTERNAL_AI_EVENTS_DESCRIPTION,
 )
 async def ingest_ai_event_internal(
@@ -614,9 +639,9 @@ async def ingest_ai_event_internal(
     db: Session = Depends(get_db),
 ) -> dict:
     """
-    Ingest events from AI service (internal endpoint, no authentication required).
+    Ingest events from AI service after internal service authentication.
 
-    This endpoint is designed for the AI Service to send events without JWT authentication.
+    This endpoint is designed for the AI Service to send events with a shared key.
     The project is automatically determined from the user's project association.
 
     Security: This endpoint should only be accessible from the internal network.

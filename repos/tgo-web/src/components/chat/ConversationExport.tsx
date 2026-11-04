@@ -43,6 +43,6 @@ export default function ConversationExport({ channelId, channelType }: { channel
     <button type="button" disabled={busy} title={t('billingSupport.exportScope')} onClick={() => void download()} className="inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-xs hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-700">
       <Download className="h-4 w-4" aria-hidden="true" />{t(busy ? 'billingSupport.exportBusy' : 'billingSupport.exportConversation')}
     </button>
-    {error && <p role="alert" className="absolute right-0 top-full z-20 w-64 rounded-lg border bg-white p-3 text-sm text-red-700 shadow-lg">{error}</p>}
+    {error && <p role="alert" className="absolute max-[899px]:static right-0 top-full z-20 w-64 max-w-full rounded-lg border bg-white p-3 text-sm text-red-700 shadow-lg">{error}</p>}
   </div>;
 }

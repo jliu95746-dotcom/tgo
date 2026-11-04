@@ -3,6 +3,8 @@
 一个类似 Intercom 的客服小窗口 Widget 示例：React 18 + Vite 5 + Emotion（@emotion/react + @emotion/styled）。
 
 ## 功能
+
+签名客户会话的网页接入、取消及验证边界见[客户业务 SDK 接入说明](../../docs/business-customer-sdk-integration.md)。商户签名密钥留在服务端，业务凭据不放入访客属性、URL 或消息。
 - 顶部导航栏：标题 + 关闭按钮
 - 消息列表：滚动区域、左右两侧气泡
 - 输入区域：圆角输入框 + 发送按钮（支持回车）

@@ -49,6 +49,57 @@ def test_all_response_shapes_preserve_json_output(kind, output):
     assert actual == output and type(actual) is type(output)
 
 
+def test_execution_response_keeps_nested_parent_coordinates():
+    parsed = WorkflowExecution.model_validate({
+        **record("完成"),
+        "parent_execution_id": "parent-run",
+        "workflow_lineage": ["workflow-a", "workflow-b"],
+    })
+    exposed = parsed.model_dump(mode="json")
+    assert exposed["parent_execution_id"] == "parent-run"
+    assert exposed["workflow_lineage"] == ["workflow-a", "workflow-b"]
+
+
+def test_proxy_redacts_raw_inputs_and_legacy_intermediate_output():
+    parsed = WorkflowExecution.model_validate({
+        **record("客户可见答复"),
+        "input": {"email": "private@example.test"},
+        "node_executions": [{
+            **record({"email": "legacy-private@example.test"}),
+            "node_id": "input", "node_type": "input",
+            "execution_id": "execution-owned",
+            "input": {"email": "legacy-private@example.test"},
+        }],
+    })
+    exposed = parsed.model_dump(mode="json")
+    assert exposed["input"] == {"capture_status": "redacted", "field_count": 1}
+    assert exposed["node_executions"][0]["input"] == {
+        "capture_status": "redacted", "field_count": 1,
+    }
+    assert exposed["node_executions"][0]["output"] == {
+        "capture_status": "redacted", "field_count": 1,
+    }
+    assert exposed["output"] == "客户可见答复"
+    assert "private@example.test" not in str(exposed)
+
+
+def test_proxy_keeps_only_valid_business_query_trace_coordinates():
+    parsed = NodeExecution.model_validate({
+        **record({
+            "query_id": "2a1ab64c-8833-4cad-bc1e-799d26b2505a",
+            "connection_id": "0ddba593-b4af-4855-a1c5-a64c2822be38",
+            "operation": "order_query", "body": "private-provider-result",
+        }),
+        "node_id": "query", "node_type": "business_query",
+        "execution_id": "execution-owned",
+    })
+    assert parsed.model_dump(mode="json")["output"] == {
+        "query_id": "2a1ab64c-8833-4cad-bc1e-799d26b2505a",
+        "connection_id": "0ddba593-b4af-4855-a1c5-a64c2822be38",
+        "operation": "order_query",
+    }
+
+
 @pytest.mark.asyncio
 async def test_public_endpoints_keep_text_outputs(monkeypatch):
     answer = "这款有红色的。"

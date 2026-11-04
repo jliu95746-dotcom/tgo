@@ -152,9 +152,7 @@ backups/
 *.db
 *.sqlite3
 
-# Alembic
-alembic/versions/*.py
-!alembic/versions/.gitkeep
+# Database migration revisions are source files and travel with model changes.
 
 
 # Temporary files
@@ -169,3 +167,6 @@ envs/
 /data/
 repos/tgo-plugin-sdk/
 .worktrees/
+.playwright-cli/
+output/
+*.tsbuildinfo

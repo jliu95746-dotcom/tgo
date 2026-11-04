@@ -10,6 +10,15 @@ from app.schemas.base import BaseSchema, IDMixin, TimestampMixin
 from app.models.tool import ToolType, ToolSourceType
 
 
+class ToolAvailability(BaseSchema):
+    """Minimal receipt for a project-owned workflow tool dependency."""
+
+    tool_id: uuid.UUID
+    project_id: uuid.UUID
+    available: bool
+    workflow_read_only: bool
+
+
 class ToolBase(BaseSchema):
     """Base fields for Tool schemas."""
 

@@ -5,7 +5,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 import {
   X,
   Search,
@@ -33,7 +34,7 @@ const WorkflowSelectionModal: React.FC<WorkflowSelectionModalProps> = ({
   onConfirm,
 }) => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const dialogRef = useDialogFocus<HTMLDivElement>(onClose, isOpen);
   const { showToast } = useToast();
   
   const {
@@ -98,10 +99,6 @@ const WorkflowSelectionModal: React.FC<WorkflowSelectionModalProps> = ({
     onClose();
   };
 
-  const handleManageWorkflows = () => {
-    onClose();
-    navigate('/ai/workflows');
-  };
 
   const handleRetry = () => {
     loadWorkflows().catch(error => {
@@ -132,14 +129,15 @@ const WorkflowSelectionModal: React.FC<WorkflowSelectionModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="workflow-selection-title" className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <h3 id="workflow-selection-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {t('workflow.selectModal.title', '选择工作流')}
           </h3>
           <button
             onClick={onClose}
+            aria-label={t('common.close', '关闭')}
             className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -203,13 +201,12 @@ const WorkflowSelectionModal: React.FC<WorkflowSelectionModalProps> = ({
                   <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                     <GitBranch className="w-8 h-8 mx-auto mb-2 opacity-50" />
                     <p>{t('workflow.selectModal.noMatch', '未找到匹配的工作流')}</p>
-                    <button
-                      onClick={handleManageWorkflows}
+                    <Link to="/ai/workflows" target="_blank" rel="noopener noreferrer"
                       className="mt-3 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm flex items-center gap-1 mx-auto"
                     >
                       <Plus className="w-4 h-4" />
                       <span>{t('workflow.selectModal.createNew', '创建新工作流')}</span>
-                    </button>
+                    </Link>
                   </div>
                 ) : (
                   filteredWorkflows.map(workflow => {
@@ -259,6 +256,8 @@ const WorkflowSelectionModal: React.FC<WorkflowSelectionModalProps> = ({
                         <div className="flex items-center gap-2 ml-2">
                           <input
                             type="checkbox"
+                            aria-label={workflow.name}
+                            onClick={event => event.stopPropagation()}
                             checked={isSelected}
                             onChange={() => handleWorkflowClick(workflow)}
                             className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:bg-gray-700"
@@ -275,13 +274,12 @@ const WorkflowSelectionModal: React.FC<WorkflowSelectionModalProps> = ({
 
         {/* Manage Link */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <button
-            onClick={handleManageWorkflows}
+          <Link to="/ai/workflows" target="_blank" rel="noopener noreferrer"
             className="flex items-center space-x-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm transition-colors"
           >
             <span>{t('workflow.selectModal.manageWorkflows', '管理工作流')}</span>
             <ExternalLink className="w-4 h-4" />
-          </button>
+          </Link>
         </div>
 
         {/* Footer */}

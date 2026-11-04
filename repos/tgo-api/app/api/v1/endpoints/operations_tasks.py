@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,14 @@ from app.schemas.platform_models import PlatformModelChange, PlatformModelPolicy
 from app.services.platform_models import read_model_policy, update_model_policy
 from app.schemas.commercial_health import CommercialHealthReport
 from app.services.commercial_health import inspect_commercial_health
+from app.schemas.session_command_monitoring import (
+    ReconcileSessionNotice, SessionCommandAlertItem, SessionCommandAlertReport,
+)
+from app.services.session_command_monitoring import (
+    inspect_session_command_alerts, reconcile_stale_notice,
+)
+from app.schemas.wecom_durable_status import WeComDurableStatus
+from app.services.platform_message_client import read_wecom_durable_status
 
 router = APIRouter(
     dependencies=[Depends(require_commercial_operations), Depends(require_operator)]
@@ -32,6 +40,41 @@ router = APIRouter(
 @router.get("/commercial-health", response_model=CommercialHealthReport)
 def commercial_health(db: Session = Depends(get_db)) -> CommercialHealthReport:
     return inspect_commercial_health(db)
+
+
+@router.get("/wecom-durable-status", response_model=WeComDurableStatus)
+async def wecom_durable_status(response: Response) -> WeComDurableStatus:
+    response.headers["Cache-Control"] = "no-store"
+    return await read_wecom_durable_status()
+
+
+@router.get("/session-command-alerts", response_model=SessionCommandAlertReport)
+def session_command_alerts(
+    response: Response,
+    stale_after_seconds: int = Query(300, ge=60, le=86400),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> SessionCommandAlertReport:
+    response.headers["Cache-Control"] = "no-store"
+    return inspect_session_command_alerts(
+        db, stale_after_seconds=stale_after_seconds, offset=offset, limit=limit,
+    )
+
+
+@router.post(
+    "/session-command-alerts/{operation_id}/reconcile-notice",
+    response_model=SessionCommandAlertItem,
+)
+async def reconcile_session_notice(
+    operation_id: UUID,
+    payload: ReconcileSessionNotice,
+    response: Response,
+    db: Session = Depends(get_db),
+    operator: PlatformOperator = Depends(require_operator),
+) -> SessionCommandAlertItem:
+    response.headers["Cache-Control"] = "no-store"
+    return await reconcile_stale_notice(db, operator, operation_id, payload)
 
 
 @router.get("/model-policy", response_model=PlatformModelPolicy)

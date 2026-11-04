@@ -1,5 +1,10 @@
 {
   "brand": { "poweredBy": "域见提供支持" },
+  "customerService": {
+    "aiDisclosure": "本窗口支持 AI 客服回复，您也可以请求人工服务。",
+    "requestHuman": "转人工",
+    "requestingHuman": "请求中…"
+  },
   "common": {
     "servicePaused": "当前已暂停新接待。已有人工会话可在收尾期间继续沟通。",
     "retry": "重试",
@@ -24,11 +29,15 @@
     "typing": "正在输入..."
   },
   "messageList": {
+    "aiLabel": "AI 客服",
     "loadingHistory": "加载中…",
     "loadHistoryFailed": "加载历史消息失败",
     "noMoreMessages": "没有更多消息",
     "sending": "发送中…",
-    "uploading": "上传中…"
+    "uploading": "上传中…",
+    "uploadingImage": "图片上传中…",
+    "uploadingVoice": "语音上传中…",
+    "uploadingFile": "文件上传中…"
   },
   "errors": {
     "textReplyUnconfirmed": "消息已送达，后续接待处理暂未确认，请稍候，无需重复发送。",
@@ -47,6 +56,11 @@
   },
   "file": {
     "download": "下载"
+  },
+  "voice": {
+    "label": "语音消息",
+    "play": "播放语音消息",
+    "unavailable": "语音暂时无法播放，请重新连接后重试。"
   },
   "system": {
     "staffAssigned": "已为您接入人工客服，客服 {{name0}} 为您服务。",

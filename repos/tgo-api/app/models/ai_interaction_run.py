@@ -99,3 +99,6 @@ class AIInteractionRun(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    stop_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )

@@ -1,6 +1,9 @@
 import { Command } from 'commander';
 import { TgoClient } from '../client.js';
-import { loadConfig, resolveOutput, resolveServer, updateConfig } from '../config.js';
+import {
+  beginAuthLogin, cancelAuthLogin, clearAuthSession, completeAuthLogin,
+  resolveOutput, resolveServer,
+} from '../config.js';
 import { printError, printResult } from '../output.js';
 
 export function registerAuthCommands(parent: Command): void {
@@ -19,23 +22,7 @@ export function registerAuthCommands(parent: Command): void {
         if (!server) {
           throw new Error('Server URL required. Use --server or TGO_SERVER env var.');
         }
-        const client = new TgoClient({ server });
-        const result = await client.postForm<{
-          access_token: string;
-          token_type: string;
-          staff: Record<string, unknown>;
-        }>('/v1/staff/login', {
-          username: opts.user,
-          password: opts.pass,
-          grant_type: 'password',
-        });
-
-        updateConfig({ server, token: result.access_token });
-        printResult({
-          success: true,
-          message: 'Logged in successfully',
-          staff: result.staff,
-        }, format);
+        printResult(await authLogin(server, opts.user, opts.pass), format);
       } catch (err) {
         printError(err, format);
       }
@@ -47,8 +34,8 @@ export function registerAuthCommands(parent: Command): void {
     .action((_opts, cmd) => {
       const globals = cmd.parent!.parent!.opts();
       const format = resolveOutput(globals.output);
-      updateConfig({ token: undefined });
-      printResult({ success: true, message: 'Logged out' }, format);
+      try { printResult(authLogout(), format); }
+      catch (error) { printError(error, format); }
     });
 
   auth
@@ -72,18 +59,29 @@ export function registerAuthCommands(parent: Command): void {
 
 // For MCP: standalone action functions
 export async function authLogin(server: string, username: string, password: string): Promise<unknown> {
-  const client = new TgoClient({ server });
-  const result = await client.postForm<{
-    access_token: string;
-    token_type: string;
-    staff: Record<string, unknown>;
-  }>('/v1/staff/login', {
-    username,
-    password,
-    grant_type: 'password',
-  });
-  updateConfig({ server, token: result.access_token });
-  return { success: true, message: 'Logged in successfully', staff: result.staff };
+  const requestId = beginAuthLogin();
+  try {
+    const client = new TgoClient({ server });
+    const result = await client.postForm<{
+      access_token: string;
+      token_type: string;
+      staff: Record<string, unknown>;
+    }>('/v1/staff/login', {
+      username,
+      password,
+      grant_type: 'password',
+    });
+    if (!result.access_token || typeof result.access_token !== 'string') {
+      throw new Error('登录响应缺少访问令牌');
+    }
+    if (!completeAuthLogin(requestId, server, result.access_token)) {
+      throw new Error('本次登录已被新的登录或退出操作取代，请重试');
+    }
+    return { success: true, message: 'Logged in successfully', staff: result.staff };
+  } catch (error) {
+    cancelAuthLogin(requestId);
+    throw error;
+  }
 }
 
 export async function authWhoami(clientOpts?: { server?: string; token?: string }): Promise<unknown> {
@@ -92,6 +90,6 @@ export async function authWhoami(clientOpts?: { server?: string; token?: string 
 }
 
 export function authLogout(): unknown {
-  updateConfig({ token: undefined });
+  clearAuthSession();
   return { success: true, message: 'Logged out' };
 }

@@ -80,7 +80,7 @@ const HumanizationSkillModal: React.FC<HumanizationSkillModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-gray-900">
+      <div className="management-modal-panel relative w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-gray-900">
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
           <div className="flex items-center gap-3">
             <span className="rounded-xl bg-violet-100 p-2 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
@@ -102,7 +102,7 @@ const HumanizationSkillModal: React.FC<HumanizationSkillModalProps> = ({
           </button>
         </div>
 
-        <div className="max-h-[70vh] space-y-5 overflow-y-auto p-6">
+        <div className="management-modal-body max-h-[70vh] space-y-5 overflow-y-auto p-6">
           <label className="block space-y-2">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               {t('skills.humanization.displayName', '显示名称')}

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, JsonValue
-from typing import List, Optional, Dict
+from typing import List, Literal, Optional, Dict
 from datetime import datetime
 from enum import Enum
 from app.schemas.node import WorkflowNode
@@ -32,6 +32,7 @@ class WorkflowCreate(WorkflowBase):
     edges: List[WorkflowEdge] = Field(..., description="List of workflow edges")
 
 class WorkflowUpdate(BaseModel):
+    expected_version: int | None = Field(default=None, ge=1)
     name: Optional[str] = Field(None, description="Workflow name")
     description: Optional[str] = Field(None, description="Detailed description of the workflow")
     nodes: Optional[List[WorkflowNode]] = Field(None, description="List of workflow nodes")
@@ -40,6 +41,8 @@ class WorkflowUpdate(BaseModel):
     tags: Optional[List[str]] = Field(None, description="List of workflow tags")
 
 class WorkflowInDB(WorkflowBase):
+    published_version: int | None = None
+    publication_revision: int = 0
     id: str = Field(..., description="Unique identifier of the workflow")
     project_id: str = Field(..., description="The ID of the project this workflow belongs to")
     definition: WorkflowDefinition = Field(..., description="Workflow graph definition")
@@ -53,6 +56,8 @@ class WorkflowInDB(WorkflowBase):
         from_attributes = True
 
 class WorkflowSummary(WorkflowBase):
+    published_version: int | None = None
+    publication_revision: int = 0
     id: str = Field(..., description="Unique identifier of the workflow")
     project_id: str = Field(..., description="The ID of the project this workflow belongs to")
     status: WorkflowStatus = Field(..., description="Current status")
@@ -92,10 +97,28 @@ class WorkflowInputParameter(BaseModel):
     name: str = Field(..., description="Parameter name")
     type: str = Field(..., description="Parameter type (string, number, boolean, object, array)")
     description: Optional[str] = Field(None, description="Parameter description")
-    required: bool = Field(True, description="Whether the parameter is required")
+    required: bool = Field(False, description="Whether the parameter is required")
     default: Optional[JsonValue] = Field(None, description="Default value for the parameter")
 
 class WorkflowBatchInfo(WorkflowSummary):
     """Workflow summary with input parameters for agent integration"""
     input_parameters: List[WorkflowInputParameter] = Field(default=[], description="List of input parameters required by the workflow")
+
+
+class WorkflowBusinessQueryDependency(BaseModel):
+    connection_id: str
+    operation: Literal["order_query", "logistics_query"]
+
+
+class WorkflowIntegrationRelease(BaseModel):
+    """A published version's stable input and dependency contract for employee bindings."""
+
+    workflow_id: str
+    release_version: int = Field(ge=1)
+    release_id: str
+    definition_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    input_parameters: List[WorkflowInputParameter]
+    node_types: List[str]
+    required_business_queries: List[WorkflowBusinessQueryDependency]
+    approval_actions: List[str]
 

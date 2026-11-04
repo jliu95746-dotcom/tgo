@@ -12,8 +12,50 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas.reply_phase import ReplyPhaseIdentity
+from app.schemas.assist_trace import AssistTracePhase
+from app.services.assist_run_trace import record_assist_run_trace
 from app.schemas.knowledge_availability import AgentKnowledgeAvailability
 from app.schemas.media_probe import MediaProbeResult
+from app.schemas.agent_trials import AgentTrialReport, AgentTrialRequest
+from app.schemas.agent_knowledge_capabilities import AgentKnowledgeCapabilities, KnowledgeCapabilityQuery
+from app.schemas.agent_trial_reviews import KnowledgeReviewCommand, KnowledgeReviewQuery, KnowledgeReviewResponse, KnowledgeReviewState
+from app.schemas.scenario_agents import ScenarioAgentReceipt, ScenarioAgentSnapshot
+from app.schemas.agent_activation import AgentActivationPolicies, AgentActivationPolicyChange, AgentActivationPolicyRecord
+from app.schemas.agent_activation_readiness import AgentActivationReadiness
+from app.schemas.agent_business_connections import AgentBusinessConnectionRecord, AgentBusinessConnections, AgentBusinessConnectionWrite
+from app.schemas.agent_device_script_binding import (
+    AgentDeviceScriptRecord, AgentDeviceScriptState, AgentDeviceScriptWrite,
+)
+from app.schemas.agent_device_script_trials import (
+    ScriptTrialReport, ScriptTrialStart,
+)
+from app.schemas.agent_device_script_requests import (
+    ScriptTrialControl, ScriptTrialRequestState,
+)
+from app.schemas.agent_device_script_cases import (
+    ScriptCasePage, ScriptCaseRead, ScriptCaseRecord, ScriptCaseWrite,
+    ScriptCaseSaveControl, ScriptCaseSaveState,
+    ScriptCaseTrialResult, ScriptTrialEvidence,
+)
+from app.schemas.agent_device_script_reviews import (
+    ScriptReviewState, ScriptReviewWrite, ScriptRunCheck,
+)
+from app.schemas.agent_device_script_runs import (
+    ScriptRunControl, ScriptRunStart, ScriptRunView,
+)
+from app.schemas.agent_device_script_selection import (
+    ScriptSelectionRecord, ScriptSelectionState, ScriptSelectionWrite,
+)
+from app.schemas.agent_activation_requests import AgentActivationRequest, AgentActivationReceipt
+from app.schemas.agent_execution import AgentExecutionCheckReceipt, AgentExecutionReference
+from app.schemas.ai import (
+    AgentDeviceActionReadiness,
+    WorkflowReleaseAuditResponse, WorkflowPinTransitionHistory,
+    WorkflowPinTransitionReceipt,
+)
+from app.schemas.business_execution_context import BusinessRequestAuthorization
+from app.services.business_execution_transport import business_headers
+from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse
 from app.schemas.humanization import (
     ConversationTurn, HumanizationContext, HumanizationMatchRequest,
@@ -79,6 +121,7 @@ class AIServiceClient:
         content: Optional[str] = None,
         form_data: dict[str, str] | None = None,
         files: dict[str, tuple[str, bytes, str]] | None = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         """Make HTTP request to AI service."""
         url = f"{self.base_url}{endpoint}"
@@ -101,7 +144,7 @@ class AIServiceClient:
 
         try:
             async with httpx.AsyncClient(
-                timeout=self.timeout,
+                timeout=timeout if timeout is not None else self.timeout,
                 trust_env=False,
             ) as client:
                 kwargs: Dict[str, Any] = {
@@ -138,7 +181,7 @@ class AIServiceClient:
         except httpx.TimeoutException:
             logger.error(
                 f"AI service timeout: {url}",
-                extra={"request_id": request_id, "timeout": self.timeout},
+                extra={"request_id": request_id, "timeout": timeout if timeout is not None else self.timeout},
             )
             raise HTTPException(status_code=504, detail="AI service request timed out")
         except httpx.RequestError as e:
@@ -177,6 +220,15 @@ class AIServiceClient:
         raise HTTPException(status_code=response.status_code, detail=error_data)
 
     # Agent endpoints
+    @staticmethod
+    def _execution_headers(project_id: str, channel: str | None) -> dict[str, str]:
+        """The API supplies this scope after deriving the customer's platform."""
+        return {
+            "X-Internal-API-Key": settings.SECRET_KEY,
+            "X-Project-Id": str(UUID(project_id)),
+            "X-Execution-Channel": KnowledgeChannel(channel or "internal").value,
+        }
+
     async def run_supervisor_agent(
         self,
         message: str,
@@ -192,6 +244,7 @@ class AIServiceClient:
         system_message: Optional[str] = None,
         enable_memory: Optional[bool] = None,
         disable_tools: Optional[bool] = None,
+        knowledge_only: bool = False,
         response_purpose: str = "standard",
         require_current_knowledge: bool = False,
         knowledge_context: list[str] | None = None,
@@ -199,6 +252,9 @@ class AIServiceClient:
         temperature: Optional[float] = None,
         cancel_on_disconnect: bool = False,
         reply_phase: ReplyPhaseIdentity | None = None,
+        business_authorization: "BusinessRequestAuthorization | None" = None,
+        trace_phase: AssistTracePhase | None = None,
+        trace_template: str | None = None,
     ) -> Dict[str, Any]:
         """Run supervisor agent workflow and return response content."""
         payload: Dict[str, Any] = {
@@ -223,6 +279,9 @@ class AIServiceClient:
             payload["enable_memory"] = enable_memory
         if disable_tools is not None:
             payload["disable_tools"] = disable_tools
+        if knowledge_only:
+            payload["knowledge_only"] = True
+            payload["ui_mode"] = "text"
         payload["response_purpose"] = response_purpose
         if require_current_knowledge:
             payload["require_current_knowledge"] = True
@@ -245,11 +304,19 @@ class AIServiceClient:
             "/api/v1/agents/run",
             json_data=payload,
             params={"project_id": project_id},
+            extra_headers={**self._execution_headers(project_id, knowledge_channel),
+                **business_headers(business_authorization, project_id, user_id, knowledge_channel)},
         )
         data = await self._handle_response(response)
         if isinstance(data, dict):
             if data.get("success") is False:
                 raise HTTPException(502, "AI 生成失败，请稍后重试或转人工处理")
+            record_assist_run_trace(
+                trace_phase, data,
+                system_message=system_message,
+                template_text=trace_template,
+                requested_agent_id=agent_id,
+            )
             return data
 
         return {"content": data}
@@ -275,6 +342,7 @@ class AIServiceClient:
         knowledge_context: list[str] | None = None,
         cancel_on_disconnect: bool = False,
         reply_phase: ReplyPhaseIdentity | None = None,
+        business_authorization: "BusinessRequestAuthorization | None" = None,
     ) -> AsyncGenerator[Tuple[str, Any], None]:
         """Stream supervisor agent events as they arrive."""
         payload: Dict[str, Any] = {
@@ -319,6 +387,8 @@ class AIServiceClient:
         url = f"{self.base_url}/api/v1/agents/run"
         request_id = str(uuid4())
         headers = self._get_headers()
+        headers.update(self._execution_headers(project_id, knowledge_channel))
+        headers.update(business_headers(business_authorization, project_id, user_id, knowledge_channel))
         headers["X-Request-ID"] = request_id
         headers.setdefault("Accept", "text/event-stream")
 
@@ -463,6 +533,7 @@ class AIServiceClient:
         is_default: Optional[bool] = None,
         limit: int = 20,
         offset: int = 0,
+        bound_device_id: UUID | None = None,
     ) -> Dict[str, Any]:
         """List agents from AI service."""
         params = {"limit": limit, "offset": offset, "project_id": project_id}
@@ -470,14 +541,72 @@ class AIServiceClient:
             params["model"] = model
         if is_default is not None:
             params["is_default"] = is_default
+        if bound_device_id is not None:
+            params["bound_device_id"] = str(bound_device_id)
 
         response = await self._make_request("GET", "/api/v1/agents", params=params)
         return await self._handle_response(response)
+
+    async def get_device_action_readiness(
+        self, project_id: str, agent_id: str, *, requested_by: UUID,
+    ) -> AgentDeviceActionReadiness:
+        response = await self._make_request(
+            "GET", f"/api/v1/agents/{agent_id}/device-action-readiness",
+            params={"project_id": project_id},
+            extra_headers=self._trial_headers(UUID(project_id), requested_by),
+        )
+        try:
+            return AgentDeviceActionReadiness.model_validate(
+                await self._handle_response(response)
+            )
+        except ValidationError:
+            raise HTTPException(502, "AI 员工设备状态响应无效") from None
+
+    async def get_workflow_release_audit(
+        self, project_id: str, limit: int, offset: int,
+    ) -> WorkflowReleaseAuditResponse:
+        """Read the project's unpinned employee workflow bindings."""
+        response = await self._make_request(
+            "GET", "/api/v1/agents/workflow-release-audit",
+            params={"project_id": project_id, "limit": limit, "offset": offset},
+        )
+        return WorkflowReleaseAuditResponse.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def pin_legacy_workflow(
+        self, *, project_id: str, agent_id: str, workflow_id: str,
+        command: dict[str, object], requested_by: UUID,
+    ) -> WorkflowPinTransitionReceipt:
+        """Forward a signed administrator command for one old binding."""
+        response = await self._make_request(
+            "POST", f"/api/v1/agents/{agent_id}/workflows/{workflow_id}/pin-legacy",
+            json_data=command,
+            params={"project_id": project_id},
+            extra_headers=self._trial_headers(UUID(project_id), requested_by),
+        )
+        return WorkflowPinTransitionReceipt.model_validate(
+            await self._handle_response(response)
+        )
+
+    async def get_workflow_pin_transitions(
+        self, *, project_id: str, agent_id: str,
+        requested_by: UUID, limit: int, offset: int,
+    ) -> WorkflowPinTransitionHistory:
+        response = await self._make_request(
+            "GET", f"/api/v1/agents/{agent_id}/workflow-pin-transitions",
+            params={"project_id": project_id, "limit": limit, "offset": offset},
+            extra_headers=self._trial_headers(UUID(project_id), requested_by),
+        )
+        return WorkflowPinTransitionHistory.model_validate(
+            await self._handle_response(response)
+        )
 
     async def create_agent(
         self,
         project_id: str,
         agent_data: Dict[str, Any],
+        *, requested_by: UUID | None = None,
     ) -> Dict[str, Any]:
         """Create agent in AI service."""
         response = await self._make_request(
@@ -485,6 +614,7 @@ class AIServiceClient:
             "/api/v1/agents",
             json_data=agent_data,
             params={"project_id": project_id},
+            extra_headers=self._trial_headers(UUID(project_id), requested_by) if requested_by else None,
         )
         return await self._handle_response(response)
 
@@ -526,6 +656,7 @@ class AIServiceClient:
         project_id: str,
         agent_id: str,
         agent_data: Dict[str, Any],
+        *, requested_by: UUID | None = None,
     ) -> Dict[str, Any]:
         """Update agent in AI service."""
         response = await self._make_request(
@@ -533,6 +664,7 @@ class AIServiceClient:
             f"/api/v1/agents/{agent_id}",
             json_data=agent_data,
             params={"project_id": project_id},
+            extra_headers=self._trial_headers(UUID(project_id), requested_by) if requested_by else None,
         )
         return await self._handle_response(response)
 
@@ -1058,6 +1190,387 @@ class AIServiceClient:
         )
         if response.status_code not in (200, 204):
             await self._handle_response(response)
+
+
+    async def agent_activation_policies(self, project_id: UUID, staff_id: UUID,
+                                        agent_id: UUID) -> AgentActivationPolicies:
+        from app.services.agent_activation_policy_client import read
+        return await read(self, project_id, staff_id, agent_id)
+
+    async def submit_agent_activation_request(self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+                                             command: AgentActivationRequest) -> AgentActivationReceipt:
+        from app.services.agent_activation_request_client import submit
+        return await submit(self, project_id, staff_id, agent_id, command)
+
+    async def lookup_agent_activation_request(self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+                                             request_key: UUID) -> AgentActivationReceipt:
+        from app.services.agent_activation_request_client import lookup
+        return await lookup(self, project_id, staff_id, agent_id, request_key)
+
+    async def agent_device_script_binding(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+    ) -> AgentDeviceScriptState:
+        from app.services.agent_device_script_binding_client import read
+        return await read(self, project_id, staff_id, agent_id)
+
+    async def save_agent_device_script_binding(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+        command: AgentDeviceScriptWrite,
+    ) -> AgentDeviceScriptRecord:
+        from app.services.agent_device_script_binding_client import save
+        return await save(self, project_id, staff_id, agent_id, command)
+
+    async def agent_device_script_binding_request(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, request_id: UUID,
+    ) -> AgentDeviceScriptRecord:
+        from app.services.agent_device_script_binding_client import recover
+        return await recover(self, project_id, staff_id, agent_id, request_id)
+
+    async def start_agent_device_script_trial(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+        command: ScriptTrialStart,
+    ) -> ScriptTrialReport:
+        from app.services.agent_device_script_trial_client import start
+        return await start(self, project_id, staff_id, agent_id, command)
+
+    async def agent_device_script_request_state(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+        request_id: UUID,
+    ) -> ScriptTrialRequestState:
+        from app.services.agent_device_script_trial_client import request_state
+        return await request_state(
+            self, project_id, staff_id, agent_id, request_id
+        )
+
+    async def cancel_agent_device_script_request(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+        command: ScriptTrialControl,
+    ) -> ScriptTrialRequestState:
+        from app.services.agent_device_script_trial_client import cancel_request
+        return await cancel_request(
+            self, project_id, staff_id, agent_id, command
+        )
+
+    async def get_agent_device_script_trial(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, report_id: UUID,
+    ) -> ScriptTrialReport:
+        from app.services.agent_device_script_trial_client import read
+        return await read(self, project_id, staff_id, agent_id, report_id)
+
+    async def agent_device_script_trial_request(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, request_id: UUID,
+    ) -> ScriptTrialReport:
+        from app.services.agent_device_script_trial_client import recover
+        return await recover(self, project_id, staff_id, agent_id, request_id)
+
+    async def list_agent_device_script_cases(
+        self, project: UUID, actor: UUID, agent: UUID, *,
+        skip: int = 0, limit: int = 20,
+    ) -> ScriptCasePage:
+        from app.services.agent_device_script_trial_client import list_cases
+        return await list_cases(self, project, actor, agent,
+                                skip=skip, limit=limit)
+
+    async def save_agent_device_script_case(
+        self, project: UUID, actor: UUID, agent: UUID, command: ScriptCaseWrite,
+    ) -> ScriptCaseRecord:
+        from app.services.agent_device_script_trial_client import save_case
+        return await save_case(self, project, actor, agent, command)
+
+    async def get_agent_device_script_case(
+        self, project: UUID, actor: UUID, agent: UUID, version: UUID,
+    ) -> ScriptCaseRead:
+        from app.services.agent_device_script_trial_client import read_case
+        return await read_case(self, project, actor, agent, version)
+
+    async def agent_device_script_case_request(
+        self, project: UUID, actor: UUID, agent: UUID, request: UUID,
+    ) -> ScriptCaseRecord:
+        from app.services.agent_device_script_trial_client import recover_case
+        return await recover_case(self, project, actor, agent, request)
+
+    async def agent_device_script_case_save_state(
+        self, project: UUID, actor: UUID, agent: UUID, request: UUID,
+    ) -> ScriptCaseSaveState:
+        from app.services.agent_device_script_trial_client import (
+            case_save_state,
+        )
+        return await case_save_state(self, project, actor, agent, request)
+
+    async def cancel_agent_device_script_case_save(
+        self, project: UUID, actor: UUID, agent: UUID,
+        command: ScriptCaseSaveControl,
+    ) -> ScriptCaseSaveState:
+        from app.services.agent_device_script_trial_client import (
+            case_save_state,
+        )
+        return await case_save_state(
+            self, project, actor, agent, command.request_id, command=command)
+
+    async def run_agent_device_script_case(
+        self, project: UUID, actor: UUID, agent: UUID, version: UUID,
+        command: ScriptTrialControl,
+    ) -> ScriptCaseTrialResult:
+        from app.services.agent_device_script_trial_client import run_case
+        return await run_case(self, project, actor, agent, version, command)
+
+    async def agent_device_script_evidence(
+        self, project: UUID, actor: UUID, agent: UUID, report: UUID,
+    ) -> ScriptTrialEvidence:
+        from app.services.agent_device_script_trial_client import read_evidence
+        return await read_evidence(self, project, actor, agent, report)
+
+    async def agent_device_script_review(
+        self, project: UUID, actor: UUID, agent: UUID, report: UUID,
+        *, command: ScriptReviewWrite | None = None, revoke: UUID | None = None,
+    ) -> ScriptReviewState:
+        from app.services.agent_device_script_trial_client import script_review
+        return await script_review(
+            self, project, actor, agent, report, command=command, revoke=revoke
+        )
+
+    async def agent_device_script_run_check(
+        self, project: UUID, actor: UUID, agent: UUID, report: UUID,
+    ) -> ScriptRunCheck:
+        from app.services.agent_device_script_trial_client import (
+            script_run_check,
+        )
+        return await script_run_check(self, project, actor, agent, report)
+
+    async def agent_device_script_selection(
+        self, project: UUID, actor: UUID, agent: UUID,
+    ) -> ScriptSelectionState:
+        from app.services.agent_device_script_selection_client import (
+            read_selection,
+        )
+        return await read_selection(self, project, actor, agent)
+
+    async def save_agent_device_script_selection(
+        self, project: UUID, actor: UUID, agent: UUID,
+        command: ScriptSelectionWrite,
+    ) -> ScriptSelectionRecord:
+        from app.services.agent_device_script_selection_client import (
+            save_selection,
+        )
+        return await save_selection(self, project, actor, agent, command)
+
+    async def agent_device_script_selection_request(
+        self, project: UUID, actor: UUID, agent: UUID, request: UUID,
+    ) -> ScriptSelectionRecord:
+        from app.services.agent_device_script_selection_client import (
+            selection_request,
+        )
+        return await selection_request(self, project, actor, agent, request)
+
+    async def start_agent_device_script_run(
+        self, project: UUID, actor: UUID, agent: UUID, command: ScriptRunStart,
+    ) -> ScriptRunView:
+        from app.services.agent_device_script_run_client import run_call
+        return await run_call(
+            self, project, actor, agent, command.request_id, "start", command,
+        )
+
+    async def agent_device_script_run(
+        self, project: UUID, actor: UUID, agent: UUID, request: UUID,
+    ) -> ScriptRunView:
+        from app.services.agent_device_script_run_client import run_call
+        return await run_call(self, project, actor, agent, request, "read")
+
+    async def cancel_agent_device_script_run(
+        self, project: UUID, actor: UUID, agent: UUID,
+        command: ScriptRunControl,
+    ) -> ScriptRunView:
+        from app.services.agent_device_script_run_client import run_call
+        return await run_call(
+            self, project, actor, agent, command.request_id, "cancel", command,
+        )
+
+    async def agent_business_connections(self, project_id: UUID, staff_id: UUID,
+                                        agent_id: UUID) -> AgentBusinessConnections:
+        from app.services.agent_business_connection_client import read
+        return await read(self, project_id, staff_id, agent_id)
+
+    async def save_agent_business_connection(self, project_id: UUID, staff_id: UUID,
+        agent_id: UUID, connection_id: UUID, command: AgentBusinessConnectionWrite) -> AgentBusinessConnectionRecord:
+        from app.services.agent_business_connection_client import save
+        return await save(self, project_id, staff_id, agent_id, connection_id, command)
+
+    async def agent_business_connection_request(self, project_id: UUID, staff_id: UUID,
+        agent_id: UUID, request_id: UUID) -> AgentBusinessConnectionRecord:
+        from app.services.agent_business_connection_client import recover
+        return await recover(self, project_id, staff_id, agent_id, request_id)
+
+    async def verify_agent_execution(self, reference: AgentExecutionReference) -> AgentExecutionCheckReceipt:
+        from app.services.agent_execution_client import verify
+        return await verify(self, reference)
+
+    async def capture_agent_execution_reference(
+        self, project_id: str, agent_id: str, channel: str | None,
+    ) -> AgentExecutionReference:
+        response = await self._make_request(
+            "GET", f"/api/v1/agents/execution-reference/{UUID(agent_id)}",
+            extra_headers=self._execution_headers(project_id, channel),
+        )
+        return AgentExecutionReference.model_validate(await self._handle_response(response))
+
+    async def agent_activation_readiness(self, project_id: UUID, staff_id: UUID,
+                                       agent_id: UUID) -> AgentActivationReadiness:
+        from app.services.agent_activation_policy_client import readiness
+        return await readiness(self, project_id, staff_id, agent_id)
+
+    async def save_agent_activation_policy(self, project_id: UUID, staff_id: UUID,
+        agent_id: UUID, channel: KnowledgeChannel, command: AgentActivationPolicyChange) -> AgentActivationPolicyRecord:
+        from app.services.agent_activation_policy_client import save
+        return await save(self, project_id, staff_id, agent_id, channel, command)
+
+    async def remove_agent_activation_policy(self, project_id: UUID, staff_id: UUID,
+        agent_id: UUID, channel: KnowledgeChannel, revision: int) -> AgentActivationPolicyRecord:
+        from app.services.agent_activation_policy_client import remove
+        return await remove(self, project_id, staff_id, agent_id, channel, revision)
+
+    async def save_agent_draft(
+        self, project_id: UUID, staff_id: UUID, draft_id: UUID,
+        request: "ScenarioAgentSnapshot",
+    ) -> "ScenarioAgentReceipt":
+        response = await self._make_request(
+            "POST", f"/api/v1/agent-drafts/{draft_id}",
+            json_data=request.model_dump(mode="json"),
+            extra_headers=self._trial_headers(project_id, staff_id),
+        )
+        receipt = self._draft_receipt(response, project_id, staff_id, draft_id, request.revision)
+        if receipt.activation_selection != request.activation_selection:
+            raise HTTPException(502, "员工岗位配置结果与当前草稿不一致")
+        return receipt
+
+    async def get_agent_draft(
+        self, project_id: UUID, staff_id: UUID, draft_id: UUID,
+    ) -> "ScenarioAgentReceipt":
+        response = await self._make_request(
+            "GET", f"/api/v1/agent-drafts/{draft_id}",
+            extra_headers=self._trial_headers(project_id, staff_id),
+        )
+        return self._draft_receipt(response, project_id, staff_id, draft_id)
+
+    def _draft_receipt(
+        self, response: httpx.Response, project_id: UUID, staff_id: UUID,
+        draft_id: UUID, revision: int | None = None,
+    ) -> "ScenarioAgentReceipt":
+        if not response.is_success:
+            raise HTTPException(response.status_code, "员工配置尚未保存，请恢复原草稿后重试")
+        try:
+            receipt = ScenarioAgentReceipt.model_validate_json(response.content)
+        except ValidationError:
+            raise HTTPException(502, "员工配置服务返回了无效结果") from None
+        if (receipt.project_id != project_id or receipt.created_by != staff_id
+            or receipt.draft_id != draft_id or revision is not None and receipt.revision != revision):
+            raise HTTPException(502, "员工配置结果与当前草稿不一致")
+        return receipt
+
+    def _trial_headers(self, project_id: UUID, staff_id: UUID) -> dict[str, str]:
+        return {
+            "X-Internal-API-Key": settings.SECRET_KEY,
+            "X-Project-Id": str(project_id), "X-Staff-Id": str(staff_id),
+        }
+
+    async def review_agent_trial(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, report_id: UUID, command: KnowledgeReviewCommand,
+    ) -> KnowledgeReviewResponse:
+        from app.services.agent_trial_review_client import submit
+        return await submit(self, project_id, staff_id, agent_id, report_id, command)
+
+    async def agent_trial_review_state(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, report_id: UUID, query: KnowledgeReviewQuery,
+    ) -> KnowledgeReviewState:
+        from app.services.agent_trial_review_client import state
+        return await state(self, project_id, staff_id, agent_id, report_id, query)
+
+    async def agent_knowledge_capabilities(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, query: KnowledgeCapabilityQuery,
+    ) -> AgentKnowledgeCapabilities:
+        from app.services.agent_trial_review_client import capabilities
+        return await capabilities(self, project_id, staff_id, agent_id, query)
+
+    def _trial_report(
+        self, response: httpx.Response, agent_id: UUID,
+        *, request_key: UUID | None = None, report_id: UUID | None = None,
+    ) -> AgentTrialReport:
+        if not response.is_success:
+            # Do not log or echo upstream validation input/provider errors.
+            raise HTTPException(response.status_code, "试聊请求未完成，请查看报告或检查配置")
+        try:
+            report = AgentTrialReport.model_validate_json(response.content)
+        except ValidationError:
+            raise HTTPException(502, "试聊服务返回了无效报告") from None
+        if (report.agent_id != agent_id
+            or request_key is not None and report.request_key != request_key
+            or report_id is not None and report.id != report_id):
+            raise HTTPException(502, "试聊服务返回的报告标识不一致")
+        return report
+
+    async def start_agent_trial(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, request: AgentTrialRequest,
+    ) -> AgentTrialReport:
+        response = await self._make_request(
+            "POST", f"/api/v1/agents/{agent_id}/trials",
+            json_data=request.model_dump(mode="json"),
+            extra_headers=self._trial_headers(project_id, staff_id),
+            timeout=max(self.timeout, request.timeout + 15),
+        )
+        return self._trial_report(response, agent_id, request_key=request.request_key)
+
+    async def match_agent_trial_request(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, request: AgentTrialRequest,
+    ) -> AgentTrialReport:
+        response = await self._make_request(
+            "POST", f"/api/v1/agents/{agent_id}/trials/lookup",
+            json_data=request.model_dump(mode="json"),
+            extra_headers=self._trial_headers(project_id, staff_id),
+        )
+        return self._trial_report(response, agent_id, request_key=request.request_key)
+
+    async def agent_trial_by_request(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, request_key: UUID,
+    ) -> AgentTrialReport:
+        response = await self._make_request(
+            "GET", f"/api/v1/agents/{agent_id}/trials/requests/{request_key}",
+            extra_headers=self._trial_headers(project_id, staff_id),
+        )
+        return self._trial_report(response, agent_id, request_key=request_key)
+
+    async def get_agent_trial(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, report_id: UUID,
+    ) -> AgentTrialReport:
+        response = await self._make_request(
+            "GET", f"/api/v1/agents/{agent_id}/trials/{report_id}",
+            extra_headers=self._trial_headers(project_id, staff_id),
+        )
+        return self._trial_report(response, agent_id, report_id=report_id)
+
+    async def cancel_agent_trial(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, report_id: UUID,
+    ) -> AgentTrialReport:
+        response = await self._make_request(
+            "POST", f"/api/v1/agents/{agent_id}/trials/{report_id}/cancel",
+            extra_headers=self._trial_headers(project_id, staff_id),
+        )
+        return self._trial_report(response, agent_id, report_id=report_id)
+
+    async def list_agent_trials(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID, limit: int = 20,
+    ) -> list[AgentTrialReport]:
+        response = await self._make_request(
+            "GET", f"/api/v1/agents/{agent_id}/trials", params={"limit": limit},
+            extra_headers=self._trial_headers(project_id, staff_id),
+        )
+        if not response.is_success:
+            raise HTTPException(response.status_code, "无法读取试聊报告")
+        try:
+            reports = TypeAdapter(list[AgentTrialReport]).validate_json(response.content)
+        except ValidationError:
+            raise HTTPException(502, "试聊服务返回了无效报告列表") from None
+        if len(reports) > limit or any(report.agent_id != agent_id for report in reports):
+            raise HTTPException(502, "试聊报告列表与请求不一致")
+        return reports
 
 
 # Global AI client instance

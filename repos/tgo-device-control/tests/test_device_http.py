@@ -92,3 +92,30 @@ async def test_device_rpc_error_is_forwarded_as_error_not_success(monkeypatch):
         },
     )
     assert response == {"jsonrpc": "2.0", "id": 7, "error": error}
+
+
+@pytest.mark.asyncio
+async def test_management_token_cannot_call_tools_from_either_http_transport(monkeypatch, scoped_http):
+    connection = MagicMock()
+    connection.desired_read_policy_digest = None
+    connection.call_tool = AsyncMock(return_value={"content": [], "isError": False})
+    monkeypatch.setattr(
+        mcp_server.tcp_connection_manager, "get_connection", lambda _: connection
+    )
+    device_id = uuid4()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        streamable = await client.post(
+            f"/mcp/{device_id}", json={
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "fs_write", "arguments": {}},
+            },
+        )
+        rest = await client.post(
+            f"/v1/mcp/tools/{device_id}/call", params={"name": "fs_write"},
+            json={},
+        )
+    assert streamable.status_code == 403
+    assert rest.status_code == 403
+    connection.call_tool.assert_not_awaited()

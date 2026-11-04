@@ -12,6 +12,7 @@ import type { KnowledgeFile } from '@/types';
 
 interface DocumentListProps {
   documents: KnowledgeFile[];
+  onEditFile?: (fileId: string) => void;
   isLoading: boolean;
   onDownload: (docId: string) => void;
   onDelete: (docId: string) => void;
@@ -33,6 +34,7 @@ type SortDirection = 'asc' | 'desc';
  */
 export const DocumentList: React.FC<DocumentListProps> = ({
   documents,
+  onEditFile,
   isLoading,
   onDownload,
   onDelete,
@@ -101,7 +103,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
     // Sort documents
     filtered.sort((a, b) => {
-      let aValue: any, bValue: any;
+      let aValue: string | number, bValue: string | number;
 
       switch (sortField) {
         case 'name':
@@ -113,8 +115,8 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           bValue = b.sizeBytes;
           break;
         case 'date':
-          aValue = new Date(a.uploadDate);
-          bValue = new Date(b.uploadDate);
+          aValue = new Date(a.created_at || a.uploadDate).getTime();
+          bValue = new Date(b.created_at || b.uploadDate).getTime();
           break;
         default:
           return 0;
@@ -159,7 +161,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
       {/* Document Table */}
       <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md rounded-lg shadow-sm border border-gray-200/60 dark:border-gray-700/60 overflow-hidden">
         {/* Table Header */}
-        <div className="grid grid-cols-[minmax(250px,2fr)_100px_180px_120px_100px] gap-4 px-4 py-3 border-b border-gray-200/60 dark:border-gray-700/60 bg-gray-50/50 dark:bg-gray-900/50">
+        <div className="hidden xl:grid grid-cols-[minmax(0,2fr)_80px_120px_minmax(0,2fr)_100px] gap-4 px-4 py-3 border-b border-gray-200/60 dark:border-gray-700/60 bg-gray-50/50 dark:bg-gray-900/50">
           <div
             className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
             onClick={() => handleSort('name')}
@@ -182,7 +184,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
             <ArrowUpDown className="w-3 h-3 ml-1" />
           </div>
           <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            {t('knowledge.detail.status')}
+            {t('knowledgeOnboarding.parse')}
           </div>
           <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right pr-2">
             {t('knowledge.detail.actions')}
@@ -205,7 +207,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
             filteredAndSortedDocuments.map((doc, index) => (
               <div
                 key={doc.id}
-                className={`grid grid-cols-[minmax(250px,2fr)_100px_180px_120px_100px] gap-4 px-4 py-3 items-center hover:bg-gray-50/30 dark:hover:bg-gray-700/30 transition-colors ${index < filteredAndSortedDocuments.length - 1 ? 'border-b border-gray-200/60 dark:border-gray-700/60' : ''
+                className={`grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_80px_120px_minmax(0,2fr)_100px] gap-3 px-4 py-3 items-center hover:bg-gray-50/30 dark:hover:bg-gray-700/30 transition-colors ${index < filteredAndSortedDocuments.length - 1 ? 'border-b border-gray-200/60 dark:border-gray-700/60' : ''
                   }`}
               >
                 {/* Document Name */}
@@ -229,7 +231,12 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
                 {/* Status */}
                 <div>
-                  {getStatusBadge(doc.statusType, doc.status)}
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-gray-500">{t('knowledgeOnboarding.parse')}：</span>
+                    {getStatusBadge(doc.statusType, doc.status)}
+                    <span className="text-xs text-gray-500">{t('knowledgeOnboarding.chunks', { count: doc.document_count || 0 })}</span>
+                  </div>
+                  {onEditFile && <button type="button" disabled={doc.statusType === 'processing'} onClick={() => onEditFile(doc.id)} className="rounded border border-blue-200 px-2 py-1 text-xs text-blue-600 disabled:opacity-50 dark:text-blue-300">{t('knowledgeOnboarding.editMaterial')}</button>}
                   {doc.statusType === 'error' && doc.error_message && (
                     <p className="mt-1 text-xs text-red-600 dark:text-red-400 break-words">
                       {doc.error_message}

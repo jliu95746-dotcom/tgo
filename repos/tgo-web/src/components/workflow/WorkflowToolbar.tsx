@@ -12,9 +12,14 @@ import {
   CheckCircle,
   Loader2,
   Bug,
+  Clock,
+  Globe,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { useToast } from '@/hooks/useToast';
+import { WorkflowApiService } from '@/services/workflowApi';
+import { useAuthStore } from '@/stores/authStore';
+import WorkflowReleases from './WorkflowReleases';
 
 /**
  * Workflow Toolbar Component
@@ -24,6 +29,8 @@ const WorkflowToolbar: React.FC = () => {
   const { showToast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const user = useAuthStore(state => state.user);
 
   const {
     currentWorkflow,
@@ -57,25 +64,77 @@ const WorkflowToolbar: React.FC = () => {
   };
 
   const handleValidate = async () => {
-    if (!currentWorkflow || isValidating) return;
+    if (!currentWorkflow || isValidating || isSaving || isPublishing) return;
 
     setIsValidating(true);
     try {
+      if (isDirty) await saveWorkflow();
       const isValid = await validate();
       if (isValid) {
         showToast('success', t('workflow.messages.validateSuccess', '验证通过'), t('workflow.messages.validateSuccessDesc', '工作流配置正确'));
       } else {
         showToast('warning', t('workflow.messages.validateFailed', '验证失败'), t('workflow.messages.validateFailedDesc', '请检查工作流配置'));
       }
+    } catch (error) {
+      showToast('error', t('workflow.messages.validateFailed', '验证失败'), error instanceof Error ? error.message : t('workflow.messages.saveFailed', '保存失败'));
     } finally {
       setIsValidating(false);
     }
+  };
+
+  const handlePublish = async () => {
+    if (!currentWorkflow || user?.role !== 'admin' || isPublishing || isSaving || isExecuting || isValidating) return;
+    const owner = `${user.project_id}:${user.id}`;
+    const stillOwned = () => {
+      const current = useAuthStore.getState().user;
+      return current?.role === 'admin' && `${current.project_id}:${current.id}` === owner;
+    };
+    setIsPublishing(true);
+    try {
+      if (isDirty) await saveWorkflow();
+      if (!stillOwned()) return;
+      // Publishing performs full server validation in preparation mode.
+      // The ordinary validate endpoint checks currently executable nodes.
+      const hasWebhook = useWorkflowStore.getState().currentWorkflow?.definition?.nodes.some(node => node.type === 'webhook');
+      const valid = hasWebhook ? true : await validate();
+      if (!stillOwned()) return;
+      if (!valid) {
+        showToast('warning', t('workflow.messages.validateFailed', '验证失败'), useWorkflowStore.getState().validationErrors.map(error => error.message).join('\n'));
+        return;
+      }
+      const saved = useWorkflowStore.getState().currentWorkflow;
+      if (!stillOwned() || !saved || saved.id !== currentWorkflow.id) return;
+      const published = await WorkflowApiService.publishWorkflow(saved.id, {
+        expected_draft_version: saved.version, expected_publication_revision: saved.publication_revision ?? 0,
+      });
+      if (!stillOwned()) return;
+      useWorkflowStore.setState(state => state.currentWorkflow?.id === saved.id ? {
+        currentWorkflow: { ...state.currentWorkflow, status: published.status, published_version: published.published_version, publication_revision: published.publication_revision },
+      } : {});
+      void useWorkflowStore.getState().loadWorkflows();
+      showToast('success', t('workflow.actions.publish', '发布'), t('businessScenarios.workflow.publishHelp'));
+    } catch (error) {
+      if (stillOwned()) showToast('error', t('workflow.actions.publish', '发布'), error instanceof Error ? error.message : t('businessScenarios.workflow.failed'));
+    } finally { setIsPublishing(false); }
   };
 
   if (!currentWorkflow) return null;
 
   return (
     <div className="flex items-center gap-4">
+      <WorkflowReleases />
+      {currentWorkflow.definition.nodes.some(node => node.type === 'timer') && <button
+        type="button" onClick={() => {
+          const timer = currentWorkflow.definition.nodes.find(node => node.type === 'timer');
+          if (timer) { setDebugPanelOpen(false); useWorkflowStore.getState().setSelectedNode(timer.id); }
+        }} className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 dark:border-gray-700 dark:text-gray-300"
+      ><Clock className="h-4 w-4" />{t('workflowSchedule.title')}</button>}
+      {currentWorkflow.definition.nodes.some(node => node.type === 'webhook') && <button
+        type="button" onClick={() => {
+          const source = currentWorkflow.definition.nodes.find(node => node.type === 'webhook');
+          if (source) { setDebugPanelOpen(false); useWorkflowStore.getState().setSelectedNode(source.id); }
+        }} className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 dark:border-gray-700 dark:text-gray-300"
+      ><Globe className="h-4 w-4" />{t('workflowWebhook.title')}</button>}
       {/* Undo/Redo Group */}
       <div className="flex items-center bg-gray-100/50 dark:bg-gray-800/50 rounded-2xl p-1 border border-gray-200/50 dark:border-gray-700/50 shadow-sm transition-all hover:bg-gray-100/80 dark:hover:bg-gray-800/80">
         <button
@@ -101,6 +160,9 @@ const WorkflowToolbar: React.FC = () => {
 
       {/* Action Buttons Group */}
       <div className="flex items-center gap-3">
+        <button onClick={handlePublish} disabled={user?.role !== 'admin' || isPublishing || isSaving || isExecuting || isValidating} title={t('businessScenarios.workflow.publishHelp')} className="flex h-10 items-center gap-2 rounded-2xl border border-purple-200 bg-purple-50 px-4 text-xs font-bold text-purple-600 disabled:opacity-40 dark:border-purple-800 dark:bg-purple-900/20">
+          {isPublishing && <Loader2 size={16} className="animate-spin" />}{t('workflow.actions.publish', '发布')}
+        </button>
         {/* Debug */}
         <button
           onClick={() => setDebugPanelOpen(!isDebugPanelOpen)}
@@ -121,7 +183,7 @@ const WorkflowToolbar: React.FC = () => {
         {/* Validate */}
         <button
           onClick={handleValidate}
-          disabled={isValidating}
+          disabled={isValidating || isSaving || isPublishing}
           className="flex items-center gap-2 px-5 h-10 text-[11px] font-bold uppercase tracking-widest text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 rounded-2xl transition-all disabled:opacity-50 shadow-sm active:scale-95"
         >
           {isValidating ? (
@@ -135,7 +197,7 @@ const WorkflowToolbar: React.FC = () => {
         {/* Save */}
         <button
           onClick={handleSave}
-          disabled={!isDirty || isSaving}
+          disabled={!isDirty || isSaving || isPublishing || isValidating}
           className={`flex items-center gap-2 px-6 h-10 text-[11px] font-bold uppercase tracking-widest text-white transition-all rounded-2xl shadow-lg active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 ${
             isDirty 
               ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30 dark:shadow-none' 

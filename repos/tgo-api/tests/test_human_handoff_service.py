@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from app.models import (
     ManualServiceRequest,
@@ -158,6 +160,186 @@ async def test_existing_staff_handoff_is_persisted_and_notified() -> None:
     assert db.commits == 1
     notify_profile.assert_awaited_once_with(db, visitor)
     notify_handoff.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ai_handoff_keeps_committed_receipt_when_notification_fails() -> None:
+    project_id, visitor_id, staff_id = uuid4(), uuid4(), uuid4()
+    visitor = SimpleNamespace(
+        id=visitor_id, project_id=project_id, platform_id=uuid4(),
+        service_status="active", is_unassigned=False, ai_disabled=None,
+        service_mode="auto",
+    )
+    project = SimpleNamespace(id=project_id)
+    db = _FakeDB({
+        Tag: SimpleNamespace(id=MANUAL_SERVICE_TAG_ID, deleted_at=None),
+        VisitorTag: SimpleNamespace(deleted_at=None),
+        ManualServiceRequest: None,
+        VisitorWaitingQueue: None,
+        VisitorSession: SimpleNamespace(id=uuid4(), staff_id=staff_id),
+        Staff: SimpleNamespace(name="张客服", nickname=None, username="staff"),
+    })
+    source_id = f"ai:{uuid4()}"
+    with (
+        patch.object(human_handoff_service, "notify_visitor_profile_updated",
+                     new=AsyncMock()),
+        patch.object(human_handoff_service, "_notify_handoff",
+                     new=AsyncMock(side_effect=RuntimeError("notification unavailable"))) as notify,
+    ):
+        first = await human_handoff_service.request_human_handoff(
+            db=db, project=project, visitor=visitor, reason="转人工",
+            source_message_id=source_id, channel="wecom",
+            strict_source_receipt=True,
+        )
+        saved = next(
+            row for row in db.added if isinstance(row, ManualServiceRequest)
+        )
+        db.results[ManualServiceRequest] = saved
+        repeated = await human_handoff_service.request_human_handoff(
+            db=db, project=project, visitor=visitor, reason="转人工",
+            source_message_id=source_id, channel="wecom",
+            strict_source_receipt=True,
+        )
+        with pytest.raises(HTTPException) as changed:
+            await human_handoff_service.request_human_handoff(
+                db=db, project=project, visitor=visitor, reason="改为退款",
+                source_message_id=source_id, channel="wecom",
+                strict_source_receipt=True,
+            )
+    assert first["request_id"] == str(saved.id)
+    assert first["notification_status"] == "unknown"
+    assert repeated == first
+    assert changed.value.status_code == 409
+    assert saved.reason == "转人工"
+    assert db.commits >= 1
+    notify.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_handoff_disabled_im_keeps_notification_unconfirmed() -> None:
+    project_id, visitor_id, staff_id = uuid4(), uuid4(), uuid4()
+    db = _FakeDB({
+        Tag: SimpleNamespace(id=MANUAL_SERVICE_TAG_ID, deleted_at=None),
+        VisitorTag: SimpleNamespace(deleted_at=None),
+        ManualServiceRequest: None,
+        VisitorWaitingQueue: None,
+        VisitorSession: SimpleNamespace(id=uuid4(), staff_id=staff_id),
+        Staff: SimpleNamespace(name="张客服", nickname=None, username="staff"),
+    })
+    visitor = SimpleNamespace(
+        id=visitor_id, project_id=project_id, service_status="active",
+        is_unassigned=False, ai_disabled=False, service_mode="auto",
+    )
+    with (
+        patch.object(human_handoff_service, "notify_visitor_profile_updated",
+                     new=AsyncMock()),
+        patch.object(human_handoff_service.wukongim_client,
+                     "send_system_message", new=AsyncMock(return_value=None)) as send,
+    ):
+        receipt = await human_handoff_service.request_human_handoff(
+            db=db, project=SimpleNamespace(id=project_id), visitor=visitor,
+            reason="转人工", source_message_id="wecom-message-1",
+            channel="wecom", strict_source_receipt=True,
+        )
+    assert receipt["notification_status"] == "unknown"
+    request = next(row for row in db.added if isinstance(row, ManualServiceRequest))
+    assert request.request_metadata["notification_status"] == "unknown"
+    assert send.await_args.kwargs["client_msg_no"] == f"handoff-{request.id}"
+
+
+@pytest.mark.asyncio
+async def test_handoff_im_receipt_confirms_same_message_number() -> None:
+    async def send_with_receipt(**kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(client_msg_no=kwargs["client_msg_no"])
+
+    with patch.object(
+        human_handoff_service.wukongim_client,
+        "send_system_message",
+        new=AsyncMock(side_effect=send_with_receipt),
+    ) as send:
+        await human_handoff_service._notify_handoff(
+            content="转人工", channel_id="channel-1", channel_type=251,
+            client_msg_no="handoff-1",
+        )
+    assert send.await_args.kwargs["client_msg_no"] == "handoff-1"
+
+    with patch.object(
+        human_handoff_service.wukongim_client,
+        "send_system_message",
+        new=AsyncMock(return_value=SimpleNamespace(client_msg_no="other")),
+    ):
+        with pytest.raises(RuntimeError, match="mismatched handoff"):
+            await human_handoff_service._notify_handoff(
+                content="转人工", channel_id="channel-1", channel_type=251,
+                client_msg_no="handoff-1",
+            )
+
+
+@pytest.mark.asyncio
+async def test_ai_handoff_unique_conflict_reads_committed_receipt() -> None:
+    project_id, visitor_id = uuid4(), uuid4()
+    source_id = f"ai:{uuid4()}"
+    reason = "转人工"
+    saved_receipt = {"request_id": str(uuid4()), "status": "active"}
+    saved = SimpleNamespace(
+        id=uuid4(), deleted_at=None,
+        request_metadata={
+            "handoff_action_digest": human_handoff_service._handoff_action_digest(
+                reason, None,
+                human_handoff_service.build_visitor_channel_id(visitor_id),
+                human_handoff_service.CHANNEL_TYPE_CUSTOMER_SERVICE,
+            ),
+            "handoff_receipt": saved_receipt,
+            "notification_status": "submitted",
+        },
+    )
+
+    class _RacingDB(_FakeDB):
+        def flush(self) -> None:
+            self.results[ManualServiceRequest] = saved
+            raise IntegrityError("unique conflict", {}, Exception("duplicate"))
+
+    db = _RacingDB({
+        Tag: SimpleNamespace(id=MANUAL_SERVICE_TAG_ID, deleted_at=None),
+        VisitorTag: SimpleNamespace(deleted_at=None),
+        ManualServiceRequest: None,
+    })
+    visitor = SimpleNamespace(
+        id=visitor_id, project_id=project_id, ai_disabled=False,
+        service_mode="auto",
+    )
+    with patch.object(human_handoff_service, "_notify_handoff",
+                      new=AsyncMock()) as notify:
+        result = await human_handoff_service.request_human_handoff(
+            db=db, project=SimpleNamespace(id=project_id), visitor=visitor,
+            reason=reason, source_message_id=source_id,
+            strict_source_receipt=True,
+        )
+    assert result == {**saved_receipt, "notification_status": "submitted"}
+    assert db.commits == 0
+    notify.assert_not_awaited()
+
+
+def test_ai_handoff_committed_before_receipt_requires_review() -> None:
+    project_id, visitor_id = uuid4(), uuid4()
+    source_id = f"ai:{uuid4()}"
+    channel_id = human_handoff_service.build_visitor_channel_id(visitor_id)
+    saved = SimpleNamespace(
+        id=uuid4(), deleted_at=None, request_metadata={},
+        reason="转人工", channel=None, channel_id=channel_id,
+        channel_type=human_handoff_service.CHANNEL_TYPE_CUSTOMER_SERVICE,
+    )
+    db = _FakeDB({ManualServiceRequest: saved})
+    digest = human_handoff_service._handoff_action_digest(
+        "转人工", None, channel_id,
+        human_handoff_service.CHANNEL_TYPE_CUSTOMER_SERVICE,
+    )
+    receipt = human_handoff_service._saved_handoff_receipt(
+        db, project_id, visitor_id, source_id, digest,
+    )
+    assert receipt is not None
+    assert receipt["status"] == "unknown"
+    assert receipt["request_id"] == str(saved.id)
 
 
 @pytest.mark.asyncio

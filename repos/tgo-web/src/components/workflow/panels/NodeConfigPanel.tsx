@@ -22,14 +22,26 @@ import {
   Check,
   LayoutGrid,
   Zap,
+  ShieldCheck,
   XCircle,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { useAIStore, useKnowledgeStore } from '@/stores';
 import { useProjectToolsStore } from '@/stores/projectToolsStore';
 import AIProvidersApiService from '@/services/aiProvidersApi';
+import { AIAgentsApiService } from '@/services/aiAgentsApi';
+import { useAuthStore } from '@/stores/authStore';
+import type { AgentDeviceActionReadiness } from '@/types/agentDeviceReadiness';
+import type { Agent } from '@/types';
 import { VariableInput } from '..';
-import type { WorkflowNode, WorkflowEdge, WorkflowNodeData } from '@/types/workflow';
+import type { WorkflowNode, WorkflowEdge, WorkflowNodeData, InputNodeData, EventNodeData, TimerNodeData, WebhookNodeData, ApprovalNodeData, BusinessQueryNodeData, ConditionNodeData } from '@/types/workflow';
+import EventNodeConfig from './EventNodeConfig';
+import TimerNodeConfig from './TimerNodeConfig';
+import WebhookNodeConfig from './WebhookNodeConfig';
+import InputNodeConfig from './InputNodeConfig';
+import ApprovalNodeConfig from './ApprovalNodeConfig';
+import BusinessQueryNodeConfig from './BusinessQueryNodeConfig';
+import GovernedBusinessConditionConfig from './GovernedBusinessConditionConfig';
 
 interface NodeConfigPanelProps {
   node: WorkflowNode;
@@ -43,11 +55,13 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   event: Zap,
   answer: MessageSquare,
   agent: Bot,
+  approval: ShieldCheck,
   tool: Wrench,
   condition: GitBranch,
   llm: MessageSquare,
   parallel: GitMerge,
   api: Globe,
+  business_query: ShieldCheck,
   classifier: LayoutGrid,
 };
 
@@ -137,11 +151,13 @@ const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({ node }) => {
     event: { text: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-900/20' },
     answer: { text: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20' },
     agent: { text: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20' },
+    approval: { text: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/20' },
     tool: { text: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/20' },
     condition: { text: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/20' },
     llm: { text: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-50 dark:bg-cyan-900/20' },
     parallel: { text: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
     api: { text: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20' },
+    business_query: { text: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20' },
     classifier: { text: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/20' },
   };
 
@@ -206,19 +222,19 @@ const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({ node }) => {
           </h4>
           
           {node.type === 'input' && (
-            <InputNodeConfig data={localData as any} onUpdate={handleUpdate} />
+            <InputNodeConfig data={localData as InputNodeData} onUpdate={handleUpdate} />
           )}
 
           {node.type === 'timer' && (
-            <TimerNodeConfig data={localData as any} onUpdate={handleUpdate} />
+            <TimerNodeConfig key={node.id} data={localData as TimerNodeData} onUpdate={handleUpdate} />
           )}
 
           {node.type === 'webhook' && (
-            <WebhookNodeConfig data={localData as any} onUpdate={handleUpdate} />
+            <WebhookNodeConfig key={node.id} data={localData as WebhookNodeData} onUpdate={handleUpdate} />
           )}
 
           {node.type === 'event' && (
-            <EventNodeConfig data={localData as any} onUpdate={handleUpdate} />
+            <EventNodeConfig data={localData as EventNodeData} onUpdate={handleUpdate} />
           )}
 
           {node.type === 'answer' && (
@@ -239,6 +255,10 @@ const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({ node }) => {
             />
           )}
 
+          {node.type === 'approval' && (
+            <ApprovalNodeConfig data={localData as ApprovalNodeData} nodes={nodes} onUpdate={handleUpdate} />
+          )}
+
           {node.type === 'tool' && (
             <ToolNodeConfig 
               data={localData as any} 
@@ -248,16 +268,20 @@ const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({ node }) => {
           )}
 
           {node.type === 'condition' && (
-            <ConditionNodeConfig 
-              data={localData as any} 
-              onUpdate={handleUpdate} 
-              nodeId={node.id}
-              nodes={nodes}
-              edges={edges}
-              llmOptions={llmOptions}
-              llmLoading={llmLoading}
-              llmError={llmError}
-            />
+            nodes.some(item => item.type === 'business_query') ? (
+              <GovernedBusinessConditionConfig data={localData as ConditionNodeData} onUpdate={handleUpdate} />
+            ) : (
+              <ConditionNodeConfig
+                data={localData as any}
+                onUpdate={handleUpdate}
+                nodeId={node.id}
+                nodes={nodes}
+                edges={edges}
+                llmOptions={llmOptions}
+                llmLoading={llmLoading}
+                llmError={llmError}
+              />
+            )
           )}
 
           {node.type === 'llm' && (
@@ -270,7 +294,6 @@ const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({ node }) => {
               llmOptions={llmOptions}
               llmLoading={llmLoading}
               llmError={llmError}
-              availableTools={aiTools}
               availableKnowledgeBases={knowledgeBases}
             />
           )}
@@ -287,6 +310,10 @@ const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({ node }) => {
               nodes={nodes}
               edges={edges}
             />
+          )}
+
+          {node.type === 'business_query' && (
+            <BusinessQueryNodeConfig data={localData as BusinessQueryNodeData} onUpdate={handleUpdate} />
           )}
 
           {node.type === 'classifier' && (
@@ -320,198 +347,7 @@ const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({ node }) => {
   );
 };
 
-// Input Node Config
-const InputNodeConfig: React.FC<{
-  data: any;
-  onUpdate: (updates: any) => void;
-}> = ({ data, onUpdate }) => {
-  const { t } = useTranslation();
-
-  const handleAddInput = () => {
-    const inputs = [...(data.input_variables || [])];
-    inputs.push({ name: `input_${inputs.length + 1}`, type: 'string', description: '' });
-    onUpdate({ input_variables: inputs });
-  };
-
-  const handleRemoveInput = (index: number) => {
-    const inputs = [...(data.input_variables || [])];
-    inputs.splice(index, 1);
-    onUpdate({ input_variables: inputs });
-  };
-
-  const handleUpdateInput = (index: number, updates: any) => {
-    const inputs = [...(data.input_variables || [])];
-    inputs[index] = { ...inputs[index], ...updates };
-    onUpdate({ input_variables: inputs });
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <label className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">
-            {t('workflow.fields.input_variables', '输入参数')}
-          </label>
-          <button
-            onClick={handleAddInput}
-            className="flex items-center gap-1 text-[10px] font-bold text-blue-500 hover:text-blue-600 uppercase tracking-widest transition-colors"
-          >
-            <PlusCircle className="w-3.5 h-3.5" />
-            {t('common.add', '添加')}
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          {(data.input_variables || []).map((input: any, index: number) => (
-            <div key={index} className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700 space-y-3 relative group">
-              <button
-                onClick={() => handleRemoveInput(index)}
-                className="absolute right-3 top-3 p-1 text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[9px] uppercase font-bold text-gray-400">{t('workflow.placeholders.input_name', '名称')}</label>
-                  <input
-                    type="text"
-                    value={input.name}
-                    onChange={(e) => handleUpdateInput(index, { name: e.target.value })}
-                    className="w-full px-2 py-1 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-blue-500 font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[9px] uppercase font-bold text-gray-400">{t('workflow.placeholders.input_type', '类型')}</label>
-                  <select
-                    value={input.type}
-                    onChange={(e) => handleUpdateInput(index, { type: e.target.value })}
-                    className="w-full px-2 py-1 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-blue-500 appearance-none cursor-pointer"
-                  >
-                    <option value="string">String</option>
-                    <option value="number">Number</option>
-                    <option value="boolean">Boolean</option>
-                  </select>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[9px] uppercase font-bold text-gray-400">{t('workflow.placeholders.input_description', '描述')}</label>
-                <input
-                  type="text"
-                  value={input.description || ''}
-                  onChange={(e) => handleUpdateInput(index, { description: e.target.value })}
-                  placeholder={t('workflow.placeholders.input_placeholder', '这个输入是做什么的？')}
-                  className="w-full px-2 py-1 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          ))}
-
-          {(data.input_variables || []).length === 0 && (
-            <div className="text-center py-6 px-4 border-2 border-dashed border-gray-100 dark:border-gray-800 rounded-2xl">
-              <p className="text-[10px] text-gray-400 uppercase tracking-widest leading-relaxed">
-                {t('workflow.debug.no_input_variables', '无输入变量')}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Timer Node Config
-const TimerNodeConfig: React.FC<{
-  data: any;
-  onUpdate: (updates: any) => void;
-}> = ({ data, onUpdate }) => {
-  const { t } = useTranslation();
-
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">
-          {t('workflow.fields.cron_expression', 'Cron 表达式')}
-        </label>
-        <input
-          type="text"
-          value={data.cron_expression || ''}
-          onChange={(e) => onUpdate({ cron_expression: e.target.value })}
-          placeholder={t('workflow.placeholders.cron_hint', '0 * * * * (每小时)')}
-          className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm dark:text-gray-100 font-mono"
-        />
-        <p className="text-[10px] text-gray-400 italic">
-          {t('workflow.fields.cron_description', '使用标准 Cron 格式设置自动执行计划。')}
-        </p>
-      </div>
-    </div>
-  );
-};
-
 // Webhook Node Config
-const WebhookNodeConfig: React.FC<{
-  data: any;
-  onUpdate: (updates: any) => void;
-}> = ({ data, onUpdate }) => {
-  const { t } = useTranslation();
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">
-          {t('workflow.fields.path_suffix', '路径后缀')}
-        </label>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400 font-mono">/webhook/</span>
-          <input
-            type="text"
-            value={data.path || ''}
-            onChange={(e) => onUpdate({ path: e.target.value })}
-            placeholder={t('workflow.placeholders.custom_path', 'custom-path')}
-            className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm dark:text-gray-100 font-mono"
-          />
-        </div>
-      </div>
-      <div className="space-y-2">
-        <label className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">
-          {t('workflow.fields.method', '请求方法')}
-        </label>
-        <select
-          value={data.method || 'POST'}
-          onChange={(e) => onUpdate({ method: e.target.value })}
-          className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl outline-none text-sm"
-        >
-          <option value="POST">POST</option>
-          <option value="GET">GET</option>
-        </select>
-      </div>
-    </div>
-  );
-};
-
-// Event Node Config
-const EventNodeConfig: React.FC<{
-  data: any;
-  onUpdate: (updates: any) => void;
-}> = ({ data, onUpdate }) => {
-  const { t } = useTranslation();
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">
-          {t('workflow.fields.event_type', '事件类型')}
-        </label>
-        <input
-          type="text"
-          value={data.event_type || ''}
-          onChange={(e) => onUpdate({ event_type: e.target.value })}
-          placeholder={t('workflow.placeholders.event_hint', '例如：user_registered')}
-          className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm dark:text-gray-100 font-mono"
-        />
-      </div>
-    </div>
-  );
-};
-
 // Answer Node Config
 const AnswerNodeConfig: React.FC<{
   data: any;
@@ -741,9 +577,43 @@ const LLMModelSelector: React.FC<{
 const AgentNodeConfig: React.FC<{
   data: any;
   onUpdate: (updates: any) => void;
-  agents: any[];
+  agents: Agent[];
 }> = ({ data, onUpdate, agents }) => {
   const { t } = useTranslation();
+  const actor = useAuthStore(state => state.user);
+  const [readiness, setReadiness] = useState<AgentDeviceActionReadiness | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessError, setReadinessError] = useState(false);
+  const [readinessRefresh, setReadinessRefresh] = useState(0);
+  const agentId = typeof data.agent_id === 'string' ? data.agent_id : '';
+  const selectedAgent = agents.find(agent => agent.id === agentId);
+  const pinnedDeviceId = typeof data.expected_device_id === 'string' ? data.expected_device_id : '';
+  const pinnedPolicyDigest = typeof data.expected_device_policy_digest === 'string'
+    ? data.expected_device_policy_digest : '';
+  const canPin = readiness?.status === 'ready' && !!readiness.device_id && !!readiness.policy_digest;
+  const pinChanged = !!pinnedDeviceId && !!readiness
+    && (readiness.status !== 'ready' || readiness.device_id !== pinnedDeviceId
+      || readiness.policy_digest !== pinnedPolicyDigest);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setReadiness(null);
+    setReadinessError(false);
+    setReadinessLoading(false);
+    if (!agentId || !actor?.project_id) return;
+    setReadinessLoading(true);
+    AIAgentsApiService.getDeviceActionReadiness(agentId, controller.signal)
+      .then(result => {
+        if (controller.signal.aborted) return;
+        if (result.agent_id !== agentId || result.tool_name !== 'fs_read') {
+          throw new Error('Agent device readiness identity mismatch');
+        }
+        setReadiness(result);
+      })
+      .catch(() => { if (!controller.signal.aborted) setReadinessError(true); })
+      .finally(() => { if (!controller.signal.aborted) setReadinessLoading(false); });
+    return () => controller.abort();
+  }, [agentId, actor?.id, actor?.project_id, readinessRefresh]);
 
   return (
     <div className="space-y-5">
@@ -759,6 +629,8 @@ const AgentNodeConfig: React.FC<{
               onUpdate({
                 agent_id: e.target.value,
                 agent_name: agent?.name || '',
+                expected_device_id: null,
+                expected_device_policy_digest: null,
               });
             }}
             className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm dark:text-gray-100 appearance-none cursor-pointer pr-10"
@@ -775,6 +647,45 @@ const AgentNodeConfig: React.FC<{
           </div>
         </div>
       </div>
+      {agentId && <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs leading-5 text-gray-600 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-300">
+        <p className="font-medium text-gray-800 dark:text-gray-100">{t('workflow.deviceAction.title')}</p>
+        {readinessLoading ? <p role="status">{t('workflow.deviceAction.loading')}</p>
+          : readinessError ? <p role="alert">{t('workflow.deviceAction.error')}</p>
+            : readiness ? <>
+              <p role="status">{t(`workflow.deviceAction.status.${readiness.status}`)}</p>
+              {readiness.device_id && <p>{t('workflow.deviceAction.device')}: {selectedAgent?.boundDevice?.id === readiness.device_id
+                ? selectedAgent.boundDevice.device_name : readiness.device_id}</p>}
+              {canPin && !pinnedDeviceId && <p role="status" className="text-amber-600 dark:text-amber-400">
+                {t('workflow.deviceAction.pinRequired', '该员工已绑定设备；工作流运行前必须固定设备读取策略。')}
+              </p>}
+              {canPin && <button type="button"
+                onClick={() => onUpdate({
+                  expected_device_id: readiness.device_id,
+                  expected_device_policy_digest: readiness.policy_digest,
+                })}
+                className="mt-2 rounded-lg bg-blue-600 px-3 py-1.5 font-medium text-white hover:bg-blue-700"
+              >{pinnedDeviceId ? t('workflow.deviceAction.repin', '重新固定当前设备策略')
+                : t('workflow.deviceAction.pin', '固定当前设备读取策略')}</button>}
+              {readiness.status !== 'ready' && <a
+                href={['needs_test', 'legacy_unverified'].includes(readiness.status)
+                  ? '/ai/device-control' : '/ai/agents'}
+                target="_blank" rel="noopener noreferrer"
+                className="inline-block pt-1 text-blue-600 hover:underline dark:text-blue-400"
+              >{t(['needs_test', 'legacy_unverified'].includes(readiness.status)
+                ? 'workflow.deviceAction.openDevices' : 'workflow.deviceAction.openAgents')}</a>}
+            </> : null}
+        {pinnedDeviceId && <div className="mt-2 border-t border-gray-200 pt-2 dark:border-gray-700">
+          <p>{t('workflow.deviceAction.pinned', '已固定设备')}: {pinnedDeviceId}</p>
+          {pinChanged && <p role="alert" className="text-amber-600 dark:text-amber-400">
+            {t('workflow.deviceAction.pinChanged', '设备或读取策略已变化，运行会拒绝；请重新核对并固定。')}
+          </p>}
+          <button type="button" className="mt-1 text-blue-600 hover:underline dark:text-blue-400"
+            onClick={() => onUpdate({ expected_device_id: null, expected_device_policy_digest: null })}
+          >{t('workflow.deviceAction.unpin', '移除设备固定')}</button>
+        </div>}
+        <button type="button" onClick={() => setReadinessRefresh(value => value + 1)}
+          className="mt-2 text-blue-600 hover:underline dark:text-blue-400">{t('workflow.deviceAction.refresh')}</button>
+      </div>}
     </div>
   );
 };
@@ -977,13 +888,13 @@ const LLMNodeConfig: React.FC<{
   llmOptions: Array<{ value: string; label: string }>;
   llmLoading: boolean;
   llmError: string | null;
-  availableTools: any[];
   availableKnowledgeBases: any[];
-}> = ({ data, onUpdate, nodeId, nodes, edges, llmOptions, llmLoading, llmError, availableTools, availableKnowledgeBases }) => {
+}> = ({ data, onUpdate, nodeId, nodes, edges, llmOptions, llmLoading, llmError, availableKnowledgeBases }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'prompt' | 'model' | 'capabilities'>('prompt');
 
-  const toggleItem = (field: 'tool_ids' | 'collection_ids', id: string) => {
+  const toggleItem = (id: string) => {
+    const field = 'collection_ids';
     const list = [...(data[field] || [])];
     const index = list.indexOf(id);
     if (index > -1) {
@@ -1089,29 +1000,16 @@ const LLMNodeConfig: React.FC<{
         </div>
 
         <div className={`space-y-6 ${activeTab === 'capabilities' ? '' : 'hidden'}`}>
-          {/* Tools */}
-          <div className="space-y-3">
-            <label className="text-[11px] uppercase font-bold text-gray-400 tracking-wider flex items-center gap-2">
-              <Wrench className="w-3 h-3" /> {t('agents.create.sections.toolTools', 'Tool工具')}
-            </label>
-            <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
-              {availableTools.map(tool => (
-                <button
-                  key={tool.id}
-                  onClick={() => toggleItem('tool_ids', tool.id)}
-                  className={`
-                    w-full flex items-center justify-between px-3 py-2 rounded-xl border transition-all text-left
-                    ${(data.tool_ids || []).includes(tool.id)
-                      ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400'
-                      : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700 text-gray-500 hover:border-gray-200'
-                    }
-                  `}
-                >
-                  <span className="text-xs font-medium truncate">{tool.name}</span>
-                  {(data.tool_ids || []).includes(tool.id) && <Check className="w-3 h-3 shrink-0" />}
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200">
+            {t('businessScenarios.workflow.llmToolsBlocked')}
+            {Array.isArray(data.tool_ids) && data.tool_ids.length > 0 && (
+              <div className="mt-2">
+                <p>{t('businessScenarios.workflow.llmToolsLegacy')}</p>
+                <button type="button" onClick={() => onUpdate({ tool_ids: [] })} className="mt-2 font-medium underline">
+                  {t('businessScenarios.workflow.llmToolsClear')}
                 </button>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Knowledge Bases */}
@@ -1123,7 +1021,7 @@ const LLMNodeConfig: React.FC<{
               {availableKnowledgeBases.map(kb => (
                 <button
                   key={kb.id}
-                  onClick={() => toggleItem('collection_ids', kb.id)}
+                  onClick={() => toggleItem(kb.id)}
                   className={`
                     w-full flex items-center justify-between px-3 py-2 rounded-xl border transition-all text-left
                     ${(data.collection_ids || []).includes(kb.id)
@@ -1163,11 +1061,14 @@ const ParallelNodeConfig: React.FC<{
             value={data.branches ?? 2}
             onChange={(e) => onUpdate({ branches: parseInt(e.target.value) })}
             min={2}
-            max={10}
+            max={5}
             className="flex-1 h-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
           />
           <span className="text-sm font-bold text-indigo-500 w-6">{data.branches ?? 2}</span>
         </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          {t('workflow.parallel.supported_topology', '目前支持 2～5 条只读 API 或模型分支，直接汇合到同一个回答节点。')}
+        </p>
       </div>
 
       <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700">
@@ -1178,10 +1079,14 @@ const ParallelNodeConfig: React.FC<{
           type="checkbox"
           id="wait_for_all"
           checked={data.wait_for_all ?? true}
-          onChange={(e) => onUpdate({ wait_for_all: e.target.checked })}
+          disabled={data.wait_for_all !== false}
+          onChange={() => onUpdate({ wait_for_all: true })}
           className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500/20 transition-all"
         />
       </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        {t('workflow.parallel.wait_required', '当前只支持全部分支完成后继续。')}
+      </p>
 
       <div className="space-y-2">
         <label className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">
@@ -1192,7 +1097,8 @@ const ParallelNodeConfig: React.FC<{
           value={data.timeout || ''}
           onChange={(e) => onUpdate({ timeout: e.target.value ? parseInt(e.target.value) : undefined })}
           min={1}
-          placeholder="∞ 无限制"
+          max={300}
+          placeholder="默认 120 秒"
           className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm dark:text-gray-100"
         />
       </div>
@@ -1336,6 +1242,13 @@ const APINodeConfig: React.FC<{
   edges: WorkflowEdge[];
 }> = ({ data, onUpdate, nodeId, nodes, edges }) => {
   const { t } = useTranslation();
+  const currentMethod = typeof data.method === 'string' ? data.method : 'GET';
+  const isReadOnlyRequest = currentMethod === 'GET'
+    && (data.body_type === undefined || data.body_type === null || data.body_type === 'none');
+  const convertToReadOnlyGet = () => onUpdate({
+    method: 'GET', body_type: 'none', body: '',
+    form_data: [], form_url_encoded: [], raw_type: null,
+  });
   const handleAddField = (field: 'headers' | 'params' | 'form_data' | 'form_url_encoded') => {
     const list = [...(data[field] || [])];
     if (field === 'form_data') {
@@ -1373,13 +1286,12 @@ const APINodeConfig: React.FC<{
         <label className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">{t('workflow.fields.request_settings', '请求设置')}</label>
         <div className="flex gap-2">
           <select
-            value={data.method || 'GET'}
-            onChange={(e) => onUpdate({ method: e.target.value })}
+            value={currentMethod}
+            onChange={convertToReadOnlyGet}
             className="w-24 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500/20 outline-none cursor-pointer"
           >
-            {['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
+            {currentMethod !== 'GET' && <option value={currentMethod}>{currentMethod}</option>}
+            <option value="GET">GET</option>
           </select>
           <div className="flex-1">
             <VariableInput
@@ -1393,6 +1305,11 @@ const APINodeConfig: React.FC<{
             />
           </div>
         </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400">{t('workflow.apiReadOnly.message')}</p>
+        {!isReadOnlyRequest && <button type="button"
+          onClick={convertToReadOnlyGet}
+          className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+        >{t('workflow.apiReadOnly.convert')}</button>}
       </div>
 
       {/* Headers */}

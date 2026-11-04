@@ -13,6 +13,7 @@ Requires:
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import uuid
 from dataclasses import dataclass
@@ -25,6 +26,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
 from app.db.models import Platform
+from app.infra.visitor_client import channel_registration_url, channel_registration_headers
+
+logger = logging.getLogger(__name__)
 
 
 class SlackPlatformConfig(BaseModel):
@@ -68,7 +72,7 @@ class SlackChannelListener:
     async def start(self) -> None:
         """Start Socket Mode handlers for all active Slack platforms."""
         platforms = await self._load_active_slack_platforms()
-        print(f"[SLACK] Starting listeners for {len(platforms)} platforms")
+        logger.info("Slack listeners starting: count=%s", len(platforms))
 
         for platform in platforms:
             await self._start_platform_handler(platform)
@@ -79,9 +83,9 @@ class SlackChannelListener:
         for platform_id, handler in self._socket_handlers.items():
             try:
                 handler.close()
-                print(f"[SLACK] Stopped handler for platform {platform_id}")
+                logger.info("Slack handler stopped")
             except Exception as e:
-                print(f"[SLACK] Error stopping handler for {platform_id}: {e}")
+                logger.error("Slack handler stop failed: %s", type(e).__name__)
         self._socket_handlers.clear()
 
     async def reload_platform(self, platform_id: str) -> bool:
@@ -105,7 +109,7 @@ class SlackChannelListener:
         await self.stop_platform(platform_id)
         
         if not bot_token or not app_token:
-            print(f"[SLACK] reload_platform_with_config: platform {platform_id} missing bot_token or app_token")
+            logger.warning("Slack reload missing bot or app token")
             return False
         
         try:
@@ -121,10 +125,10 @@ class SlackChannelListener:
                 cfg=cfg,
             )
             await self._start_platform_handler(platform_entry)
-            print(f"[SLACK] reload_platform_with_config: successfully started handler for {platform_id}")
+            logger.info("Slack handler reloaded")
             return True
         except Exception as e:
-            print(f"[SLACK] reload_platform_with_config: failed to start handler for {platform_id}: {e}")
+            logger.error("Slack handler reload failed: %s", type(e).__name__)
             return False
     
     async def stop_platform(self, platform_id: str) -> bool:
@@ -140,10 +144,10 @@ class SlackChannelListener:
             del self._socket_handlers[platform_uuid]
             if platform_uuid in self._handler_threads:
                 del self._handler_threads[platform_uuid]
-            print(f"[SLACK] stop_platform: stopped handler for {platform_id}")
+            logger.info("Slack platform handler stopped")
             return True
         except Exception as e:
-            print(f"[SLACK] stop_platform: error stopping handler for {platform_id}: {e}")
+            logger.error("Slack platform handler stop failed: %s", type(e).__name__)
             return False
 
     async def _load_active_slack_platforms(self) -> list[_SlackPlatformEntry]:
@@ -161,7 +165,7 @@ class SlackChannelListener:
             try:
                 cfg = SlackPlatformConfig(**(cfg_dict or {}))
                 if not cfg.bot_token or not cfg.app_token:
-                    print(f"[SLACK] Skip platform {pid}: missing bot_token or app_token")
+                    logger.warning("Slack platform skipped: missing token")
                     continue
                 platforms.append(_SlackPlatformEntry(
                     id=pid,
@@ -170,7 +174,7 @@ class SlackChannelListener:
                     cfg=cfg,
                 ))
             except Exception as e:
-                print(f"[SLACK] Skip platform {pid}: invalid config: {e}")
+                logger.error("Slack platform config invalid: %s", type(e).__name__)
         return platforms
 
     async def _start_platform_handler(self, platform: _SlackPlatformEntry) -> None:
@@ -189,7 +193,7 @@ class SlackChannelListener:
             @app.event("message")
             def handle_message(event, say, client):
                 """Handle incoming messages (DMs and channel mentions)."""
-                print(f"[SLACK] Raw event received: {event}")
+                logger.debug("Slack message event received")
                 self._process_slack_message_sync(platform, event, client)
 
             @app.event("app_mention")
@@ -208,16 +212,16 @@ class SlackChannelListener:
                 try:
                     handler.start()
                 except Exception as e:
-                    print(f"[SLACK] Handler error for platform {platform.id}: {e}")
+                    logger.error("Slack handler failed: %s", type(e).__name__)
 
             thread = threading.Thread(target=run_handler, daemon=True)
             thread.start()
             self._handler_threads[platform.id] = thread
 
-            print(f"[SLACK] Started Socket Mode handler for platform {platform.id}")
+            logger.info("Slack Socket Mode handler started")
 
         except Exception as e:
-            print(f"[SLACK] Failed to start handler for platform {platform.id}: {e}")
+            logger.error("Slack handler start failed: %s", type(e).__name__)
 
     def _process_slack_message_sync(
         self,
@@ -242,8 +246,7 @@ class SlackChannelListener:
             if not user_id or not channel or not ts or (not text and not files):
                 return
 
-            msg_preview = text[:50] if text else f"[File: {len(files)} files]"
-            print(f"[SLACK] Received message from {user_id} in {channel}: {msg_preview}...")
+            logger.debug("Slack customer message received")
 
             # Get user info
             try:
@@ -261,28 +264,30 @@ class SlackChannelListener:
                 
                 avatar_url = profile.get("image_72") or profile.get("image_48") or ""
                 
-                print(f"[SLACK] User info for {user_id}: display_name='{display_name}', real_name='{real_name}', name='{name}', final='{final_display_name}'")
+                logger.debug("Slack customer profile resolved")
                 display_name = final_display_name
             except Exception as e:
-                print(f"[SLACK] Failed to get user info: {e}")
+                logger.warning("Slack customer profile failed: %s", type(e).__name__)
                 display_name = user_id
                 avatar_url = ""
 
             # 1. Register or get visitor to obtain channel_id (required for file upload)
-            register_url = f"{settings.api_base_url.rstrip('/')}/v1/visitors/register"
+            register_url = channel_registration_url()
             reg_payload = {
                 "platform_api_key": platform.api_key or "",
+                "project_id": str(platform.project_id),
+                "platform_type": "slack",
                 "platform_open_id": user_id,
                 "nickname": display_name,
                 "avatar_url": avatar_url,
             }
             channel_id = ""
             try:
-                reg_resp = requests.post(register_url, json=reg_payload, timeout=10)
+                reg_resp = requests.post(register_url, json=reg_payload, headers=channel_registration_headers(), timeout=10)
                 if reg_resp.status_code in (200, 201):
                     channel_id = reg_resp.json().get("channel_id")
             except Exception as e:
-                print(f"[SLACK] Failed to register visitor: {e}")
+                logger.error("Slack visitor registration failed: %s", type(e).__name__)
 
             # 2. Determine message type & handle file attachments
             msg_type = 1  # Default to text
@@ -320,11 +325,11 @@ class SlackChannelListener:
                                 msg_type = 2 # Image
                                 # Use relative URL and let tgo-api resolve it via settings.API_BASE_URL
                                 content = uploaded_url
-                                print(f"[SLACK] Image processed and uploaded: {uploaded_url}")
+                                logger.debug("Slack customer image uploaded")
                         else:
-                            print(f"[SLACK] Image upload to TGO-API failed: {ul_resp.text}")
+                            logger.warning("Slack image upload failed: status=%s", ul_resp.status_code)
                     except Exception as e:
-                        print(f"[SLACK] Image download/upload chain failed: {e}")
+                        logger.error("Slack image transfer failed: %s", type(e).__name__)
 
             # 3. Call tgo-api chat endpoint using synchronous HTTP
             api_url = f"{settings.api_base_url.rstrip('/')}/v1/chat/completion"
@@ -344,7 +349,6 @@ class SlackChannelListener:
                         "channel": channel,
                         "ts": ts,
                         "thread_ts": thread_ts,
-                        "bot_token": platform.cfg.bot_token,
                     }
                 }
             }
@@ -353,20 +357,20 @@ class SlackChannelListener:
                 resp = requests.post(
                     api_url,
                     json=payload,
-                    headers={"Content-Type": "application/json"},
+                    headers={"Content-Type": "application/json", **channel_registration_headers()},
                     timeout=60,
                 )
                 
                 if resp.status_code == 200:
                     result = resp.json()
-                    print(f"[SLACK] API result: {result}")
+                    logger.debug("Slack reply request completed")
                     
                     # Check if this is an AI disabled response - don't send to user
                     event_type = result.get("event_type")
                     success = result.get("success", True)  # Default to True for backwards compatibility
                     
                     if event_type in {"ai_disabled", "assist_mode"} or success is False:
-                        print(f"[SLACK] AI disabled or error response, not sending to user: {event_type}")
+                        logger.info("Slack AI reply suppressed")
                         return  # Silently ignore - customer service will handle via WuKongIM
                     
                     # Correctly extract reply from TGO native response
@@ -380,16 +384,14 @@ class SlackChannelListener:
                                 text=reply_content,
                                 thread_ts=thread_ts or ts,  # Reply in thread if applicable
                             )
-                            print(f"[SLACK] Reply sent to {channel}: {reply_content[:50]}...")
+                            logger.debug("Slack reply sent")
                         except Exception as e:
-                            print(f"[SLACK] Failed to send reply: {e}")
+                            logger.error("Slack reply send failed: %s", type(e).__name__)
                 else:
-                    print(f"[SLACK] API call failed with status {resp.status_code}: {resp.text[:200]}")
+                    logger.error("Slack reply API failed: status=%s", resp.status_code)
                     
             except Exception as e:
-                print(f"[SLACK] Error calling tgo-api: {e}")
+                logger.error("Slack reply API call failed: %s", type(e).__name__)
 
         except Exception as e:
-            print(f"[SLACK] Error processing message: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("Slack message processing failed: %s", type(e).__name__)

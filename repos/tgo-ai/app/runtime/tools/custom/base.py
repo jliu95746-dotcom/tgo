@@ -63,6 +63,8 @@ class EventResult:
 
     success: bool
     message: str
+    request_id: Optional[str] = None
+    notification_status: Optional[str] = None
 
 
 class EventClient:
@@ -70,14 +72,12 @@ class EventClient:
 
     def __init__(self, ctx: ToolContext):
         self.ctx = ctx
-        self._base_url = getattr(settings, "api_internal_service_url", None) or getattr(
-            settings, "api_service_url", None
-        )
+        self._base_url = settings.api_internal_service_url
 
     @property
     def is_configured(self) -> bool:
-        """Check if API service URL is configured."""
-        return bool(self._base_url)
+        """Require the private API address and shared service credential."""
+        return bool(self._base_url and settings.secret_key)
 
     @property
     def internal_base_url(self) -> Optional[str]:
@@ -103,10 +103,15 @@ class EventClient:
         """
         if not self.is_configured:
             logger.warning(
-                "api_service_url not configured; skipping API Service event call",
+                "Internal API address or service key is unavailable; skipping event call",
                 extra={"agent_id": self.ctx.agent_id, "session_id": self.ctx.session_id},
             )
             return EventResult(success=False, message=error_messages["not_configured"])
+        if event_type == "manual_service.request" and not self.ctx.request_id:
+            return EventResult(
+                success=False,
+                message="当前请求缺少追踪编号，无法安全提交人工服务请求。请联系客服。",
+            )
 
         event_payload = {
             "event_type": event_type,
@@ -117,21 +122,45 @@ class EventClient:
                 "metadata": self.ctx.build_metadata(payload.get("metadata")),
             },
         }
-        # Remove nested metadata from payload if it was provided
-        if "metadata" in event_payload["payload"]:
-            del event_payload["payload"]["metadata"]
-        event_payload["payload"]["metadata"] = self.ctx.build_metadata(payload.get("metadata"))
 
         url = f"{self._base_url.rstrip('/')}{EVENTS_ENDPOINT}"
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "X-Internal-API-Key": settings.secret_key,
+        }
 
         try:
-            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            async with httpx.AsyncClient(
+                timeout=DEFAULT_TIMEOUT,
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
                 resp = await client.post(url, json=event_payload, headers=headers)
 
-                if resp.status_code >= 400:
+                if not 200 <= resp.status_code < 300:
                     self._log_api_error(event_type, resp)
                     return EventResult(success=False, message=error_messages["api_error"])
+                if event_type == "manual_service.request":
+                    body = resp.json()
+                    receipt = (
+                        body.get("result") if isinstance(body, dict) else None
+                    )
+                    if not isinstance(receipt, dict) or not isinstance(
+                        receipt.get("request_id"), str
+                    ):
+                        logger.error(
+                            "Manual handoff returned no committed receipt"
+                        )
+                        return EventResult(
+                            success=False,
+                            message="人工服务请求结果未知，请联系客服核对，暂勿重复提交。",
+                        )
+                    return EventResult(
+                        success=True,
+                        message="",
+                        request_id=receipt["request_id"],
+                        notification_status=receipt.get("notification_status"),
+                    )
 
         except httpx.HTTPError as exc:
             logger.error(f"HTTP error sending {event_type} event", exc_info=exc)

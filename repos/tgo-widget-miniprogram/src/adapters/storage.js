@@ -11,7 +11,7 @@ function setJSON(key, value, ttlMs) {
   try {
     wx.setStorageSync(key, JSON.stringify(rec))
   } catch (e) {
-    console.warn('[storage] setJSON failed:', key, e)
+    console.warn('[storage] setJSON failed')
   }
 }
 

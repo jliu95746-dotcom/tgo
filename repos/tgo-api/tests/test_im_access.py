@@ -15,6 +15,8 @@ from app.core.config import settings
 from app.core.exceptions import TGOAPIException
 from app.core.security import create_access_token, resolve_staff_token
 from app.models import Platform, Project, Staff, Visitor
+from app.models.business_customer_identity import BusinessCustomerBinding
+from app.models.visitor_business_scope import VisitorBusinessScope
 from app.services.im_access import (
     authenticate_im_actor,
     authorize_im_channel,
@@ -34,7 +36,7 @@ def records():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    for model in (Project, Staff, Platform, Visitor):
+    for model in (Project, Staff, Platform, Visitor, BusinessCustomerBinding, VisitorBusinessScope):
         model.__table__.create(engine)
     with Session(engine) as db:
         companies = [Project(name=name, api_key=name) for name in ("A", "B")]
@@ -81,6 +83,27 @@ def staff_token(staff):
 
 def visitor_token(visitor):
     return issue_visitor_im_token(visitor, timedelta(hours=1))
+
+
+@pytest.mark.parametrize("change", ["retired", "revision", "nonwebsite", "missing_revision"])
+def test_each_im_operation_checks_access_lifecycle(records, change):
+    db, _, _, platforms, visitors = records
+    visitor = visitors[0]
+    token = visitor_token(visitor)
+    if change == "retired":
+        visitor.access_retired_at = datetime.now(timezone.utc)
+    elif change == "revision":
+        visitor.access_revision += 1
+    elif change == "nonwebsite":
+        platforms[0].type = "wecom_kf"
+    else:
+        visitor.access_secret_digest = "fixture-only-browser-digest"
+        claims = jwt.get_unverified_claims(token)
+        claims.pop("access_revision")
+        token = jwt.encode(claims, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    db.commit()
+    with pytest.raises(TGOAPIException):
+        authenticate_im_actor(db, f"{visitor.id}-vtr", token)
 
 
 def test_connect_token_cannot_impersonate_another_staff_uid(records):

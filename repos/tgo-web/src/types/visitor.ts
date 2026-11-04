@@ -1,4 +1,4 @@
-import type { Visitor } from '@/types';
+import type { ChannelAIInsights, Visitor, VisitorAIProfile } from '@/types';
 
 export interface CustomAttribute {
   id: string;
@@ -74,4 +74,6 @@ export interface ExtendedVisitor extends Omit<Visitor, 'tags'> {
   recentActivity: VisitorActivity[];
   relatedTickets: VisitorTicket[];
   aiPersonaTags?: AIPersonaTag[];
+  analysisInsights?: ChannelAIInsights | null;
+  aiProfile?: VisitorAIProfile | null;
 }

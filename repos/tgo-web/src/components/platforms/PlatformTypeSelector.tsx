@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import platformsApiService, { PlatformTypeDefinitionResponse } from '@/services/platformsApi';
 import { getPlatformColor, getPlatformIconComponent, toPlatformType } from '@/utils/platformUtils';
+import { PlatformType } from '@/types';
 
 interface PlatformTypeSelectorProps {
   open: boolean;
@@ -133,7 +134,11 @@ const PlatformTypeSelector: React.FC<PlatformTypeSelectorProps> = ({ open, onClo
                         <div className="text-sm font-medium text-gray-800 dark:text-gray-100">
                           {displayName}
                         </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">{platformType.type}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {platformType.type === PlatformType.WECHAT_LOCAL
+                            ? t('platforms.wechatLocal.optionHint', 'Windows 本机桥接')
+                            : platformType.type}
+                        </div>
                       </div>
                     </button>
                   );

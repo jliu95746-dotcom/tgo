@@ -41,6 +41,12 @@ class WeComSyncContinuation(RuntimeError):
     """The page budget was exhausted while more messages remain."""
 
 
+def _safe_provider_errcode(data: dict[str, Any]) -> str:
+    """Keep the numeric provider code without copying free-form response fields."""
+    value = data.get("errcode")
+    return str(value) if type(value) is int else "invalid"
+
+
 try:
     from redis import asyncio as aioredis  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
@@ -68,14 +74,14 @@ async def get_redis_client():
         await client.ping()
         _redis_client = client
         return client
-    except Exception as e:  # pragma: no cover
+    except Exception:  # pragma: no cover
         _redis_client = None
         if client is not None:
             try:
                 await client.aclose()
             except Exception:
                 pass
-        logging.warning("[WECOM] Redis unavailable: %s", e)
+        logging.warning("[WECOM] Redis unavailable")
         return None
 
 
@@ -92,8 +98,8 @@ async def wecom_get_access_token(corp_id: str, app_secret: str, timeout: Optiona
             cached = await redis.get(cache_key)
             if cached:
                 return str(cached)
-        except Exception as exc:
-            logging.warning("[WECOM] Access-token cache read failed: %s", exc)
+        except Exception:
+            logging.warning("[WECOM] Access-token cache read failed")
 
     url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
     params = {"corpid": corp_id, "corpsecret": app_secret}
@@ -131,8 +137,8 @@ async def wecom_get_access_token(corp_id: str, app_secret: str, timeout: Optiona
             expires_in = 7140
         try:
             await redis.set(cache_key, access_token, ex=expires_in)
-        except Exception as exc:
-            logging.warning("[WECOM] Access-token cache write failed: %s", exc)
+        except Exception:
+            logging.warning("[WECOM] Access-token cache write failed")
     return access_token
 
 
@@ -151,8 +157,8 @@ async def invalidate_wecom_access_token(corp_id: str, app_secret: str) -> None:
     cache_key = _wecom_token_cache_key(corp_id, app_secret)
     try:
         await redis.delete(cache_key)
-    except Exception as exc:
-        logging.warning("[WECOM] Access-token cache invalidation failed: %s", exc)
+    except Exception:
+        logging.warning("[WECOM] Access-token cache invalidation failed")
 
 
 async def wecom_upload_temp_media(access_token: str, file_bytes: bytes, media_type: str = "image", filename: Optional[str] = None, content_type: Optional[str] = None) -> str:
@@ -170,10 +176,12 @@ async def wecom_upload_temp_media(access_token: str, file_bytes: bytes, media_ty
         resp.raise_for_status()
         data = resp.json()
         if data.get("errcode") not in (0, None):
-            raise RuntimeError(f"WeCom upload media failed: {data}")
+            raise RuntimeError(
+                f"WeCom upload media failed with errcode {_safe_provider_errcode(data)}"
+            )
         media_id = data.get("media_id") or data.get("thumb_media_id")
         if not media_id:
-            raise RuntimeError(f"WeCom upload media missing media_id: {data}")
+            raise RuntimeError("WeCom upload media response is missing media_id")
         return media_id
 
 
@@ -213,7 +221,9 @@ async def _wecom_kf_batch_get_customer_basic(access_token: str, external_userids
         r.raise_for_status()
         data = r.json()
         if data.get("errcode") != 0:
-            raise RuntimeError(f"kf customer batchget failed: {data}")
+            raise RuntimeError(
+                f"kf customer batchget failed with errcode {_safe_provider_errcode(data)}"
+            )
         result: Dict[str, Dict[str, Any]] = {}
         for item in (data.get("customer_list", []) or []):
             eu = item.get("external_userid")
@@ -236,7 +246,6 @@ async def _wecom_externalcontact_get(access_token: str, external_userid: str) ->
         r = await client.get(url, params=params)
         r.raise_for_status()
         data = r.json()
-        print("_externalcontact_get-data-->", data)
         if data.get("errcode") != 0:
             return None
         ec = data.get("external_contact") or {}
@@ -253,28 +262,27 @@ async def get_wecom_visitor_profile(corp_id: str, app_secret: str, external_user
     """
     try:
         access_token = await wecom_get_access_token(corp_id, app_secret)
-    except Exception as e:
-        # Propagate minimal info: unable to get token -> return empty profile; caller should degrade.
-        print(f"[WECOM] get access token failed: {e}")
+    except Exception:
+        # Profile lookup is optional; never log credentials or provider payloads.
+        logging.warning("[WECOM] Customer profile token lookup failed")
         return {"nickname": None, "avatar": None}
 
     # 1) Try KF batchget (works when external_userid belongs to KF contact)
     try:
         basic_map = await _wecom_kf_batch_get_customer_basic(access_token, [external_userid])
-        print("basic_map--->", basic_map)
         info = basic_map.get(external_userid)
         if info:
             return {"nickname": info.get("nickname"), "avatar": info.get("avatar")}
-    except Exception as e:
-        print(f"[WECOM] kf batchget failed for {external_userid}: {e}")
+    except Exception:
+        logging.warning("[WECOM] KF customer profile lookup failed")
 
     # 2) Fallback to customer contact detail
     try:
         ec = await _wecom_externalcontact_get(access_token, external_userid)
         if ec:
             return {"nickname": ec.get("name"), "avatar": ec.get("avatar")}
-    except Exception as e:
-        print(f"[WECOM] externalcontact get failed for {external_userid}: {e}")
+    except Exception:
+        logging.warning("[WECOM] External customer profile lookup failed")
 
     return {"nickname": None, "avatar": None}
 
@@ -307,7 +315,9 @@ async def wecom_kf_send_msg(
         resp.raise_for_status()
         data = resp.json()
         if data.get("errcode") != 0:
-            raise RuntimeError(f"WeCom KF send_msg failed: {data}")
+            raise RuntimeError(
+                f"WeCom KF send_msg failed with errcode {_safe_provider_errcode(data)}"
+            )
         return data
 
 
@@ -355,16 +365,29 @@ async def wecom_bot_send_response(
         msgtype: content,
     }
 
-    logging.info("[WECOM_BOT] Sending response to %s, payload=%s", response_url[:80] + "...", json.dumps(payload, ensure_ascii=False)[:200])
+    try:
+        async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
+            resp = await client.post(response_url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"WeCom Bot response failed with HTTP {exc.response.status_code}"
+        ) from None
+    except httpx.HTTPError:
+        raise RuntimeError("WeCom Bot response failed due to a network error") from None
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise RuntimeError("WeCom Bot returned an invalid response") from None
 
-    async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
-        resp = await client.post(response_url, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
-        logging.info("[WECOM_BOT] Response result: %s", data)
-        if data.get("errcode") not in (0, None):
-            raise RuntimeError(f"WeCom Bot response failed: {data}")
-        return data
+    if not isinstance(data, dict):
+        raise RuntimeError("WeCom Bot returned an invalid response")
+    errcode = data.get("errcode")
+    if errcode not in (0, None):
+        if type(errcode) is int:
+            raise RuntimeError(f"WeCom Bot response failed with errcode {errcode}")
+        raise RuntimeError("WeCom Bot response failed with an invalid errcode")
+    logging.info("[WECOM_BOT] Response accepted")
+    return data
 
 
 async def wecom_bot_send_response_text(
@@ -412,6 +435,7 @@ async def wecom_send_app_message(
     content: dict,
     duplicate_check_interval: int | None = 10,
     timeout: Optional[int] = None,
+    enable_duplicate_check: bool = False,
 ) -> dict:
     """Send an application message to an internal colleague (enterprise member).
 
@@ -428,13 +452,17 @@ async def wecom_send_app_message(
     }
     if duplicate_check_interval is not None:
         payload["duplicate_check_interval"] = int(duplicate_check_interval)
+    if enable_duplicate_check:
+        payload["enable_duplicate_check"] = 1
 
     async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
         resp = await client.post(url, content=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
         resp.raise_for_status()
         data = resp.json()
         if data.get("errcode") != 0:
-            raise RuntimeError(f"WeCom app send message failed: {data}")
+            raise RuntimeError(
+                f"WeCom app send message failed: errcode={_safe_provider_errcode(data)}"
+            )
         return data
 
 
@@ -457,8 +485,8 @@ async def resolve_visitor_platform_open_id(visitor_id: str) -> str:
             cached = await redis.get(key)
             if cached:
                 return cached
-        except Exception as e:
-            logging.warning("[RESOLVE] Redis get failed for %s: %s", key, e)
+        except Exception:
+            logging.warning("[RESOLVE] Visitor cache read failed")
     async with httpx.AsyncClient(base_url=settings.api_base_url, timeout=settings.request_timeout_seconds) as client:
         resp = await client.get(f"/v1/visitors/{vid}/basic")
         resp.raise_for_status()
@@ -469,8 +497,8 @@ async def resolve_visitor_platform_open_id(visitor_id: str) -> str:
     if redis:
         try:
             await redis.set(key, platform_open_id, ex=3600)
-        except Exception as e:
-            logging.warning("[RESOLVE] Redis set failed for %s: %s", key, e)
+        except Exception:
+            logging.warning("[RESOLVE] Visitor cache write failed")
     return platform_open_id
 
 
@@ -491,8 +519,8 @@ async def resolve_wecom_open_kfid(visitor_id: str, platform_id, db: AsyncSession
             cached = await redis.get(cache_key)
             if cached:
                 return cached
-        except Exception as e:
-            logging.warning("[RESOLVE] Redis get failed for %s: %s", cache_key, e)
+        except Exception:
+            logging.warning("[RESOLVE] WeCom channel cache read failed")
 
     platform_open_id = await resolve_visitor_platform_open_id(vid)
 
@@ -511,8 +539,8 @@ async def resolve_wecom_open_kfid(visitor_id: str, platform_id, db: AsyncSession
     if redis:
         try:
             await redis.set(cache_key, open_kfid, ex=3600)
-        except Exception as e:
-            logging.warning("[RESOLVE] Redis set failed for %s: %s", cache_key, e)
+        except Exception:
+            logging.warning("[RESOLVE] WeCom channel cache write failed")
     return open_kfid
 
 
@@ -571,11 +599,13 @@ async def try_store_wecom_inbox(
                 if not repaired:
                     return InboxStoreResult.ERROR
             return InboxStoreResult.DUPLICATE
-        logging.error("[WECOM] Inbox integrity error: %s", exc)
+        # SQLAlchemy exception text includes bound parameters such as the
+        # customer's message and raw callback payload.
+        logging.error("[WECOM] Inbox integrity error; transaction rolled back")
         return InboxStoreResult.ERROR
-    except Exception as exc:  # pragma: no cover
+    except Exception:  # pragma: no cover
         await db.rollback()
-        logging.error("[WECOM] Failed to store inbox record: %s", exc)
+        logging.error("[WECOM] Failed to store inbox record; transaction rolled back")
         return InboxStoreResult.ERROR
 
 
@@ -608,9 +638,8 @@ async def _ensure_duplicate_media_state(
             or existing_media.media_type != media_reference.media_type
         ):
             logging.warning(
-                "[WECOM] Duplicate message %s changed immutable media fields; "
-                "keeping the canonical inbox media",
-                message_id,
+                "[WECOM] Duplicate message changed immutable media fields; "
+                "keeping the canonical inbox media"
             )
             return True
         if existing_media is None:
@@ -660,12 +689,9 @@ async def _ensure_duplicate_media_state(
             await db.execute(job_insert)
         await db.commit()
         return True
-    except Exception as exc:
+    except Exception:
         await db.rollback()
-        logging.error(
-            "[WECOM] Failed to repair media state for duplicate message: %s",
-            exc,
-        )
+        logging.error("[WECOM] Failed to repair duplicate inbox media state")
         return False
 def _extract_kf_content(msg: Dict[str, Any]) -> Tuple[str, str, str, Optional[datetime]]:
     """Extract minimal fields from a KF message for inbox storage.
@@ -675,13 +701,13 @@ def _extract_kf_content(msg: Dict[str, Any]) -> Tuple[str, str, str, Optional[da
     """
     msgtype = str(msg.get("msgtype") or "unknown")
     external_userid = str(msg.get("external_userid") or "")
-    send_time = int(msg.get("send_time") or 0)
     received_at = None
     try:
+        send_time = int(msg.get("send_time") or 0)
         if send_time > 0:
             received_at = datetime.fromtimestamp(send_time, tz=timezone.utc)
-    except Exception:  # pragma: no cover
-        received_at = None
+    except (TypeError, ValueError, OverflowError, OSError):
+        logging.warning("[WECOM] KF message has an invalid send_time")
 
     # Rich content extraction for common types
     content = ""
@@ -766,8 +792,8 @@ async def get_wecom_sync_cursor(
         cursor_key = f"wecom:kf:cursor:{corp_id}:{open_kf_id}".lower()
         try:
             legacy_cursor = await redis.get(cursor_key) or ""
-        except Exception as exc:
-            logging.warning("[WECOM] Failed to read legacy Redis cursor: %s", exc)
+        except Exception:
+            logging.warning("[WECOM] Failed to read legacy Redis cursor")
 
     if legacy_cursor:
         statement = (
@@ -819,8 +845,8 @@ async def persist_wecom_sync_cursor(
         cursor_key = f"wecom:kf:cursor:{corp_id}:{open_kf_id}".lower()
         try:
             await redis.set(cursor_key, cursor, ex=cursor_ttl_seconds)
-        except Exception as exc:
-            logging.warning("[WECOM] Failed to cache cursor in Redis: %s", exc)
+        except Exception:
+            logging.warning("[WECOM] Failed to cache cursor in Redis")
 
 
 # --- KF sync driver ---------------------------------------------------------------
@@ -835,6 +861,7 @@ async def sync_kf_messages(
     max_iters: int = 10,
     cursor_ttl_seconds: int = 7 * 24 * 60 * 60,
     batch_limit: int = 500,
+    include_native_context: bool = False,
 ) -> None:
     """Sync actual KF messages upon receiving kf_msg_or_event.
 
@@ -858,28 +885,44 @@ async def sync_kf_messages(
             limit=batch_limit,
         )
 
-        if data.get("errcode") not in (0, None):
-            raise RuntimeError(f"WeCom KF sync API returned error: {data}")
+        errcode = data.get("errcode")
+        if type(errcode) is not int:
+            raise RuntimeError("WeCom KF sync response has an invalid errcode")
+        if errcode != 0:
+            raise RuntimeError(f"WeCom KF sync API returned errcode {errcode}")
 
-        msg_list = data.get("msg_list") or []
+        msg_list = data.get("msg_list")
+        if not isinstance(msg_list, list) or any(
+            not isinstance(msg, dict) for msg in msg_list
+        ):
+            raise RuntimeError("WeCom KF sync response has an invalid msg_list")
+        has_more = data.get("has_more")
+        if type(has_more) is not int or has_more not in (0, 1):
+            raise RuntimeError("WeCom KF sync response has an invalid has_more")
+        next_cursor = data.get("next_cursor")
+        if next_cursor is not None and not isinstance(next_cursor, str):
+            raise RuntimeError("WeCom KF sync response has an invalid next_cursor")
+        if has_more and (not next_cursor or next_cursor == cursor):
+            raise RuntimeError("WeCom KF sync response has a nonadvancing next_cursor")
         stored_count = 0
         for msg in msg_list:
-            if not isinstance(msg, dict):
-                continue
-            try:
-                origin = int(msg.get("origin") or 0)
-            except (TypeError, ValueError):
-                origin = 0
-            if origin != 3:
+            origin = msg.get("origin")
+            if type(origin) is not int:
+                # An unclassified sender could be a customer. Keep the durable
+                # cursor on this page so the message is never silently dropped.
+                raise RuntimeError("WeCom KF message has an invalid origin")
+            if origin != 3 and not (include_native_context and origin in {4, 5}):
                 # Only customer-originated messages enter the AI pipeline.
                 continue
             msgid = str(msg.get("msgid") or "")
+            if not msgid and include_native_context and origin in {4, 5}:
+                msgid = "native_event_" + hashlib.sha256(json.dumps(msg, sort_keys=True).encode()).hexdigest()
             if not msgid:
                 raise RuntimeError("WeCom KF customer message is missing msgid")
             ext_uid, msgtype, content, received_at = _extract_kf_content(msg)
-            media_reference = _extract_kf_media_reference(msg)
+            media_reference = _extract_kf_media_reference(msg) if origin == 3 else None
             media_error_message = None
-            if msgtype == "text":
+            if msgtype == "text" or (include_native_context and origin in {4, 5}):
                 message_status = "pending"
             elif media_reference is not None and media_reference.supported:
                 message_status = "pending_media"
@@ -898,7 +941,7 @@ async def sync_kf_messages(
                 open_kfid=open_kf_id,
                 msg_type=msgtype,
                 content=content,
-                is_from_colleague=False,
+                is_from_colleague=origin == 5,
                 raw_payload={"kf_sync_msg": msg},
                 status=message_status,
                 error_message=media_error_message,
@@ -910,7 +953,7 @@ async def sync_kf_messages(
                 stored_count += 1
 
         # Update cursor and metrics
-        cursor = data.get("next_cursor") or cursor
+        cursor = next_cursor or cursor
         if cursor:
             await persist_wecom_sync_cursor(
                 db,
@@ -921,7 +964,6 @@ async def sync_kf_messages(
                 cursor_ttl_seconds,
             )
 
-        has_more = int(data.get("has_more") or 0)
         logging.info(
             "[WECOM] KF sync page=%s fetched=%s stored=%s has_more=%s",
             page,

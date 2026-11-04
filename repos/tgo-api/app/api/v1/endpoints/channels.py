@@ -24,13 +24,18 @@ from app.schemas.visitor import (
 from app.schemas import TagResponse
 from app.schemas.tag import set_tag_list_display_name
 from app.services.ai_client import ai_client
+from app.api.current_access_route import CurrentAccessRoute
+from app.schemas.visitor_data_access import VisitorDataAccess
+from app.services.profile_access import require_profile_access, require_visible_visitor_channel, profile_guard
+from app.services.channel_access import require_staff_channel_access
+from app.services.staff_record_access import staff_record_guard
 
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 from app.utils.encoding import parse_visitor_channel_id
 from app.utils.intent import localize_visitor_response_intent
 
 
-router = APIRouter()
+router = APIRouter(route_class=CurrentAccessRoute)
 
 
 # Channel ID suffixes
@@ -322,62 +327,58 @@ async def get_channel_info(
     """Retrieve channel information for a given channel_id and channel_type.
 
     Security:
-    - JWT staff: access to channels within the same project (existing behavior)
-    - Platform API key: only staff/agent personal channels (channel_type==1 and channel_id endswith '-staff' or '-agent'),
-      and only within the same project as the platform
+    - Current staff JWT: tenant ownership and current conversation assignment.
+    - Current website visitor grant: own display or an assigned sender; no private metadata.
+    - Platform API key alone grants no profile or AI configuration access.
     """
     accept_language = request.headers.get("Accept-Language")
 
-    # Determine authentication method
-    current_user: Optional[Staff] = None
-    platform: Optional[Platform] = None
-
-    # Try JWT (staff)
-    if credentials and credentials.credentials:
-        current_user = resolve_staff_token(db, credentials.credentials)
-
-    # Try Platform API key if no staff user
-    if current_user is None:
-        api_key = platform_api_key or x_platform_api_key
-        if api_key:
-            platform = (
-                db.query(Platform)
-                .filter(Platform.api_key == api_key)
-                .first()
-            )
-            if not platform:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform_api_key")
-            if platform.deleted_at is not None:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Platform is deleted")
-            if platform.is_active is False:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Platform is disabled")
+    access = require_profile_access(db, credentials, platform_api_key or x_platform_api_key)
+    if isinstance(access, VisitorDataAccess):
+        guard = profile_guard(access, channel=(channel_id, channel_type))
+        request.state.operation_guard = guard
+        kind: Literal["visitor", "staff", "agent"]
+        entity = require_visible_visitor_channel(db, access, channel_id, channel_type)
+        if isinstance(entity, Visitor):
+            name = resolve_visitor_display_name(name=entity.name, nickname=entity.nickname,
+                nickname_zh=entity.nickname_zh, language=user_language, fallback="访客")
+            avatar = entity.avatar_url or ""
+            kind = "visitor"
+        elif isinstance(entity, Staff):
+            name, avatar, kind = entity.nickname or "客服", entity.avatar_url or "", "staff"
         else:
-            # Neither JWT nor API key provided
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+            guard.check()
+            public = await ai_client.get_agent(project_id=str(access.project_id), agent_id=str(entity),
+                include_tools=False, include_collections=False, include_workflows=False)
+            guard.check()
+            if public.get("id") != str(entity):
+                raise HTTPException(502, "客服显示信息无法核验")
+            name = public.get("name") if isinstance(public.get("name"), str) else "客服"
+            avatar = public.get("avatar_url") if isinstance(public.get("avatar_url"), str) else ""
+            kind = "agent"
+        guard.check()
+        return ChannelInfoResponse(name=name, avatar=avatar, channel_id=channel_id,
+            channel_type=channel_type, entity_type=kind, extra=None)
+    guard = profile_guard(access, channel=(channel_id, channel_type))
+    request.state.operation_guard = guard
+    guard.check()
+    current_user = resolve_staff_token(db, access.token.get_secret_value())
+    assert current_user is not None
+    await require_staff_channel_access(db, current_user, channel_id, channel_type)
+    guard.check()
+    if channel_type == 251 or (channel_type == 1 and not channel_id.endswith((STAFF_SUFFIX, AGENT_SUFFIX))):
+        # Private customer metadata keeps the same record permission as details.
+        identifier = parse_visitor_channel_id(channel_id) if channel_type == 251 else UUID(channel_id.removesuffix(VISITOR_SUFFIX))
+        guard = staff_record_guard(access, (identifier,), "visitors:read")
+        request.state.operation_guard = guard
+        guard.check()
+    result = await _handle_staff_auth_channel_info(channel_id=channel_id, channel_type=channel_type,
+        current_user=current_user, db=db, accept_language=accept_language, user_language=user_language)
+    guard.check()
+    await require_staff_channel_access(db, current_user, channel_id, channel_type)
+    guard.check()
+    return result
 
-    # If authenticated via JWT (staff), keep existing behavior
-    if current_user is not None:
-        return await _handle_staff_auth_channel_info(
-            channel_id=channel_id,
-            channel_type=channel_type,
-            current_user=current_user,
-            db=db,
-            accept_language=accept_language,
-            user_language=user_language,
-        )
-
-    # If authenticated via Platform API key, restrict to staff/agent personal channels
-    if platform is not None:
-        return await _handle_platform_auth_channel_info(
-            channel_id=channel_id,
-            channel_type=channel_type,
-            platform=platform,
-            db=db,
-            user_language=user_language,
-        )
-
-    # Unsupported or unauthorized
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported channel_type")
 
 
 async def _handle_staff_auth_channel_info(
@@ -441,59 +442,6 @@ async def _handle_staff_auth_channel_info(
         )
 
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported channel_type")
-
-
-async def _handle_platform_auth_channel_info(
-    channel_id: str,
-    channel_type: int,
-    platform: Platform,
-    db: Session,
-    user_language: UserLanguage = "en",
-) -> ChannelInfoResponse:
-    """Handle channel info request for Platform API key authentication."""
-    # Only allow channel_type==1 and channel_id ending with '-staff' or '-agent'
-    is_staff_channel = channel_type == 1 and channel_id.endswith(STAFF_SUFFIX)
-    is_agent_channel = channel_type == 1 and channel_id.endswith(AGENT_SUFFIX)
-
-    if not (is_staff_channel or is_agent_channel):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only staff and agent personal channels are accessible with platform API key",
-        )
-
-    if is_staff_channel:
-        staff_id_str = channel_id[:-len(STAFF_SUFFIX)]
-        try:
-            staff_uuid = UUID(staff_id_str)
-        except Exception:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid staff_id in channel")
-
-        staff = (
-            db.query(Staff)
-            .filter(
-                Staff.id == staff_uuid,
-                Staff.deleted_at.is_(None),
-            )
-            .first()
-        )
-        if not staff:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff not found")
-
-        # Ensure staff belongs to the same project as the platform
-        if staff.project_id != platform.project_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this channel")
-
-        return _build_staff_channel_response(staff, channel_id, channel_type)
-
-    # Agent channel
-    if is_agent_channel:
-        return await _get_agent_channel_info(
-            channel_id=channel_id,
-            channel_type=channel_type,
-            project_id=platform.project_id,
-        )
-
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported channel type")
 
 
 async def _get_customer_service_channel_info(

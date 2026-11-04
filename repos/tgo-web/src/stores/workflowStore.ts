@@ -52,6 +52,7 @@ interface WorkflowState {
   
   // Execution/Debug state
   currentExecution: WorkflowExecution | null;
+  executionPanelMode: 'debug' | 'history';
   isExecuting: boolean;
   executionError: string | null;
   nodeExecutionMap: Record<string, NodeExecution>;
@@ -113,6 +114,7 @@ interface WorkflowState {
   
   // Actions - Execution/Debug
   startExecution: (input: Record<string, any>) => Promise<void>;
+  refreshExecution: () => Promise<void>;
   cancelExecution: () => Promise<void>;
   setDebugPanelOpen: (open: boolean) => void;
   setDebugInput: (input: Record<string, any>) => void;
@@ -122,6 +124,9 @@ interface WorkflowState {
   // Actions - Reset
   resetEditor: () => void;
 }
+
+// Invalidated when another read or an explicit editor transition takes ownership.
+let workflowLoadRevision = 0;
 
 export const useWorkflowStore = create<WorkflowState>()(
   devtools(
@@ -150,6 +155,7 @@ export const useWorkflowStore = create<WorkflowState>()(
 
         // Execution/Debug state initial values
         currentExecution: null,
+        executionPanelMode: 'debug',
         isExecuting: false,
         executionError: null,
         nodeExecutionMap: {},
@@ -181,10 +187,18 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       // Load single workflow
       loadWorkflow: async (id) => {
+        const revision = ++workflowLoadRevision;
+        const previousWorkflow = get().currentWorkflow;
         set({ isLoadingCurrentWorkflow: true, currentWorkflowError: null }, false, 'loadWorkflow:start');
         
         try {
           const workflow = await WorkflowApiService.getWorkflow(id);
+          if (revision !== workflowLoadRevision) return;
+          // A response must never discard edits or a saved replacement made while waiting.
+          if (get().currentWorkflow !== previousWorkflow || (previousWorkflow?.id === id && get().isDirty)) {
+            set({ isLoadingCurrentWorkflow: false }, false, 'loadWorkflow:preserveDraft');
+            return;
+          }
           // Migrate node data if needed
           const migratedNodes = migrateNodes(workflow.definition.nodes);
           workflow.definition.nodes = migratedNodes;
@@ -197,6 +211,7 @@ export const useWorkflowStore = create<WorkflowState>()(
             historyIndex: 0,
           }, false, 'loadWorkflow:success');
         } catch (error) {
+          if (revision !== workflowLoadRevision) return;
           set({
             isLoadingCurrentWorkflow: false,
             currentWorkflowError: error instanceof Error ? error.message : 'Failed to load workflow',
@@ -233,7 +248,7 @@ export const useWorkflowStore = create<WorkflowState>()(
             description: currentWorkflow.description,
             nodes: currentWorkflow.definition.nodes,
             edges: currentWorkflow.definition.edges,
-            status: currentWorkflow.status,
+            expected_version: currentWorkflow.version,
             tags: currentWorkflow.tags,
           });
           
@@ -270,8 +285,11 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       // Set current workflow
       setCurrentWorkflow: (workflow) => {
+        workflowLoadRevision++;
         set({
           currentWorkflow: workflow,
+          isLoadingCurrentWorkflow: false,
+          currentWorkflowError: null,
           isDirty: false,
           selectedNodeId: null,
           selectedEdgeId: null,
@@ -793,9 +811,12 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       // Close workflow editor
       closeWorkflowEditor: () => {
+        workflowLoadRevision++;
         set({
           showWorkflowEditor: false,
           currentWorkflow: null,
+          isLoadingCurrentWorkflow: false,
+          currentWorkflowError: null,
           selectedNodeId: null,
           selectedEdgeId: null,
           isDirty: false,
@@ -817,6 +838,7 @@ export const useWorkflowStore = create<WorkflowState>()(
       ...createWorkflowExecutionActions(set, get),
 
       setDebugPanelOpen: (open) => {
+        if (open && get().executionPanelMode === 'history') get().clearExecution();
         set({ isDebugPanelOpen: open }, false, 'setDebugPanelOpen');
       },
 
@@ -831,9 +853,12 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       // Reset editor state
       resetEditor: () => {
+        workflowLoadRevision++;
         get().executionAbortController?.abort();
         set({
           currentWorkflow: null,
+          isLoadingCurrentWorkflow: false,
+          currentWorkflowError: null,
           selectedNodeId: null,
           selectedEdgeId: null,
           isDirty: false,
@@ -841,6 +866,7 @@ export const useWorkflowStore = create<WorkflowState>()(
           history: [],
           historyIndex: -1,
           currentExecution: null,
+          executionPanelMode: 'debug',
           isExecuting: false,
           executionError: null,
           nodeExecutionMap: {},

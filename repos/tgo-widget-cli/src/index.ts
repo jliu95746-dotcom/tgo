@@ -4,7 +4,9 @@ import { registerChatCommands } from './commands/chat.js';
 import { registerPlatformCommands } from './commands/platform.js';
 import { registerChannelCommands } from './commands/channel.js';
 import { registerActivityCommands } from './commands/activity.js';
-import { loadConfig, resetConfig, resolveOutput } from './config.js';
+import { loadConfig, resolveOutput } from './config.js';
+import { registerSessionCommands } from './commands/session.js';
+import { endCurrentVisitorSession } from './sessionLifecycle.js';
 import { printResult, printError } from './output.js';
 
 const program = new Command();
@@ -24,6 +26,7 @@ registerChatCommands(program);
 registerPlatformCommands(program);
 registerChannelCommands(program);
 registerActivityCommands(program);
+registerSessionCommands(program);
 
 // whoami — show current config
 program
@@ -51,12 +54,12 @@ program
 // reset — clear config
 program
   .command('reset')
-  .description('Clear saved configuration')
-  .action((_opts, cmd) => {
+  .description('清理当前访客访问并保留退出重试记录')
+  .action(async (_opts, cmd) => {
     const globals = cmd.parent!.opts();
     const format = resolveOutput(globals.output);
-    resetConfig();
-    printResult({ status: 'reset', message: 'Configuration cleared' }, format);
+    try { printResult({ status:'reset',...(await endCurrentVisitorSession()) }, format); }
+    catch { printError(new Error('退出尚待确认，请检查配置存储并重试。'),format); }
   });
 
 // MCP serve command

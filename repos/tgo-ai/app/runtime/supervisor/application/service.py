@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import partial
 from typing import AsyncIterator, Dict, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,10 +18,12 @@ from starlette.responses import StreamingResponse
 
 from app.core.logging import get_logger
 from app.exceptions import NotFoundError
-from app.models.internal import AgentExecutionContext
+from app.models.internal import AgentExecutionContext, Agent
+from app.config import settings
+from app.schemas.agent_trials import AgentTrialRequest
 from app.services.default_knowledge import resolve_agent_knowledge
 from app.schemas.knowledge_evidence import KnowledgeEvidence
-from app.services.current_knowledge import SOCIAL_ONLY
+from app.services.current_knowledge import SOCIAL_ONLY, retrieve_current_knowledge
 from app.runtime.supervisor.agents.builder import AgnoAgentBuilder
 from app.runtime.supervisor.agents.runner import AgnoAgentRunner
 from app.runtime.supervisor.infrastructure.services import AIServiceClient
@@ -28,6 +32,12 @@ from app.runtime.tools.executor.service import ToolsRuntimeService
 from app.runtime.tools.mcp_lifecycle import mcp_request_scope
 from app.schemas.agent_run import SupervisorRunRequest, SupervisorRunResponse
 from app.services.agent_service import AgentService
+from app.services.agent_execution_scope import check_current_execution, track_execution_scope
+from app.schemas.agent_execution import AgentExecutionReference
+from app.schemas.business_execution_context import BusinessContextCheck, business_request_fingerprint
+from app.services.api_service import api_service_client
+from pydantic import SecretStr
+from app.schemas.knowledge import KnowledgeChannel
 from app.services.device_execution import DeviceExecution, track_device_execution
 from app.services.reply_phase_receipts import report_phase_ended
 from app.streaming.event_emitter import get_event_emitter
@@ -73,6 +83,8 @@ class SupervisorRuntimeService:
         self._agent_runner = AgnoAgentRunner()
         self._runs: Dict[str, RunRegistryEntry] = {}
         self._runs_lock = asyncio.Lock()
+        from app.services.agent_execution_reference import AgentExecutionReferenceReader
+        self._execution_reader = AgentExecutionReferenceReader(session_factory)
 
     async def run(
         self,
@@ -112,31 +124,81 @@ class SupervisorRuntimeService:
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> SupervisorRunResponse:
         headers = self._build_auth_headers(project_id, extra_headers)
+        context: AgentExecutionContext | None = None
 
         try:
             context, _ = await self._prepare_context(payload, project_id, headers)
-            async with track_device_execution(context) as execution, mcp_request_scope():
+            if getattr(context, "execution_id", None) is None:
+                context.execution_id = uuid.uuid4()
+            async with track_execution_scope(getattr(context, "execution_reference", None), self._execution_reader), track_device_execution(context) as execution, mcp_request_scope():
+                await check_current_execution()
                 built_agent = await self._agent_builder.build_agent(context)
+                await check_current_execution()
                 self._logger.debug(
                     "Starting supervisor run",
                     agent_id=str(context.agent.id),
                     request_id=context.request_id,
                 )
                 result = await self._agent_runner.run(built_agent, context)
+                await check_current_execution()
                 if execution is not None:
                     execution.complete(result.success)
                 return result
         except NotFoundError as exc:
-            return self._build_failure_response(str(exc))
+            return self._build_failure_response(
+                str(exc), context.execution_id if context is not None else None
+            )
         except ValueError as exc:
-            return self._build_failure_response(str(exc))
+            return self._build_failure_response(
+                str(exc), context.execution_id if context is not None else None
+            )
         except Exception as exc:  # pragma: no cover - defensive runtime path
             self._logger.exception(
                 "Supervisor run failed",
                 project_id=str(project_id),
                 request_id=headers.get("X-Request-ID"),
             )
-            return self._build_failure_response(str(exc) or "Agent run failed")
+            return self._build_failure_response(
+                str(exc) or "Agent run failed",
+                context.execution_id if context is not None else None,
+            )
+
+    async def run_knowledge_trial(
+        self, agent: Agent, request: AgentTrialRequest,
+    ) -> SupervisorRunResponse:
+        """Run governed knowledge without customer history, skills or actions."""
+        if agent.is_remote_store_agent:
+            raise ValueError("远程员工尚未提供可核验的独立试聊能力")
+        if not agent.project_id:
+            raise ValueError("无法核验员工归属")
+        context = AgentExecutionContext(
+            agent=agent.model_copy(deep=True), project_id=agent.project_id,
+            message=request.message, request_id=str(request.request_key),
+            timeout=request.timeout, rag_url=settings.rag_service_url,
+            knowledge_channel=request.channel, require_current_knowledge=True,
+            enable_memory=False, disable_tools=False, ui_mode="text",
+            system_message=None, expected_output=None,
+            session_id=None, user_id=None, mcp_url=None,
+            markdown=None, temperature=None,
+        )
+        context.agent = await resolve_agent_knowledge(context.agent, request.channel)
+        context.knowledge_evidence = await retrieve_current_knowledge(context)
+        if context.knowledge_evidence.status in {"unavailable", "over_budget"}:
+            # An independent knowledge test cannot verify an answer without
+            # retrieval. Do not spend the remaining deadline on generation and
+            # obscure the retrieval failure with a generic model timeout.
+            return SupervisorRunResponse(
+                success=False, message="Knowledge trial retrieval blocked",
+                content="", knowledge_evidence=context.knowledge_evidence,
+            )
+        context.agent = context.agent.model_copy(update={
+            "tools": [], "workflows": [], "bound_device_id": None,
+            "skills_enabled": False,
+        })
+        context.disable_tools = True
+        built = await self._agent_builder.build_agent(context)
+        response = await self._agent_runner.run(built, context)
+        return response.model_copy(update={"knowledge_evidence": context.knowledge_evidence})
 
     async def stream(
         self,
@@ -165,12 +227,14 @@ class SupervisorRuntimeService:
                 context, _ = await self._prepare_context(
                     payload, project_id, auth_headers
                 )
+                if getattr(context, "execution_id", None) is None:
+                    context.execution_id = uuid.uuid4()
                 workflow_events.emit_workflow_started(request_id, context)
-                async with track_device_execution(context) as execution, mcp_request_scope():
+                async with track_execution_scope(getattr(context, "execution_reference", None), self._execution_reader), track_device_execution(context) as execution, mcp_request_scope():
+                    await check_current_execution()
                     built_agent = await self._agent_builder.build_agent(context)
-                    execution_id = str(
-                        execution.identity.session_id if execution else uuid.uuid4()
-                    )
+                    await check_current_execution()
+                    execution_id = str(context.execution_id)
 
                     owner = asyncio.current_task()
                     assert owner is not None
@@ -194,12 +258,22 @@ class SupervisorRuntimeService:
                         question=context.message,
                     )
                     try:
-                        agent_result = await self._agent_runner.stream(
+                        stream_agent = self._agent_runner.stream
+                        if (
+                            payload.reply_phase is not None
+                            and payload.require_current_knowledge
+                            and "X-Execution-Channel" in auth_headers
+                        ):
+                            stream_agent = partial(
+                                stream_agent, buffered_draft=True,
+                            )
+                        agent_result = await stream_agent(
                             built_agent,
                             context,
                             workflow_events,
                             execution_id,
                         )
+                        await check_current_execution()
                         # A dependency swallowing CancelledError must not turn
                         # an accepted stop into a successful final answer.
                         if entry.cancel_requested:
@@ -314,20 +388,70 @@ class SupervisorRuntimeService:
         project_id: uuid.UUID,
         headers: Dict[str, str],
     ) -> Tuple[AgentExecutionContext, str]:
+        if payload.knowledge_only and any(
+            key in headers for key in (
+                "X-Business-Request-Context", "X-Business-Request-ID",
+                "X-Workflow-Parent-Execution-ID", "X-Workflow-Lineage",
+            )
+        ):
+            raise ValueError("Knowledge-only run cannot carry business or workflow authority")
+        principal = None
+        business_token = None
+        if "X-Business-Request-Context" in headers or "X-Business-Request-ID" in headers:
+            try:
+                visitor_id = uuid.UUID(payload.user_id or "")
+                check = BusinessContextCheck(project_id=project_id, visitor_id=visitor_id,
+                    channel=KnowledgeChannel(headers["X-Execution-Channel"]),
+                    request_id=uuid.UUID(headers["X-Business-Request-ID"]),
+                    request_fingerprint=business_request_fingerprint(visitor_id, payload.message),
+                    context_token=SecretStr(headers["X-Business-Request-Context"]))
+            except (KeyError, ValueError):
+                raise ValueError("当前客户业务会话范围无法确认") from None
+            principal = await api_service_client.get_business_request_context(check)
+            business_token = check.context_token
         async with self._agent_service_context() as agent_service:
             async with AIServiceClient(agent_service, project_id) as ai_client:
                 if payload.agent_id:
                     agent = await ai_client.get_agent(str(payload.agent_id), headers)
                 else:
                     agent = await ai_client.get_default_agent(headers)
+            agent = await self._authorize_execution(agent_service.db, project_id, agent, headers)
+            reference = await self._reference_for_execution(agent_service.db, project_id, agent, headers)
             agent_id = str(agent.id)
+
+        if payload.knowledge_only and agent.is_remote_store_agent:
+            raise ValueError("Remote agent cannot provide isolated knowledge generation")
+
+        if ("X-Workflow-Parent-Execution-ID" in headers
+                and agent.bound_device_id is not None
+                and (payload.expected_device_id is None
+                     or payload.expected_device_policy_digest is None)):
+            raise ValueError("设备员工工作流必须固定设备读取策略后才能执行")
 
         if payload.expected_device_id is not None:
             if agent.bound_device_id != str(payload.expected_device_id):
                 raise ValueError("设备绑定已变化，请重新选择 AI 员工后再调试")
+        if payload.expected_device_policy_digest is not None:
+            if agent.bound_device_policy_digest != payload.expected_device_policy_digest:
+                raise ValueError("设备读取策略已变化，请重新核对工作流节点配置")
+
+        rag_url = payload.rag_url
+        if payload.require_current_knowledge and not rag_url:
+            rag_url = settings.rag_service_url
 
         context = AgentExecutionContext(
             agent=agent,
+            execution_reference=reference,
+            business_principal=principal,
+            business_context_token=business_token,
+            parent_workflow_execution_id=(
+                uuid.UUID(headers["X-Workflow-Parent-Execution-ID"])
+                if "X-Workflow-Parent-Execution-ID" in headers else None
+            ),
+            workflow_lineage=(
+                tuple(json.loads(headers["X-Workflow-Lineage"]))
+                if "X-Workflow-Lineage" in headers else ()
+            ),
             project_id=str(project_id),
             message=payload.message,
             system_message=payload.system_message,
@@ -337,7 +461,7 @@ class SupervisorRuntimeService:
             request_id=headers["X-Request-ID"],
             timeout=payload.timeout,
             mcp_url=payload.mcp_url,
-            rag_url=payload.rag_url,
+            rag_url=rag_url,
             knowledge_channel=payload.knowledge_channel,
             enable_memory=payload.enable_memory,
             disable_tools=payload.disable_tools,
@@ -376,7 +500,46 @@ class SupervisorRuntimeService:
                     project_id=context.project_id,
                     channel=context.knowledge_channel.value,
                 )
+        if payload.knowledge_only:
+            if context.knowledge_channel is None:
+                raise ValueError("Knowledge-only channel is required")
+            evidence = context.knowledge_evidence or await retrieve_current_knowledge(context)
+            if (
+                evidence.project_id != context.project_id
+                or evidence.channel != context.knowledge_channel.value
+                or evidence.tool_results
+            ):
+                raise ValueError("Knowledge-only evidence ownership mismatch")
+            context.knowledge_evidence = evidence
+            context.agent = context.agent.model_copy(deep=True, update={
+                "tools": [], "workflows": [], "business_connections": [],
+                "bound_device_id": None, "bound_device_policy_digest": None,
+                "skills_enabled": False,
+            })
+            context.disable_tools = True
+            context.enable_memory = False
+            context.session_id = None
+            context.user_id = None
+            context.execution_reference = None
+            context.business_principal = None
+            context.business_context_token = None
         return context, agent_id
+
+    async def _reference_for_execution(self, db: AsyncSession, project_id: uuid.UUID,
+                                       agent: Agent, headers: Dict[str, str]) -> AgentExecutionReference:
+        from app.schemas.knowledge import KnowledgeChannel
+        from app.services.agent_execution_reference import reference_for
+        raw = headers.get("X-Execution-Channel")
+        return await reference_for(db, project_id, agent, KnowledgeChannel(raw) if raw is not None else None)
+
+    async def _authorize_execution(
+        self, db: AsyncSession, project_id: uuid.UUID, agent: Agent, headers: Dict[str, str],
+    ) -> Agent:
+        from app.schemas.knowledge import KnowledgeChannel
+        from app.services.agent_execution_guard import AgentExecutionGuard
+        raw = headers.get("X-Execution-Channel")
+        channel = KnowledgeChannel(raw) if raw is not None else None
+        return await AgentExecutionGuard(db).prepare(project_id, agent, channel)
 
     @asynccontextmanager
     async def _agent_service_context(self) -> AsyncIterator[AgentService]:
@@ -418,9 +581,12 @@ class SupervisorRuntimeService:
         return headers
 
     @staticmethod
-    def _build_failure_response(message: str) -> SupervisorRunResponse:
+    def _build_failure_response(
+        message: str, execution_id: uuid.UUID | None = None,
+    ) -> SupervisorRunResponse:
         return SupervisorRunResponse(
             success=False,
+            execution_id=execution_id,
             message=message,
             result=None,
             content="",

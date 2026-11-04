@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
+import unicodedata
 from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -36,6 +40,29 @@ from app.utils.manual_service_tag import (
 )
 
 OPEN_REQUEST_STATUSES = ("pending", "notified", "in_progress")
+logger = logging.getLogger(__name__)
+_EXPLICIT_HANDOFF_COMMANDS = frozenset({
+    "转人工", "人工客服", "人工服务", "找人工",
+    "我要转人工", "我要人工客服", "帮我转人工", "请帮我转人工",
+})
+
+
+def is_explicit_handoff_request(message: str) -> bool:
+    """Recognize a direct command without routing quoted or conditional text."""
+    normalized = unicodedata.normalize("NFKC", message).strip()
+    normalized = normalized.strip(" \t\r\n!?.。，！？")
+    normalized = "".join(normalized.split())
+    return normalized in _EXPLICIT_HANDOFF_COMMANDS
+
+
+def _handoff_action_digest(
+    reason: str, channel: str | None, channel_id: str, channel_type: int,
+) -> str:
+    payload = json.dumps(
+        [reason, channel, channel_id, channel_type], ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def ensure_manual_service_tag(
@@ -100,9 +127,10 @@ def _upsert_open_request(
     channel_type: int,
     source_message_id: str | None,
     routing_reason: str | None,
+    strict_source_receipt: bool = False,
 ) -> tuple[ManualServiceRequest, bool]:
     request = None
-    if source_message_id:
+    if source_message_id and not strict_source_receipt:
         request = (
             db.query(ManualServiceRequest)
             .filter(
@@ -113,7 +141,7 @@ def _upsert_open_request(
             )
             .first()
         )
-    if request is None:
+    if request is None and not strict_source_receipt:
         request = (
             db.query(ManualServiceRequest)
             .filter(
@@ -179,16 +207,138 @@ async def _notify_handoff(
     channel_id: str,
     channel_type: int,
     extra: list[dict[str, str]] | None = None,
+    client_msg_no: str | None = None,
 ) -> None:
-    await wukongim_client.send_system_message(
+    sent = await wukongim_client.send_system_message(
         channel_id=channel_id,
         channel_type=channel_type,
         content=content,
         msg_type=MessageType.HUMAN_HANDOFF_REQUESTED,
         from_uid="system",
         extra=extra,
+        client_msg_no=client_msg_no,
         red_dot=True,
     )
+    if sent is None:
+        raise RuntimeError("WuKongIM returned no handoff message receipt")
+    if client_msg_no and sent.client_msg_no != client_msg_no:
+        raise RuntimeError(
+            "WuKongIM returned a mismatched handoff message receipt"
+        )
+
+
+async def _finish_handoff(
+    *,
+    db: Session,
+    request: ManualServiceRequest,
+    visitor: Visitor,
+    receipt: dict[str, object],
+    action_digest: str | None,
+    is_duplicate: bool,
+    content: str,
+    channel_id: str,
+    channel_type: int,
+    extra: list[dict[str, str]] | None = None,
+) -> dict[str, object]:
+    if action_digest is not None:
+        request.request_metadata = {
+            **(request.request_metadata or {}),
+            "handoff_action_digest": action_digest,
+            "handoff_receipt": receipt,
+            "notification_status": "unknown",
+        }
+    db.commit()
+    if is_duplicate:
+        return {
+            **receipt,
+            "notification_status": (request.request_metadata or {}).get(
+                "notification_status", "unknown"
+            ),
+        }
+    try:
+        await notify_visitor_profile_updated(db, visitor)
+        await _notify_handoff(
+            content=content, channel_id=channel_id,
+            channel_type=channel_type, extra=extra,
+            client_msg_no=(
+                f"handoff-{request.id}" if action_digest is not None else None
+            ),
+        )
+    except Exception as exc:
+        logger.warning(
+            "Committed handoff notification status unknown: %s",
+            type(exc).__name__,
+            extra={"request_id": str(request.id)},
+        )
+        return {**receipt, "notification_status": "unknown"}
+    if action_digest is not None:
+        request.request_metadata = {
+            **(request.request_metadata or {}),
+            "notification_status": "submitted",
+        }
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "Handoff notification receipt status unknown: %s",
+                type(exc).__name__,
+                extra={"request_id": str(request.id)},
+            )
+            return {**receipt, "notification_status": "unknown"}
+    return {**receipt, "notification_status": "submitted"}
+
+
+def _saved_handoff_receipt(
+    db: Session,
+    project_id: UUID,
+    visitor_id: UUID,
+    source_message_id: str,
+    action_digest: str,
+) -> dict[str, object] | None:
+    previous = (
+        db.query(ManualServiceRequest)
+        .filter(
+            ManualServiceRequest.project_id == project_id,
+            ManualServiceRequest.visitor_id == visitor_id,
+            ManualServiceRequest.source_message_id == source_message_id,
+        )
+        .first()
+    )
+    if previous is None:
+        return None
+    metadata = previous.request_metadata or {}
+    saved_digest = metadata.get("handoff_action_digest")
+    if saved_digest is None:
+        if previous.channel_id is None or previous.channel_type is None:
+            raise HTTPException(409, "Saved handoff action is incomplete")
+        saved_digest = _handoff_action_digest(
+            previous.reason,
+            previous.channel,
+            previous.channel_id,
+            previous.channel_type,
+        )
+    if (
+        previous.deleted_at is not None
+        or saved_digest != action_digest
+    ):
+        raise HTTPException(
+            409, "Source handoff request conflicts with saved action",
+        )
+    saved_receipt = metadata.get("handoff_receipt")
+    if isinstance(saved_receipt, dict):
+        return {
+            **saved_receipt,
+            "notification_status": metadata.get(
+                "notification_status", "unknown",
+            ),
+        }
+    return {
+        "request_id": str(previous.id),
+        "status": "unknown",
+        "notification_status": "unknown",
+        "message": "Handoff outcome requires manual review",
+    }
 
 
 async def request_human_handoff(
@@ -202,7 +352,8 @@ async def request_human_handoff(
     channel: str | None = None,
     channel_id: str | None = None,
     channel_type: int = CHANNEL_TYPE_CUSTOMER_SERVICE,
-) -> dict[str, Any]:
+    strict_source_receipt: bool = False,
+) -> dict[str, object]:
     """Persist one human-handoff request across all chat channels."""
     normalized_reason = reason.strip()
     if not normalized_reason:
@@ -217,6 +368,18 @@ async def request_human_handoff(
         )
 
     resolved_channel_id = channel_id or build_visitor_channel_id(visitor.id)
+    action_digest: str | None = None
+    if strict_source_receipt:
+        if not source_message_id or len(source_message_id) > 255:
+            raise HTTPException(400, "A valid source_message_id is required")
+        action_digest = _handoff_action_digest(
+            normalized_reason, channel, resolved_channel_id, channel_type,
+        )
+        previous_receipt = _saved_handoff_receipt(
+            db, project.id, visitor.id, source_message_id, action_digest,
+        )
+        if previous_receipt is not None:
+            return previous_receipt
     ensure_manual_service_tag(db, project.id, visitor)
     handoff_request, is_duplicate = _upsert_open_request(
         db,
@@ -228,10 +391,21 @@ async def request_human_handoff(
         channel_type=channel_type,
         source_message_id=source_message_id,
         routing_reason=routing_reason,
+        strict_source_receipt=strict_source_receipt,
     )
     visitor.ai_disabled = True
     visitor.service_mode = "manual"
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        if strict_source_receipt and source_message_id and action_digest:
+            previous_receipt = _saved_handoff_receipt(
+                db, project.id, visitor.id, source_message_id, action_digest,
+            )
+            if previous_receipt is not None:
+                return previous_receipt
+        raise
 
     existing_queue = (
         db.query(VisitorWaitingQueue)
@@ -245,15 +419,7 @@ async def request_human_handoff(
     if existing_queue is not None:
         handoff_request.status = "pending"
         handoff_request.notification_type = "wukongim_queue"
-        db.commit()
-        if not is_duplicate:
-            await notify_visitor_profile_updated(db, visitor)
-            await _notify_handoff(
-                content="已收到您的人工客服请求，当前正在排队，请稍候。",
-                channel_id=resolved_channel_id,
-                channel_type=channel_type,
-            )
-        return {
+        receipt = {
             "request_id": str(handoff_request.id),
             "entry_id": str(existing_queue.id),
             "status": existing_queue.status,
@@ -263,6 +429,12 @@ async def request_human_handoff(
             "channel_type": existing_queue.channel_type or channel_type,
             "message": "Visitor is waiting for human service",
         }
+        return await _finish_handoff(
+            db=db, request=handoff_request, visitor=visitor, receipt=receipt,
+            action_digest=action_digest, is_duplicate=is_duplicate,
+            content="已收到您的人工客服请求，当前正在排队，请稍候。",
+            channel_id=resolved_channel_id, channel_type=channel_type,
+        )
 
     active_session = (
         db.query(VisitorSession)
@@ -286,27 +458,23 @@ async def request_human_handoff(
         )
         handoff_request.status = "in_progress"
         handoff_request.notification_type = "wukongim_red_dot"
-        db.commit()
-        if not is_duplicate:
-            await notify_visitor_profile_updated(db, visitor)
-            await _notify_handoff(
-                content="已收到您的人工客服请求，客服 {0} 将接手处理。",
-                channel_id=resolved_channel_id,
-                channel_type=channel_type,
-                extra=[
-                    {
-                        "uid": f"{active_session.staff_id}-staff",
-                        "name": staff_name,
-                    }
-                ],
-            )
-        return {
+        receipt = {
             "request_id": str(handoff_request.id),
             "assigned_staff_id": str(active_session.staff_id),
             "session_id": str(active_session.id),
             "status": VisitorServiceStatus.ACTIVE.value,
             "message": "Visitor is assigned to staff; AI replies are disabled",
         }
+        return await _finish_handoff(
+            db=db, request=handoff_request, visitor=visitor, receipt=receipt,
+            action_digest=action_digest, is_duplicate=is_duplicate,
+            content="已收到您的人工客服请求，客服 {0} 将接手处理。",
+            channel_id=resolved_channel_id, channel_type=channel_type,
+            extra=[{
+                "uid": f"{active_session.staff_id}-staff",
+                "name": staff_name,
+            }],
+        )
 
     if not visitor.is_unassigned:
         db.rollback()
@@ -342,14 +510,7 @@ async def request_human_handoff(
     if transfer_result.assigned_staff_id is not None:
         handoff_request.status = "in_progress"
         handoff_request.notification_type = "wukongim_red_dot"
-        db.commit()
-        await notify_visitor_profile_updated(db, visitor)
-        await _notify_handoff(
-            content="已收到您的人工客服请求，人工客服将接手处理。",
-            channel_id=resolved_channel_id,
-            channel_type=channel_type,
-        )
-        return {
+        receipt = {
             "request_id": str(handoff_request.id),
             "assigned_staff_id": str(transfer_result.assigned_staff_id),
             "session_id": (
@@ -360,19 +521,18 @@ async def request_human_handoff(
             "status": VisitorServiceStatus.ACTIVE.value,
             "message": transfer_result.message,
         }
+        return await _finish_handoff(
+            db=db, request=handoff_request, visitor=visitor, receipt=receipt,
+            action_digest=action_digest, is_duplicate=is_duplicate,
+            content="已收到您的人工客服请求，人工客服将接手处理。",
+            channel_id=resolved_channel_id, channel_type=channel_type,
+        )
 
     if transfer_result.waiting_queue is not None:
         queue = transfer_result.waiting_queue
         handoff_request.status = "pending"
         handoff_request.notification_type = "wukongim_queue"
-        db.commit()
-        await notify_visitor_profile_updated(db, visitor)
-        await _notify_handoff(
-            content="已收到您的人工客服请求，当前正在排队，请稍候。",
-            channel_id=resolved_channel_id,
-            channel_type=channel_type,
-        )
-        return {
+        receipt = {
             "request_id": str(handoff_request.id),
             "entry_id": str(queue.id),
             "status": queue.status,
@@ -382,6 +542,12 @@ async def request_human_handoff(
             "channel_type": queue.channel_type or channel_type,
             "message": transfer_result.message,
         }
+        return await _finish_handoff(
+            db=db, request=handoff_request, visitor=visitor, receipt=receipt,
+            action_digest=action_digest, is_duplicate=is_duplicate,
+            content="已收到您的人工客服请求，当前正在排队，请稍候。",
+            channel_id=resolved_channel_id, channel_type=channel_type,
+        )
 
     handoff_request.status = "rejected"
     db.commit()

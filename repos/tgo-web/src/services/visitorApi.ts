@@ -4,8 +4,9 @@
  */
 
 import { BaseApiService } from './base/BaseApiService';
-import { apiClient } from './api';
-import type { Visitor, ChannelAIInsights, VisitorAISettings } from '@/types';
+import { apiClient, APIError } from './api';
+import type { Visitor, ChannelAIInsights, VisitorAIProfile, VisitorAISettings } from '@/types';
+import type { SessionCommandReceipt } from '@/types/sessionCommand';
 
 export type VisitorServiceMode = 'auto' | 'assist' | 'manual';
 
@@ -84,7 +85,7 @@ export interface VisitorResponse {
   humanization_skill_enabled: boolean;
   ai_settings?: VisitorAISettings | null;
   tags: TagResponse[];
-  ai_profile?: any | null;
+  ai_profile?: VisitorAIProfile | null;
   ai_insights?: ChannelAIInsights | null;
   system_info?: any | null;
   recent_activities: any[];
@@ -292,8 +293,13 @@ class VisitorApiService extends BaseApiService {
    * @param visitorId - The visitor's UUID
    * @returns Promise with session response
    */
-  async closeSession(visitorId: string): Promise<VisitorSessionResponse> {
+  async closeSession(visitorId: string, operationId?: string): Promise<VisitorSessionResponse> {
     const endpoint = (this.endpoints.closeSession as (id: string) => string)(visitorId);
+    if (operationId) {
+      return apiClient.post<VisitorSessionResponse>(endpoint, {}, {
+        headers: { 'X-Session-Operation-ID': operationId },
+      });
+    }
     return this.post<VisitorSessionResponse>(endpoint, {});
   }
 
@@ -307,14 +313,29 @@ class VisitorApiService extends BaseApiService {
   async transferSession(
     visitorId: string,
     targetStaffId: string,
-    reason?: string
+    reason?: string,
+    operationId?: string,
   ): Promise<TransferSessionResponse> {
     const endpoint = (this.endpoints.transferSession as (id: string) => string)(visitorId);
     const body: TransferSessionRequest = {
       target_staff_id: targetStaffId,
       reason: reason || null,
     };
+    if (operationId) {
+      return apiClient.post<TransferSessionResponse>(endpoint, body, {
+        headers: { 'X-Session-Operation-ID': operationId },
+      });
+    }
     return this.post<TransferSessionResponse>(endpoint, body);
+  }
+
+  async getSessionCommandReceipt(operationId: string): Promise<SessionCommandReceipt | null> {
+    try {
+      return await apiClient.get<SessionCommandReceipt>(`/v1/sessions/operations/${operationId}`);
+    } catch (error) {
+      if (error instanceof APIError && error.status === 404) return null;
+      throw error;
+    }
   }
 
   /**

@@ -224,6 +224,9 @@ async def verify(client, actors, channels):
         result = await request(client, actor, own, "delete", forged_uid)
         assert result.status_code == 200, result.status_code
         await wait_conversation(actor, own, None)
+        repeated = await request(client, actor, own, "delete", forged_uid)
+        assert repeated.status_code == 200, repeated.status_code
+        await wait_conversation(actor, own, None)
         for other in other_actors:
             row = await im_conversation(other, channels[other.company])
             assert row.model_dump() == remaining[other.uid]
@@ -231,7 +234,7 @@ async def verify(client, actors, channels):
         assert history.status_code == 200
         assert len(history.json()["messages"]) == 3
     sys.stdout.write(
-        "PASS: deletion affects only authenticated staff's conversation; "
+        "PASS: repeated deletion affects only authenticated staff's conversation; "
         "others and persisted history remain intact.\n"
     )
 

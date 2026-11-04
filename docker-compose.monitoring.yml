@@ -1,0 +1,52 @@
+name: tgo-suite
+
+services:
+  tgo-prometheus:
+    image: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    container_name: tgo-prometheus
+    profiles: [monitoring]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.listen-address=0.0.0.0:9090
+    ports:
+      - "127.0.0.1:${PROMETHEUS_ADMIN_PORT:-19090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules:/etc/prometheus/rules:ro
+      - tgo-prometheus-data:/prometheus
+    secrets:
+      - source: tgo-monitoring-token
+        target: saas-internal-token
+    depends_on:
+      - tgo-platform
+    restart: unless-stopped
+
+  tgo-alertmanager:
+    image: prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+    container_name: tgo-alertmanager
+    profiles: [monitoring]
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=0.0.0.0:9093
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_ADMIN_PORT:-19093}:9093"
+    volumes:
+      - ./data/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - tgo-alertmanager-data:/alertmanager
+    secrets:
+      - source: tgo-monitoring-smtp-password
+        target: smtp-password
+    restart: unless-stopped
+
+secrets:
+  tgo-monitoring-token:
+    file: ./data/monitoring/saas-internal-token
+  tgo-monitoring-smtp-password:
+    file: ./data/monitoring/smtp-password
+
+volumes:
+  tgo-prometheus-data:
+  tgo-alertmanager-data:

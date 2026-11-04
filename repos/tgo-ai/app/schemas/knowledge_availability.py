@@ -15,6 +15,7 @@ class CollectionAvailability(BaseModel):
     eligible_chunk_count: int = Field(ge=0)
     total_chunk_count: int = Field(ge=0)
     blocked_reasons: list[str] = Field(default_factory=list)
+    resource_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class KnowledgeAvailability(BaseModel):

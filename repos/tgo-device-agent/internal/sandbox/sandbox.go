@@ -14,10 +14,10 @@ import (
 
 // Sandbox enforces path and command safety policies.
 type Sandbox struct {
-	workRoot       string
-	allowedPaths   []string
-	deniedPaths    []string
-	blockedCmds    []string
+	workRoot     string
+	allowedPaths []string
+	deniedPaths  []string
+	blockedCmds  []string
 }
 
 // New creates a Sandbox from the given config.
@@ -115,7 +115,9 @@ func (s *Sandbox) ResolvePath(path string) (string, error) {
 		return "", fmt.Errorf("path '%s' is in a denied directory", path)
 	}
 
-	return resolved, nil
+	// Use the validated canonical target for the operation. Returning the
+	// original symlink path would let it be swapped after validation.
+	return realPath, nil
 }
 
 // ValidateWrite performs additional validation for write operations.
@@ -169,7 +171,7 @@ func (s *Sandbox) ValidateCommand(command string) error {
 // isAllowed returns true if the path is within any allowed directory.
 func (s *Sandbox) isAllowed(path string) bool {
 	for _, allowed := range s.allowedPaths {
-		if path == allowed || strings.HasPrefix(path, allowed+string(filepath.Separator)) {
+		if containedPath(allowed, path) {
 			return true
 		}
 	}
@@ -179,9 +181,14 @@ func (s *Sandbox) isAllowed(path string) bool {
 // isDenied returns true if the path is within any denied directory.
 func (s *Sandbox) isDenied(path string) bool {
 	for _, denied := range s.deniedPaths {
-		if path == denied || strings.HasPrefix(path, denied+string(filepath.Separator)) {
+		if containedPath(denied, path) {
 			return true
 		}
 	}
 	return false
+}
+
+func containedPath(directory, path string) bool {
+	relative, err := filepath.Rel(directory, path)
+	return err == nil && (relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }

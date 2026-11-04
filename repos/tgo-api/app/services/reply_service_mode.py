@@ -17,6 +17,7 @@ def _require_auto_mode(project_id: str, visitor_id: str) -> None:
             visitor is None
             or visitor.project_id != UUID(project_id)
             or visitor.deleted_at is not None
+            or visitor.access_retired_at is not None
         ):
             raise ReplyStopped("客户会话已失效，AI 自动回复已停止。")
         platform = db.get(Platform, visitor.platform_id)
@@ -24,6 +25,7 @@ def _require_auto_mode(project_id: str, visitor_id: str) -> None:
             platform is None
             or platform.project_id != visitor.project_id
             or platform.deleted_at is not None
+            or not platform.is_active
             or is_ai_disabled(platform, visitor)
         ):
             raise ReplyStopped("会话已切换至人工接待，AI 自动回复已停止。")

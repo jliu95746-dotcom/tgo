@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from app.api.v1.endpoints import ai_runs
 from app.core.database import get_db
+from app.core.exceptions import TGOAPIException, tgo_api_exception_handler
 from app.core.security import get_current_active_user
 from app.schemas.ai_runs import ReplyRun
 from app.services import ai_reply_control as control
@@ -22,6 +23,7 @@ pytestmark = pytest.mark.asyncio
 
 def client(project, *, staff=True, database=None):
     app = FastAPI()
+    app.add_exception_handler(TGOAPIException, tgo_api_exception_handler)
     app.include_router(ai_runs.router, prefix="/runs")
     if staff:
         app.dependency_overrides[get_current_active_user] = lambda: SimpleNamespace(
@@ -128,12 +130,12 @@ async def test_platform_key_cannot_cancel_staff_channel():
             "/runs/cancel-by-client",
             json={"client_msg_no": "owned", "platform_api_key": "fixture"},
         )
-    assert response.status_code == 404
+    assert response.status_code == 401
     assert (await control.run_registry.get(str(project), "owned")).status == "active"
 
 
 @pytest.mark.parametrize("matched", [True, False])
-async def test_visitor_stop_requires_matching_project_and_platform(matched):
+async def test_matching_project_and_platform_without_holder_still_cannot_stop(matched):
     project, platform_id, visitor_id = uuid4(), uuid4(), uuid4()
     item = ReplyRun(
         project_id=str(project),
@@ -159,12 +161,8 @@ async def test_visitor_stop_requires_matching_project_and_platform(matched):
             "/runs/cancel-by-client",
             json={"client_msg_no": "owned", "platform_api_key": "fixture"},
         )
-    assert response.status_code == (202 if matched else 404)
-    criteria = visitor_query.filter.call_args.args
-    assert len(criteria) == 4
-    for clause, expected in zip(criteria[:3], (visitor_id, project, platform_id)):
-        assert list(clause.compile().params.values()) == [expected]
-    assert "deleted_at IS NULL" in str(criteria[3])
+    assert response.status_code == 401
+    visitor_query.filter.assert_not_called()
 
 
 async def test_registry_failure_returns_unavailable_not_success(monkeypatch):

@@ -17,6 +17,7 @@ class SessionStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     agent_id: UUID
     agent_name: str = Field(min_length=1, max_length=255)
+    workflow_execution_id: UUID | None = None
 
 
 class SessionFinish(BaseModel):
@@ -30,6 +31,7 @@ class SessionSummary(BaseModel):
     device_name: str
     agent_id: UUID | None
     agent_name: str | None
+    workflow_execution_id: UUID | None = None
     status: SessionStatus
     started_at: datetime
     ended_at: datetime | None

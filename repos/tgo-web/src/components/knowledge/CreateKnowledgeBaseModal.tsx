@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { X, FileText, Globe, ChevronDown, ChevronUp, Info, Loader2, RefreshCw, MessageSquare, FolderOpen } from 'lucide-react';
+import { KnowledgeMaterialInput, type KnowledgeInputMode } from './KnowledgeMaterialInput';
 import { TagInput } from '@/components/ui/TagInput';
 import type { KnowledgeBaseType, WebsiteCrawlConfig, CrawlOptions } from '@/types';
 import KnowledgeBaseApiService from '@/services/knowledgeBaseApi';
@@ -18,6 +19,8 @@ const getDefaultIconByType = (type: KnowledgeBaseType): string => {
 export interface CreateKnowledgeBaseData {
   name: string;
   description: string;
+  body?: string;
+  file?: File;
   icon: string;
   tags: string[];
   type: KnowledgeBaseType;
@@ -61,6 +64,12 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
     type: 'file' as KnowledgeBaseType,
     crawlConfig: { ...DEFAULT_CRAWL_CONFIG }
   });
+  const [body, setBody] = useState('');
+  const [inputMode, setInputMode] = useState<KnowledgeInputMode>('paste');
+  const [materialFile, setMaterialFile] = useState<File | null>(null);
+  const [materialError, setMaterialError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const busy = isLoading || submitting;
   const [errors, setErrors] = useState({
     name: '',
     description: '',
@@ -74,6 +83,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
   // Reset form when modal opens/closes
   React.useEffect(() => {
     if (isOpen) {
+      setBody(''); setInputMode('paste'); setMaterialFile(null); setMaterialError('');
       setFormData({
         name: '',
         description: '',
@@ -169,8 +179,8 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
     }
 
     // Validate description - only check if empty
-    if (!formData.description.trim()) {
-      newErrors.description = t('knowledge.validation.descRequired', '知识库描述不能为空');
+    if (formData.type === 'file' && formData.description.length > 500) {
+      newErrors.description = t('knowledgeOnboarding.briefTooLong');
       isValid = false;
     }
 
@@ -190,21 +200,29 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
       }
     }
 
+    if (formData.type === 'file' && (inputMode === 'paste' ? !body.trim() : !materialFile)) {
+      setMaterialError(t('knowledgeOnboarding.materialRequired'));
+      isValid = false;
+    } else setMaterialError('');
     setErrors(newErrors);
     return isValid;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
 
     if (!validateForm()) {
       return;
     }
 
+    setSubmitting(true);
     try {
       const submitData: CreateKnowledgeBaseData = {
         name: formData.name.trim(),
         description: formData.description.trim(),
+        body: formData.type === 'file' && inputMode === 'paste' ? body : undefined,
+        file: formData.type === 'file' && inputMode === 'upload' ? materialFile || undefined : undefined,
         icon: formData.icon,
         tags: formData.tags,
         type: formData.type
@@ -222,6 +240,8 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
     } catch (error) {
       // Error handling is done by the parent component
       console.error('Failed to create knowledge base:', error);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -285,7 +305,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90dvh] overflow-hidden flex flex-col">
         {/* Header with gradient background */}
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-center justify-between p-6">
@@ -300,7 +320,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
             </div>
             <button
               onClick={onClose}
-              disabled={isLoading}
+              disabled={busy}
               className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
               <X className="w-5 h-5" />
@@ -321,12 +341,12 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                 <button
                   type="button"
                   onClick={() => handleTypeChange('file')}
-                  disabled={isLoading}
+                  disabled={busy}
                   className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition-all duration-200 ${
                     formData.type === 'file'
                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                       : 'border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200'
-                  } ${isLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                  } ${busy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                 >
                   <FileText className={`w-4 h-4 ${formData.type === 'file' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`} />
                   <span className="text-sm font-medium">{t('knowledge.typeFile', '文件')}</span>
@@ -341,12 +361,12 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                 <button
                   type="button"
                   onClick={() => handleTypeChange('website')}
-                  disabled={isLoading}
+                  disabled={busy}
                   className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition-all duration-200 ${
                     formData.type === 'website'
                       ? 'border-green-500 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300'
                       : 'border-gray-200 dark:border-gray-600 hover:border-green-300 dark:hover:border-green-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200'
-                  } ${isLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                  } ${busy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                 >
                   <Globe className={`w-4 h-4 ${formData.type === 'website' ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`} />
                   <span className="text-sm font-medium">{t('knowledge.typeWebsite', '网站')}</span>
@@ -361,12 +381,12 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                 <button
                   type="button"
                   onClick={() => handleTypeChange('qa')}
-                  disabled={isLoading}
+                  disabled={busy}
                   className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition-all duration-200 ${
                     formData.type === 'qa'
                       ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
                       : 'border-gray-200 dark:border-gray-600 hover:border-purple-300 dark:hover:border-purple-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200'
-                  } ${isLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                  } ${busy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                 >
                   <MessageSquare className={`w-4 h-4 ${formData.type === 'qa' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`} />
                   <span className="text-sm font-medium">{t('knowledge.typeQA', '问答对')}</span>
@@ -399,10 +419,10 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                     value={formData.name}
                     onChange={(e) => handleInputChange('name', e.target.value)}
                     placeholder={t('knowledge.namePlaceholder', '请输入知识库名称')}
-                    disabled={isLoading}
+                    disabled={busy}
                     className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white dark:bg-gray-700 dark:text-gray-100 ${
                       errors.name ? 'border-red-300 bg-red-50 dark:border-red-600 dark:bg-red-950' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                    } ${isLoading ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
+                    } ${busy ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
                     maxLength={50}
                   />
                   {errors.name && (
@@ -416,26 +436,28 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                 {/* Description Field */}
                 <div>
                   <label htmlFor="kb-description" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
-                    {t('knowledge.description', '知识库描述')} <span className="text-red-500 dark:text-red-400">*</span>
+                    {t('knowledgeOnboarding.brief')}
                   </label>
                   <textarea
                     id="kb-description"
                     value={formData.description}
                     onChange={(e) => handleInputChange('description', e.target.value)}
-                    placeholder={t('knowledge.descriptionPlaceholder', '请输入知识库描述，简要说明这个知识库的用途和内容')}
-                    disabled={isLoading}
+                    placeholder={t('knowledgeOnboarding.briefPlaceholder')}
+                    disabled={busy}
                     rows={3}
                     className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 resize-vertical bg-white dark:bg-gray-700 dark:text-gray-100 ${
                       errors.description ? 'border-red-300 bg-red-50 dark:border-red-600 dark:bg-red-950' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                    } ${isLoading ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
+                    } ${busy ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
                   />
                   {errors.description && (
                     <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{errors.description}</p>
                   )}
                   <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    {t('knowledge.descriptionHelper', '描述越准确，AI 越容易正确使用该知识库')}
+                    {t('knowledgeOnboarding.briefHint')}
                   </p>
                 </div>
+
+                {formData.type === 'file' && <><KnowledgeMaterialInput mode={inputMode} body={body} file={materialFile} onMode={setInputMode} onBody={setBody} onFile={setMaterialFile} disabled={busy} />{materialError && <p role="alert" className="text-sm text-red-600">{materialError}</p>}</>}
 
                 {/* Tags Field */}
                 <div>
@@ -448,7 +470,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                     placeholder={t('knowledge.tagsPlaceholder', '输入标签并按回车键添加')}
                     maxTags={10}
                     maxTagLength={20}
-                    disabled={isLoading}
+                    disabled={busy}
                   />
                   <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                     {t('knowledge.tagsHelper', '添加标签可以帮助您更好地组织和查找知识库')}
@@ -488,15 +510,15 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                           }
                         }}
                         placeholder={t('knowledge.crawl.startUrlPlaceholder', 'https://example.com')}
-                        disabled={isLoading || isLoadingMetadata}
+                        disabled={busy || isLoadingMetadata}
                         className={`flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-700 dark:text-gray-100 ${
                           errors.startUrl ? 'border-red-300 bg-red-50 dark:border-red-600 dark:bg-red-950' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                        } ${isLoading || isLoadingMetadata ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
+                        } ${busy || isLoadingMetadata ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
                       />
                       <button
                         type="button"
                         onClick={() => fetchWebsiteMetadata(formData.crawlConfig.start_url)}
-                        disabled={isLoading || isLoadingMetadata || !formData.crawlConfig.start_url}
+                        disabled={busy || isLoadingMetadata || !formData.crawlConfig.start_url}
                         className="px-4 py-3 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                         title={t('knowledge.metadata.fetch', '获取信息')}
                       >
@@ -565,10 +587,10 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                           value={formData.name}
                           onChange={(e) => handleInputChange('name', e.target.value)}
                           placeholder={t('knowledge.namePlaceholder', '请输入知识库名称')}
-                          disabled={isLoading}
+                          disabled={busy}
                           className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white dark:bg-gray-700 dark:text-gray-100 ${
                             errors.name ? 'border-red-300 bg-red-50 dark:border-red-600 dark:bg-red-950' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                          } ${isLoading ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
+                          } ${busy ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
                           maxLength={50}
                         />
                         {errors.name && (
@@ -582,24 +604,24 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                       {/* Description Field */}
                       <div>
                         <label htmlFor="kb-description-website" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
-                          {t('knowledge.description', '知识库描述')} <span className="text-red-500 dark:text-red-400">*</span>
+                          {t('knowledgeOnboarding.brief')}
                         </label>
                         <textarea
                           id="kb-description-website"
                           value={formData.description}
                           onChange={(e) => handleInputChange('description', e.target.value)}
-                          placeholder={t('knowledge.descriptionPlaceholder', '请输入知识库描述，简要说明这个知识库的用途和内容')}
-                          disabled={isLoading}
+                          placeholder={t('knowledgeOnboarding.briefPlaceholder')}
+                          disabled={busy}
                           rows={2}
                           className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 resize-vertical bg-white dark:bg-gray-700 dark:text-gray-100 ${
                             errors.description ? 'border-red-300 bg-red-50 dark:border-red-600 dark:bg-red-950' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                          } ${isLoading ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
+                          } ${busy ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
                         />
                         {errors.description && (
                           <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{errors.description}</p>
                         )}
                         <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                          {t('knowledge.descriptionHelper', '描述越准确，AI 越容易正确使用该知识库')}
+                          {t('knowledgeOnboarding.briefHint')}
                         </p>
                       </div>
 
@@ -614,7 +636,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                           placeholder={t('knowledge.tagsPlaceholder', '输入标签并按回车键添加')}
                           maxTags={10}
                           maxTagLength={20}
-                          disabled={isLoading}
+                          disabled={busy}
                         />
                       </div>
                     </div>
@@ -639,7 +661,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                             max={10000}
                             value={formData.crawlConfig.max_pages}
                             onChange={(e) => handleCrawlConfigChange('max_pages', Math.min(10000, Math.max(1, parseInt(e.target.value) || 100)))}
-                            disabled={isLoading}
+                            disabled={busy}
                             className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white dark:bg-gray-700 dark:text-gray-100 hover:border-gray-400 dark:hover:border-gray-500"
                           />
                           <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -657,7 +679,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                             max={10}
                             value={formData.crawlConfig.max_depth}
                             onChange={(e) => handleCrawlConfigChange('max_depth', Math.min(10, Math.max(1, parseInt(e.target.value) || 3)))}
-                            disabled={isLoading}
+                            disabled={busy}
                             className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white dark:bg-gray-700 dark:text-gray-100 hover:border-gray-400 dark:hover:border-gray-500"
                           />
                           <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -677,7 +699,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                           value={formData.crawlConfig.include_patterns?.join(', ') || ''}
                           onChange={(e) => handleCrawlConfigChange('include_patterns', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
                           placeholder={t('knowledge.crawl.includePatternsPlaceholder', '/docs/*, /blog/*')}
-                          disabled={isLoading}
+                          disabled={busy}
                           className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white dark:bg-gray-700 dark:text-gray-100 hover:border-gray-400 dark:hover:border-gray-500"
                         />
                         <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -696,7 +718,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                           value={formData.crawlConfig.exclude_patterns?.join(', ') || ''}
                           onChange={(e) => handleCrawlConfigChange('exclude_patterns', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
                           placeholder={t('knowledge.crawl.excludePatternsPlaceholder', '/admin/*, /login/*')}
-                          disabled={isLoading}
+                          disabled={busy}
                           className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white dark:bg-gray-700 dark:text-gray-100 hover:border-gray-400 dark:hover:border-gray-500"
                         />
                         <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -711,7 +733,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                             type="checkbox"
                             checked={formData.crawlConfig.options?.render_js || false}
                             onChange={(e) => handleCrawlOptionsChange('render_js', e.target.checked)}
-                            disabled={isLoading}
+                            disabled={busy}
                             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                           />
                           <span className="text-sm text-gray-700 dark:text-gray-200 flex-1">
@@ -727,7 +749,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                             type="checkbox"
                             checked={formData.crawlConfig.options?.follow_external_links || false}
                             onChange={(e) => handleCrawlOptionsChange('follow_external_links', e.target.checked)}
-                            disabled={isLoading}
+                            disabled={busy}
                             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                           />
                           <span className="text-sm text-gray-700 dark:text-gray-200 flex-1">
@@ -740,7 +762,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                             type="checkbox"
                             checked={formData.crawlConfig.options?.respect_robots_txt !== false}
                             onChange={(e) => handleCrawlOptionsChange('respect_robots_txt', e.target.checked)}
-                            disabled={isLoading}
+                            disabled={busy}
                             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                           />
                           <span className="text-sm text-gray-700 dark:text-gray-200 flex-1">
@@ -761,7 +783,7 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
                           max={30}
                           value={formData.crawlConfig.options?.wait_time || 0}
                           onChange={(e) => handleCrawlOptionsChange('wait_time', Math.min(30, Math.max(0, parseInt(e.target.value) || 0)))}
-                          disabled={isLoading}
+                          disabled={busy}
                           className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white dark:bg-gray-700 dark:text-gray-100 hover:border-gray-400 dark:hover:border-gray-500"
                         />
                         <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -780,17 +802,17 @@ export const CreateKnowledgeBaseModal: React.FC<CreateKnowledgeBaseModalProps> =
             <button
               type="button"
               onClick={onClose}
-              disabled={isLoading || isLoadingMetadata}
+              disabled={busy || isLoadingMetadata}
               className="px-5 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {t('common.cancel', '取消')}
             </button>
             <button
               type="submit"
-              disabled={isLoading || isLoadingMetadata}
+              disabled={busy || isLoadingMetadata}
               className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 dark:bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 dark:hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center shadow-sm"
             >
-              {isLoading ? (
+              {busy ? (
                 <>
                   <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" />
                   {t('common.creating', '创建中...')}

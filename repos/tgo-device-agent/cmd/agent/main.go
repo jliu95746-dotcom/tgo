@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/tgoai/tgo-device-agent/internal/config"
+	"github.com/tgoai/tgo-device-agent/internal/screen"
 	"github.com/tgoai/tgo-device-agent/internal/tools"
 	"github.com/tgoai/tgo-device-agent/internal/transport"
 )
@@ -27,13 +29,17 @@ import (
 const version = "1.0.0"
 
 func main() {
+	if handled, code := screen.RunCaptureWorkerIfRequested(); handled {
+		os.Exit(code)
+	}
 	cfg := config.DefaultConfig()
 
 	// CLI flags
 	var (
-		serverAddr string
-		configFile string
-		showVer    bool
+		serverAddr   string
+		configFile   string
+		showVer      bool
+		selectScreen bool
 	)
 	flag.StringVar(&serverAddr, "server", "", "Server address host:port (overrides config)")
 	flag.StringVar(&cfg.BindCode, "bind-code", "", "Bind code for first-time registration")
@@ -42,6 +48,10 @@ func main() {
 	flag.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "Log level: debug, info, warn, error")
 	flag.StringVar(&configFile, "config", "", "Path to JSON config file")
 	flag.BoolVar(&showVer, "version", false, "Print version and exit")
+	flag.BoolVar(&selectScreen, "screen-select", false, "在本机选择并核对要授权的 Windows 窗口")
+	flag.Uint64Var(&cfg.Screen.Handle, "screen-window", 0, "本机授权：指定前台 Windows 窗口句柄（十进制或十六进制）")
+	flag.StringVar(&cfg.Screen.Executable, "screen-executable", "", "本机授权：目标窗口程序的完整路径")
+	flag.IntVar(&cfg.Screen.MaxActions, "screen-max-actions", cfg.Screen.MaxActions, "本次屏幕输入操作上限，1 至 50 次")
 	flag.Parse()
 
 	if showVer {
@@ -88,24 +98,36 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Register tools
-	registry := tools.NewRegistry(cfg)
-
-	// Build the agent client
-	client := transport.NewClient(cfg, registry)
-
 	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 
 	go func() {
-		sig := <-sigCh
-		slog.Info("received signal, shutting down", "signal", sig)
-		cancel()
+		select {
+		case sig := <-sigCh:
+			slog.Info("received signal, shutting down", "signal", sig)
+			cancel()
+		case <-ctx.Done():
+		}
 	}()
+	if selectScreen {
+		grant, err := screen.SelectLocalWindow(ctx)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			if !errors.Is(err, screen.ErrSelectionCancelled) && ctx.Err() == nil {
+				os.Exit(1)
+			}
+			return
+		}
+		cfg.Screen = grant // Explicit local selection overrides file/flag grants.
+	}
+	registry := tools.NewRegistry(cfg)
+	registry.WatchLocalScreenStop(ctx)
+	client := transport.NewClient(cfg, registry)
 
 	// Run the client (blocks until ctx cancelled or fatal error)
 	if err := client.Run(ctx); err != nil {

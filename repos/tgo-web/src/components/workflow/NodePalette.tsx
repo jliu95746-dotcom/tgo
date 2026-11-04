@@ -3,7 +3,7 @@
  * Sidebar for dragging new nodes into the workflow canvas
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Search,
@@ -20,8 +20,11 @@ import {
   LayoutGrid,
   Clock,
   Zap,
+  ShieldCheck,
 } from 'lucide-react';
-import { NODE_TYPE_CONFIG, type WorkflowNodeType } from '@/types/workflow';
+import { NODE_TYPE_CONFIG, type WorkflowNodeType, type WorkflowCapabilities } from '@/types/workflow';
+import { WorkflowApiService } from '@/services/workflowApi';
+import { isWorkflowNodeAvailable, isWorkflowNodeConfigurable } from '@/utils/workflowCapabilities';
 
 // Icon mapping
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -36,6 +39,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   LayoutGrid,
   Clock,
   Zap,
+  ShieldCheck,
 };
 
 interface NodePaletteProps {
@@ -54,6 +58,16 @@ const CATEGORIES = [
 const NodePalette: React.FC<NodePaletteProps> = ({ isCollapsed, onToggleCollapse }) => {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
+  const [capabilities, setCapabilities] = useState<WorkflowCapabilities | null>(null);
+  const [capabilitiesError, setCapabilitiesError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setCapabilities(null); setCapabilitiesError(false);
+    WorkflowApiService.getCapabilities().then(data => { if (active) setCapabilities(data); })
+      .catch(() => { if (active) setCapabilitiesError(true); });
+    return () => { active = false; };
+  }, [retry]);
 
   const nodeTypes: WorkflowNodeType[] = [
     'input',
@@ -61,16 +75,16 @@ const NodePalette: React.FC<NodePaletteProps> = ({ isCollapsed, onToggleCollapse
     'webhook',
     'event',
     'agent',
+    'approval',
     'llm',
     'condition',
     'parallel',
     'classifier',
     'tool',
     'api',
+    'business_query',
     'answer',
   ];
-
-  const disabledNodeTypes: WorkflowNodeType[] = ['timer', 'webhook', 'event', 'tool'];
 
   const filteredNodeTypes = nodeTypes.filter((type) => {
     const config = NODE_TYPE_CONFIG[type];
@@ -99,7 +113,8 @@ const NodePalette: React.FC<NodePaletteProps> = ({ isCollapsed, onToggleCollapse
     const label = t(`workflow.node_types.${type}.label`, config.label);
     const description = t(`workflow.node_types.${type}.description`, config.description);
     const Icon = iconMap[config.icon] || Play;
-    const isDisabled = disabledNodeTypes.includes(type);
+    const isDisabled = !isWorkflowNodeConfigurable(capabilities, type);
+    const preparationOnly = !isDisabled && !isWorkflowNodeAvailable(capabilities, type);
     
     const colorClasses: Record<string, string> = {
       green: 'text-green-600 bg-green-50 dark:bg-green-900/20 border-green-100/50 dark:border-green-800/50',
@@ -138,9 +153,10 @@ const NodePalette: React.FC<NodePaletteProps> = ({ isCollapsed, onToggleCollapse
               </div>
               {isDisabled && (
                 <span className="shrink-0 text-[8px] bg-gray-100 dark:bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
-                  {t('workflow.palette.underDevelopment', '待开发')}
+                  {capabilities ? t('workflow.palette.underDevelopment', '待开发') : t('businessScenarios.workflow.checkingCapability')}
                 </span>
               )}
+              {preparationOnly && <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[8px] font-bold text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">{t('workflowWebhook.preparationOnly')}</span>}
             </div>
             <div className="text-[10px] text-gray-400 dark:text-gray-500 line-clamp-1 mt-1 leading-relaxed font-medium opacity-80 group-hover:opacity-100 transition-opacity">
               {description}
@@ -153,7 +169,9 @@ const NodePalette: React.FC<NodePaletteProps> = ({ isCollapsed, onToggleCollapse
 
   return (
     <div
+      data-collapsed={isCollapsed}
       className={`
+        workflow-node-palette
         bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 
         flex flex-col transition-all duration-300 relative z-20
         ${isCollapsed ? 'w-22' : 'w-80'}
@@ -193,6 +211,7 @@ const NodePalette: React.FC<NodePaletteProps> = ({ isCollapsed, onToggleCollapse
 
       {/* Node List with Categories */}
       <div className="flex-1 overflow-y-auto p-6 space-y-10 custom-scrollbar">
+        {capabilitiesError && <div role="alert" className="text-xs text-red-600 dark:text-red-400"><p>{t('businessScenarios.workflow.capabilityFailed')}</p><button className="mt-2 underline" onClick={() => setRetry(value => value + 1)}>{t('common.retry', '重试')}</button></div>}
         {groupedNodes.map((cat) => (
           <div key={cat.id} className="space-y-5">
             {!isCollapsed && (

@@ -3,7 +3,8 @@
  * Right-side panel for workflow online running and debugging
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useId, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { useTranslation } from 'react-i18next';
 import {
   X,
@@ -19,8 +20,13 @@ import {
   Terminal,
   History,
   Trash2,
+  RefreshCw,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
+import { useAuthStore } from '@/stores/authStore';
+import type { ApprovalNodeData, InputNodeData, WorkflowInputVariable } from '@/types/workflow';
+import { parseWorkflowInput, workflowInputIssues } from '@/utils/workflowInputs';
+import EventTestPanel from './EventTestPanel';
 
 const DebugPanel: React.FC = () => {
   const { t } = useTranslation();
@@ -29,9 +35,11 @@ const DebugPanel: React.FC = () => {
     isExecuting,
     executionError,
     currentExecution,
+    executionPanelMode,
     nodeExecutionMap,
     setDebugPanelOpen,
     startExecution,
+    refreshExecution,
     cancelExecution,
     clearExecution,
     debugInput,
@@ -39,8 +47,17 @@ const DebugPanel: React.FC = () => {
   } = useWorkflowStore();
 
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+  const [preparingRun, setPreparingRun] = useState(false);
+  const [runSaveError, setRunSaveError] = useState('');
+  const preparingRef = useRef(false);
+  const busy = isExecuting || preparingRun;
+  const isHistoryView = executionPanelMode === 'history';
+  const canCancelCurrent = currentExecution && !['completed', 'failed', 'rejected', 'expired', 'cancelled'].includes(currentExecution.status);
+  const inputId = useId();
 
   const nodes = useMemo(() => currentWorkflow?.definition?.nodes || [], [currentWorkflow?.definition?.nodes]);
+  const requiresCustomerSession = nodes.some(node => node.type === 'approval'
+    && (node.data as ApprovalNodeData).after_approval_action === 'create_aftersales_review');
   
   // Find all input nodes and their variables
   const inputNodes = useMemo(() => {
@@ -48,11 +65,11 @@ const DebugPanel: React.FC = () => {
   }, [nodes]);
 
   const inputVariables = useMemo(() => {
-    const vars: { name: string; type: string; description?: string; nodeId: string }[] = [];
+    const vars: (WorkflowInputVariable & { nodeId: string })[] = [];
     inputNodes.forEach(node => {
-      const data = node.data as any;
+      const data = node.data as InputNodeData;
       if (data.input_variables && Array.isArray(data.input_variables)) {
-        data.input_variables.forEach((v: any) => {
+        data.input_variables.forEach(v => {
           vars.push({ ...v, nodeId: node.id });
         });
       }
@@ -61,18 +78,36 @@ const DebugPanel: React.FC = () => {
   }, [inputNodes]);
 
   // Handle input changes
-  const handleInputChange = (name: string, value: string, type: string) => {
-    let typedValue: any = value;
-    if (type === 'number') {
-      typedValue = value === '' ? '' : Number(value);
-    } else if (type === 'boolean') {
-      typedValue = value === 'true';
-    }
-    setDebugInput({ ...debugInput, [name]: typedValue });
+  const handleInputChange = (name: string, value: string, type: WorkflowInputVariable['type']) => {
+    const typedValue = parseWorkflowInput(value, type);
+    const nextInput = { ...debugInput };
+    if (typedValue === undefined) delete nextInput[name];
+    else nextInput[name] = typedValue;
+    setDebugInput(nextInput);
   };
 
-  const handleRun = () => {
-    startExecution(debugInput);
+  const inputIssues = workflowInputIssues(inputVariables, debugInput);
+  const scenario = currentWorkflow?.tags?.find(tag => tag === 'scenario:knowledge' || tag === 'scenario:aftersales')?.slice('scenario:'.length);
+  const canUseExample = Boolean(scenario && inputVariables.some(variable => variable.name === 'question' && variable.type === 'string'));
+  const handleRun = async () => {
+    if (useWorkflowStore.getState().executionPanelMode === 'history'
+      || requiresCustomerSession || inputIssues.length || preparingRef.current || isExecuting || !currentWorkflow) return;
+    const owner = useAuthStore.getState().user;
+    const stillCurrent = () => {
+      const user = useAuthStore.getState().user;
+      return owner && user?.id === owner.id && user?.project_id === owner.project_id && user?.role === owner.role
+        && useWorkflowStore.getState().currentWorkflow?.id === currentWorkflow.id
+        && useWorkflowStore.getState().executionPanelMode !== 'history';
+    };
+    preparingRef.current = true; setPreparingRun(true); setRunSaveError('');
+    try {
+      if (useWorkflowStore.getState().isDirty) await useWorkflowStore.getState().saveWorkflow();
+      if (!stillCurrent()) return;
+      if (useWorkflowStore.getState().isDirty) throw new Error(t('businessScenarios.workflow.changedDuringSave'));
+      await startExecution(debugInput);
+    } catch (error) {
+      if (stillCurrent()) setRunSaveError(error instanceof Error ? error.message : t('businessScenarios.workflow.testSaveFailed'));
+    } finally { preparingRef.current = false; setPreparingRun(false); }
   };
 
   const handleCancel = () => {
@@ -93,6 +128,9 @@ const DebugPanel: React.FC = () => {
         return <XCircle className="w-4 h-4 text-red-500" />;
       case 'cancelled':
         return <StopCircle className="w-4 h-4 text-gray-400" />;
+      case 'rejected':
+      case 'expired':
+        return <XCircle className="w-4 h-4 text-amber-500" />;
       default:
         return <Clock className="w-4 h-4 text-gray-300" />;
     }
@@ -105,6 +143,10 @@ const DebugPanel: React.FC = () => {
       case 'failed': return t('workflow.debug.failed', '执行失败');
       case 'cancelled': return t('workflow.debug.cancelled', '已取消');
       case 'pending': return t('workflow.debug.pending', '等待中');
+      case 'waiting_approval': return t('workflow.debug.waitingApproval', '等待审批人确认');
+      case 'pending_resume': return t('workflow.debug.pendingResume', '已批准，等待恢复执行');
+      case 'rejected': return t('workflow.debug.rejected', '审批已拒绝');
+      case 'expired': return t('workflow.debug.expired', '审批已超时');
       default: return status;
     }
   };
@@ -123,26 +165,33 @@ const DebugPanel: React.FC = () => {
       new Date(a.started_at).getTime() - new Date(b.started_at).getTime()
     );
   }, [currentExecution, nodeExecutionMap]);
+  const visibleExecutionError = executionError ||
+    (currentExecution?.status === 'failed' ? currentExecution.error : null);
 
   const toggleNodeExpand = (nodeId: string) => {
     setExpandedNodes(prev => ({ ...prev, [nodeId]: !prev[nodeId] }));
   };
 
+  if (!isHistoryView && currentWorkflow && nodes.some(node => node.type === 'event')) {
+    return <EventTestPanel workflowId={currentWorkflow.id} onClose={() => setDebugPanelOpen(false)} />;
+  }
+
   return (
-    <div className="w-[22rem] bg-white dark:bg-gray-900 border-l border-gray-100 dark:border-gray-800 flex flex-col z-20 shadow-2xl transition-all animate-in slide-in-from-right duration-300">
+    <div role="region" aria-label={t(isHistoryView ? 'workflow.debug.historyTitle' : 'businessScenarios.workflow.testTitle')} className="absolute inset-0 w-full sm:relative sm:inset-auto sm:w-[22rem] sm:shrink-0 bg-white dark:bg-gray-900 border-l border-gray-100 dark:border-gray-800 flex flex-col z-40 shadow-2xl transition-all animate-in slide-in-from-right duration-300">
       {/* Header */}
       <div className="px-8 py-6 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-white/80 dark:bg-gray-900/80 backdrop-blur-md sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="p-2.5 rounded-2xl bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border border-orange-100 dark:border-orange-800/50 shadow-sm">
-            <Terminal className="w-6 h-6" />
+            {isHistoryView ? <History className="w-6 h-6" /> : <Terminal className="w-6 h-6" />}
           </div>
           <div>
-            <h3 className="font-bold text-gray-900 dark:text-gray-100 text-sm tracking-tight">{t('workflow.debug.title', '在线调试')}</h3>
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.15em]">{t('common.debug_mode', 'DEBUG MODE')}</p>
+            <h3 className="font-bold text-gray-900 dark:text-gray-100 text-sm tracking-tight">{t(isHistoryView ? 'workflow.debug.historyTitle' : 'businessScenarios.workflow.testTitle')}</h3>
+            <p className="text-[10px] text-gray-400 font-bold">{t(isHistoryView ? 'workflow.debug.historySubtitle' : 'businessScenarios.workflow.testSubtitle')}</p>
           </div>
         </div>
         <button
           onClick={() => setDebugPanelOpen(false)}
+          aria-label={t(isHistoryView ? 'workflow.debug.historyClose' : 'businessScenarios.workflow.closeTest')}
           className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all active:scale-90"
         >
           <X className="w-5 h-5" />
@@ -152,7 +201,8 @@ const DebugPanel: React.FC = () => {
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         <div className="p-8 space-y-10">
           {/* Input Variables Section */}
-          <section className="space-y-6">
+          {!isHistoryView && <section className="space-y-6">
+            <p className="text-xs leading-5 text-gray-500">{t('businessScenarios.workflow.realTest')}</p>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Terminal className="w-4 h-4 text-gray-400" />
@@ -161,6 +211,7 @@ const DebugPanel: React.FC = () => {
               {inputVariables.length > 0 && (
                 <button 
                   onClick={() => setDebugInput({})}
+                  disabled={busy}
                   className="text-[10px] font-bold text-gray-400 hover:text-blue-500 uppercase tracking-widest transition-colors"
                 >
                   {t('workflow.debug.reset', '重置')}
@@ -168,39 +219,69 @@ const DebugPanel: React.FC = () => {
               )}
             </div>
 
+            {canUseExample && <button type="button" disabled={busy} onClick={() => setDebugInput({ ...debugInput, question: t(`businessScenarios.workflow.exampleQuestions.${scenario}`) })}
+              className="rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-medium text-purple-600 disabled:opacity-50 dark:border-purple-800 dark:bg-purple-900/20 dark:text-purple-300">
+              {t('businessScenarios.workflow.exampleQuestion')}
+            </button>}
+
             {inputVariables.length > 0 ? (
               <div className="space-y-5">
                 {inputVariables.map((v) => (
                   <div key={`${v.nodeId}-${v.name}`} className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-gray-700 dark:text-gray-300">
-                        {v.name}
+                      <label htmlFor={`${inputId}-${v.nodeId}-${v.name}`} className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                        {v.description || v.name}
+                        {v.required && <span className="ml-2 text-red-500">{t('businessScenarios.workflow.inputs.requiredLabel')}</span>}
                       </label>
-                      <span className="text-[10px] text-blue-500 font-mono font-bold bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded-md border border-blue-100 dark:border-blue-800/50">{v.type}</span>
+                      <span className="text-[10px] text-blue-500 font-bold bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded-md border border-blue-100 dark:border-blue-800/50">{t(`businessScenarios.workflow.inputs.types.${v.type}`)}</span>
                     </div>
-                    {v.description && (
-                      <p className="text-[10px] text-gray-400 leading-relaxed font-medium">
-                        {v.description}
-                      </p>
-                    )}
-                    {v.type === 'boolean' ? (
+                    {v.type === 'string' && (v.min_length != null || v.max_length != null) && <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      {t('businessScenarios.workflow.inputs.textLimit', { min: v.min_length ?? 0, max: v.max_length ?? t('businessScenarios.workflow.inputs.unlimited') })}
+                    </p>}
+                    {v.type === 'number' && (v.minimum != null || v.maximum != null) && <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      {t('businessScenarios.workflow.inputs.numberLimit', { min: v.minimum ?? t('businessScenarios.workflow.inputs.unlimited'), max: v.maximum ?? t('businessScenarios.workflow.inputs.unlimited') })}
+                    </p>}
+                    {v.type === 'string' && v.allowed_values ? (
                       <select
-                        value={String(debugInput[v.name] ?? 'false')}
+                        id={`${inputId}-${v.nodeId}-${v.name}`}
+                        aria-required={v.required === true}
+                        value={String(debugInput[v.name] ?? '')}
+                        onChange={event => {
+                          if (!event.target.value) {
+                            const nextInput = { ...debugInput };
+                            delete nextInput[v.name];
+                            setDebugInput(nextInput);
+                          } else handleInputChange(v.name, event.target.value, v.type);
+                        }}
+                        className="w-full px-4 py-2.5 bg-gray-50/50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm font-bold dark:text-gray-100 cursor-pointer shadow-sm focus:bg-white dark:focus:bg-gray-800"
+                        disabled={busy}
+                      >
+                        <option value="">{t('businessScenarios.workflow.inputs.choose')}</option>
+                        {v.allowed_values.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+                      </select>
+                    ) : v.type === 'boolean' ? (
+                      <select
+                        id={`${inputId}-${v.nodeId}-${v.name}`}
+                        aria-required={v.required === true}
+                        value={String(debugInput[v.name] ?? '')}
                         onChange={(e) => handleInputChange(v.name, e.target.value, v.type)}
                         className="w-full px-4 py-2.5 bg-gray-50/50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm font-bold dark:text-gray-100 cursor-pointer shadow-sm focus:bg-white dark:focus:bg-gray-800"
-                        disabled={isExecuting}
+                        disabled={busy}
                       >
-                        <option value="true">{t('common.true', 'True')}</option>
-                        <option value="false">{t('common.false', 'False')}</option>
+                        <option value="">{t('businessScenarios.workflow.inputs.choose')}</option>
+                        <option value="true">{t('common.yes', '是')}</option>
+                        <option value="false">{t('common.no', '否')}</option>
                       </select>
                     ) : (
                       <input
+                        id={`${inputId}-${v.nodeId}-${v.name}`}
+                        aria-required={v.required === true}
                         type={v.type === 'number' ? 'number' : 'text'}
                         value={debugInput[v.name] ?? ''}
                         onChange={(e) => handleInputChange(v.name, e.target.value, v.type)}
                         className="w-full px-4 py-2.5 bg-gray-50/50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm font-bold dark:text-gray-100 shadow-sm focus:bg-white dark:focus:bg-gray-800"
-                        placeholder={`${t('common.please_input', '请输入')  } ${v.name}...`}
-                        disabled={isExecuting}
+                        placeholder={`${t('common.please_input', '请输入')  } ${v.description || v.name}...`}
+                        disabled={busy}
                       />
                     )}
                   </div>
@@ -215,13 +296,19 @@ const DebugPanel: React.FC = () => {
               </div>
             )}
 
+            {inputIssues.length > 0 && <div role="status" className="space-y-1 text-xs text-red-600 dark:text-red-400">
+              {inputIssues.map(issue => <p key={issue.field}>{t(`businessScenarios.workflow.inputs.${issue.code}`, { field: inputVariables.find(variable => variable.name === issue.field)?.description || issue.field })}</p>)}
+            </div>}
+            {requiresCustomerSession && <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">{t('businessScenarios.workflow.reviewTestingLimit')}</p>}
+            {runSaveError && <p role="alert" className="break-words rounded-xl bg-red-50 p-3 text-xs text-red-600 dark:bg-red-900/20">{runSaveError}</p>}
             <div className="pt-2 flex gap-3">
-              {!isExecuting ? (
+              {!isExecuting && !canCancelCurrent ? (
                 <button
                   onClick={handleRun}
-                  className="flex-1 flex items-center justify-center gap-3 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold text-sm transition-all shadow-lg shadow-blue-500/30 active:scale-95"
+                  disabled={requiresCustomerSession || inputIssues.length > 0 || preparingRun}
+                  className="flex-1 flex items-center justify-center gap-3 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold text-sm transition-all shadow-lg shadow-blue-500/30 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Play className="w-4 h-4 fill-current" />
+                  {preparingRun ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
                   {t('workflow.debug.run', '运行工作流')}
                 </button>
               ) : (
@@ -230,11 +317,11 @@ const DebugPanel: React.FC = () => {
                   className="flex-1 flex items-center justify-center gap-3 px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold text-sm transition-all shadow-lg shadow-red-500/30 active:scale-95"
                 >
                   <StopCircle className="w-4 h-4" />
-                  {t('workflow.debug.stop', '停止运行')}
+                  {isExecuting ? t('workflow.debug.stop', '停止运行') : t('workflow.debug.cancelWaiting', '取消本次运行')}
                 </button>
               )}
             </div>
-          </section>
+          </section>}
 
           {/* Execution Status Section */}
           {(currentExecution || isExecuting || executionError) && (
@@ -244,7 +331,7 @@ const DebugPanel: React.FC = () => {
                   <History className="w-4 h-4 text-gray-400" />
                   <h4 className="text-[11px] uppercase font-bold text-gray-400 tracking-[0.15em]">{t('workflow.debug.execution_status', '运行历史')}</h4>
                 </div>
-                {!isExecuting && (
+                {!isHistoryView && !isExecuting && !canCancelCurrent && (
                   <button 
                     onClick={handleClear}
                     className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all text-gray-400 hover:text-red-500"
@@ -253,6 +340,19 @@ const DebugPanel: React.FC = () => {
                   </button>
                 )}
               </div>
+
+              {currentExecution?.status === 'waiting_approval' && (
+                <p role="status" className="rounded-xl bg-purple-50 p-3 text-xs leading-5 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300">
+                  {t('workflow.debug.approvalHint', '流程已暂停。指定审批人可在工作流管理的“我的审批”处理；处理后刷新这里的运行状态。')}
+                </p>
+              )}
+              {currentExecution && !isExecuting && (
+                <button type="button" onClick={() => void refreshExecution()}
+                  className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {t('workflow.debug.refreshStatus', '刷新运行状态')}
+                </button>
+              )}
 
               <div className="bg-gray-50/50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm">
                 <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between bg-white/50 dark:bg-gray-900/50">
@@ -273,13 +373,13 @@ const DebugPanel: React.FC = () => {
                   )}
                 </div>
 
-                {executionError && (
+                {visibleExecutionError && (
                   <div className="p-4 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 text-[11px] leading-relaxed">
                     <p className="font-bold mb-1 flex items-center gap-1">
                       <XCircle className="w-3 h-3" />
                       {t('workflow.debug.error', '执行错误')}
                     </p>
-                    {executionError}
+                    {visibleExecutionError}
                   </div>
                 )}
 
@@ -315,6 +415,12 @@ const DebugPanel: React.FC = () => {
                                 className="mt-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200"
                                 onClick={(e) => e.stopPropagation()}
                               >
+                                {ne.completed_at && (
+                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-mono space-y-0.5">
+                                    <div>{t('workflow.debug.startedAt', '开始')}：{new Date(ne.started_at).toLocaleString('zh-CN', { hour12: false })}</div>
+                                    <div>{t('workflow.debug.completedAt', '结束')}：{new Date(ne.completed_at).toLocaleString('zh-CN', { hour12: false })}</div>
+                                  </div>
+                                )}
                                 {ne.input && (
                                   <div className="space-y-1">
                                     <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">{t('workflow.debug.input', 'Input')}</span>
@@ -357,16 +463,22 @@ const DebugPanel: React.FC = () => {
           )}
 
           {/* Final Output Section */}
-          {currentExecution?.output && (
+          {currentExecution?.status === 'completed' && currentExecution.output != null && (
             <section className="space-y-4">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-green-500" />
                 <h4 className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">{t('workflow.debug.final_output', '最终输出')}</h4>
               </div>
               <div className="p-4 bg-green-50/50 dark:bg-green-900/10 rounded-2xl border border-green-100 dark:border-green-900/30">
-                <pre className="text-xs text-green-700 dark:text-green-400 whitespace-pre-wrap font-mono leading-relaxed">
-                  {JSON.stringify(currentExecution.output, null, 2)}
-                </pre>
+                {typeof currentExecution.output === 'string' ? (
+                  <div className="break-words text-sm leading-6 text-green-700 dark:text-green-400 [&_p+p]:mt-3 [&_strong]:font-semibold">
+                    <ReactMarkdown>{currentExecution.output}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-green-700 dark:text-green-400">
+                    {JSON.stringify(currentExecution.output, null, 2)}
+                  </pre>
+                )}
               </div>
             </section>
           )}
@@ -378,7 +490,8 @@ const DebugPanel: React.FC = () => {
         <div className="flex items-start gap-2">
           <Info className="w-3 h-3 text-blue-500 mt-0.5" />
           <p className="text-[9px] text-gray-400 leading-relaxed">
-            {t('workflow.debug.persistence_note', '调试模式下的执行结果仅供预览，不会影响线上运行的工作流版本。')}
+            {isHistoryView ? t('workflow.debug.historyNote')
+              : t('workflow.debug.persistence_note', '调试模式下的执行结果仅供预览，不会影响线上运行的工作流版本。')}
           </p>
         </div>
       </div>

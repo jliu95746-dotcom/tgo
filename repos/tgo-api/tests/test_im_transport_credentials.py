@@ -54,8 +54,9 @@ async def test_registration_uses_same_private_credential_as_gateway(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("saas_enabled", [False, True])
 @pytest.mark.parametrize("device_level", [None, 0, 1])
+@pytest.mark.parametrize("suffix", ["staff", "vtr"])
 async def test_saas_registration_allows_parallel_browser_sessions(
-    monkeypatch, saas_enabled, device_level
+    monkeypatch, saas_enabled, device_level, suffix
 ):
     monkeypatch.setattr(settings, "SAAS_ENABLED", saas_enabled)
     monkeypatch.setattr(settings, "WUKONGIM_DEVICE_LEVEL", 1)
@@ -64,10 +65,10 @@ async def test_saas_registration_allows_parallel_browser_sessions(
     request = AsyncMock(return_value={})
     monkeypatch.setattr(client, "_make_request", request)
     await client.register_or_login_user(
-        uid="synthetic-staff", token="browser-session",
+        uid=f"synthetic-{suffix}", token="browser-session",
         device_level=device_level,
     )
-    expected = 0 if saas_enabled else (
+    expected = 0 if saas_enabled or suffix == "vtr" else (
         1 if device_level is None else device_level
     )
     assert request.call_args.kwargs["json_data"]["device_level"] == expected

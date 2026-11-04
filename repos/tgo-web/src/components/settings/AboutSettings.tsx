@@ -1,148 +1,69 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Info, Server, Code, GitBranch, Clock, AlertCircle } from 'lucide-react';
-import { systemApiService, type SystemInfoResponse } from '@/services/systemApi';
+import { Info, ScanLine } from 'lucide-react';
+
+const SOFTWARE_VERSION = '1.0.0';
+const overviewSections = [
+  { key: 'benefits', items: ['efficiency', 'consistency', 'continuity'] },
+  { key: 'features', items: ['channels', 'agents', 'knowledge', 'workbench'] },
+] as const;
 
 const AboutSettings: React.FC = () => {
   const { t } = useTranslation();
-  const [systemInfo, setSystemInfo] = useState<SystemInfoResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchSystemInfo = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const info = await systemApiService.getSystemInfo();
-        setSystemInfo(info);
-      } catch (err) {
-        console.error('Failed to fetch system info:', err);
-        setError(t('about.loadError', '加载系统信息失败'));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchSystemInfo();
-  }, [t]);
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        <Info className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-        <h2 className="text-lg font-medium text-gray-800 dark:text-gray-100">{t('common.about', '关于')}</h2>
+    <div className="space-y-5 p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Info aria-hidden="true" className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          <h2 className="text-lg font-medium text-gray-800 dark:text-gray-100">{t('common.about')}</h2>
+        </div>
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800">
+          <span className="text-gray-600 dark:text-gray-400">{t('about.softwareVersion')}</span>
+          <span className="font-medium text-gray-900 dark:text-gray-100">{SOFTWARE_VERSION}</span>
+        </div>
       </div>
 
-      {/* Loading State */}
-      {loading && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-8 flex items-center justify-center">
-          <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 dark:border-blue-400"></div>
-            <span className="text-sm">{t('about.loading', '加载中...')}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Error State */}
-      {error && !loading && (
-        <div className="bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-800 p-4 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
-          </div>
-        </div>
-      )}
-
-      {/* System Information */}
-      {!loading && !error && systemInfo && (
-        <div className="space-y-4">
-          {/* Main System Info Card */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2">
-                <Server className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">{t('about.systemInfo', '系统信息')}</h3>
-              </div>
-            </div>
-            <div className="p-4 space-y-3">
-              <div className="flex items-center justify-between py-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400">{t('about.version', '版本')}</span>
-                <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{systemInfo.version || 'N/A'}</span>
-              </div>
-              <div className="flex items-center justify-between py-2 border-t border-gray-100 dark:border-gray-700">
-                <span className="text-sm text-gray-600 dark:text-gray-400">{t('about.environment', '环境')}</span>
-                <span className="text-sm font-mono text-gray-900 dark:text-gray-100">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                    systemInfo.environment === 'production'
-                      ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
-                      : systemInfo.environment === 'development'
-                      ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
-                  }`}>
-                    {systemInfo.environment || 'unknown'}
-                  </span>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Technical Details Card */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2">
-                <Code className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">{t('about.technicalDetails', '技术详情')}</h3>
-              </div>
-            </div>
-            <div className="p-4 space-y-3">
-              <div className="flex items-center justify-between py-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400">{t('about.apiVersion', 'API 版本')}</span>
-                <span className="text-sm font-mono text-gray-900 dark:text-gray-100">{systemInfo.api_version || 'N/A'}</span>
-              </div>
-              <div className="flex items-center justify-between py-2 border-t border-gray-100 dark:border-gray-700">
-                <span className="text-sm text-gray-600 dark:text-gray-400">{t('about.pythonVersion', 'Python 版本')}</span>
-                <span className="text-sm font-mono text-gray-900 dark:text-gray-100">{systemInfo.python_version || 'N/A'}</span>
-              </div>
-              <div className="flex items-start justify-between py-2 border-t border-gray-100 dark:border-gray-700">
-                <span className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5" />
-                  {t('about.buildTime', '构建时间')}
-                </span>
-                <span className="text-sm font-mono text-gray-900 dark:text-gray-100 text-right">{systemInfo.build_time || 'N/A'}</span>
-              </div>
-              <div className="flex items-start justify-between py-2 border-t border-gray-100 dark:border-gray-700">
-                <span className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1.5">
-                  <GitBranch className="w-3.5 h-3.5" />
-                  {t('about.gitCommit', 'Git 提交')}
-                </span>
-                <span className="text-xs font-mono text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 px-2 py-1 rounded border border-gray-200 dark:border-gray-600">
-                  {systemInfo.git_commit ? systemInfo.git_commit.substring(0, 8) : 'N/A'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-6 dark:border-blue-900/50 dark:bg-blue-950/20">
+      <section aria-labelledby="about-introduction" className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5 dark:border-blue-900/50 dark:bg-blue-950/20 sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-2xl">
             <div className="flex items-center gap-4">
-              <img src="/yujian-logo.svg" alt={t('brand.name')} className="h-14 w-14" />
+              <img src="/yujian-logo.svg" alt="" className="h-14 w-14 shrink-0" />
               <div>
-                <h3 className="text-2xl font-semibold tracking-wide text-gray-900 dark:text-gray-100">{t('brand.name')}</h3>
-                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{t('brand.description')}</p>
+                <h3 id="about-introduction" className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{t('brand.name')}</h3>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t('brand.description')}</p>
               </div>
             </div>
+            <p className="mt-4 text-sm leading-7 text-gray-700 dark:text-gray-300">{t('about.introduction')}</p>
           </div>
 
-          {/* Copyright */}
-          <div className="text-center text-xs text-gray-500 dark:text-gray-400 pt-2">
-            {t('brand.name')} · {t('brand.description')}
+          <div className="flex shrink-0 items-center gap-3 lg:border-l lg:border-blue-100 lg:pl-5 dark:lg:border-blue-900/50">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white text-gray-400 dark:border-gray-600 dark:bg-gray-800">
+              <ScanLine aria-hidden="true" className="h-7 w-7" />
+            </div>
+            <div>
+              <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">{t('about.supportQrTitle')}</h4>
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{t('about.supportQrPending')}</p>
+            </div>
           </div>
         </div>
-      )}
+      </section>
+
+      {overviewSections.map(({ key, items }) => (
+        <section key={key} aria-labelledby={`about-${key}`} className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+          <h3 id={`about-${key}`} className="font-semibold text-gray-900 dark:text-gray-100">{t(`about.${key}.title`)}</h3>
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+            {items.map((item) => (
+              <li key={item} className="min-w-0 rounded-lg bg-gray-50 p-4 dark:bg-gray-700/40">
+                <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">{t(`about.${key}.${item}.title`)}</h4>
+                <p className="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-300">{t(`about.${key}.${item}.description`)}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 };
 
 export default AboutSettings;
-

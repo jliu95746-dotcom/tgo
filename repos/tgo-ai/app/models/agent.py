@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
 from app.models.base import BaseModel
 
 if TYPE_CHECKING:
+    from app.models.agent_business_connection import AgentBusinessConnection
     from app.models.collection import AgentCollection
     from app.models.workflow import AgentWorkflow
     from app.models.project import Project
@@ -67,7 +68,7 @@ class Agent(BaseModel):
     )
 
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=sa.true(),
+        Boolean, nullable=False, default=False, server_default=sa.false(),
         comment="Whether the agent accepts new runs",
     )
 
@@ -107,6 +108,11 @@ class Agent(BaseModel):
         String(100),
         nullable=True,
         comment="Bound device ID for device control MCP connection",
+    )
+    bound_device_policy_digest: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Published read policy pinned when the device was bound",
     )
 
     skills_enabled: Mapped[bool] = mapped_column(
@@ -156,6 +162,10 @@ class Agent(BaseModel):
         back_populates="agent",
         cascade="all, delete-orphan",
         lazy="selectin",
+    )
+
+    business_connections: Mapped[List["AgentBusinessConnection"]] = relationship(
+        "AgentBusinessConnection", lazy="selectin", viewonly=True,
     )
 
     __table_args__ = (

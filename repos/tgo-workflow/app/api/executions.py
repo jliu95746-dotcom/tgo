@@ -1,19 +1,24 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, and_, or_
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 from app.database import get_db, AsyncSessionLocal
 from anyio import CancelScope
 from collections.abc import AsyncIterator
 from pydantic import JsonValue
 from app.models.execution import WorkflowExecution, NodeExecution
+from app.models.approval import WorkflowApprovalRequest
+from app.models.workflow import Workflow
 import asyncio
-import traceback
+import hmac
 from app.schemas.execution import (
     ExecutionStatus,
     WorkflowExecution as WorkflowExecutionSchema, 
     WorkflowExecuteRequest,
+    WorkflowExecutionOrigin,
+    WorkflowSyncResponse,
     WorkflowExecutionCancelResponse,
     WorkflowStartedEvent,
     WorkflowStartedData,
@@ -33,9 +38,31 @@ from app.services.execution_lifecycle import (
     ExecutionStopped, cancel_running_execution, finish_running_execution,
     read_execution_status, require_running,
 )
-from app.engine.executor import WorkflowExecutor
+from app.services.parallel_node_receipts import preserve_cancelled_parallel_node
+from app.engine.executor import WorkflowExecutor, public_execution_error
 from app.services.workflow_service import WorkflowService
+from app.services.validation_service import ValidationService
+from app.services.execution_snapshot import (
+    copy_json_object, definition_digest, input_receipt_hmac,
+)
+from app.services.approval_retention import scrub_terminal_approval_checkpoints
+from app.services.webhook_lifecycle import scrub_webhook_inputs
+from app.services.workflow_releases import (
+    production_definition, verify_approval_dependencies, verify_execution_binding,
+)
+from app.services.workflow_inputs import WorkflowInputError, validate_inputs
+from app.services.workflow_lineage import extend_workflow_lineage, require_parent_execution
+from app.schemas.capabilities import ExecutionMode
+from app.config import settings
 from app.core.logging import logger
+from app.integrations.ai_client import AIClient
+from app.schemas.business_query import BusinessExecutionContext
+from app.services.business_query_context import (
+    business_query_record_inputs, require_business_query_context,
+)
+from app.services.employee_workflow_binding import (
+    EmployeeWorkflowBinding, check_employee_binding, saved_employee_binding,
+)
 from typing import List, Literal
 import uuid
 
@@ -47,21 +74,99 @@ async def _create_execution_record(
     db: AsyncSession, 
     workflow_id: str, 
     project_id: str, 
-    inputs: dict, 
-    status: str = "running"
+    inputs: dict[str, JsonValue],
+    status: str = "running", *,
+    workflow_definition: dict[str, JsonValue] | None = None,
+    workflow_version: int | None = None,
+    execution_mode: ExecutionMode = "draft_test",
+    release_id: str | None = None,
+    employee_agent_id: str | None = None,
+    origin: WorkflowExecutionOrigin | None = None,
+    workflow_lineage: tuple[str, ...] = (),
+    execution_id: str | None = None,
+    invocation_input_hmac: str | None = None,
 ) -> WorkflowExecution:
-    execution_id = str(uuid.uuid4())
+    if (origin is not None and origin.business_project_id is not None
+            and str(origin.business_project_id) != project_id):
+        raise ValueError("运行来源项目与工作流项目不一致")
+    execution_id = execution_id or str(uuid.uuid4())
     db_execution = WorkflowExecution(
         id=execution_id,
         project_id=project_id,
         workflow_id=workflow_id,
         status=status,
-        input=inputs,
+        input=copy_json_object(inputs),
+        invocation_input_hmac=invocation_input_hmac,
+        definition_snapshot=(copy_json_object(workflow_definition) if workflow_definition is not None else None),
+        workflow_version=workflow_version,
+        execution_mode=execution_mode,
+        release_id=release_id,
+        employee_agent_id=employee_agent_id,
+        ai_request_id=origin.ai_request_id if origin is not None else None,
+        business_request_id=(str(origin.business_request_id)
+                             if origin is not None and origin.business_request_id is not None else None),
+        visitor_session_id=(str(origin.visitor_session_id)
+                            if origin is not None and origin.visitor_session_id is not None else None),
+        source_message_id=origin.source_message_id if origin is not None else None,
+        source_channel=origin.source_channel if origin is not None else None,
+        parent_execution_id=(str(origin.parent_execution_id)
+                             if origin is not None and origin.parent_execution_id is not None else None),
+        workflow_lineage=list(workflow_lineage or (workflow_id,)),
+        definition_digest=(definition_digest(workflow_definition) if workflow_definition is not None else None),
         started_at=datetime.now(timezone.utc)
     )
     db.add(db_execution)
     await db.commit()
     return db_execution
+
+
+def _same_approval_invocation(
+    saved: WorkflowExecution, *, workflow_id: str, employee_agent_id: str,
+    inputs: dict[str, JsonValue], release_id: str | None,
+    workflow_version: int, definition: dict[str, JsonValue],
+    origin: WorkflowExecutionOrigin, workflow_lineage: tuple[str, ...],
+) -> bool:
+    """A reused invocation key may only refer to the identical approved request."""
+    if saved.input is None:
+        key = settings.SECRET_KEY
+        same_inputs = bool(
+            key is not None and key.get_secret_value()
+            and saved.invocation_input_hmac
+            and hmac.compare_digest(
+                saved.invocation_input_hmac,
+                input_receipt_hmac(inputs, key.get_secret_value(), saved.id),
+            )
+        )
+    else:
+        same_inputs = saved.input == inputs
+    return (
+        saved.workflow_id == workflow_id
+        and saved.employee_agent_id == employee_agent_id
+        and saved.execution_mode == "production"
+        and same_inputs
+        and saved.release_id == release_id
+        and saved.workflow_version == workflow_version
+        and saved.definition_digest == definition_digest(definition)
+        and saved.ai_request_id == origin.ai_request_id
+        and saved.business_request_id == (str(origin.business_request_id) if origin.business_request_id else None)
+        and saved.visitor_session_id == (str(origin.visitor_session_id) if origin.visitor_session_id else None)
+        and saved.source_message_id == origin.source_message_id
+        and saved.source_channel == origin.source_channel
+        and saved.parent_execution_id == (str(origin.parent_execution_id) if origin.parent_execution_id else None)
+        and saved.workflow_lineage == list(workflow_lineage)
+    )
+
+
+async def _load_approval_invocation(
+    db: AsyncSession, execution_id: str, project_id: str,
+) -> WorkflowExecution | None:
+    return await db.scalar(
+        select(WorkflowExecution)
+        .options(selectinload(WorkflowExecution.node_executions))
+        .where(WorkflowExecution.id == execution_id,
+               WorkflowExecution.project_id == project_id)
+        .execution_options(populate_existing=True)
+    )
 
 async def _run_stream_execution(
     workflow_id: str,
@@ -70,7 +175,9 @@ async def _run_stream_execution(
     inputs: dict,
     workflow_definition: dict,
     started_at: datetime,
-    db: AsyncSession
+    db: AsyncSession,
+    *, employee_binding: EmployeeWorkflowBinding | None = None,
+    workflow_lineage: tuple[str, ...] = (),
 ):
     start_time = time.time()
     task_id = f"stream-{execution_id}"
@@ -90,12 +197,20 @@ async def _run_stream_execution(
     )
     yield f"data: {started_event.model_dump_json()}\n\n"
 
-    executor = WorkflowExecutor(workflow_definition, project_id=project_id)
+    async def check_active() -> None:
+        await require_running(db, execution_id, project_id)
+        await check_employee_binding(employee_binding, db)
+
+    executor = WorkflowExecutor(
+        workflow_definition, project_id=project_id,
+        execution_id=execution_id, workflow_lineage=workflow_lineage or (workflow_id,),
+        check_active=check_active,
+    )
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 
     # Re-defining callbacks to use the queue
     async def q_on_node_start(node_id, node_type, node_data, index):
-        await require_running(db, execution_id, project_id)
+        await check_active()
         nonlocal node_count
         node_count += 1
         event = NodeStartedEvent(
@@ -113,8 +228,19 @@ async def _run_stream_execution(
         )
         await queue.put(f"data: {event.model_dump_json()}\n\n")
 
-    async def q_on_node_complete(node_id, node_type, status, input, output, error, duration):
+    async def q_on_node_complete(
+        node_id, node_type, status, input, output, error, duration,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ):
+        if status == "cancelled" and await preserve_cancelled_parallel_node(
+            db, project_id=project_id, execution_id=execution_id,
+            node_id=node_id, node_type=node_type,
+            started_at=started_at, completed_at=completed_at, duration=duration,
+        ):
+            return
         await require_running(db, execution_id, project_id)
+        await check_employee_binding(employee_binding, db)
         # Save to DB
         node_exec_id = str(uuid.uuid4())
         node_exec = NodeExecution(
@@ -128,7 +254,8 @@ async def _run_stream_execution(
             output=output,
             error=error,
             duration=duration,
-            started_at=datetime.now(timezone.utc)
+            started_at=started_at or datetime.now(timezone.utc),
+            completed_at=completed_at,
         )
         db.add(node_exec)
         await db.commit()
@@ -162,13 +289,14 @@ async def _run_stream_execution(
             nonlocal final_output, status, error_msg
             try:
                 final_output = await executor.run(inputs, on_node_start=q_on_node_start, on_node_complete=q_on_node_complete)
+                await check_employee_binding(employee_binding, db)
             except ExecutionStopped:
                 status = "cancelled"
                 final_output = None
             except Exception as e:
                 status = "failed"
-                error_msg = str(e)
-                logger.error(f"Workflow stream execution error: {traceback.format_exc()}")
+                error_msg = public_execution_error(e)
+                logger.error("Workflow stream execution error: %s", type(e).__name__)
             finally:
                 await queue.put(None) # Signal end
 
@@ -192,7 +320,7 @@ async def _run_stream_execution(
         raise
     except Exception as e:
         status = "failed"
-        error_msg = str(e)
+        error_msg = public_execution_error(e)
     finally:
         with CancelScope(shield=True):
             if executor_task is not None:
@@ -241,12 +369,15 @@ async def _stream_with_owned_session(
     workflow_id: str, project_id: str, execution_id: str,
     inputs: dict[str, JsonValue], workflow_definition: dict[str, JsonValue],
     started_at: datetime,
+    *, employee_binding: EmployeeWorkflowBinding | None = None,
+    workflow_lineage: tuple[str, ...] = (),
 ) -> AsyncIterator[str]:
     # Response iteration may outlive the request dependency's DB session.
     db = AsyncSessionLocal()
     stream = _run_stream_execution(
         workflow_id, project_id, execution_id, inputs, workflow_definition,
-        started_at, db,
+        started_at, db, employee_binding=employee_binding,
+        workflow_lineage=workflow_lineage,
     )
     exhausted = False
     try:
@@ -270,17 +401,42 @@ async def _run_sync_execution(
     inputs: dict,
     workflow_definition: dict,
     started_at: datetime,
-    db: AsyncSession
+    db: AsyncSession,
+    *, employee_binding: EmployeeWorkflowBinding | None = None,
+    workflow_lineage: tuple[str, ...] = (),
+    employee_agent_id: str | None = None,
+    business_context: BusinessExecutionContext | None = None,
 ):
     perf_start = time.time()
-    executor = WorkflowExecutor(workflow_definition, project_id=project_id)
+    async def check_active() -> None:
+        await require_running(db, execution_id, project_id)
+        await check_employee_binding(employee_binding, db)
+
+    executor = WorkflowExecutor(
+        workflow_definition, project_id=project_id,
+        execution_id=execution_id, workflow_lineage=workflow_lineage or (workflow_id,),
+        employee_agent_id=employee_agent_id,
+        business_context=business_context,
+        check_active=check_active,
+    )
 
     async def sync_on_node_start(node_id, node_type, node_data, index):
-        await require_running(db, execution_id, project_id)
+        await check_active()
     
     # 定义同步模式下的回调（保存到 DB）
-    async def sync_on_node_complete(node_id, node_type, status, input, output, error, duration):
+    async def sync_on_node_complete(
+        node_id, node_type, status, input, output, error, duration,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ):
+        if status == "cancelled" and await preserve_cancelled_parallel_node(
+            db, project_id=project_id, execution_id=execution_id,
+            node_id=node_id, node_type=node_type,
+            started_at=started_at, completed_at=completed_at, duration=duration,
+        ):
+            return
         await require_running(db, execution_id, project_id)
+        await check_employee_binding(employee_binding, db)
         node_exec = NodeExecution(
             id=str(uuid.uuid4()),
             execution_id=execution_id,
@@ -292,7 +448,8 @@ async def _run_sync_execution(
             output=output,
             error=error,
             duration=duration,
-            started_at=datetime.now(timezone.utc)
+            started_at=started_at or datetime.now(timezone.utc),
+            completed_at=completed_at,
         )
         db.add(node_exec)
         await db.commit()
@@ -305,12 +462,13 @@ async def _run_sync_execution(
             inputs, on_node_start=sync_on_node_start,
             on_node_complete=sync_on_node_complete,
         )
+        await check_employee_binding(employee_binding, db)
     except ExecutionStopped:
         success = False
     except Exception as e:
         success = False
-        error_msg = str(e)
-        logger.error(f"Workflow sync execution error: {traceback.format_exc()}")
+        error_msg = public_execution_error(e)
+        logger.error("Workflow sync execution error: %s", type(e).__name__)
 
     perf_duration = time.time() - perf_start
     end_time_dt = datetime.now(timezone.utc)
@@ -338,6 +496,7 @@ async def _run_sync_execution(
 
 @router.post(
     "/{workflow_id}/execute",
+    response_model=WorkflowExecutionSchema | WorkflowSyncResponse,
     summary="Execute Workflow",
     description="""
     Execute a workflow using one of three supported modes:
@@ -422,20 +581,197 @@ async def execute_workflow(
     workflow_id: str,
     request: WorkflowExecuteRequest,
     project_id: str = Query(..., description="Project ID"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    x_internal_api_key: str | None = Header(default=None),
+    x_business_request_context: str | None = Header(default=None),
+    x_business_visitor_id: str | None = Header(default=None),
+    x_business_request_fingerprint: str | None = Header(default=None),
+    x_execution_channel: str | None = Header(default=None),
 ):
     # 1. Verify workflow exists and belongs to project
     workflow = await WorkflowService.get_by_id(db, workflow_id, project_id)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
+    selected_definition = workflow.definition
+    selected_version = workflow.version
+    release_id = None
+    if request.execution_mode == "production":
+        if workflow.status != "active":
+            raise HTTPException(status_code=409, detail="请先发布工作流，再用于正式业务执行。")
+        published = await production_definition(db, workflow_id, project_id, request.release_version)
+        verify_execution_binding(
+            published, request.expected_release_id, request.expected_release_digest
+        )
+        selected_definition, selected_version, release_id = published.definition, published.version, published.release_id
+        published_nodes = selected_definition.get("nodes")
+        if isinstance(published_nodes, list) and any(
+            isinstance(node, dict) and node.get("type") == "timer"
+            for node in published_nodes
+        ):
+            raise HTTPException(403, "定时工作流必须通过已登记计划派发，不能直接正式执行。")
+        if isinstance(published_nodes, list) and any(
+            isinstance(node, dict) and node.get("type") == "webhook"
+            for node in published_nodes
+        ):
+            raise HTTPException(403, "外部通知工作流必须通过已签名通知派发，不能直接正式执行。")
+    elif (request.release_version is not None
+          or request.expected_release_id is not None
+          or request.expected_release_digest is not None):
+        raise HTTPException(422, "指定发布版本仅用于正式业务执行。")
+
+    errors = ValidationService.validate_workflow(selected_definition)
+    if errors:
+        raise HTTPException(status_code=400, detail={"message": "Workflow validation failed", "errors": errors})
+    if any(node.get("type") == "event" for node in selected_definition.get("nodes", [])):
+        raise HTTPException(403, "事件工作流只能通过已签名的内部事件入口执行。")
+
+    has_approval = any(node.get("type") == "approval" for node in selected_definition.get("nodes", []))
+    if has_approval:
+        if request.stream or not request.async_mode:
+            raise HTTPException(422, "人工审批流程必须使用异步执行，等待期间通过运行记录查询状态。")
+        await verify_approval_dependencies(selected_definition, project_id)
+
+    has_aftersales_review = any(
+        node.get("type") == "approval"
+        and isinstance(node.get("data"), dict)
+        and node["data"].get("after_approval_action") == "create_aftersales_review"
+        for node in selected_definition.get("nodes", [])
+    )
+    if has_aftersales_review and (
+        request.execution_mode != "production"
+        or request.employee_agent_id is None
+        or request.origin is None
+        or request.origin.business_request_id is None
+        or request.origin.visitor_session_id is None
+    ):
+        raise HTTPException(403, "售后核对任务仅允许已核验的正式员工客户会话创建。")
+
+    has_business_query = any(
+        node.get("type") == "business_query"
+        for node in selected_definition.get("nodes", [])
+    )
+    if has_business_query and (request.stream or request.async_mode):
+        raise HTTPException(422, "受控业务查询仅支持同步执行，客户会话凭证不得入队或持久化")
+
+    try:
+        validated_inputs = validate_inputs(selected_definition, request.inputs)
+    except WorkflowInputError as error:
+        raise HTTPException(422, detail={
+            "message": str(error),
+            "errors": [issue.model_dump() for issue in error.issues],
+        }) from None
+    if has_business_query:
+        try:
+            business_query_record_inputs(validated_inputs)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+
+    if isinstance(x_internal_api_key, str) and x_internal_api_key and request.employee_agent_id is None:
+        raise HTTPException(422, "内部员工工作流调用必须指定员工身份")
+
+    workflow_lineage = (workflow_id,)
+    if request.employee_agent_id is not None:
+        release_version = request.release_version
+        release_id = request.expected_release_id
+        release_digest = request.expected_release_digest
+        if release_version is None or release_id is None or release_digest is None:
+            raise HTTPException(422, "员工工作流执行必须指定完整的固定发布版本")
+        key = settings.SECRET_KEY
+        if key is None or not key.get_secret_value():
+            raise HTTPException(503, "员工工作流内部核验未配置")
+        if not x_internal_api_key or not hmac.compare_digest(
+            x_internal_api_key, key.get_secret_value()
+        ):
+            raise HTTPException(403, "员工工作流执行身份无法确认")
+        if (request.origin is not None and request.origin.business_project_id is not None
+                and str(request.origin.business_project_id) != project_id):
+            raise HTTPException(403, "客户业务请求来源与工作流项目不一致")
+        try:
+            execution_origin = await require_parent_execution(db, request.origin, project_id)
+        except PermissionError as error:
+            raise HTTPException(403, str(error)) from None
+        try:
+            workflow_lineage = extend_workflow_lineage(
+                request.origin.workflow_lineage if request.origin is not None else (),
+                workflow_id,
+            )
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from None
+        # A private AI call can take time. Release the read transaction and
+        # check the workflow's current switch again after the private hop.
+        await db.commit()
+        try:
+            await AIClient.verify_employee_workflow_binding(
+                project_id, str(request.employee_agent_id), workflow_id,
+                release_version, release_id, release_digest,
+            )
+        except PermissionError:
+            raise HTTPException(409, "员工工作流授权已变更，停止执行") from None
+        except RuntimeError:
+            raise HTTPException(503, "员工工作流授权暂时无法核验") from None
+        current_status = await db.scalar(select(Workflow.status).where(
+            Workflow.id == workflow_id, Workflow.project_id == project_id,
+        ))
+        if current_status != "active":
+            raise HTTPException(409, "工作流已停用，停止执行")
+        try:
+            execution_origin = await require_parent_execution(
+                db, execution_origin, project_id,
+            )
+        except PermissionError as error:
+            raise HTTPException(403, str(error)) from None
+
+    employee_agent_id = (
+        str(request.employee_agent_id) if request.employee_agent_id is not None else None
+    )
+    if request.employee_agent_id is None:
+        execution_origin = None
+    approval_invocation_id: str | None = None
+    if has_approval and employee_agent_id is not None:
+        if request.invocation_key is None or execution_origin is None:
+            raise HTTPException(422, "员工审批工作流必须提供运行来源和防重复调用标识")
+        approval_invocation_id = str(uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"workflow-approval:{project_id}:{employee_agent_id}:{workflow_id}:{request.invocation_key}",
+        ))
+    elif request.invocation_key is not None:
+        raise HTTPException(422, "防重复调用标识仅用于员工审批工作流")
+    business_context = None
+    if has_business_query:
+        if request.employee_agent_id is None or request.execution_mode != "production":
+            raise HTTPException(403, "受控业务查询只允许正式员工会话执行")
+        try:
+            business_context = require_business_query_context(
+                project_id, execution_origin,
+                context_token=x_business_request_context,
+                visitor_id=x_business_visitor_id,
+                request_fingerprint=x_business_request_fingerprint,
+                channel=x_execution_channel,
+            )
+        except PermissionError as error:
+            raise HTTPException(403, str(error)) from None
+    employee_binding = saved_employee_binding(
+        project_id, employee_agent_id, workflow_id, request.execution_mode,
+        selected_version, release_id, definition_digest(selected_definition),
+    )
+
     if request.stream:
         # --- 1. 流式执行模式 (SSE) ---
-        db_execution = await _create_execution_record(db, workflow_id, project_id, request.inputs, status="running")
+        db_execution = await _create_execution_record(
+            db, workflow_id, project_id, validated_inputs, status="running",
+            workflow_definition=selected_definition, workflow_version=selected_version,
+            execution_mode=request.execution_mode, release_id=release_id,
+            employee_agent_id=employee_agent_id,
+            origin=execution_origin,
+            workflow_lineage=workflow_lineage,
+        )
         return StreamingResponse(
             _stream_with_owned_session(
-                workflow_id, project_id, db_execution.id, request.inputs,
-                workflow.definition, db_execution.started_at,
+                workflow_id, project_id, db_execution.id, db_execution.input,
+                db_execution.definition_snapshot, db_execution.started_at,
+                employee_binding=employee_binding,
+                workflow_lineage=workflow_lineage,
             ),
             media_type="text/event-stream",
             headers={
@@ -446,10 +782,50 @@ async def execute_workflow(
         )
     elif request.async_mode:
         # --- 2. 异步执行模式 (Celery) ---
-        db_execution = await _create_execution_record(db, workflow_id, project_id, request.inputs, status="pending")
+        invocation_input_hmac = None
+        if approval_invocation_id is not None:
+            key = settings.SECRET_KEY
+            if key is None or not key.get_secret_value():
+                raise HTTPException(503, "员工工作流内部核验未配置")
+            invocation_input_hmac = input_receipt_hmac(
+                validated_inputs, key.get_secret_value(), approval_invocation_id,
+            )
+            existing = await _load_approval_invocation(db, approval_invocation_id, project_id)
+            if existing is not None:
+                if not _same_approval_invocation(
+                    existing, workflow_id=workflow_id, employee_agent_id=employee_agent_id,
+                    inputs=validated_inputs, release_id=release_id,
+                    workflow_version=selected_version, definition=selected_definition,
+                    origin=execution_origin, workflow_lineage=workflow_lineage,
+                ):
+                    raise HTTPException(409, "防重复调用标识已用于不同的工作流请求")
+                return existing
+        try:
+            db_execution = await _create_execution_record(
+                db, workflow_id, project_id, validated_inputs, status="pending",
+                workflow_definition=selected_definition, workflow_version=selected_version,
+                execution_mode=request.execution_mode, release_id=release_id,
+                employee_agent_id=employee_agent_id,
+                origin=execution_origin, workflow_lineage=workflow_lineage,
+                execution_id=approval_invocation_id,
+                invocation_input_hmac=invocation_input_hmac,
+            )
+        except IntegrityError:
+            if approval_invocation_id is None:
+                raise
+            await db.rollback()
+            existing = await _load_approval_invocation(db, approval_invocation_id, project_id)
+            if existing is None or not _same_approval_invocation(
+                existing, workflow_id=workflow_id, employee_agent_id=employee_agent_id,
+                inputs=validated_inputs, release_id=release_id,
+                workflow_version=selected_version, definition=selected_definition,
+                origin=execution_origin, workflow_lineage=workflow_lineage,
+            ):
+                raise HTTPException(409, "防重复调用标识已用于不同的工作流请求") from None
+            return existing
         
         try:
-            await enqueue_workflow(db, db_execution, request.inputs)
+            await enqueue_workflow(db, db_execution, validated_inputs)
         except WorkflowDispatchError as error:
             raise HTTPException(status_code=503, detail=str(error)) from None
         
@@ -464,9 +840,24 @@ async def execute_workflow(
         return result.scalar_one()
     else:
         # --- 3. 同步执行模式 (默认) ---
-        db_execution = await _create_execution_record(db, workflow_id, project_id, request.inputs, status="running")
+        db_execution = await _create_execution_record(
+            db, workflow_id, project_id,
+            (business_query_record_inputs(validated_inputs)
+             if has_business_query else validated_inputs), status="running",
+            workflow_definition=selected_definition, workflow_version=selected_version,
+            execution_mode=request.execution_mode, release_id=release_id,
+            employee_agent_id=employee_agent_id,
+            origin=execution_origin,
+            workflow_lineage=workflow_lineage,
+        )
         return await _run_sync_execution(
-            workflow_id, project_id, db_execution.id, request.inputs, workflow.definition, db_execution.started_at, db
+            workflow_id, project_id, db_execution.id,
+            validated_inputs if has_business_query else db_execution.input,
+            db_execution.definition_snapshot, db_execution.started_at, db,
+            employee_binding=employee_binding,
+            workflow_lineage=workflow_lineage,
+            employee_agent_id=employee_agent_id,
+            business_context=business_context,
         )
 
 @router.get("/executions/{execution_id}", response_model=WorkflowExecutionSchema)
@@ -488,24 +879,166 @@ async def get_execution_status(
     
     return execution
 
+def _history_anchor(before_started_at: datetime | None, before_id: str | None):
+    """Keep pages stable when newer runs arrive between requests."""
+    if (before_started_at is None) != (before_id is None):
+        raise HTTPException(400, "before_started_at and before_id must be provided together")
+    if before_started_at is None:
+        return None
+    # SQLite-backed previews serialize UTC rows without a timezone suffix.
+    if before_started_at.tzinfo is None:
+        before_started_at = before_started_at.replace(tzinfo=timezone.utc)
+    return or_(
+        WorkflowExecution.started_at < before_started_at,
+        and_(WorkflowExecution.started_at == before_started_at,
+             WorkflowExecution.id < before_id),
+    )
+
+
 @router.get("/{workflow_id}/executions", response_model=List[WorkflowExecutionSchema])
 async def get_workflow_executions(
     workflow_id: str,
     project_id: str = Query(..., description="Project ID"),
-    skip: int = 0,
-    limit: int = 20,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    before_started_at: datetime | None = Query(None),
+    before_id: str | None = Query(None, min_length=1, max_length=64),
     db: AsyncSession = Depends(get_db)
 ):
+    anchor = _history_anchor(before_started_at, before_id)
     query = (
         select(WorkflowExecution)
         .options(selectinload(WorkflowExecution.node_executions))
         .where(WorkflowExecution.workflow_id == workflow_id, WorkflowExecution.project_id == project_id)
-        .order_by(desc(WorkflowExecution.started_at))
+        .order_by(desc(WorkflowExecution.started_at), desc(WorkflowExecution.id))
+        .offset(skip)
+        .limit(limit)
+    )
+    if anchor is not None:
+        query = query.where(anchor)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+@router.get(
+    "/executions/by-business-request/{business_request_id}",
+    response_model=List[WorkflowExecutionSchema],
+)
+async def get_business_request_executions(
+    business_request_id: uuid.UUID,
+    project_id: str = Query(..., description="Project ID"),
+    limit: int = Query(20, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    visitor_session_id: uuid.UUID | None = Query(None),
+    before_started_at: datetime | None = Query(None),
+    before_id: str | None = Query(None, min_length=1, max_length=64),
+    x_internal_api_key: str | None = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_internal_read_access(x_internal_api_key)
+    anchor = _history_anchor(before_started_at, before_id)
+    conditions = [
+        WorkflowExecution.project_id == project_id,
+        WorkflowExecution.business_request_id == str(business_request_id),
+    ]
+    if visitor_session_id is not None:
+        conditions.append(WorkflowExecution.visitor_session_id == str(visitor_session_id))
+    if anchor is not None:
+        conditions.append(anchor)
+    query = (
+        select(WorkflowExecution)
+        .options(selectinload(WorkflowExecution.node_executions))
+        .where(*conditions)
+        .order_by(desc(WorkflowExecution.started_at), desc(WorkflowExecution.id))
         .offset(skip)
         .limit(limit)
     )
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+def _require_internal_read_access(x_internal_api_key: str | None) -> None:
+    key = settings.SECRET_KEY
+    if key is None or not key.get_secret_value():
+        raise HTTPException(503, "工作流内部查询核验未配置")
+    if not x_internal_api_key or not hmac.compare_digest(
+        x_internal_api_key, key.get_secret_value()
+    ):
+        raise HTTPException(403, "工作流内部查询身份无法确认")
+
+
+@router.get(
+    "/executions/by-parent/{parent_execution_id}",
+    response_model=List[WorkflowExecutionSchema],
+)
+async def get_child_executions(
+    parent_execution_id: uuid.UUID,
+    project_id: str = Query(..., description="Project ID"),
+    limit: int = Query(20, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    before_started_at: datetime | None = Query(None),
+    before_id: str | None = Query(None, min_length=1, max_length=64),
+    x_internal_api_key: str | None = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_internal_read_access(x_internal_api_key)
+    anchor = _history_anchor(before_started_at, before_id)
+    parent_exists = await db.scalar(select(WorkflowExecution.id).where(
+        WorkflowExecution.id == str(parent_execution_id),
+        WorkflowExecution.project_id == project_id,
+    ))
+    if parent_exists is None:
+        raise HTTPException(404, "Parent execution not found")
+    query = (
+        select(WorkflowExecution)
+        .options(selectinload(WorkflowExecution.node_executions))
+        .where(
+            WorkflowExecution.project_id == project_id,
+            WorkflowExecution.parent_execution_id == str(parent_execution_id),
+        )
+        .order_by(desc(WorkflowExecution.started_at), desc(WorkflowExecution.id))
+        .offset(skip)
+        .limit(limit)
+    )
+    if anchor is not None:
+        query = query.where(anchor)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+@router.get(
+    "/executions/by-visitor-session/{visitor_session_id}",
+    response_model=List[WorkflowExecutionSchema],
+)
+async def get_visitor_session_executions(
+    visitor_session_id: uuid.UUID,
+    project_id: str = Query(..., description="Project ID"),
+    limit: int = Query(20, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    before_started_at: datetime | None = Query(None),
+    before_id: str | None = Query(None, min_length=1, max_length=64),
+    x_internal_api_key: str | None = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_internal_read_access(x_internal_api_key)
+    anchor = _history_anchor(before_started_at, before_id)
+    query = (
+        select(WorkflowExecution)
+        .options(selectinload(WorkflowExecution.node_executions))
+        .where(
+            WorkflowExecution.project_id == project_id,
+            WorkflowExecution.visitor_session_id == str(visitor_session_id),
+            WorkflowExecution.business_request_id.isnot(None),
+        )
+        .order_by(desc(WorkflowExecution.started_at), desc(WorkflowExecution.id))
+        .offset(skip)
+        .limit(limit)
+    )
+    if anchor is not None:
+        query = query.where(anchor)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
 
 @router.post("/executions/{execution_id}/cancel", response_model=WorkflowExecutionCancelResponse)
 async def cancel_execution(
@@ -530,19 +1063,31 @@ async def cancel_execution(
         if completed_at is None:
             completed_at = datetime.now(timezone.utc)
             execution.completed_at = completed_at
+        await scrub_webhook_inputs(db, project_id, execution_id)
         await db.commit()
         return WorkflowExecutionCancelResponse(
             id=execution_id, status=ExecutionStatus.CANCELLED,
             cancelled_at=completed_at,
         )
 
-    if execution.status not in ["pending", "running"]:
+    if execution.status not in ["pending", "running", "waiting_approval", "pending_resume"]:
         raise HTTPException(status_code=400, detail=f"Cannot cancel execution in {execution.status} status")
         
     # Update status in DB
-    execution.status = "cancelled"
     completed_at = datetime.now(timezone.utc)
+    if execution.status == "waiting_approval" and execution.active_approval_id:
+        approval = await db.get(WorkflowApprovalRequest, execution.active_approval_id)
+        if (
+            approval is not None and approval.project_id == project_id
+            and approval.execution_id == execution_id and approval.status == "pending"
+        ):
+            approval.status = "cancelled"
+            approval.decided_at = completed_at
+    execution.status = "cancelled"
+    execution.input = None
     execution.completed_at = completed_at
+    await scrub_terminal_approval_checkpoints(db, project_id, execution_id)
+    await scrub_webhook_inputs(db, project_id, execution_id)
     await db.commit()
     
     # Do not kill a worker process: it may already be handling another task.

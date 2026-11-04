@@ -142,7 +142,7 @@ async def test_demo_business_query_http_handler_is_tenant_bound() -> None:
         response = await query_business_data(
             BusinessQueryRequest(
                 context=BusinessQueryContextRequest.model_validate(
-                    context.model_dump()
+                    context.model_dump(exclude_none=True)
                 ),
                 operation="logistics_query",
                 order_no="ORDER-20260716-001",
@@ -473,6 +473,8 @@ async def test_database_audit_sink_persists_only_fingerprints() -> None:
         outcome="success",
         visitor_fingerprint="a" * 64,
         parameter_fingerprint="b" * 64,
+        source_message_digest="c" * 64,
+        response_message_digest="d" * 64,
         duration_ms=12.5,
     )
 
@@ -504,6 +506,8 @@ async def test_database_audit_sink_persists_only_fingerprints() -> None:
     persisted = vars(session.record)
     assert persisted["visitor_fingerprint"] == "a" * 64
     assert persisted["parameter_fingerprint"] == "b" * 64
+    assert persisted["source_message_digest"] == "c" * 64
+    assert persisted["response_message_digest"] == "d" * 64
     assert "ORDER-20260716-001" not in str(persisted)
     assert context.visitor_id not in str(persisted)
     del order, logistics

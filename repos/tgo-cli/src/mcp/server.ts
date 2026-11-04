@@ -12,6 +12,7 @@ import {
   conversationAccept,
   conversationTransfer,
   conversationClose,
+  conversationReceipt,
   conversationWaitingCount,
 } from '../commands/conversation.js';
 // Chat
@@ -138,16 +139,28 @@ export async function startMcpServer(): Promise<void> {
       visitor_id: z.string().describe('Visitor ID'),
       target_staff_id: z.string().describe('Target staff ID'),
       reason: z.string().optional().describe('Transfer reason'),
+      operation_id: z.string().uuid().describe('Caller-owned UUIDv4 operation ID'),
     },
-    async ({ visitor_id, target_staff_id, reason }) =>
-      text(await conversationTransfer(getClient(), visitor_id, target_staff_id, reason)),
+    async ({ visitor_id, target_staff_id, reason, operation_id }) =>
+      text(await conversationTransfer(getClient(), visitor_id, target_staff_id, reason, operation_id)),
   );
 
   server.tool(
     'tgo_conversation_close',
     'Close a visitor session',
-    { visitor_id: z.string().describe('Visitor ID') },
-    async ({ visitor_id }) => text(await conversationClose(getClient(), visitor_id)),
+    {
+      visitor_id: z.string().describe('Visitor ID'),
+      operation_id: z.string().uuid().describe('Caller-owned UUIDv4 operation ID'),
+    },
+    async ({ visitor_id, operation_id }) =>
+      text(await conversationClose(getClient(), visitor_id, operation_id)),
+  );
+
+  server.tool(
+    'tgo_conversation_receipt',
+    'Look up the original close or transfer operation',
+    { operation_id: z.string().uuid().describe('Original operation ID') },
+    async ({ operation_id }) => text(await conversationReceipt(getClient(), operation_id)),
   );
 
   server.tool(

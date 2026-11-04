@@ -4,8 +4,13 @@ import asyncio
 
 from app.core.database import SessionLocal
 from app.core.logging import get_logger
-from app.services.staff_delivery import recover_pending_history
+from app.services.staff_delivery import (
+    recover_pending_history,
+    recover_stale_external_deliveries,
+)
 from app.services.staff_delivery_training import recover_pending_training
+from app.services.session_command_delivery import recover_session_commands
+from app.services.session_command_membership import recover_channel_effects
 
 logger = get_logger(__name__)
 _task: asyncio.Task[None] | None = None
@@ -13,12 +18,21 @@ _task: asyncio.Task[None] | None = None
 
 async def _recover_loop() -> None:
     while True:
-        try:
-            with SessionLocal() as db:
-                await recover_pending_history(db)
-                await recover_pending_training(db)
-        except Exception as exc:
-            logger.error("Staff history recovery failed: %s", type(exc).__name__)
+        for phase_name, recover in (
+            ("external_unknown", recover_stale_external_deliveries),
+            ("history", recover_pending_history),
+            ("training", recover_pending_training),
+            ("session_notice", recover_session_commands),
+            ("channel_effects", recover_channel_effects),
+        ):
+            try:
+                with SessionLocal() as db:
+                    await recover(db)
+            except Exception as exc:
+                logger.error(
+                    "Staff recovery phase %s failed: %s",
+                    phase_name, type(exc).__name__,
+                )
         await asyncio.sleep(5)
 
 

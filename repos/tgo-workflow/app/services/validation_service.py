@@ -1,17 +1,29 @@
 from typing import List, Dict, Any, Set
-from app.models.workflow import Workflow
+from app.services.node_readiness import node_configuration_errors
+from app.services.workflow_inputs import input_configuration_errors
 from collections import deque
 
 class ValidationService:
     @staticmethod
-    def validate_workflow(definition: Dict[str, Any]) -> List[str]:
-        errors = []
+    def validate_workflow(
+        definition: Dict[str, Any], *, allow_timer_preparation: bool = False,
+        allow_webhook_preparation: bool = False,
+    ) -> List[str]:
         nodes = definition.get("nodes", [])
         edges = definition.get("edges", [])
+        errors = node_configuration_errors(
+            nodes, edges, allow_timer_preparation=allow_timer_preparation,
+            allow_webhook_preparation=allow_webhook_preparation,
+        )
+        errors.extend(input_configuration_errors(definition))
+        if len({node.get("id") for node in nodes}) != len(nodes) or any(not node.get("id") for node in nodes):
+            return errors
         
         # 1. Trigger node check (formerly Start node)
         trigger_types = {"input", "timer", "webhook", "event"}
         trigger_nodes = [n for n in nodes if n.get("type") in trigger_types]
+        if len(trigger_nodes) > 1:
+            errors.append("Workflow must have exactly one trigger node")
         if len(trigger_nodes) == 0:
             errors.append("Workflow must have at least one trigger node (input, timer, webhook, or event)")
             
@@ -24,8 +36,8 @@ class ValidationService:
             return errors
 
         # Build adjacency list
-        adj = {n["id"]: [] for n in nodes}
-        rev_adj = {n["id"]: [] for n in nodes}
+        adj: dict[str, list[str]] = {n["id"]: [] for n in nodes}
+        rev_adj: dict[str, list[str]] = {n["id"]: [] for n in nodes}
         for edge in edges:
             u, v = edge["source"], edge["target"]
             if u in adj and v in adj:

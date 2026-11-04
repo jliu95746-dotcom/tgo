@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import ChatList from '../components/layout/ChatList';
 import ChatWindow from '../components/layout/ChatWindow';
+import SessionCommandRecoveryNotice from '@/components/chat/SessionCommandRecoveryNotice';
 import VisitorPanel from '../components/layout/VisitorPanel';
 import { useChatStore, chatSelectors } from '@/stores';
 import { useChannelStore } from '@/stores/channelStore';
@@ -82,6 +83,18 @@ const ChatPage: React.FC = () => {
   // Note: 会话列表的加载由 ChatList.tsx 根据当前 tab 处理，不再需要在这里调用 syncConversationsIfNeeded
 
   const createChatByChannel = useChatStore(state => state.createChatByChannel);
+  const setTargetMessageLocation = useChatStore(state => state.setTargetMessageLocation);
+
+  useEffect(() => {
+    if (!urlChannelId || urlChannelType !== '251') return;
+    const rawSeq = new URLSearchParams(location.search).get('message_seq');
+    if (!rawSeq || !/^[1-9]\d*$/.test(rawSeq)) return;
+    const messageSeq = Number(rawSeq);
+    if (!Number.isSafeInteger(messageSeq)) return;
+    setTargetMessageLocation({
+      channelId: urlChannelId, channelType: 251, messageSeq,
+    });
+  }, [urlChannelId, urlChannelType, location.search, setTargetMessageLocation]);
 
   // 从 URL 参数定位会话（仅在 URL 变化时执行一次）
   useEffect(() => {
@@ -251,7 +264,9 @@ const ChatPage: React.FC = () => {
   }, [isVisitorDrawerOpen]);
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-gray-50 dark:bg-gray-900">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-gray-50 dark:bg-gray-900">
+      <SessionCommandRecoveryNotice onResolved={() => setRefreshTrigger(previous => previous + 1)} />
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
       {/* Chat List */}
       <div className={`h-full shrink-0 ${isCompactListOpen ? 'max-[899px]:flex max-[899px]:w-full' : 'max-[899px]:hidden'}`}>
         <ChatList
@@ -321,6 +336,7 @@ const ChatPage: React.FC = () => {
           </aside>
         </div>
       )}
+      </div>
     </div>
   );
 };

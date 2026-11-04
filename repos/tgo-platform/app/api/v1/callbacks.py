@@ -78,6 +78,7 @@ def _wecom_decrypt_message(encrypt_b64: str, encoding_aes_key: str, receiveid_ex
         return None
 
 router = APIRouter()
+MAX_WECOM_CALLBACK_BYTES = 256 * 1024
 
 
 def _sha1_hex(s: str) -> str:
@@ -120,8 +121,25 @@ async def _handle_wecom_webhook(platform: Platform, request: Request, db: AsyncS
             request_id=get_request_id(request),
         )
 
-    raw_body = await request.body()
-    body_text = raw_body.decode("utf-8") if raw_body else ""
+    raw_chunks = bytearray()
+    async for chunk in request.stream():
+        if len(raw_chunks) + len(chunk) > MAX_WECOM_CALLBACK_BYTES:
+            return error_response(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                code="PAYLOAD_TOO_LARGE",
+                message="WeCom callback payload is too large",
+                request_id=get_request_id(request),
+            )
+        raw_chunks.extend(chunk)
+    try:
+        body_text = raw_chunks.decode("utf-8")
+    except UnicodeDecodeError:
+        return error_response(
+            status.HTTP_400_BAD_REQUEST,
+            code="INVALID_PAYLOAD",
+            message="WeCom callback must be UTF-8 XML",
+            request_id=get_request_id(request),
+        )
 
     # Very minimal XML parsing (plain mode). Encrypted mode contains <Encrypt>...
     try:
@@ -234,7 +252,10 @@ async def _handle_wecom_webhook(platform: Platform, request: Request, db: AsyncS
                 exc,
                 "uq_wecom_sync_job_callback",
             ):
-                logging.error("[WECOM] Sync job integrity error: %s", exc)
+                logging.error(
+                    "[WECOM] Sync job integrity failure for platform_id=%s",
+                    platform.id,
+                )
                 return error_response(
                     status.HTTP_500_INTERNAL_SERVER_ERROR,
                     code="SYNC_JOB_ENQUEUE_FAILED",
@@ -242,7 +263,11 @@ async def _handle_wecom_webhook(platform: Platform, request: Request, db: AsyncS
                     request_id=get_request_id(request),
                 )
         except Exception as exc:
-            logging.error("[WECOM] Failed to enqueue KF sync job: %s", exc)
+            logging.error(
+                "[WECOM] Failed to enqueue KF sync job for platform_id=%s error_type=%s",
+                platform.id,
+                type(exc).__name__,
+            )
             await db.rollback()
             return error_response(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -293,13 +318,26 @@ async def _handle_wecom_webhook(platform: Platform, request: Request, db: AsyncS
         )
         db.add(inbox_record)
         await db.commit()
-    except IntegrityError as e:
-        # Duplicate delivery; already stored. Treat as success.
-        print(f"[WECOM] Duplicate message detected for {platform.id}: {e}")
+    except IntegrityError as exc:
         await db.rollback()
-    except Exception as e:
-        print(f"[WECOM] Store raw message failed for {platform.id}: {e}")
+        if not is_expected_unique_violation(
+            exc, "uq_wecom_inbox_platform_message"
+        ):
+            logging.error(
+                "[WECOM] Business message integrity failure for platform_id=%s",
+                platform.id,
+            )
+            return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logging.info(
+            "[WECOM] Duplicate business message for platform_id=%s", platform.id
+        )
+    except Exception as exc:
         await db.rollback()
+        logging.error(
+            "[WECOM] Business message storage failed for platform_id=%s error_type=%s",
+            platform.id,
+            type(exc).__name__,
+        )
         return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     # Immediate 200 OK; WeCom expects a fast response.
@@ -336,15 +374,14 @@ async def _handle_wecom_bot_webhook(platform: Platform, request: Request, db: As
     raw_body = await request.body()
     body_text = raw_body.decode("utf-8") if raw_body else ""
 
-    logging.info("[WECOM_BOT] Received callback: platform_id=%s, msg_signature=%s, timestamp=%s, nonce=%s, body_length=%d",
-                 platform.id, msg_signature, timestamp, nonce, len(body_text))
-    logging.debug("[WECOM_BOT] Raw body: %s", body_text[:500] if body_text else "(empty)")
+    logging.info("[WECOM_BOT] Received callback: platform_id=%s, body_length=%d",
+                 platform.id, len(raw_body))
 
     # WeCom Bot uses JSON format: {"encrypt": "..."}
     try:
         body_json = json.loads(body_text)
-    except Exception as e:
-        logging.error("[WECOM_BOT] Failed to parse JSON: %s, body=%s", e, body_text[:200] if body_text else "(empty)")
+    except Exception:
+        logging.warning("[WECOM_BOT] Invalid JSON payload for platform_id=%s", platform.id)
         return error_response(
             status.HTTP_400_BAD_REQUEST,
             code="INVALID_PAYLOAD",
@@ -361,7 +398,7 @@ async def _handle_wecom_bot_webhook(platform: Platform, request: Request, db: As
     if encrypt_content:
         # Encrypted mode: verify signature and decrypt
         if not (token and msg_signature):
-            logging.warning("[WECOM_BOT] Missing signature params: token=%s, msg_signature=%s", bool(token), bool(msg_signature))
+            logging.warning("[WECOM_BOT] Missing signature parameters for platform_id=%s", platform.id)
             return error_response(
                 status.HTTP_400_BAD_REQUEST,
                 code="INVALID_SIGNATURE",
@@ -372,7 +409,7 @@ async def _handle_wecom_bot_webhook(platform: Platform, request: Request, db: As
         # Signature = sha1(sort(token, timestamp, nonce, encrypt))
         expected = compute_msg_signature(token, timestamp, nonce, encrypt_content)
         if expected != msg_signature:
-            logging.warning("[WECOM_BOT] Signature mismatch: expected=%s, got=%s", expected, msg_signature)
+            logging.warning("[WECOM_BOT] Signature mismatch for platform_id=%s", platform.id)
             return error_response(
                 status.HTTP_403_FORBIDDEN,
                 code="SIGNATURE_MISMATCH",
@@ -393,7 +430,7 @@ async def _handle_wecom_bot_webhook(platform: Platform, request: Request, db: As
 
         # For wecom_bot (智能机器人), receiveid can be empty or corp_id
         corp_id = (config.get("corp_id") or "").strip()
-        logging.info("[WECOM_BOT] Attempting to decrypt with corp_id=%s", corp_id[:8] + "..." if corp_id else "(empty)")
+        logging.info("[WECOM_BOT] Decrypting callback for platform_id=%s", platform.id)
 
         # Try decryption with corp_id first, then empty string
         decrypted_text = _wecom_decrypt_message(encrypt_content, encoding_aes_key, corp_id)
@@ -408,14 +445,12 @@ async def _handle_wecom_bot_webhook(platform: Platform, request: Request, db: As
                 message="Failed to decrypt WeCom Bot message",
             )
 
-        logging.info("[WECOM_BOT] Decrypted text: %s", decrypted_text[:500] if decrypted_text else "(empty)")
-
         # Decrypted content is JSON for WeCom Bot
         try:
             msg_data = json.loads(decrypted_text)
             decrypted_json = decrypted_text
-        except Exception as e:
-            logging.warning("[WECOM_BOT] Decrypted content is not JSON, treating as plain text: %s", e)
+        except Exception:
+            logging.warning("[WECOM_BOT] Decrypted content is not JSON; treating as plain text")
             # Fallback: treat as plain text message
             msg_data = {"Content": decrypted_text, "MsgType": "text"}
             decrypted_json = decrypted_text
@@ -436,8 +471,6 @@ async def _handle_wecom_bot_webhook(platform: Platform, request: Request, db: As
     #   "text": {"content": "@bot 消息内容"}
     # }
     msg_type = str(msg_data.get("msgtype") or msg_data.get("MsgType") or "text").lower()
-
-    logging.debug("[WECOM_BOT] msg_data: %s", msg_data)
 
     # Extract sender info (lowercase field names)
     from_info = msg_data.get("from") or msg_data.get("From") or {}
@@ -486,8 +519,8 @@ async def _handle_wecom_bot_webhook(platform: Platform, request: Request, db: As
     except Exception:
         received_at = None
 
-    logging.info("[WECOM_BOT] Parsed message: msg_type=%s, from_user=%s, content_len=%d, message_id=%s, chat_id=%s",
-                 msg_type, from_user, len(content), message_id, chat_id)
+    logging.info("[WECOM_BOT] Parsed message: platform_id=%s, content_len=%d",
+                 platform.id, len(content))
 
     # Store inbound message into wecom_inbox (producer stage)
     try:
@@ -518,12 +551,14 @@ async def _handle_wecom_bot_webhook(platform: Platform, request: Request, db: As
         db.add(inbox_record)
         await db.commit()
         logging.info("[WECOM_BOT] Stored message: id=%s, platform_id=%s", inbox_record.id, platform.id)
-    except IntegrityError as e:
-        # Duplicate delivery; already stored. Treat as success.
-        logging.info("[WECOM_BOT] Duplicate message detected for %s: %s", platform.id, e)
+    except IntegrityError as exc:
         await db.rollback()
+        if not is_expected_unique_violation(exc, "uq_wecom_inbox_platform_message"):
+            logging.error("[WECOM_BOT] Message integrity failure for platform_id=%s", platform.id)
+            return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logging.info("[WECOM_BOT] Duplicate message detected for platform_id=%s", platform.id)
     except Exception as e:
-        logging.error("[WECOM_BOT] Store raw message failed for %s: %s", platform.id, e)
+        logging.error("[WECOM_BOT] Message storage failed for platform_id=%s error_type=%s", platform.id, type(e).__name__)
         await db.rollback()
         return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -559,14 +594,13 @@ async def _handle_feishu_bot_webhook(
     raw_body = await request.body()
     body_text = raw_body.decode("utf-8") if raw_body else ""
 
-    logging.info("[FEISHU_BOT] Received callback: platform_id=%s, body_length=%d", platform.id, len(body_text))
-    logging.debug("[FEISHU_BOT] Raw body: %s", body_text[:500] if body_text else "(empty)")
+    logging.info("[FEISHU_BOT] Received callback: platform_id=%s, body_length=%d", platform.id, len(raw_body))
 
     # Parse JSON body
     try:
         body_json = json.loads(body_text)
-    except Exception as e:
-        logging.error("[FEISHU_BOT] Failed to parse JSON: %s, body=%s", e, body_text[:200] if body_text else "(empty)")
+    except Exception:
+        logging.warning("[FEISHU_BOT] Invalid JSON payload for platform_id=%s", platform.id)
         return error_response(
             status.HTTP_400_BAD_REQUEST,
             code="INVALID_PAYLOAD",
@@ -597,12 +631,10 @@ async def _handle_feishu_bot_webhook(
                 message="Failed to decrypt Feishu Bot message",
             )
 
-        logging.debug("[FEISHU_BOT] Decrypted text: %s", decrypted_text[:500] if decrypted_text else "(empty)")
-
         try:
             event_data = json.loads(decrypted_text)
-        except Exception as e:
-            logging.error("[FEISHU_BOT] Failed to parse decrypted JSON: %s", e)
+        except Exception:
+            logging.warning("[FEISHU_BOT] Invalid decrypted JSON for platform_id=%s", platform.id)
             return error_response(
                 status.HTTP_400_BAD_REQUEST,
                 code="INVALID_PAYLOAD",
@@ -617,7 +649,7 @@ async def _handle_feishu_bot_webhook(
 
         # Verify token if configured
         if verification_token and token != verification_token:
-            logging.warning("[FEISHU_BOT] Token mismatch: expected=%s, got=%s", verification_token, token)
+            logging.warning("[FEISHU_BOT] Verification token mismatch for platform_id=%s", platform.id)
             return error_response(
                 status.HTTP_403_FORBIDDEN,
                 code="TOKEN_MISMATCH",
@@ -641,16 +673,15 @@ async def _handle_feishu_bot_webhook(
             )
 
     # Handle event callback
-    schema = event_data.get("schema") or ""
     header = event_data.get("header") or {}
     event = event_data.get("event") or {}
 
     event_type = header.get("event_type") or ""
-    logging.info("[FEISHU_BOT] Event type: %s, schema: %s", event_type, schema)
+    logging.info("[FEISHU_BOT] Event received for platform_id=%s", platform.id)
 
     # Only process message receive events
     if event_type != "im.message.receive_v1":
-        logging.info("[FEISHU_BOT] Ignoring non-message event: %s", event_type)
+        logging.info("[FEISHU_BOT] Ignoring non-message event for platform_id=%s", platform.id)
         return {"ok": True}
 
     # Extract message data
@@ -702,8 +733,8 @@ async def _handle_feishu_bot_webhook(
     except Exception:
         received_at = None
 
-    logging.info("[FEISHU_BOT] Parsed message: message_id=%s, from_user=%s, chat_type=%s, msg_type=%s, content_len=%d",
-                 message_id, from_user, chat_type, msg_type, len(content))
+    logging.info("[FEISHU_BOT] Parsed message: platform_id=%s, content_len=%d",
+                 platform.id, len(content))
 
     if not message_id:
         logging.warning("[FEISHU_BOT] Missing message_id, cannot store")
@@ -734,11 +765,14 @@ async def _handle_feishu_bot_webhook(
         db.add(inbox_record)
         await db.commit()
         logging.info("[FEISHU_BOT] Stored message: id=%s, platform_id=%s", inbox_record.id, platform.id)
-    except IntegrityError as e:
-        logging.info("[FEISHU_BOT] Duplicate message detected for %s: %s", platform.id, e)
+    except IntegrityError as exc:
         await db.rollback()
+        if not is_expected_unique_violation(exc, "uq_feishu_inbox_platform_message"):
+            logging.error("[FEISHU_BOT] Message integrity failure for platform_id=%s", platform.id)
+            return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logging.info("[FEISHU_BOT] Duplicate message detected for platform_id=%s", platform.id)
     except Exception as e:
-        logging.error("[FEISHU_BOT] Store raw message failed for %s: %s", platform.id, e)
+        logging.error("[FEISHU_BOT] Message storage failed for platform_id=%s error_type=%s", platform.id, type(e).__name__)
         await db.rollback()
         return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -773,15 +807,13 @@ async def _handle_dingtalk_bot_webhook(
     raw_body = await request.body()
     body_text = raw_body.decode("utf-8") if raw_body else ""
 
-    logging.info("[DINGTALK_BOT] Received callback: platform_id=%s, body_length=%d", platform.id, len(body_text))
-    logging.debug("[DINGTALK_BOT] Raw body: %s", body_text[:5000] if body_text else "(empty)")
+    logging.info("[DINGTALK_BOT] Received callback: platform_id=%s, body_length=%d", platform.id, len(raw_body))
 
     # Verify signature if app_secret is configured
     timestamp = request.headers.get("X-DingTalk-Timestamp") or request.headers.get("timestamp") or ""
     sign = request.headers.get("X-DingTalk-Sign") or request.headers.get("sign") or ""
-    print("request.headers---->", request.headers)
-    if app_secret and timestamp and sign:
-        if not dingtalk_verify_signature(timestamp, sign, app_secret):
+    if app_secret:
+        if not timestamp or not sign or not dingtalk_verify_signature(timestamp, sign, app_secret):
             logging.warning("[DINGTALK_BOT] Signature verification failed")
             return error_response(
                 status.HTTP_403_FORBIDDEN,
@@ -793,8 +825,8 @@ async def _handle_dingtalk_bot_webhook(
     # Parse JSON body
     try:
         body_json = json.loads(body_text)
-    except Exception as e:
-        logging.error("[DINGTALK_BOT] Failed to parse JSON: %s, body=%s", e, body_text[:200] if body_text else "(empty)")
+    except Exception:
+        logging.warning("[DINGTALK_BOT] Invalid JSON payload for platform_id=%s", platform.id)
         return error_response(
             status.HTTP_400_BAD_REQUEST,
             code="INVALID_PAYLOAD",
@@ -857,8 +889,8 @@ async def _handle_dingtalk_bot_webhook(
     except Exception:
         received_at = None
 
-    logging.info("[DINGTALK_BOT] Parsed message: msg_id=%s, sender=%s, conv_type=%s, msg_type=%s, content_len=%d",
-                 msg_id, sender_id, conversation_type, msg_type, len(content))
+    logging.info("[DINGTALK_BOT] Parsed message: platform_id=%s, content_len=%d",
+                 platform.id, len(content))
 
     if not msg_id:
         # Generate a message ID if not provided
@@ -895,11 +927,14 @@ async def _handle_dingtalk_bot_webhook(
         db.add(inbox_record)
         await db.commit()
         logging.info("[DINGTALK_BOT] Stored message: id=%s, platform_id=%s", inbox_record.id, platform.id)
-    except IntegrityError as e:
-        logging.info("[DINGTALK_BOT] Duplicate message detected for %s: %s", platform.id, e)
+    except IntegrityError as exc:
         await db.rollback()
+        if not is_expected_unique_violation(exc, "uq_dingtalk_inbox_platform_message"):
+            logging.error("[DINGTALK_BOT] Message integrity failure for platform_id=%s", platform.id)
+            return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logging.info("[DINGTALK_BOT] Duplicate message detected for platform_id=%s", platform.id)
     except Exception as e:
-        logging.error("[DINGTALK_BOT] Store raw message failed for %s: %s", platform.id, e)
+        logging.error("[DINGTALK_BOT] Message storage failed for platform_id=%s error_type=%s", platform.id, type(e).__name__)
         await db.rollback()
         return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -955,7 +990,7 @@ async def _handle_wukongim_webhook(
 
         # Skip messages sent by staff/customer service (from_uid suffix "-staff")
         if from_uid and from_uid.endswith("-staff"):
-            logging.info("[WUKONGIM] Skipping staff message: from_uid=%s message_id=%s", from_uid, message_id)
+            logging.info("[WUKONGIM] Skipping staff message for platform_id=%s", platform.id)
             continue
 
         # Required minimal fields
@@ -1036,14 +1071,13 @@ async def _handle_telegram_webhook(
     raw_body = await request.body()
     body_text = raw_body.decode("utf-8") if raw_body else ""
 
-    logging.info("[TELEGRAM] Received webhook: platform_id=%s, body_length=%d", platform.id, len(body_text))
-    logging.debug("[TELEGRAM] Raw body: %s", body_text[:500] if body_text else "(empty)")
+    logging.info("[TELEGRAM] Received webhook: platform_id=%s, body_length=%d", platform.id, len(raw_body))
 
     # Parse JSON body
     try:
         update = json.loads(body_text)
-    except Exception as e:
-        logging.error("[TELEGRAM] Failed to parse JSON: %s, body=%s", e, body_text[:200] if body_text else "(empty)")
+    except Exception:
+        logging.warning("[TELEGRAM] Invalid JSON payload for platform_id=%s", platform.id)
         return error_response(
             status.HTTP_400_BAD_REQUEST,
             code="INVALID_PAYLOAD",
@@ -1057,7 +1091,7 @@ async def _handle_telegram_webhook(
     # Extract message from the update
     message = extract_message_from_update(update)
     if not message:
-        logging.info("[TELEGRAM] No message in update, ignoring (update_id=%s)", update_id)
+        logging.info("[TELEGRAM] No message in update for platform_id=%s", platform.id)
         return {"ok": True}
 
     # Extract message data
@@ -1100,10 +1134,7 @@ async def _handle_telegram_webhook(
     except Exception:
         received_at = None
 
-    logging.info(
-        "[TELEGRAM] Parsed message: message_id=%s, chat_id=%s, chat_type=%s, from_user=%s, content_len=%d",
-        message_id, chat_id, chat_type, from_user_id, len(content)
-    )
+    logging.info("[TELEGRAM] Parsed message: platform_id=%s, content_len=%d", platform.id, len(content))
 
     if not message_id or not chat_id:
         logging.warning("[TELEGRAM] Missing message_id or chat_id")
@@ -1138,18 +1169,21 @@ async def _handle_telegram_webhook(
         db.add(inbox_record)
         await db.commit()
         logging.info("[TELEGRAM] Stored message: id=%s, platform_id=%s", inbox_record.id, platform.id)
-    except IntegrityError as e:
-        logging.info("[TELEGRAM] Duplicate message detected for %s: %s", platform.id, e)
+    except IntegrityError as exc:
         await db.rollback()
+        if not is_expected_unique_violation(exc, "uq_telegram_inbox_platform_message_chat"):
+            logging.error("[TELEGRAM] Message integrity failure for platform_id=%s", platform.id)
+            return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logging.info("[TELEGRAM] Duplicate message detected for platform_id=%s", platform.id)
     except Exception as e:
-        logging.error("[TELEGRAM] Store raw message failed for %s: %s", platform.id, e)
+        logging.error("[TELEGRAM] Message storage failed for platform_id=%s error_type=%s", platform.id, type(e).__name__)
         await db.rollback()
         return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     return {"ok": True}
 
 
-@router.post("/v1/platforms/callback/{platform_api_key}", responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}, 501: {"model": ErrorResponse}})
+@router.post("/v1/platforms/callback/{platform_api_key}", responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 413: {"model": ErrorResponse}, 500: {"model": ErrorResponse}, 501: {"model": ErrorResponse}})
 async def platforms_callback(platform_api_key: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Unified platform callback endpoint for WeCom and WuKongIM.
 
@@ -1161,10 +1195,11 @@ async def platforms_callback(platform_api_key: str, request: Request, db: AsyncS
         select(Platform).where(Platform.api_key == platform_api_key, Platform.is_active.is_(True))
     )
     if not platform:
-        logging.warning("Callback for unknown platform: %s", platform_api_key)
+        logging.warning("Callback for unknown or inactive platform")
         return error_response(status.HTTP_404_NOT_FOUND, code="PLATFORM_NOT_FOUND", message="Platform not found", request_id=get_request_id(request))
 
     platform_type = (platform.type or "").lower()
+    request.state.callback_channel = platform_type
     logging.info(
         "[CALLBACK] Routing callback for platform_id=%s, type=%s",
         platform.id,

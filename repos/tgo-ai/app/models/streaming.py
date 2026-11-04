@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from app.schemas.knowledge_evidence import KnowledgeEvidence
+from app.schemas.agent_execution import AgentExecutionReference
 
 
 class EventType(str, Enum):
@@ -93,6 +94,18 @@ class AgentContentChunkData(BaseEventData):
     agent_role: Optional[str] = None
 
 
+class AgentBusinessQueryLink(BaseModel):
+    """Server-owned query identifier for an execution trace, without payloads."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    tool_name: str = Field(min_length=1, max_length=200)
+    query_id: UUID
+    operation: Literal[
+        "order_query", "logistics_query", "customer_profile_query", "membership_query"
+    ]
+    outcome: Literal["passed", "failed"]
+
+
 class AgentToolCallData(BaseEventData):
     """Data for streamed agent tool call events."""
 
@@ -105,6 +118,7 @@ class AgentToolCallData(BaseEventData):
     tool_output: Optional[str] = None
     status: str
     error: Optional[str] = None
+    business_query_links: list[AgentBusinessQueryLink] = Field(default_factory=list)
 
 
 class AgentResponseCompleteData(BaseEventData):
@@ -119,6 +133,7 @@ class AgentResponseCompleteData(BaseEventData):
     tool_calls_count: int = 0
     response_length: int
     knowledge_evidence: "KnowledgeEvidence | None" = None
+    execution_reference: "AgentExecutionReference | None" = None
 
 
 class JsonRenderUpdateData(BaseEventData):

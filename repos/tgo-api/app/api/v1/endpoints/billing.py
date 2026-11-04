@@ -25,6 +25,7 @@ from app.schemas.billing import (
     SubscriptionResponse,
 )
 from app.services.billing_orders import create_order
+from app.services.billing_plans import catalogue_plans
 from app.services.billing_quotes import conflict, create_quote
 from app.services.company_email import utc
 from app.services.company_membership import seat_usage
@@ -49,14 +50,14 @@ def require_purchases() -> None:
 
 @router.get("/plans", response_model=list[PlanResponse])
 def plans(db: Session = Depends(get_db)) -> list[PlanResponse]:
-    return [
-        plan_response(p)
-        for p in db.scalars(
-            select(BillingPlan)
-            .where(BillingPlan.status == "published")
-            .order_by(BillingPlan.code, BillingPlan.version.desc())
-        )
-    ]
+    return [plan_response(plan) for plan in catalogue_plans(db)]
+
+
+@router.get("/plans/available", response_model=list[PlanResponse])
+def available_plans(
+    db: Session = Depends(get_db), actor: Staff = Depends(get_current_active_user)
+) -> list[PlanResponse]:
+    return [plan_response(plan) for plan in catalogue_plans(db, actor.project_id)]
 
 
 @router.get("/subscription", response_model=SubscriptionResponse)

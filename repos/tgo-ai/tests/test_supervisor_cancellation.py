@@ -83,6 +83,7 @@ async def make_execution(
     )
 
     async def run(agent, ctx, events, execution_id):
+        assert execution_id == str(ctx.execution_id)
         state.task = asyncio.current_task()
         state.run_id = execution_id
         state.scope = monitor.current_device_execution()

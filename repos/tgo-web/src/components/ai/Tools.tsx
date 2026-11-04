@@ -16,6 +16,9 @@ import SavedToolTestModal from './SavedToolTestModal';
 import LogisticsProviderModal from './LogisticsProviderModal';
 import { getLogisticsProviderTool, isLogisticsProviderTool } from '@/services/logisticsProviderService';
 import type { AiTool, AiToolResponse } from '@/types';
+import { useSearchParams } from 'react-router-dom';
+import { useAuthStore } from '@/stores/authStore';
+import BusinessConnectionManagement from '@/components/business/connections/BusinessConnectionManagement';
 
 /**
  * Tools page component content
@@ -305,9 +308,18 @@ const ToolsContent: React.FC = () => {
  * Tools page component with Toast provider
  */
 const Tools: React.FC = () => {
+  const { t } = useTranslation();
+  const [parameters,setParameters] = useSearchParams();
+  const user = useAuthStore(state=>state.user);
+  const selected = parameters.get('tab') === 'connections' ? 'connections' : 'tools';
   return (
     <ToolToastProvider>
-      <ToolsContent />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <nav aria-label={t('tools.title')} className="flex gap-2 border-b border-gray-200 bg-white px-6 py-3 dark:border-gray-800 dark:bg-gray-900 sm:px-8">
+          {(['tools','connections'] as const).map(tab=><button key={tab} aria-current={selected===tab?'page':undefined} onClick={()=>{const next=new URLSearchParams(parameters);next.set('tab',tab);setParameters(next);}} className={`rounded-xl px-4 py-2 text-sm font-semibold ${selected===tab?'bg-blue-600 text-white':'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'}`}>{t(`businessConnections.tabs.${tab}`)}</button>)}
+        </nav>
+        {selected==='connections'?<BusinessConnectionManagement key={`${user?.project_id}:${user?.id}:${user?.role}`}/>:<ToolsContent/>}
+      </div>
     </ToolToastProvider>
   );
 };

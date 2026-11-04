@@ -10,6 +10,11 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
+def safe_failure_diagnostic(error: Exception) -> str:
+    """Persist only the exception class, never external text or credentials."""
+    return type(error).__name__
+
+
 async def claim_inbox_batch(
     session: AsyncSession,
     model: Any,
@@ -95,7 +100,7 @@ def finalize_inbox_failure(
     record.processed_at = now
     record.processing_started_at = None
     record.lease_expires_at = None
-    record.error_message = str(error)[:2000]
+    record.error_message = safe_failure_diagnostic(error)
     record.next_attempt_at = (
         None
         if record.status == "dead"

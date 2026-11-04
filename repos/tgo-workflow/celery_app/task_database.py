@@ -12,7 +12,9 @@ from app.config import settings
 @asynccontextmanager
 async def workflow_task_session() -> AsyncIterator[AsyncSession]:
     # Each task calls asyncio.run; pooled asyncpg connections must not cross loops.
-    engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+    engine = create_async_engine(
+        settings.DATABASE_URL, poolclass=NullPool, hide_parameters=True,
+    )
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
             yield session

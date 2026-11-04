@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from app.models.staff import StaffRole, StaffStatus
 from app.schemas.base import BaseSchema, PaginatedResponse, SoftDeleteMixin, TimestampMixin
@@ -70,6 +70,13 @@ class StaffCreate(StaffBase):
         None,
         description="Required when role=agent. References AI agent from AI Service"
     )
+
+
+class StaffProfileUpdate(BaseSchema):
+    """Fields a signed-in member may change without management privileges."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    nickname: str = Field(min_length=1, max_length=100)
 
 
 class StaffUpdate(BaseSchema):

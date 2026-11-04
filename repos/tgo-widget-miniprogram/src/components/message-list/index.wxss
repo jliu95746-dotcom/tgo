@@ -48,6 +48,22 @@
   display: block;
 }
 
+.msg-voice-wrap {
+  max-width: 70%;
+}
+
+.msg-voice-control {
+  min-width: 180rpx;
+  padding: 8rpx 0;
+  font-size: 26rpx;
+}
+
+.msg-voice-error {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+}
+
 /* Loading dots animation */
 .loading-dots {
   display: flex;

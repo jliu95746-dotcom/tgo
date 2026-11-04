@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from app.schemas.knowledge import KnowledgeChannel
+from app.schemas.business_execution_context import BusinessRequestPrincipal
 
 
 class MCPConfig(BaseModel):
@@ -38,10 +39,14 @@ class WorkflowConfig(BaseModel):
     """工作流配置."""
 
     workflow_url: Optional[str] = Field(default=None, description="工作流服务地址")
+    agent_id: str = Field(description="Employee whose current binding authorizes execution")
     project_id: Optional[str] = Field(
         default=None, description="Project ID for Workflow service calls"
     )
     workflows: Optional[List[str]] = Field(default=None, description="启用的工作流ID列表")
+    release_versions: Dict[str, int] = Field(default_factory=dict)
+    release_ids: Dict[str, str] = Field(default_factory=dict)
+    release_digests: Dict[str, str] = Field(default_factory=dict)
 
 
 class LLMProviderCredentials(BaseModel):
@@ -122,6 +127,14 @@ class AgentRunRequest(BaseModel):
     project_id: Optional[str] = Field(default=None, description="项目ID")
     agent_id: Optional[str] = Field(default=None, description="执行中的智能体 ID")
     request_id: Optional[str] = Field(default=None, description="请求追踪 ID")
+    parent_workflow_execution_id: UUID | None = Field(default=None, exclude=True, repr=False)
+    workflow_lineage: tuple[str, ...] = Field(default=(), exclude=True, repr=False)
+    business_principal: BusinessRequestPrincipal | None = Field(
+        default=None, exclude=True, repr=False,
+    )
+    business_context_token: SecretStr | None = Field(
+        default=None, exclude=True, repr=False,
+    )
     skills_enabled: bool = Field(default=True, description="是否启用技能发现")
     stream: bool = Field(default=False, description="是否开启流式输出")
     stream_intermediate_steps: bool = Field(

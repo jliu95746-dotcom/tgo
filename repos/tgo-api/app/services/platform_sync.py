@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.config import settings
-from app.models.platform import Platform
+from app.models.platform import Platform, PlatformType
 from app.services.platform_sync_client import platform_sync_client
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,10 @@ async def _process_job(job: PlatformSyncJob) -> None:
                 return
 
         if not platform:
+            return
+
+        if platform.type == PlatformType.WECHAT_LOCAL.value:
+            _mark_status(db, platform, "synced")
             return
 
         # Mark pending (avoid infinite loops by only changing sync fields)

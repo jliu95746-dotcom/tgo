@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 
-const file = '../src/components/platforms/WeChatPersonalPlatformConfig.tsx';
+const file = '../src/components/platforms/WeComBotPlatformConfig.tsx';
 const source = readFileSync(new URL(file, import.meta.url), 'utf8');
 const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 function find(predicate) {
@@ -26,7 +26,7 @@ function evaluate(expression, scope) {
   return scope.result;
 }
 
-test('the existing page initializes its selector from the shared single-agent field', () => {
+test('the enterprise WeChat bot initializes its selector from the shared single-agent field', () => {
   const initializer = declaration('[aiAgentIds, setAiAgentIds]').initializer.arguments[0].getText(tree);
   for (const agentId of ['owned-agent', null, undefined]) {
     const result = evaluate(initializer, { platform: { agent_id: agentId } });
@@ -63,8 +63,9 @@ for (const selection of [['replacement'], []]) {
       platform: { id: 'fixture-platform' }, aiAgentIds: selection,
       aiMode: 'off', fallbackTimeout: 30,
       hasConfigChanges: false, hasNameChanged: false, hasAISettingsChanged: true,
-      formValues: { agentbayApiKey: 'fixture-only', imageId: 'fixture-image', visionFullId: 'fixture:vision', reasoningFullId: 'fixture:reasoning' },
+      formValues: { token: 'fixture-only', encodingAESKey: 'fixture-key' },
       updatePlatform: async (id, data) => { calls.push({ id, data }); },
+      resetPlatformConfig: () => assert.fail('AI setting changes must not reset platform credentials'),
       showToast() {}, showSuccess() {}, showApiError: (_toast, error) => { throw error; },
       t: (_key, fallback) => fallback,
       enablePlatform: () => { throw new Error('Must not enable the channel'); },

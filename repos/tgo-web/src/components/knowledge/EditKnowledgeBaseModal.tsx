@@ -76,12 +76,6 @@ export const EditKnowledgeBaseModal: React.FC<EditKnowledgeBaseModalProps> = ({
       isValid = false;
     }
 
-    // Validate description - only check if empty
-    if (!formData.description.trim()) {
-      newErrors.description = t('knowledge.validation.descRequired', '知识库描述不能为空');
-      isValid = false;
-    }
-
     setErrors(newErrors);
     return isValid;
   };
@@ -257,13 +251,13 @@ export const EditKnowledgeBaseModal: React.FC<EditKnowledgeBaseModalProps> = ({
               {/* Description Field */}
               <div>
                 <label htmlFor="edit-kb-description" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
-                  {t('knowledge.description', '知识库描述')} <span className="text-red-500 dark:text-red-400">*</span>
+                  {t('knowledgeOnboarding.brief')}
                 </label>
                 <textarea
                   id="edit-kb-description"
                   value={formData.description}
                   onChange={(e) => handleInputChange('description', e.target.value)}
-                  placeholder={t('knowledge.descriptionPlaceholder', '请输入知识库描述，简要说明这个知识库的用途和内容')}
+                  placeholder={t('knowledgeOnboarding.briefPlaceholder')}
                   disabled={isLoading}
                   rows={3}
                   className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 resize-vertical bg-white dark:bg-gray-700 dark:text-gray-100 ${
@@ -274,7 +268,7 @@ export const EditKnowledgeBaseModal: React.FC<EditKnowledgeBaseModalProps> = ({
                   <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{errors.description}</p>
                 )}
                 <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  {t('knowledge.descriptionHelper', '描述越准确，AI 越容易正确使用该知识库')}
+                  {t('knowledgeOnboarding.briefHint')}
                 </p>
               </div>
 

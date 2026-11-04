@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import time
 from builtins import ExceptionGroup
 from datetime import UTC, datetime
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional
-from uuid import UUID
+from typing import Any, Awaitable, Callable, Dict, List, Optional
+from uuid import UUID, NAMESPACE_URL, uuid5
 
 import aiohttp
+from pydantic import JsonValue, SecretStr
 from agno.tools import Function
 from mcp import ClientSession, McpError
 from mcp.client.streamable_http import streamablehttp_client
@@ -20,9 +22,11 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.usage import CollectionUsageRecord, ToolUsageRecord
 from app.schemas.knowledge import KnowledgeChannel
+from app.schemas.business_execution_context import BusinessRequestPrincipal
 from app.services.mcp_result import mcp_result_text
 from app.services.http_tool_errors import http_tool_error
 from app.services.plugin_result import plugin_result_text
+from app.services.workflow_execution_authorization import verify_current_binding
 
 logger = logging.getLogger(__name__)
 
@@ -345,15 +349,58 @@ async def create_rag_tool(
 
 
 async def create_workflow_tools(
-    workflow_url: str, workflow_ids: List[str], project_id: Optional[str]
+    workflow_url: str, workflow_ids: List[str], project_id: Optional[str],
+    *, agent_id: str, fixed_versions: Optional[Dict[str, int]] = None,
+    release_ids: Optional[Dict[str, str]] = None,
+    release_digests: Optional[Dict[str, str]] = None,
+    request_id: str | None = None,
+    business_principal: BusinessRequestPrincipal | None = None,
+    business_context_token: SecretStr | None = None,
+    parent_workflow_execution_id: UUID | None = None,
+    workflow_lineage: tuple[str, ...] = (),
 ) -> List[Function]:
     """根据工作流信息生成工作流执行工具."""
 
     if not project_id:
         raise ValueError("project_id is required to create workflow tools")
+    if not agent_id:
+        raise ValueError("agent_id is required to create workflow tools")
 
     if not workflow_ids:
         return []
+    if fixed_versions is None:
+        raise ValueError("员工工作流尚未固定发布版本，请重新关联。")
+
+    origin: dict[str, JsonValue] | None = None
+    if (business_principal is None) != (business_context_token is None):
+        raise ValueError("客户业务请求上下文凭证不完整")
+    if business_principal is not None:
+        assert business_context_token is not None
+        if hashlib.sha256(
+            business_context_token.get_secret_value().encode()
+        ).hexdigest() != business_principal.context_digest:
+            raise ValueError("客户业务请求上下文凭证不匹配")
+        if str(business_principal.project_id) != str(project_id):
+            raise ValueError("客户业务请求来源项目与员工项目不一致")
+        if not request_id:
+            raise ValueError("客户业务请求缺少 AI 执行追踪 ID")
+        if business_principal.expires_at <= datetime.now(UTC):
+            raise ValueError("客户业务请求来源已失效")
+        origin = {
+            "ai_request_id": request_id,
+            "business_project_id": str(business_principal.project_id),
+            "business_request_id": str(business_principal.request_id),
+            "visitor_session_id": str(business_principal.visitor_session_id),
+            "source_message_id": business_principal.source_message_id,
+            "source_channel": business_principal.channel.value,
+        }
+    elif request_id:
+        origin = {"ai_request_id": request_id}
+    if parent_workflow_execution_id is not None and workflow_lineage:
+        if origin is None:
+            raise ValueError("父工作流调用缺少 AI 执行追踪 ID")
+        origin["parent_execution_id"] = str(parent_workflow_execution_id)
+        origin["workflow_lineage"] = list(workflow_lineage)
 
     url = workflow_url.rstrip("/")
     batch_endpoint = f"{url}/v1/workflows/batch"
@@ -364,22 +411,69 @@ async def create_workflow_tools(
             response.raise_for_status()
             workflows_data = await response.json()
 
+        found_ids = {row.get("id") for row in workflows_data}
+        if found_ids != set(workflow_ids):
+            raise ValueError("员工关联的工作流已不存在或不属于当前项目。")
+
+        if fixed_versions is not None:
+            for workflow_data in workflows_data:
+                workflow_id = workflow_data["id"]
+                current_published = workflow_data.get("published_version")
+                if (workflow_data.get("status") != "active"
+                        or not isinstance(current_published, int)
+                        or isinstance(current_published, bool)
+                        or current_published < 1):
+                    raise ValueError("请先发布所选工作流，再关联为员工业务能力。")
+                version = fixed_versions.get(workflow_id)
+                expected_release_id = (release_ids or {}).get(workflow_id)
+                expected_digest = (release_digests or {}).get(workflow_id)
+                if not isinstance(version, int) or isinstance(version, bool) or version < 1 or not expected_release_id or not expected_digest:
+                    raise ValueError("员工工作流尚未固定发布版本，请重新关联。")
+                endpoint = (
+                    f"{url}/v1/workflows/{workflow_id}/releases/"
+                    f"{version}/integration"
+                )
+                async with session.get(
+                    endpoint, params={"project_id": str(project_id)}
+                ) as response:
+                    response.raise_for_status()
+                    integration = await response.json()
+                if (
+                    integration.get("workflow_id") != workflow_id
+                    or integration.get("release_version") != version
+                    or integration.get("release_id") != expected_release_id
+                    or integration.get("definition_digest") != expected_digest
+                ):
+                    raise ValueError("员工工作流发布版本校验失败，请重新关联。")
+                workflow_data["pinned_release"] = integration
+
     tools = []
     for workflow_data in workflows_data:
         w_id = workflow_data.get("id")
+        pinned = workflow_data.get("pinned_release")
+        release_version = pinned["release_version"]
+        if workflow_data.get("status") != "active" or not isinstance(release_version, int) or isinstance(release_version, bool) or release_version < 1:
+            raise ValueError("请先发布所选工作流，再关联为员工业务能力。")
         name = workflow_data.get("name") or f"workflow_{w_id}"
         description = workflow_data.get("description")
 
         tool_description = f"Execute the '{name}' workflow."
         if description:
             tool_description = f"{tool_description} Workflow description: {description}"
+        requires_approval = "approval" in (pinned.get("node_types") or [])
+        if requires_approval:
+            if not request_id:
+                raise ValueError("人工审批工作流缺少 AI 执行追踪 ID")
+            tool_description += (
+                " Submits for human approval; do not claim the task is complete."
+            )
 
         # Build safe tool name
         short_id = (w_id.replace("-", "")[:8]) if w_id else "unknown"
         tool_name = f"workflow_{short_id}".lower()
 
         # Parse input parameters for better tool schema
-        input_params = workflow_data.get("input_parameters") or []
+        input_params = pinned.get("input_parameters") or []
         inputs_properties = {}
         required_inputs = []
         for param in input_params:
@@ -407,24 +501,76 @@ async def create_workflow_tools(
         if required_inputs:
             inputs_schema["required"] = required_inputs
 
-        def make_execute_func(wf_id: str):
+        def make_execute_func(
+            wf_id: str, fixed_version: int, release_id: str,
+            release_digest: str, approval: bool,
+        ) -> Callable[[Optional[Dict[str, Any]]], Awaitable[str]]:
             async def execute_workflow(inputs: Optional[Dict[str, Any]] = None) -> str:
                 execute_endpoint = f"{url}/v1/workflows/{wf_id}/execute"
                 exec_params = {"project_id": str(project_id)}
-                payload = {"inputs": inputs or {}, "stream": False, "async": False}
+                payload = {
+                    "inputs": inputs or {}, "stream": False, "async": approval,
+                    "execution_mode": "production", "release_version": fixed_version,
+                    "expected_release_id": release_id,
+                    "expected_release_digest": release_digest,
+                    "employee_agent_id": agent_id,
+                }
+                if origin is not None:
+                    payload["origin"] = origin
+                if approval:
+                    payload["invocation_key"] = str(uuid5(
+                        NAMESPACE_URL,
+                        f"workflow-approval:{project_id}:{agent_id}:{wf_id}:"
+                        f"{request_id}:"
+                        + json.dumps(inputs or {}, sort_keys=True, ensure_ascii=False,
+                                     separators=(",", ":")),
+                    ))
 
                 try:
+                    if (business_principal is not None
+                            and business_principal.expires_at <= datetime.now(UTC)):
+                        raise PermissionError("客户业务请求来源已失效")
+                    await verify_current_binding(
+                        agent_id, str(project_id), wf_id, fixed_version,
+                        release_id, release_digest,
+                    )
+                    headers = {"X-Internal-API-Key": settings.secret_key}
+                    if business_principal is not None and business_context_token is not None:
+                        headers.update({
+                            "X-Business-Request-Context": business_context_token.get_secret_value(),
+                            "X-Business-Visitor-Id": str(business_principal.visitor_id),
+                            "X-Business-Request-Fingerprint": business_principal.request_fingerprint,
+                            "X-Execution-Channel": business_principal.channel.value,
+                        })
                     async with aiohttp.ClientSession() as session:
                         async with session.post(
                             execute_endpoint,
                             params=exec_params,
                             json=payload,
+                            headers=headers,
                         ) as exec_response:
                             exec_response.raise_for_status()
                             data = await exec_response.json()
+                            if approval:
+                                if (not isinstance(data, dict)
+                                        or not isinstance(data.get("id"), str)
+                                        or not isinstance(data.get("status"), str)):
+                                    raise ValueError("人工审批工作流返回的执行记录无效")
+                                return json.dumps({
+                                    "success": data["status"] not in {
+                                        "failed", "cancelled",
+                                    },
+                                    "status": data["status"],
+                                    "execution_id": data["id"],
+                                }, ensure_ascii=False)
                             return json.dumps(data, ensure_ascii=False)
-                except Exception as exc:  # noqa: BLE001
-                    return f"<error>{exc}</error>"
+                except PermissionError:
+                    return json.dumps({
+                        "success": False,
+                        "error": "员工工作流授权已变更，请刷新配置或转人工处理。",
+                    }, ensure_ascii=False)
+                except Exception:  # noqa: BLE001
+                    return json.dumps({"success": False, "error": "工作流执行失败，请转人工处理。"}, ensure_ascii=False)
 
             return execute_workflow
 
@@ -437,7 +583,10 @@ async def create_workflow_tools(
                     "properties": {"inputs": inputs_schema},
                     "required": ["inputs"] if required_inputs else [],
                 },
-                entrypoint=make_execute_func(w_id),
+                entrypoint=make_execute_func(
+                    w_id, release_version, pinned["release_id"],
+                    pinned["definition_digest"], requires_approval,
+                ),
                 skip_entrypoint_processing=True,
             )
         )

@@ -6,9 +6,8 @@ It handles HTTP requests to the MCP service for tools and other MCP-related oper
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 import httpx
-from fastapi import HTTPException
 
 from app.config import settings
 

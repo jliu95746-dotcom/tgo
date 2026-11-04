@@ -16,6 +16,9 @@ from app.runtime.tools.models import AgentConfig, AgentRunRequest, MCPConfig, Ra
 from app.services.current_knowledge import (
     evidence_prompt, retrieve_current_knowledge,
 )
+from app.services.agent_execution_scope import current_execution_scope
+from .business_tools import build_business_tools
+from .device_script_tools import build_device_script_tools
 
 
 @dataclass
@@ -61,12 +64,27 @@ class AgnoAgentBuilder:
             project_id=context.project_id,
             agent_id=str(context.agent.id),
             request_id=context.request_id,
+            parent_workflow_execution_id=context.parent_workflow_execution_id,
+            workflow_lineage=context.workflow_lineage,
+            business_principal=context.business_principal,
+            business_context_token=context.business_context_token,
             skills_enabled=context.agent.skills_enabled,
             enable_memory=context.enable_memory,
             disable_tools=context.disable_tools,
             excluded_tool_ids=context.excluded_tool_ids,
         )
         agno_agent = await self._agent_builder.build_agent(request, internal_agent=context.agent)
+        if isinstance(agno_agent, Agent):
+            business_tools = [
+                *build_business_tools(context),
+                *await build_device_script_tools(context),
+            ]
+            if business_tools:
+                agno_agent.tools = [*(agno_agent.tools or []), *business_tools]
+                agno_agent.debug_mode = False
+        scope = current_execution_scope()
+        if scope is not None and isinstance(agno_agent, Agent):
+            agno_agent.tool_hooks = [scope.tool_hook, *(agno_agent.tool_hooks or [])]
         if context.require_current_knowledge and isinstance(agno_agent, Agent):
             # Do not put documents or business receipts in debug logs.
             agno_agent.debug_mode = False
@@ -118,7 +136,23 @@ class AgnoAgentBuilder:
         if workflow_url and context.agent.workflows:
             workflow_config = WorkflowConfig(
                 workflow_url=workflow_url,
+                agent_id=str(context.agent.id),
                 workflows=[str(binding.workflow_id) for binding in context.agent.workflows if binding.enabled],
+                release_versions={
+                    str(binding.workflow_id): binding.release_version
+                    for binding in context.agent.workflows
+                    if binding.enabled and binding.release_version is not None
+                },
+                release_ids={
+                    str(binding.workflow_id): binding.release_id
+                    for binding in context.agent.workflows
+                    if binding.enabled and binding.release_id is not None
+                },
+                release_digests={
+                    str(binding.workflow_id): binding.release_digest
+                    for binding in context.agent.workflows
+                    if binding.enabled and binding.release_digest is not None
+                },
                 project_id=context.project_id,
             )
 

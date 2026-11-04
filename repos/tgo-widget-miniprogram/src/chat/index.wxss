@@ -44,6 +44,41 @@
   background: #ccc;
 }
 
+.service-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10rpx 20rpx;
+  gap: 12rpx;
+  flex-shrink: 0;
+  background: #f7f8fa;
+  border-bottom: 1rpx solid #e9edf2;
+}
+
+.service-notice-text {
+  flex: 1;
+  color: #687385;
+  font-size: 22rpx;
+  line-height: 1.4;
+}
+
+.service-notice-button {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 12rpx;
+  min-height: 48rpx;
+  line-height: 48rpx;
+  border: 0;
+  border-radius: 10rpx;
+  background: #fff;
+  color: #2f80ed;
+  font-size: 22rpx;
+  font-weight: 600;
+}
+
+.service-notice-button::after { border: 0; }
+.service-notice-button[disabled] { opacity: .55; }
+
 /* Loading / Error states */
 .init-loading,
 .init-error {

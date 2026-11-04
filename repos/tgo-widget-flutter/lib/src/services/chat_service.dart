@@ -62,8 +62,7 @@ class ChatService {
 
       debugPrint('[ChatService] Completion request successful');
     } on DioException catch (e) {
-      final message = e.response?.data?.toString() ?? e.message;
-      debugPrint('[ChatService] Completion error: $message');
+      debugPrint('[ChatService] Completion request failed: ${e.response?.statusCode ?? 0}');
       rethrow;
     }
   }
@@ -75,8 +74,6 @@ class ChatService {
     String reason = 'user_cancel',
   }) async {
     const url = 'v1/ai/runs/cancel-by-client';
-
-    debugPrint('[ChatService] Cancelling stream: $clientMsgNo');
 
     try {
       final response = await _dio.post<Map<String, dynamic>>(
@@ -91,8 +88,8 @@ class ChatService {
       if (response.statusCode != 200) {
         debugPrint('[ChatService] Cancel stream failed: ${response.statusCode}');
       }
-    } catch (e) {
-      debugPrint('[ChatService] Cancel stream error: $e');
+    } catch (_) {
+      debugPrint('[ChatService] Cancel stream failed');
     }
   }
 }

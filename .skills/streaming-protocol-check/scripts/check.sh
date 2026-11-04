@@ -5,7 +5,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
-CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached)
+if [ "$#" -gt 0 ]; then
+  CHANGED_FILES=$(printf '%s\n' "$@")
+else
+  CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached)
+fi
 if [ -z "$CHANGED_FILES" ]; then
   echo "✓ No changes detected"
   exit 0
@@ -29,14 +33,14 @@ echo ""
 # Producer side (tgo-ai)
 echo "### Producer: tgo-ai"
 echo "  Streaming output:"
-find repos/tgo-ai -path "*/streaming/*" -type f 2>/dev/null | sed 's/^/    /' || echo "    (no streaming dir)"
+rg --files repos/tgo-ai/app/streaming repos/tgo-ai/app/runtime/supervisor/streaming 2>/dev/null | tr '\\' '/' | sed 's/^/    /' || echo "    (no streaming dir)"
 echo "  Chat service:"
-find repos/tgo-ai -name "chat_service.py" -type f 2>/dev/null | sed 's/^/    /' || true
+rg --files repos/tgo-ai/app 2>/dev/null | tr '\\' '/' | grep '/chat_service.py$' | sed 's/^/    /' || true
 echo ""
 
 # API relay (tgo-api)
 echo "### Relay: tgo-api"
-find repos/tgo-api -name "*chat*" -o -name "*stream*" 2>/dev/null | grep -v __pycache__ | grep -v node_modules | sed 's/^/    /' || true
+rg --files repos/tgo-api/app 2>/dev/null | tr '\\' '/' | grep -Ei '/[^/]*(chat|stream)[^/]*$' | sed 's/^/    /' || true
 echo ""
 
 # Consumer: tgo-web

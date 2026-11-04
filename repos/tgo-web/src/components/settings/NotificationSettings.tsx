@@ -19,6 +19,8 @@ const NotificationSettings: React.FC = () => {
   const {
     permission,
     isSupported,
+    isWeCom,
+    permissionRequestIncomplete,
     isRequesting,
     preferences,
     requestPermission,
@@ -29,7 +31,9 @@ const NotificationSettings: React.FC = () => {
   const canSendDesktop = isSupported && permission === 'granted';
   // 保留用户偏好；浏览器权限只决定当前是否生效，不反写偏好。
   const desktopEnabled = canSendDesktop && preferences.notificationEnabled;
-  const desktopStatus = !isSupported
+  const desktopStatus = isWeCom
+    ? t('settings.notifications.wecom.desktopStatus')
+    : !isSupported
     ? t('settings.notifications.notSupported')
     : !canSendDesktop && preferences.notificationEnabled
       ? t('settings.notifications.toggles.desktop.awaitingPermission')
@@ -113,7 +117,7 @@ const NotificationSettings: React.FC = () => {
       </div>
 
       {/* 浏览器不支持提示 */}
-      {!isSupported && (
+      {!isSupported && !isWeCom && (
         <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-5 h-5 text-yellow-500" />
@@ -136,15 +140,19 @@ const NotificationSettings: React.FC = () => {
                 <PermissionIcon className={`w-5 h-5 ${currentPermission.color}`} />
                 <div>
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                    {currentPermission.label}
+                    {isWeCom ? t('settings.notifications.wecom.title') : currentPermission.label}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    {!isSupported
+                    {isWeCom
+                      ? t('settings.notifications.wecom.description')
+                      : !isSupported
                       ? t('settings.notifications.notSupported')
                       : permission === 'granted'
                       ? t('settings.notifications.permission.grantedDesc', '可以接收桌面通知')
                       : permission === 'denied'
                       ? t('settings.notifications.permission.deniedDesc', '请在浏览器设置中允许通知权限')
+                      : permissionRequestIncomplete
+                      ? t('settings.notifications.permission.incompleteDesc')
                       : t('settings.notifications.permission.defaultDesc', '点击按钮请求通知权限')}
                   </p>
                 </div>
@@ -297,7 +305,9 @@ const NotificationSettings: React.FC = () => {
       {/* 提示信息 */}
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
         <p className="text-sm text-blue-700 dark:text-blue-300">
-          💡 {t('settings.notifications.tip', '提示：通知功能需要浏览器授权。如果您拒绝了权限请求，需要在浏览器设置中手动允许本站点的通知权限。')}
+          💡 {isWeCom
+            ? t('settings.notifications.wecom.tip')
+            : t('settings.notifications.tip', '提示：通知功能需要浏览器授权。如果您拒绝了权限请求，需要在浏览器设置中手动允许本站点的通知权限。')}
         </p>
       </div>
     </div>

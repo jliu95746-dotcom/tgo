@@ -20,6 +20,7 @@ import { WorkflowEditor, WorkflowToolbar } from '@/components/workflow';
 import NodePalette from '@/components/workflow/NodePalette';
 import NodeConfigPanel from '@/components/workflow/panels/NodeConfigPanel';
 import DebugPanel from '@/components/workflow/panels/DebugPanel';
+import WorkflowBasicConfiguration from '@/components/business/WorkflowBasicConfiguration';
 
 const WorkflowEditorPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -27,11 +28,13 @@ const WorkflowEditorPage: React.FC = () => {
   const { t } = useTranslation();
   const { showToast } = useToast();
   const [showSettings, setShowSettings] = useState(false);
-  const [paletteCollapsed, setPaletteCollapsed] = useState(false);
+  const [editorMode, setEditorMode] = useState<'basic' | 'advanced'>('advanced');
+  const [paletteCollapsed, setPaletteCollapsed] = useState(() => window.matchMedia('(max-width: 899px)').matches);
 
   const {
     currentWorkflow,
     isLoadingCurrentWorkflow,
+    currentWorkflowError,
     isDirty,
     loadWorkflow,
     createWorkflow,
@@ -49,6 +52,13 @@ const WorkflowEditorPage: React.FC = () => {
   }, [currentWorkflow, selectedNodeId]);
 
   const creatingRef = React.useRef(false);
+  const initializedMode = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (currentWorkflow && initializedMode.current !== currentWorkflow.id) {
+      initializedMode.current = currentWorkflow.id;
+      setEditorMode(currentWorkflow.tags?.some(tag => tag.startsWith('scenario:')) ? 'basic' : 'advanced');
+    }
+  }, [currentWorkflow]);
 
   // Load or create workflow based on ID
   useEffect(() => {
@@ -81,11 +91,29 @@ const WorkflowEditorPage: React.FC = () => {
     navigate('/ai/workflows');
   };
 
+  // Creation refreshes the list before navigating to the real ID. Keep that
+  // interim draft and the previous route's workflow out of editable controls.
+  if (id === 'new' || isLoadingCurrentWorkflow || currentWorkflow?.id !== id || !currentWorkflow) {
+    return <div className="workflow-editor flex min-w-0 flex-1 flex-col bg-[#f8fafc] p-8 dark:bg-gray-950">
+      <button type="button" onClick={handleBack} className="mb-6 flex w-fit items-center gap-2 text-sm text-gray-500 hover:text-purple-600">
+        <ChevronLeft className="h-4 w-4" />{t('common.back', '返回')}
+      </button>
+      <div role={currentWorkflowError ? 'alert' : 'status'} className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-gray-500 dark:text-gray-400">
+        {currentWorkflowError ? <>
+          <span>{currentWorkflowError}</span>
+          {id && id !== 'new' && <button type="button" onClick={() => void loadWorkflow(id)} className="rounded-xl bg-purple-600 px-4 py-2 text-white">
+            {t('common.retry', '重试')}
+          </button>}
+        </> : <><Loader2 className="h-5 w-5 animate-spin text-purple-500" />{t('common.loading', '加载中...')}</>}
+      </div>
+    </div>;
+  }
+
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#f8fafc] dark:bg-gray-950 overflow-hidden">
+    <div className="workflow-editor min-w-0 flex-1 flex flex-col h-full bg-[#f8fafc] dark:bg-gray-950 overflow-hidden">
       {/* Header */}
-      <header className="flex items-center justify-between px-8 h-18 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 z-30 shadow-sm">
-        <div className="flex items-center gap-6">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-8 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 z-30 shadow-sm">
+        <div className="flex min-w-0 items-center gap-3 md:gap-6">
           <button
             onClick={handleBack}
             className="flex items-center gap-3 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 transition-all group"
@@ -93,7 +121,7 @@ const WorkflowEditorPage: React.FC = () => {
             <div className="p-2 rounded-xl group-hover:bg-gray-100 dark:group-hover:bg-gray-800 transition-colors border border-transparent group-hover:border-gray-200/50 dark:group-hover:border-gray-700/50">
               <ChevronLeft className="w-5 h-5" />
             </div>
-            <span className="text-sm font-bold">{t('common.back', '返回')}</span>
+            <span className="hidden text-sm font-bold sm:inline">{t('common.back', '返回')}</span>
           </button>
 
           <div className="h-8 w-px bg-gray-200/50 dark:bg-gray-800" />
@@ -104,16 +132,17 @@ const WorkflowEditorPage: React.FC = () => {
               <span className="text-sm font-bold tracking-wider">{t('common.loading', '加载中...')}</span>
             </div>
           ) : currentWorkflow ? (
-            <div className="flex items-center gap-4">
+            <div className="flex min-w-0 items-center gap-3">
               <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-purple-200 dark:shadow-none border border-white/20">
                 <GitBranch className="w-6 h-6" />
               </div>
-              <div className="flex flex-col">
+              <div className="flex min-w-0 flex-col">
                 <input
                   type="text"
                   value={currentWorkflow.name}
                   onChange={(e) => updateWorkflowMeta({ name: e.target.value })}
-                  className="text-lg font-bold text-gray-900 dark:text-gray-100 bg-transparent border-none focus:outline-none focus:ring-0 p-0 h-7 min-w-[240px] hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-all px-2 -ml-2 focus:bg-gray-50 dark:focus:bg-gray-800/50"
+                  aria-label={t('businessScenarios.workflow.name')}
+                  className="w-44 sm:w-60 text-lg font-bold text-gray-900 dark:text-gray-100 bg-transparent border-none focus:outline-none focus:ring-0 p-0 h-7 min-w-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-all px-2 -ml-2 focus:bg-gray-50 dark:focus:bg-gray-800/50"
                   placeholder={t('workflow.namePlaceholder', '未命名工作流')}
                 />
                 <div className="flex items-center gap-2 mt-0.5">
@@ -139,11 +168,14 @@ const WorkflowEditorPage: React.FC = () => {
           ) : null}
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex max-w-full items-center gap-3 overflow-x-auto pb-1">
           {/* Action Toolbar (Undo, Redo, Validate, Save) */}
+          <div className="flex shrink-0 rounded-xl bg-gray-100 p-1 dark:bg-gray-800">
+            {(['basic', 'advanced'] as const).map(mode => <button key={mode} onClick={() => { setEditorMode(mode); setSelectedNode(null); }} aria-pressed={editorMode === mode} className={`rounded-lg px-3 py-2 text-xs ${editorMode === mode ? 'bg-white text-purple-600 shadow-sm dark:bg-gray-700' : 'text-gray-500'}`}>{t(`businessScenarios.workflow.${mode}`)}</button>)}
+          </div>
           <WorkflowToolbar />
 
-          <div className="h-8 w-px bg-gray-200/50 dark:bg-gray-800" />
+          <div className="h-8 w-px shrink-0 bg-gray-200/50 dark:bg-gray-800" />
 
           {/* Settings Toggle */}
           <button
@@ -168,15 +200,15 @@ const WorkflowEditorPage: React.FC = () => {
       </header>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="workflow-editor-body min-w-0 flex-1 flex overflow-hidden relative">
         {/* Left Side: Node Palette */}
-        <NodePalette 
+        {editorMode === 'advanced' && <NodePalette
           isCollapsed={paletteCollapsed} 
           onToggleCollapse={() => setPaletteCollapsed(!paletteCollapsed)} 
-        />
+        />}
 
         {/* Center: Editor */}
-        <div className="flex-1 relative overflow-hidden z-10">
+        <div className="workflow-canvas-area min-w-0 flex-1 relative overflow-hidden z-10">
           {/* Background pattern - now correctly scoped */}
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] bg-fixed opacity-[0.03] dark:opacity-[0.01] pointer-events-none z-0" />
           
@@ -190,7 +222,7 @@ const WorkflowEditorPage: React.FC = () => {
               </div>
             </div>
           ) : (
-            <WorkflowEditor />
+            editorMode === 'basic' ? <WorkflowBasicConfiguration onAdvanced={() => setEditorMode('advanced')} /> : <WorkflowEditor />
           )}
         </div>
 

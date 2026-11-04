@@ -8,6 +8,7 @@ from sqlalchemy import ColumnElement, Select, and_, exists, func, or_, select, u
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.documents import FileDocument
+from ..models.collections import Collection
 from ..models.files import File
 from ..models.knowledge_governance import KnowledgeGovernanceRecord
 from ..models.qa import QAPair
@@ -538,13 +539,33 @@ class KnowledgeGovernancePolicy:
         file_governed = exists(
             select(KnowledgeGovernanceRecord.id)
             .join(File, KnowledgeGovernanceRecord.file_id == File.id)
+            .join(Collection, Collection.id == File.collection_id)
             .where(
                 File.id == FileDocument.file_id,
                 File.project_id == project_id,
                 File.deleted_at.is_(None),
+                File.status == 'completed',
+                Collection.project_id == project_id,
+                Collection.deleted_at.is_(None),
                 *gates,
             )
         )
+        # Staff-managed file knowledge is ready after parsing. Legacy approval,
+        # channel and enable switches do not gate this normal authoring path.
+        # Customer attachments have no file collection; explicitly marked customer
+        # material remains excluded until staff deliberately replaces its content.
+        customer_material = exists(select(KnowledgeGovernanceRecord.id).where(
+            KnowledgeGovernanceRecord.file_id == File.id,
+            KnowledgeGovernanceRecord.project_id == project_id,
+            KnowledgeGovernanceRecord.source_origin == KnowledgeSourceOrigin.CUSTOMER.value,
+            KnowledgeGovernanceRecord.deleted_at.is_(None),
+        ))
+        manual_file = exists(select(File.id).join(Collection, Collection.id == File.collection_id).where(
+            File.id == FileDocument.file_id, File.project_id == project_id,
+            File.deleted_at.is_(None), File.status == 'completed',
+            Collection.project_id == project_id, Collection.deleted_at.is_(None),
+            Collection.collection_type == 'file', ~customer_material,
+        ))
         qa_governed = exists(
             select(KnowledgeGovernanceRecord.id)
             .join(QAPair, KnowledgeGovernanceRecord.qa_pair_id == QAPair.id)
@@ -557,7 +578,7 @@ class KnowledgeGovernancePolicy:
         )
         statement = select(FileDocument.id).where(
             FileDocument.project_id == project_id,
-            or_(file_governed, qa_governed),
+            or_(manual_file, file_governed, qa_governed),
         )
         if candidate_ids is not None:
             statement = statement.where(FileDocument.id.in_(candidate_ids))

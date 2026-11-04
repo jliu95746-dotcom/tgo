@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 import { X, Search, ExternalLink, Wrench, Settings, RefreshCw } from 'lucide-react';
 import { useProjectToolsStore } from '@/stores/projectToolsStore';
 import { transformAiToolResponseList, searchProjectTools, getToolDisplayTitle } from '@/utils/projectToolsTransform';
@@ -49,7 +50,7 @@ const ToolSelectionModal: React.FC<ToolSelectionModalProps> = ({
   const [configTool, setConfigTool] = useState<AiTool | null>(null);
 
   // Navigation hook
-  const navigate = useNavigate();
+  const dialogRef = useDialogFocus<HTMLDivElement>(onClose, isOpen);
 
   // Project Tools store integration (using NEW /v1/ai/tools API)
   const {
@@ -154,23 +155,18 @@ const ToolSelectionModal: React.FC<ToolSelectionModalProps> = ({
     });
   };
 
-  const handleManageTools = () => {
-    // Close the modal first
-    onClose();
-    // Navigate to tools management page
-    navigate('/ai/tools');
-  };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="tool-selection-title" className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('tools.selectModal.title', '选择工具')}</h3>
+          <h3 id="tool-selection-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('tools.selectModal.title', '选择工具')}</h3>
           <button
             onClick={onClose}
+            aria-label={t('common.close', '关闭')}
             className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -283,6 +279,7 @@ const ToolSelectionModal: React.FC<ToolSelectionModalProps> = ({
                     </div>
                     <div className="flex items-center space-x-2">
                       <button
+                        aria-label={t('tools.selectModal.configTool', '配置工具')}
                         onClick={(e) => {
                           e.stopPropagation();
                           handleConfigTool(tool);
@@ -294,6 +291,7 @@ const ToolSelectionModal: React.FC<ToolSelectionModalProps> = ({
                       </button>
                       <input
                         type="checkbox"
+                        aria-label={displayTitle}
                         checked={isSelected}
                         onClick={(event) => event.stopPropagation()}
                         onChange={() => handleToolClick(tool)}
@@ -311,13 +309,12 @@ const ToolSelectionModal: React.FC<ToolSelectionModalProps> = ({
 
         {/* Tool Management Link */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <button
-            onClick={handleManageTools}
+          <Link to="/ai/tools" target="_blank" rel="noopener noreferrer"
             className="flex items-center space-x-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm transition-colors"
           >
             <span>{t('tools.selectModal.manageTools', '管理工具')}</span>
             <ExternalLink className="w-4 h-4" />
-          </button>
+          </Link>
         </div>
 
         {/* Footer - Always Visible */}

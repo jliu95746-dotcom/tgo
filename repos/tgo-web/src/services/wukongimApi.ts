@@ -8,8 +8,9 @@ import { BaseApiService } from './base/BaseApiService';
 
 import { CHANNEL_TYPE, DEFAULT_CHANNEL_TYPE, MESSAGE_SENDER_TYPE, PlatformType, STAFF_UID_SUFFIX } from '@/constants';
 
-import { useAuthStore } from '@/stores';
+import { useAuthStore } from '@/stores/authStore';
 import { toAbsoluteApiUrl } from '@/utils/url';
+import { isNativeWecomStaffPayload } from '@/utils/nativeWecomSender';
 import {
   MessagePayloadType,
   isSystemMessageType,
@@ -626,6 +627,9 @@ export class WuKongIMUtils {
       content: displayContent,
       timestamp: new Date(wkMessage.timestamp * 1000).toISOString(),
       type: senderType === 'agent' ? MESSAGE_SENDER_TYPE.STAFF : (senderType === 'system' ? MESSAGE_SENDER_TYPE.SYSTEM : MESSAGE_SENDER_TYPE.VISITOR),
+      senderKind: senderType === 'agent'
+        && payloadType === MessagePayloadType.STREAM
+        && payloadObj?.sender_kind === 'ai' ? 'ai' : undefined,
       status: 'delivered',
       isRead: false,
       platform: WuKongIMUtils.getPlatformFromChannelType(channelType),
@@ -639,6 +643,7 @@ export class WuKongIMUtils {
       payloadType,
       payload: typedPayload,
       metadata: {
+        native_staff: isNativeWecomStaffPayload(payloadObj),
         sender_avatar: (wkMessage as any).sender_avatar,
         is_read: false,
         has_stream_data: hasStreamData,

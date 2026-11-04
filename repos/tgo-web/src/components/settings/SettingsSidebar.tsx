@@ -45,7 +45,7 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ className = '' }) => 
   };
 
   return (
-    <aside className={`hidden md:flex w-64 flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shrink-0 ${className}`}>
+    <aside className={`settings-section-sidebar hidden md:flex w-64 flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shrink-0 ${className}`}>
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <SettingsIcon className="w-4 h-4 text-gray-700 dark:text-gray-300" />

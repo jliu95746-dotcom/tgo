@@ -1,7 +1,6 @@
 """Database authorization for trusted AI workers, isolated from public routes."""
 
 from datetime import datetime, timezone
-from secrets import compare_digest
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -9,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import require_internal_service_token
 from app.models.ai_usage import AIUsageReservation
 from app.models.company_account import CompanyAccount
 from app.schemas.ai_usage import UsageAuthorization, UsageAuthorizationResult
@@ -20,14 +20,7 @@ from app.services.platform_models import runtime_model
 
 
 def require_quota_service(x_saas_service_token: str | None = Header(None)) -> None:
-    if (
-        settings.SAAS_INTERNAL_TOKEN is None
-        or not x_saas_service_token
-        or not compare_digest(
-            x_saas_service_token, settings.SAAS_INTERNAL_TOKEN.get_secret_value()
-        )
-    ):
-        raise HTTPException(403, "内部服务身份无效")
+    require_internal_service_token(x_saas_service_token)
 
 
 router = APIRouter(dependencies=[Depends(require_quota_service)])

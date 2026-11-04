@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/authStore';
 const SettingsLayout: React.FC = () => {
   const { t } = useTranslation();
   const isAdmin = useAuthStore((state) => state.user?.role === 'admin');
+  const logout = useAuthStore(state => state.logout);
 
   const allItems: Array<{ id: string; label: string }> = [
     { id: 'profile', label: t('settings.menu.profile', '个人资料') },
@@ -18,6 +19,7 @@ const SettingsLayout: React.FC = () => {
     { id: 'billing', label: t('billing.title') },
     { id: 'plugins', label: t('settings.menu.plugins', '插件管理') },
     { id: 'logistics', label: t('settings.menu.logistics', '物流档案') },
+    { id: 'about', label: t('settings.menu.about', '关于') },
   ];
   const items = allItems.filter(
     (item) =>
@@ -36,10 +38,10 @@ const SettingsLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex h-full w-full overflow-hidden bg-gray-50 dark:bg-gray-900">
+    <div className="settings-workspace flex-1 flex h-full w-full overflow-hidden bg-gray-50 dark:bg-gray-900">
       <SettingsSidebar />
-      <div className="flex-1 overflow-auto">
-        <div className="md:hidden bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <div className="settings-content flex-1 overflow-auto">
+        <div className="settings-mobile-tabs md:hidden bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-3">
             <div className="flex items-center gap-2">
               <SettingsIcon className="w-5 h-5 text-gray-700 dark:text-gray-300" />
@@ -59,6 +61,9 @@ const SettingsLayout: React.FC = () => {
                 </span>
               </NavLink>
             ))}
+            <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-600 dark:border-red-900 dark:text-red-400" onClick={async () => {
+              try { await logout(); } catch (error) { console.error('Logout failed:', error); }
+            }}>{t('settings.menu.logout', '退出登录')}</button>
           </div>
         </div>
         <Outlet />

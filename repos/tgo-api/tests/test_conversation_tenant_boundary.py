@@ -71,6 +71,10 @@ async def test_staff_loses_full_history_after_transfer(channel_app, monkeypatch)
         denied = await request_channel(client, "history", channel, 251)
         assert denied.status_code == 404
         downstream[0].assert_not_awaited()
+        app.dependency_overrides[get_current_active_user] = lambda: receiver
+        received = await request_channel(client, "history", channel, 251)
+        assert received.status_code == 200
+        downstream[0].assert_awaited_once()
 
 
 @compiles(JSONB, "sqlite")

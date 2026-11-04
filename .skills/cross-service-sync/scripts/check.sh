@@ -5,7 +5,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
-CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached)
+if [ "$#" -gt 0 ]; then
+  CHANGED_FILES=$(printf '%s\n' "$@")
+else
+  CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached)
+fi
 if [ -z "$CHANGED_FILES" ]; then
   echo "✓ No changes detected"
   exit 0
@@ -46,7 +50,11 @@ for FILE in $SCHEMA_FILES; do
 
   for ID in $IDENTIFIERS; do
     echo "▶ Searching for '$ID' references outside $SOURCE_SERVICE..."
-    REFS=$(grep -rl "$ID" repos/ --include="*.py" --include="*.ts" --include="*.tsx" --include="*.js" 2>/dev/null | grep -v "repos/$SOURCE_SERVICE/" | grep -v "node_modules" | grep -v "__pycache__" | head -20 || true)
+    REFS=$(rg -l --fixed-strings "$ID" repos/ \
+      --glob '*.py' --glob '*.ts' --glob '*.tsx' --glob '*.js' \
+      --glob '!**/.venv/**' --glob '!**/node_modules/**' \
+      --glob '!**/.mypy_cache/**' --glob '!**/__pycache__/**' \
+      2>/dev/null | tr '\\' '/' | grep -v "^repos/$SOURCE_SERVICE/" | head -20 || true)
     if [ -n "$REFS" ]; then
       echo "  ⚠ Found references that may need updating:"
       echo "$REFS" | sed 's/^/    /'

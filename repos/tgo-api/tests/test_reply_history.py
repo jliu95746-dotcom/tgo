@@ -216,6 +216,9 @@ async def test_terminal_receipts_close_loading_but_preserve_snapshot(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("actor", ["staff", "visitor"])
 async def test_both_authorized_history_endpoints_reconcile(monkeypatch, actor):
+    from fastapi import Response
+    from pydantic import SecretStr
+    from app.schemas.visitor_data_access import VisitorDataAccess
     from app.api.v1.endpoints import conversations, visitors
     from app.schemas.visitor import VisitorMessageSyncRequest
     from app.schemas.wukongim import WuKongIMChannelMessageSyncRequest
@@ -235,6 +238,13 @@ async def test_both_authorized_history_endpoints_reconcile(monkeypatch, actor):
             SimpleNamespace(project_id=PROJECT, id=platform_id),
             SimpleNamespace(id=VISITOR, platform_id=platform_id),
         ]
+        # This test covers reconciliation after authorization, whose real HTTP
+        # boundary and asynchronous races are exercised separately.
+        access = VisitorDataAccess(visitor_id=VISITOR,project_id=PROJECT,
+            platform_id=platform_id,platform_api_key=SecretStr('test-platform-key'),
+            im_token=SecretStr('reconciliation-fixture-only'))
+        monkeypatch.setattr(endpoint,'require_visitor_data_access',Mock(return_value=access))
+        monkeypatch.setattr(endpoint,'reauthorize_visitor_data',Mock())
     monkeypatch.setattr(
         endpoint.wukongim_client,
         "sync_channel_messages",
@@ -251,6 +261,7 @@ async def test_both_authorized_history_endpoints_reconcile(monkeypatch, actor):
     else:
         result = await endpoint.sync_visitor_channel_messages(
             VisitorMessageSyncRequest(channel_id=CHANNEL, channel_type=251),
+            response=Response(),
             db=database,
             x_platform_api_key="test-platform-key",
         )

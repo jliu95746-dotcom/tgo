@@ -104,10 +104,12 @@ test('history waits for an ongoing request but never loops on empty or failed hi
 
 test('knowledge list refresh and language changes do not erase an edited employee form', () => {
   let resets = 0;
-  const run = effect('components/ai/EditAgentModal.tsx', 'reset({');
+  const run = effect('components/ai/EditAgentModal.tsx', 'reset(initial)');
   const scope = {
     agent: { id: 'owned-agent', name: 'Original' }, isLoadingAgent: false,
-    initializedAgent: { current: null }, knowledgeBases: [], reset: () => { resets++; }, t, i18n,
+    initializedAgent: { current: null }, originalForm: { current: null },
+    knowledgeBases: [], reset: () => { resets++; },
+    setRefreshWorkflowReleases() {}, setSelectedReleaseVersions() {}, structuredClone, t, i18n,
   };
   run.render(scope);
   assert.equal(resets, 1);
@@ -122,6 +124,8 @@ test('an older employee fetch cannot replace the latest selected employee', asyn
   const second = deferred();
   const received = [];
   const run = value('components/ai/EditAgentModal.tsx', 'fetchAgent', {
+    editingIdentity: 'project:admin',
+    useAuthStore: { getState: () => ({ user: { role: 'admin', project_id: 'project', id: 'admin' } }) },
     agentRequestVersion: { current: 0 }, setIsLoadingAgent() {}, setAgentError() {},
     setAgent: agent => { if (agent) received.push(agent.id); }, showToast() {}, t, i18n,
     AIAgentsApiService: { getAgent: id => id === 'first' ? first.promise : second.promise },
@@ -195,27 +199,29 @@ test('plugin context is stable on parent refresh and updates when the selected c
   assert.equal(second.channel_id, 'second');
 });
 
-test('changing provider discards a late model-list response', async () => {
-  const file = 'components/settings/AddModelModal.tsx';
+test('changing project discards a late model-list response', async () => {
+  const file = 'components/settings/ModelProvidersSettings.tsx';
   const first = deferred();
   const second = deferred();
   const received = [];
-  const run = effect(file, 'setRemoteModels([])');
-  const scope = { isOpen: true, provider: { id: 'first' }, modelType: 'chat', isVision: false, isStore: false,
-    setRemoteModels: models => received.push(models), setLoading() {}, setModelId() {}, setModelType() {}, setIsVision() {}, setSelectedModels() {},
+  const activeProjectId = { current: 'first' };
+  const fetchingModelTypes = { current: new Set() };
+  const scope = {
+    activeProjectId, fetchingModelTypes, setModelLoading() {},
+    setModelOptions: update => received.push(update({}).chat?.[0]?.value),
     toast: null, t, getErrorMessage: error => error.message,
-    AIProvidersApiService: class { getRemoteModels(id) { return id === 'first' ? first.promise : second.promise; } },
+    AIProvidersApiService: class {
+      listProjectModels() { return activeProjectId.current === 'first' ? first.promise : second.promise; }
+    },
   };
-  const firstScope = { ...scope, fetchAvailableModels: () => value(file, 'fetchAvailableModels', scope)() };
-  run.render(firstScope);
-  const nextScope = { ...scope, provider: { id: 'second' } };
-  run.render({ ...nextScope, fetchAvailableModels: () => value(file, 'fetchAvailableModels', nextScope)() });
-  second.resolve({ models: [{ id: 'new-model' }] });
-  await flush();
-  first.resolve({ models: [{ id: 'old-model' }] });
-  await flush();
-  assert.deepEqual(received.map(models => models[0]?.id).filter(Boolean), ['new-model']);
-  run.close();
+  const oldRequest = value(file, 'ensureFetchModelOptions', { ...scope, projectId: 'first' })('chat');
+  activeProjectId.current = 'second';
+  const currentRequest = value(file, 'ensureFetchModelOptions', { ...scope, projectId: 'second' })('chat');
+  second.resolve({ data: [{ provider_id: 'provider', model_id: 'new', model_name: 'New', provider_name: 'Provider' }] });
+  await currentRequest;
+  first.resolve({ data: [{ provider_id: 'provider', model_id: 'old', model_name: 'Old', provider_name: 'Provider' }] });
+  await oldRequest;
+  assert.deepEqual(received, ['provider:new']);
 });
 
 for (const resolveFirstBeforeSwitch of [true, false]) {

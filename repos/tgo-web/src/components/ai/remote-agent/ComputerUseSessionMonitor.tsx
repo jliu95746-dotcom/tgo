@@ -49,6 +49,7 @@ export function ComputerUseSessionMonitor({ sessionId, onClose, autoRefresh = tr
         <div className="min-w-0">
           <h3 className="break-words text-lg font-semibold">{session.device_name} · {session.agent_name ?? t('deviceControl.sessions.unknownAgent')}</h3>
           <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">{t('deviceControl.sessions.executionId')}：{session.id}</p>
+          {session.workflow_execution_id && <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">{t('deviceControl.sessions.workflowExecutionId')}：{session.workflow_execution_id}</p>}
         </div>
         <DeviceSessionStatus status={session.status} />
       </div>

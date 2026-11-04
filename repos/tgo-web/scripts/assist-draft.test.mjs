@@ -138,6 +138,7 @@ function draftFixture() {
   const context = { current: { ...request } };
   const scope = {
     visitorId: 'visitor', latestVisitorMessage: latest, isAssistMode: true, styleReady: true,
+    crypto: { randomUUID: () => 'test-request-id' },
     isHumanizationEnabled: true, selectedHumanizationSkill: 'style-a',
     assistRequestIdRef: { current: 0 }, assistContextRef: context,
     getAssistSourceId, canApplyAssistDraft, getAssistCustomerInput,
@@ -146,6 +147,7 @@ function draftFixture() {
       state.request = request; finish = resolve;
     }) },
     setMessage: value => { state.text = value; }, setAssistDraft: value => { state.draft = value; },
+    setAssistDraftId() {},
     setAssistSourceMessageId() {}, setAssistTrainingSource(value) { state.trainingSource = value; }, maintainTextareaFocus() {},
     showApiError: (_toast, error) => state.errors.push(error), showToast() {},
   };
@@ -191,6 +193,16 @@ test('actual draft callback still fills an unchanged editor', async () => {
   await pending;
   assert.equal(f.state.text, 'AI 新草稿');
   assert.equal(f.state.draft, 'AI 新草稿');
+});
+
+test('actual draft callback passes the IM client message number for source verification', async () => {
+  const f = draftFixture();
+  f.scope.latestVisitorMessage = { ...f.scope.latestVisitorMessage, clientMsgNo: 'im-client-1' };
+  const pending = f.scope.generate();
+  assert.equal(f.state.request.source_message_id, 'im-client-1');
+  assert.equal(f.state.request.source_client_msg_no, 'im-client-1');
+  f.finish();
+  await pending;
 });
 
 test('actual media draft callback trains on recognized customer text instead of the file URL', async () => {

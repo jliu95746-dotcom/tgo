@@ -29,15 +29,31 @@ class IntentRoutingPolicy:
     _READ_ONLY_TOOL_INTENTS = frozenset(
         {IntentName.ORDER_QUERY, IntentName.LOGISTICS_QUERY}
     )
+    _TEXT_ONLY_REPLY_INTENTS = frozenset(
+        {IntentName.PRODUCT_INQUIRY, IntentName.PRICING_PROMOTION}
+    )
     _SENSITIVE_INTENTS = frozenset({IntentName.COMPLAINT, IntentName.HUMAN_HANDOFF})
-    _HANDOFF_PHRASES = (
-        "转人工",
-        "人工客服",
-        "真人客服",
-        "人工服务",
-        "找人工",
-        "人工处理",
-        "客服介入",
+    _HANDOFF_COMMANDS = frozenset(
+        {
+            "转人工",
+            "人工客服",
+            "真人客服",
+            "人工服务",
+            "找人工",
+            "人工处理",
+            "客服介入",
+            "我要转人工",
+            "我想转人工",
+            "我要人工客服",
+            "我要真人客服",
+            "帮我转人工",
+            "请转人工",
+            "请帮我转人工",
+            "转接人工客服",
+            "请转接人工客服",
+            "请马上帮我转人工客服",
+            "我要找人工处理",
+        }
     )
     _COMPLAINT_PHRASES = (
         "投诉",
@@ -120,7 +136,13 @@ class IntentRoutingPolicy:
             for character in unicodedata.normalize("NFKC", text).lower()
             if not unicodedata.category(character).startswith(("P", "Z", "S"))
         )
-        if self._contains(normalized_text, self._HANDOFF_PHRASES):
+        command = "".join(
+            unicodedata.normalize("NFKC", text)
+            .lower()
+            .strip(" \t\r\n!?.。，！？")
+            .split()
+        )
+        if command in self._HANDOFF_COMMANDS:
             return self._rule_result(IntentName.HUMAN_HANDOFF)
         if self._contains(normalized_text, self._COMPLAINT_PHRASES):
             return self._rule_result(IntentName.COMPLAINT)
@@ -219,7 +241,10 @@ class IntentRoutingPolicy:
                 False,
                 RoutingReason.UNTRUSTED_MEDIA_CONFIRMATION,
             )
-        if not self._automated_routes_enabled:
+        if (
+            not self._automated_routes_enabled
+            and output.intent not in self._TEXT_ONLY_REPLY_INTENTS
+        ):
             return self._result(
                 output,
                 IntentRoute.HUMAN_HANDOFF,
@@ -273,9 +298,7 @@ class IntentRoutingPolicy:
             cls._PROFILE_PHONE_LABELS,
         )
         has_address_label = cls._contains(text, cls._PROFILE_ADDRESS_LABELS)
-        address_hint_count = sum(
-            hint in text for hint in cls._PROFILE_ADDRESS_HINTS
-        )
+        address_hint_count = sum(hint in text for hint in cls._PROFILE_ADDRESS_HINTS)
         has_unlabelled_address = len(text) >= 8 and address_hint_count >= 3
 
         return (

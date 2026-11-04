@@ -122,7 +122,7 @@ class EmailChannelListener:
         self._consumer_task: asyncio.Task | None = None
         # Visitor registration service (with Redis caching if available)
         self._visitor_service = VisitorService(
-            base_url=settings.api_base_url,
+            base_url=settings.api_internal_service_url,
             redis_url=settings.redis_url,
             cache_ttl_seconds=settings.visitor_cache_ttl_seconds,
         )
@@ -144,7 +144,7 @@ class EmailChannelListener:
                 platforms = await self._load_active_email_platforms()
                 await self._reconcile_platform_tasks(platforms)
             except Exception as e:  # pragma: no cover - protective catch
-                print(f"[EMAIL] Supervisor error: {e}")
+                print(f"[EMAIL] Supervisor error: {type(e).__name__}")
             # Wait for refresh or stop earlier
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self._refresh_interval)
@@ -170,7 +170,7 @@ class EmailChannelListener:
                 cfg = EmailPlatformConfig(**(cfg_dict or {}))
                 platforms.append(_PlatformEntry(id=pid, project_id=project_id, api_key=api_key, cfg=cfg))
             except Exception as e:
-                print(f"[EMAIL] Skip platform {pid}: invalid config: {e}")
+                print(f"[EMAIL] Skip platform {pid}: invalid config: {type(e).__name__}")
         return platforms
 
     async def _reconcile_platform_tasks(self, platforms: list[_PlatformEntry]) -> None:
@@ -221,13 +221,13 @@ class EmailChannelListener:
                 self._imap_conns[p.id] = conn
             return conn
         except Exception as e:
-            print(f"[EMAIL] IMAP connect error for {p.id}: {e}")
+            print(f"[EMAIL] IMAP connect error for {p.id}: {type(e).__name__}")
             return None
 
     async def _connect_imap(self, cfg: EmailPlatformConfig):
         conn = imaplib.IMAP4_SSL(cfg.imap_host, cfg.imap_port) if cfg.imap_use_ssl else imaplib.IMAP4(cfg.imap_host, cfg.imap_port)
         # Login
-        print(f"[EMAIL] Connecting to IMAP server", cfg)
+        print("[EMAIL] Connecting to IMAP server")
         await asyncio.to_thread(conn.login, cfg.imap_username, cfg.imap_password)
 
         # Send IMAP ID command for 163.com and other Chinese email providers
@@ -241,25 +241,23 @@ class EmailChannelListener:
             # Convert to IMAP format: remove commas and use double quotes
             id_args = str(args).replace(",", "").replace("'", '"')
             await asyncio.to_thread(conn._simple_command, 'ID', id_args)
-            print(f"[EMAIL] IMAP ID command sent successfully for {cfg.imap_username}")
+            print("[EMAIL] IMAP ID command sent successfully")
         except Exception as id_err:
             # ID command failure is non-critical, continue anyway
-            print(f"[EMAIL] Could not send IMAP ID command (non-critical): {id_err}")
+            print(f"[EMAIL] Could not send IMAP ID command (non-critical): {type(id_err).__name__}")
 
         # Select mailbox (read-only for fetching)
-        typ, data = await asyncio.to_thread(conn.select, cfg.mailbox, True)
+        typ, _ = await asyncio.to_thread(conn.select, cfg.mailbox, True)
         if typ != 'OK':
             # List available mailboxes for debugging
             try:
                 list_typ, mailboxes = await asyncio.to_thread(conn.list)
                 if list_typ == 'OK' and mailboxes:
-                    available = [mb.decode() if isinstance(mb, bytes) else str(mb) for mb in mailboxes[:10]]
-                    print(f"[EMAIL] Available mailboxes (first 10): {available}")
+                    print("[EMAIL] IMAP server returned mailbox list")
             except Exception as list_err:
-                print(f"[EMAIL] Could not list mailboxes: {list_err}")
+                print(f"[EMAIL] Could not list mailboxes: {type(list_err).__name__}")
 
-            error_msg = data[0].decode() if data and isinstance(data[0], bytes) else str(data)
-            raise Exception(f"Cannot select mailbox '{cfg.mailbox}'. Server response: {error_msg}")
+            raise RuntimeError("Cannot select IMAP mailbox")
         return conn
 
     async def _close_imap_conn(self, platform_id: uuid.UUID) -> None:
@@ -344,7 +342,7 @@ class EmailChannelListener:
             if typ == 'OK':
                 await asyncio.to_thread(conn.uid, 'store', uid, '+FLAGS', '(\\Seen)')
         except Exception as e:
-            print(f"[EMAIL] Mark seen failed for {p.id} uid={uid}: {e}")
+            print(f"[EMAIL] Mark seen failed for {p.id}: {type(e).__name__}")
 
     async def _poll_platform(self, p: _PlatformEntry) -> None:
         """Polling loop for a single platform. Reuses connection context if implemented."""
@@ -358,7 +356,7 @@ class EmailChannelListener:
                 await self._close_imap_conn(p.id)
                 raise
             except Exception as e:  # pragma: no cover - protective catch
-                print(f"[EMAIL] Poller error for {p.id}: {e}")
+                print(f"[EMAIL] Poller error for {p.id}: {type(e).__name__}")
             # Backoff between polls per-platform
             await asyncio.sleep(max(1, int(p.cfg.poll_interval_seconds)))
 
@@ -425,12 +423,12 @@ class EmailChannelListener:
                         "Headers": headers_dict,
                     })
                 except Exception as e:
-                    print(f"[EMAIL] Fetch/parse failed for {p.id}: {e}")
+                    print(f"[EMAIL] Fetch/parse failed for {p.id}: {type(e).__name__}")
                     continue
 
             return results
         except Exception as e:
-            print(f"[EMAIL] IMAP fetch error for {p.id}: {e}")
+            print(f"[EMAIL] IMAP fetch error for {p.id}: {type(e).__name__}")
             return []
 
     async def _store_raw_batch(self, p: _PlatformEntry, raws: list[dict]) -> None:
@@ -493,7 +491,7 @@ class EmailChannelListener:
                     await self._mark_seen(p, uid)
             except Exception as e:
                 await db.rollback()
-                print(f"[EMAIL] Store raw email failed for {p.id}: {e}")
+                print(f"[EMAIL] Store raw email failed for {p.id}: {type(e).__name__}")
                 # Do not mark SEEN so it can be retried in a future cycle
 
 
@@ -506,9 +504,9 @@ class EmailChannelListener:
                     try:
                         await self._process_pending_for_platform(p)
                     except Exception as e:
-                        print(f"[EMAIL] Consumer error for platform {p.id}: {e}")
+                        print(f"[EMAIL] Consumer error for platform {p.id}: {type(e).__name__}")
             except Exception as e:
-                print(f"[EMAIL] Consumer supervisor error: {e}")
+                print(f"[EMAIL] Consumer supervisor error: {type(e).__name__}")
             await asyncio.sleep(2)
 
     async def _process_pending_for_platform(self, p: _PlatformEntry) -> None:
@@ -565,10 +563,9 @@ class EmailChannelListener:
                     }
 
                     # Visitor registration
-                    visitor = None
                     if p.api_key:
                         try:
-                            visitor = await self._visitor_service.register_or_get(
+                            await self._visitor_service.register_or_get(
                                 platform_api_key=p.api_key,
                                 project_id=str(p.project_id),
                                 platform_type="email",
@@ -576,7 +573,7 @@ class EmailChannelListener:
                                 nickname=sender_name,
                             )
                         except Exception as e:
-                            print(f"[EMAIL] Visitor registration failed for {p.id}: {e}")
+                            print(f"[EMAIL] Visitor registration failed for {p.id}: {type(e).__name__}")
 
                     # Normalize and dispatch
                     msg: NormalizedMessage = await self._normalizer.normalize(mapped_raw)
@@ -593,7 +590,7 @@ class EmailChannelListener:
                     await db.commit()
                 except Exception as e:
                     # Failure with retry increment
-                    print(f"[EMAIL] Processing failed for {p.id}: {e}")
+                    print(f"[EMAIL] Processing failed for {p.id}: {type(e).__name__}")
                     finalize_inbox_failure(
                         rec,
                         e,

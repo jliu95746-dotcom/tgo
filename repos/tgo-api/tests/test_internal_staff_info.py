@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.api.internal.endpoints import ai_events, users
+from app.core.config import settings
 from app.core.database import get_db
 from app.models import Project, Staff
 from app.schemas.visitor import VisitorResponse
@@ -111,14 +112,37 @@ async def test_visitor_only_events_on_staff_fail_without_mutating_staff(staff_ap
         response = await client.post("/internal/ai/events", json={
             "event_type": event_type, "user_id": f"{staff.id}-staff",
             "payload": {"visitor": {"name": "不应写入"}},
-        })
+        }, headers={"X-Internal-API-Key": settings.SECRET_KEY})
     assert response.status_code == 400
     assert response.json()["detail"] == "该操作仅支持访客，不支持员工账户"
     db.refresh(staff)
     assert staff.name == "测试坐席"
 
 
+@pytest.mark.asyncio
+async def test_ai_events_reject_missing_and_invalid_service_key(staff_app):
+    app, db, _, staff = staff_app
+    event = {
+        "event_type": "user_info.update",
+        "user_id": f"{staff.id}-staff",
+        "payload": {"visitor": {"name": "不应写入"}},
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        missing = await client.post("/internal/ai/events", json=event)
+        invalid = await client.post(
+            "/internal/ai/events", json=event,
+            headers={"X-Internal-API-Key": "incorrect-service-key"},
+        )
+    assert missing.status_code == 403
+    assert invalid.status_code == 403
+    db.refresh(staff)
+    assert staff.name == "测试坐席"
+
+
 def test_internal_staff_schema_is_explicit_and_route_is_not_public(staff_app):
+    from app.internal import internal_app
     from app.main import app as public_app
 
     app, _, _, _ = staff_app
@@ -126,6 +150,8 @@ def test_internal_staff_schema_is_explicit_and_route_is_not_public(staff_app):
     assert schema["properties"]["type"]["const"] == "staff"
     assert "password_hash" not in schema["properties"]
     assert "/internal/users/{user_id}" not in public_app.openapi()["paths"]
+    assert "/internal/ai/events" not in public_app.openapi()["paths"]
+    assert "/internal/ai/events" in internal_app.openapi()["paths"]
 
 
 @pytest.mark.asyncio

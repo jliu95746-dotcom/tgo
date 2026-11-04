@@ -52,6 +52,7 @@ async def test_supervisor_owns_full_device_execution(
     async def build(context):
         execution = monitor.current_device_execution()
         assert execution is not None and not execution.closed
+        assert context.execution_id == execution.identity.session_id
         states.append(execution)
         if outcome == "build_error":
             raise ValueError("build failed")
@@ -63,6 +64,8 @@ async def test_supervisor_owns_full_device_execution(
         client.finish_session.assert_not_awaited()
         if streaming:
             assert args[3] == str(execution.identity.session_id)
+        else:
+            assert args[1].execution_id == execution.identity.session_id
         return SimpleNamespace(
             success=outcome == "success",
             total_time=0.01,
@@ -112,6 +115,8 @@ async def test_supervisor_owns_full_device_execution(
     else:
         response = await runtime.run(request, project)
         assert response.success == (outcome == "success")
+        if outcome in {"build_error", "start_error"}:
+            assert response.execution_id == ctx.execution_id
     if outcome == "start_error":
         runtime._agent_builder.build_agent.assert_not_awaited()
         client.finish_session.assert_not_awaited()

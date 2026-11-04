@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import ChatHeader from '../chat/ChatHeader';
 import MessagesList from '../chat/MessagesList';
 import MessageInput from '../chat/MessageInput';
+import ShadowReviewPanel from '../chat/ShadowReviewPanel';
 import EmptyState from '../chat/EmptyState';
 import { useHistoricalMessages } from '@/hooks/useHistoricalMessages';
 import { useWuKongIMWebSocket } from '@/hooks/useWuKongIMWebSocket';
@@ -176,7 +177,7 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
 
   // Enhanced message sending with platform-aware flow (REST first for non-website, then WebSocket)
   // For agent chats, use REST API instead of WebSocket
-  const handleSendMessage = useCallback(async (message: string, training?: AssistTrainingIntent): Promise<boolean> => {
+  const handleSendMessage = useCallback(async (message: string, training?: AssistTrainingIntent, sourceMessageId?: string, assistDraftId?: string): Promise<boolean> => {
     if (!deliveryReady) return false;
     if (!message.trim()) {
       console.warn('Cannot send empty message');
@@ -188,9 +189,13 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
         const recovered = Object.entries(useStaffDeliveryStore.getState().entries).find(([key, entry]) =>
           key === deliveryKey(user?.id || '', entry.request.client_msg_no)
           && entry.request.channel_id === channelId && entry.request.payload.type === 1
+          && (entry.request.source_message_id || undefined) === sourceMessageId
+          && (entry.request.assist_draft_id || undefined) === assistDraftId
           && entry.request.payload.content === message.trim() && entry.receipt.delivery_status !== 'sent');
         const currentIntent = pendingTextSend.current;
         const retained = currentIntent?.channel_id === channelId && currentIntent.payload.content === message.trim()
+          && (currentIntent.source_message_id || undefined) === sourceMessageId
+          && (currentIntent.assist_draft_id || undefined) === assistDraftId
           ? currentIntent : recovered?.[1].request;
         const sameIntent = retained?.channel_id === channelId && retained.payload.content === message.trim();
         const nowId = sameIntent ? retained.client_msg_no : `local-${crypto.randomUUID()}`;
@@ -248,9 +253,14 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
 
         if (channelType === 251) {
           const deliveryTraining = sameIntent ? retained.training : training;
-          pendingTextSend.current = { channel_id: channelId, channel_type: 251, client_msg_no: nowId, payload, training: deliveryTraining };
+          pendingTextSend.current = { channel_id: channelId, channel_type: 251, client_msg_no: nowId, payload,
+            source_message_id: sameIntent ? retained.source_message_id : sourceMessageId,
+            assist_draft_id: sameIntent ? retained.assist_draft_id : assistDraftId,
+            training: deliveryTraining };
           const sent = await sendCustomerMessage({
             staffId: user?.id || '', channelId, channelType, clientMsgNo: nowId, payload,
+            sourceMessageId: sameIntent ? retained.source_message_id || undefined : sourceMessageId,
+            assistDraftId: sameIntent ? retained.assist_draft_id || undefined : assistDraftId,
             training: deliveryTraining,
             platformType, isConnected, sendWsMessage, updateMessage: updateMessageByClientMsgNo,
           });
@@ -347,13 +357,27 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
         clearHistoricalMessages(channelId, channelType);
         await loadMessageContext(channelId, channelType, targetLoc.messageSeq, 20);
         if (!cancelled) {
-          setScrollToSeq(targetLoc.messageSeq);
+          const loaded = useChatStore.getState().historicalMessages[
+            getChannelKey(channelId, channelType)
+          ] || [];
+          if (loaded.some(message => message.message_seq === targetLoc.messageSeq)) {
+            setScrollToSeq(targetLoc.messageSeq);
+          } else {
+            showToast('warning',
+              t('chat.search.locateFailedTitle', '未能定位消息'),
+              t('chat.search.locateFailedDesc', '该消息可能已被删除或暂不可用'));
+          }
         }
       } catch {
         showToast('warning', t('chat.search.locateFailedTitle','\u672a\u80fd\u5b9a\u4f4d\u6d88\u606f'), t('chat.search.locateFailedDesc','\u8be5\u6d88\u606f\u53ef\u80fd\u5df2\u88ab\u5220\u9664\u6216\u6682\u4e0d\u53ef\u7528'));
       } finally {
         // Clear target to avoid repeat
-        setTargetMessageLocation(null);
+        const current = useChatStore.getState().targetMessageLocation;
+        if (current?.channelId === targetLoc.channelId
+          && current.channelType === targetLoc.channelType
+          && current.messageSeq === targetLoc.messageSeq) {
+          setTargetMessageLocation(null);
+        }
       }
     };
     void locate();
@@ -401,6 +425,9 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
       </div>
 
       {/* Message Input */}
+      {channelType === 251 && channelId?.endsWith('-vtr') && (
+        <ShadowReviewPanel key={`${user?.id || ''}:${channelId}`} visitorId={channelId.slice(0, -4)} />
+      )}
       {deliveryRestoreError && !deliveryReady && (
         <div role="alert" className="px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
           {t('chat.delivery.restoreFailed')}

@@ -16,7 +16,10 @@ from app.core.config import settings
 from app.db.models import MessageMedia, Platform, WeComInbox, WeComSyncJob
 from app.domain.entities import NormalizedMessage
 from app.domain.ports import MessageNormalizer, TgoApiClient, SSEManager
-from app.domain.services.dispatcher import process_message
+from app.domain.services.dispatcher import UnsentReplyFailure, process_message
+from app.domain.services.wecom_native import handle_native_record, reconcile_native_handoffs
+from app.domain.services.inbox_reliability import safe_failure_diagnostic
+from app.domain.services.listeners.wecom_failure_notice import WeComFailureNotifier
 from app.domain.services.wecom_credentials import resolve_wecom_kf_secret
 from app.domain.services.media.storage import MediaStorage
 from app.domain.services.media.wecom_bridge import WeComMediaBridge
@@ -43,6 +46,12 @@ class WeComPlatformConfig(BaseModel):
     max_retry_attempts: int = 3
     consumer_poll_interval_seconds: int = 5
     processing_lease_seconds: int = 300
+    native_handoff_enabled: bool = False
+    native_open_kfid: str = ""
+    native_capacity: int = 20
+    app_notification_enabled: bool = False
+    app_notification_users: list[str] = []
+    app_notification_base_url: str = ""
 
 
 @dataclass
@@ -52,6 +61,10 @@ class _PlatformEntry:
     api_key: str | None
     cfg: WeComPlatformConfig
     platform_type: str  # "wecom" (KF) or "wecom_bot"
+
+
+class MediaPreparationFailure(RuntimeError):
+    """WeCom media could not be prepared before any customer reply was sent."""
 
 
 class WeComChannelListener:
@@ -76,10 +89,11 @@ class WeComChannelListener:
         self._sse_manager = sse_manager
         self._media_storage = media_storage
         self._media_bridge = media_bridge
+        self._failure_notifier = WeComFailureNotifier(session_factory)
         self._stop_event = asyncio.Event()
         self._consumer_task: asyncio.Task | None = None
         self._visitor_service = VisitorService(
-            base_url=settings.api_base_url,
+            base_url=settings.api_internal_service_url,
             cache_ttl_seconds=300,
             redis_url=settings.redis_url,
         )
@@ -91,7 +105,7 @@ class WeComChannelListener:
                 self._stop_event = asyncio.Event()
             if self._visitor_service_closed:
                 self._visitor_service = VisitorService(
-                    base_url=settings.api_base_url,
+                    base_url=settings.api_internal_service_url,
                     cache_ttl_seconds=300,
                     redis_url=settings.redis_url,
                 )
@@ -134,7 +148,7 @@ class WeComChannelListener:
                     platform_type=platform_type or "wecom",
                 ))
             except Exception as e:
-                print(f"[WECOM] Skip platform {pid}: invalid config: {e}")
+                logging.error("[WECOM] Invalid platform configuration: platform_id=%s error_type=%s", pid, safe_failure_diagnostic(e))
         return platforms
 
     async def _consumer_loop(self) -> None:
@@ -145,13 +159,18 @@ class WeComChannelListener:
                     try:
                         await self._process_sync_jobs_for_platform(p)
                         await self._process_pending_for_platform(p)
+                        await reconcile_native_handoffs(p)
                     except Exception as e:
-                        logging.exception("[WECOM] Consumer error for platform %s: %s", p.id, e)
+                        logging.error("[WECOM] Consumer error: platform_id=%s error_type=%s", p.id, safe_failure_diagnostic(e))
+                    try:
+                        await self._failure_notifier.process_platform(p)
+                    except Exception as e:
+                        logging.error("[WECOM] Media failure notice error: platform_id=%s error_type=%s", p.id, safe_failure_diagnostic(e))
                 # Sleep using first platform's interval or default
                 interval = platforms[0].cfg.consumer_poll_interval_seconds if platforms else 5
                 await asyncio.sleep(max(1, int(interval)))
             except Exception as e:
-                logging.exception("[WECOM] Consumer supervisor error: %s", e)
+                logging.error("[WECOM] Consumer supervisor error: error_type=%s", safe_failure_diagnostic(e))
                 await asyncio.sleep(5)
 
 
@@ -210,7 +229,7 @@ class WeComChannelListener:
             await session.commit()
             return record
         except Exception as e:
-            logging.exception("[WECOM] Claiming record failed: %s", e)
+            logging.error("[WECOM] Claiming record failed: error_type=%s", safe_failure_diagnostic(e))
             await session.rollback()
             raise
 
@@ -363,7 +382,7 @@ class WeComChannelListener:
                 display_name = (profile or {}).get("nickname")
                 avatar_url = (profile or {}).get("avatar")
         except Exception as e:
-            print(f"[WECOM] Fetch visitor profile failed for {external_user_id}: {e}")
+            logging.warning("[WECOM] Visitor profile lookup failed: error_type=%s", safe_failure_diagnostic(e))
         return display_name, avatar_url
 
     def _attach_profile_to_extra(self, mapped_raw: dict[str, Any], display_name: str | None, avatar_url: str | None) -> None:
@@ -395,7 +414,7 @@ class WeComChannelListener:
                 avatar_url=avatar_url,
             )
         except Exception as e:
-            print(f"[WECOM] Visitor registration failed for {platform.id}: {e}")
+            logging.warning("[WECOM] Visitor registration failed: platform_id=%s error_type=%s", platform.id, safe_failure_diagnostic(e))
             return None
 
     async def _finalize_success(self, session: AsyncSession, record: WeComInbox, reply_text: str | None) -> None:
@@ -418,25 +437,40 @@ class WeComChannelListener:
         max_retries: int,
     ) -> None:
         """Mark record as failed with retry increment and error message, preserving logs."""
-        logging.error(
-            "[WECOM] Processing failed for platform_id=%s message_id=%s: %s",
-            platform.id,
-            record.message_id,
-            error,
-        )
+        logging.error("[WECOM] Processing failed: platform_id=%s error_type=%s", platform.id, safe_failure_diagnostic(error))
         now = datetime.now(timezone.utc)
         retry_count = int(record.retry_count or 0) + 1
-        record.status = "dead" if retry_count > max_retries else "failed"
+        exhausted = retry_count > max_retries
+        is_customer_media = (
+            record.msg_type in {"image", "voice"}
+            and record.source_type == "wecom_kf"
+            and not record.is_from_colleague
+        )
+        failed_before_send = isinstance(
+            error, (MediaPreparationFailure, UnsentReplyFailure)
+        )
+        # If an outbound send might have succeeded, another attempt could
+        # deliver a duplicate reply even before the retry budget is exhausted.
+        terminal = exhausted or (is_customer_media and not failed_before_send)
+        if exhausted and is_customer_media and failed_before_send:
+            record.status = "media_failed"
+        else:
+            record.status = "dead" if terminal else "failed"
+        if terminal and is_customer_media and not failed_before_send:
+            # An outbound timeout may have delivered the reply. Require review
+            # instead of sending another potentially duplicate customer message.
+            record.failure_notice_status = "needs_attention"
+            record.failure_notice_error = "reply outcome requires review"
         record.processed_at = now
         record.processing_started_at = None
         record.lease_expires_at = None
         record.retry_count = retry_count
         record.next_attempt_at = (
             None
-            if record.status == "dead"
+            if terminal
             else now + timedelta(seconds=max(1, 2 ** (retry_count - 1)))
         )
-        record.error_message = str(error)[:2000]
+        record.error_message = safe_failure_diagnostic(error)
         await session.commit()
 
     async def _get_or_register_visitor(
@@ -468,7 +502,7 @@ class WeComChannelListener:
                 return cached, display_name, avatar_url
         except Exception as e:
             # Cache access errors shouldn't stop processing
-            print(f"[WECOM] Visitor cache lookup failed for {platform.id}: {e}")
+            logging.warning("[WECOM] Visitor cache lookup failed: platform_id=%s error_type=%s", platform.id, safe_failure_diagnostic(e))
 
         # Cache miss: try to fetch profile from WeCom to enrich registration
         # Only for wecom_kf (customer service) - wecom_bot doesn't have external contact APIs
@@ -486,7 +520,7 @@ class WeComChannelListener:
                 display_name = (profile or {}).get("nickname")
                 avatar_url = (profile or {}).get("avatar")
             except Exception as e:
-                print(f"[WECOM] Fetch visitor profile failed for {external_user_id}: {e}")
+                logging.warning("[WECOM] Visitor profile lookup failed: error_type=%s", safe_failure_diagnostic(e))
         elif source_type == "wecom_bot":
             # For wecom_bot, try to extract name from raw_payload
             try:
@@ -509,7 +543,7 @@ class WeComChannelListener:
                     avatar_url=avatar_url,
                 )
             except Exception as e:
-                print(f"[WECOM] Visitor registration failed for {platform.id}: {e}")
+                logging.warning("[WECOM] Visitor registration failed: platform_id=%s error_type=%s", platform.id, safe_failure_diagnostic(e))
         return visitor, display_name, avatar_url
 
     async def _prepare_media_message(
@@ -587,7 +621,7 @@ class WeComChannelListener:
                     if job.status == "dead"
                     else now + timedelta(seconds=max(1, 2 ** (retry_count - 1)))
                 )
-                job.error_message = str(error)[:2000]
+                job.error_message = safe_failure_diagnostic(error)
             await session.commit()
 
     async def _process_sync_jobs_for_platform(self, platform: _PlatformEntry) -> None:
@@ -632,6 +666,8 @@ class WeComChannelListener:
                         open_kf_id=open_kfid,
                         platform_id=platform.id,
                         db=sync_session,
+                        include_native_context=(platform.cfg.native_handoff_enabled
+                            and open_kfid == platform.cfg.native_open_kfid),
                     )
             except asyncio.CancelledError:
                 await self._finalize_sync_job(
@@ -642,17 +678,15 @@ class WeComChannelListener:
                 raise
             except WeComSyncContinuation as exc:
                 logging.info(
-                    "[WECOM] KF sync will continue for platform_id=%s open_kfid=%s",
+                    "[WECOM] KF sync will continue for platform_id=%s",
                     platform.id,
-                    open_kfid,
                 )
                 await self._finalize_sync_job(job_id, exc, max_retries)
             except Exception as exc:
-                logging.exception(
-                    "[WECOM] KF sync job failed for platform_id=%s open_kfid=%s: %s",
+                logging.error(
+                    "[WECOM] KF sync job failed: platform_id=%s error_type=%s",
                     platform.id,
-                    open_kfid,
-                    exc,
+                    safe_failure_diagnostic(exc),
                 )
                 await self._finalize_sync_job(job_id, exc, max_retries)
             else:
@@ -669,21 +703,34 @@ class WeComChannelListener:
                     return
 
                 try:
-                    mapped_raw: dict[str, Any] = self._build_mapped_message(platform, record)
-                    visitor, display_name, avatar_url = await self._get_or_register_visitor(
-                        platform,
-                        record,
-                    )
-                    self._attach_profile_to_extra(mapped_raw, display_name, avatar_url)
-
-                    if record.msg_type in {"image", "voice"}:
-                        if visitor is None:
-                            raise RuntimeError("WeCom visitor registration is unavailable")
-                        await self._prepare_media_message(
-                            db, platform, record, uuid.UUID(str(visitor.id)), mapped_raw,
+                    if await handle_native_record(platform, record, self._visitor_service):
+                        await self._finalize_success(db, record, None)
+                        continue
+                    try:
+                        mapped_raw: dict[str, Any] = self._build_mapped_message(platform, record)
+                        visitor, display_name, avatar_url = await self._get_or_register_visitor(
+                            platform,
+                            record,
                         )
-
-                    message: NormalizedMessage = await self._normalizer.normalize(mapped_raw)
+                        self._attach_profile_to_extra(mapped_raw, display_name, avatar_url)
+                        if record.msg_type in {"image", "voice"}:
+                            if visitor is None:
+                                raise RuntimeError("WeCom visitor registration is unavailable")
+                            await self._prepare_media_message(
+                                db, platform, record, uuid.UUID(str(visitor.id)), mapped_raw,
+                            )
+                        message: NormalizedMessage = await self._normalizer.normalize(mapped_raw)
+                    except Exception as exc:
+                        if (
+                            record.msg_type in {"image", "voice"}
+                            and record.source_type == "wecom_kf"
+                            and not record.is_from_colleague
+                        ):
+                            raise MediaPreparationFailure(
+                                "WeCom media preparation failed before reply: "
+                                f"{type(exc).__name__}"
+                            ) from exc
+                        raise
                     reply_text = await process_message(
                         msg=message,
                         db=db,

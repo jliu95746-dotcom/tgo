@@ -39,8 +39,10 @@ def client(monkeypatch):
 @pytest.mark.parametrize("success", [True, False])
 async def test_record_covers_build_and_whole_execution(client, success):
     ctx = context()
+    ctx.execution_id = uuid4()
     async with module.track_device_execution(ctx) as execution:
         assert execution is not None
+        assert execution.identity.session_id == ctx.execution_id
         assert module.current_device_execution() is execution
         client.start_session.assert_awaited_once_with(execution.identity)
         client.finish_session.assert_not_awaited()
@@ -50,6 +52,15 @@ async def test_record_covers_build_and_whole_execution(client, success):
     client.finish_session.assert_awaited_once_with(
         execution.identity, "completed" if success else "failed"
     )
+
+
+async def test_workflow_device_execution_keeps_trusted_parent_run(client):
+    parent = uuid4()
+    ctx = context(parent_workflow_execution_id=parent)
+    async with module.track_device_execution(ctx) as execution:
+        assert execution is not None
+        assert execution.identity.workflow_execution_id == parent
+    client.start_session.assert_awaited_once_with(execution.identity)
 
 
 @pytest.mark.parametrize("skip", ["unbound", "disabled", "expression"])

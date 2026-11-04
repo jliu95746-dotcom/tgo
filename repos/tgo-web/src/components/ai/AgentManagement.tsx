@@ -3,7 +3,19 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import AgentCard from './AgentCard';
 import CreateAgentModal from './CreateAgentModal';
+import ScenarioLibrary from '@/components/business/ScenarioLibrary';
+import DeviceAgentSetupEntry from '@/components/business/DeviceAgentSetupEntry';
+import AgentTrialDialog from '@/components/business/AgentTrialDialog';
+import AgentActivationDialog from '@/components/business/AgentActivationDialog';
+import { initialRoleSettings } from '@/utils/agentScenarioForm';
+import { useScenarioDraftStore } from '@/stores/scenarioDraftStore';
+import { useScenarioPreparationStore } from '@/stores/scenarioPreparationStore';
+import { useScenarioResourceStore } from '@/stores/scenarioResourceStore';
+import { preparationAgentResources } from '@/utils/scenarioPreparation';
+import type { BusinessScenario } from '@/types/businessScenarios';
 import EditAgentModal from './EditAgentModal';
+import WorkflowReleaseAuditPanel from './WorkflowReleaseAuditPanel';
+import WorkflowPinTransitionHistoryPanel from './WorkflowPinTransitionHistoryPanel';
 import ToolDetailModal from '@/components/ui/ToolDetailModal';
 import { agentToolDetails } from '@/utils/agentToolDetails';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -38,6 +50,7 @@ const AgentManagement: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const projectId = useAuthStore(state => state.user?.project_id);
+  const trialIdentity = useAuthStore(state => state.user?.role === 'admin' ? `${state.user.project_id}:${state.user.id}` : null);
   const loadModelCheck = useAgentReadinessStore(state => state.load);
   useEffect(() => {
     if (projectId) void loadModelCheck(projectId, true);
@@ -59,8 +72,20 @@ const AgentManagement: React.FC = () => {
   // 模态框状态
   const [selectedTool, setSelectedTool] = useState<AgentToolResponse | null>(null);
   const [showEditAgent, setShowEditAgent] = useState(false);
+  const [trialAgent, setTrialAgent] = useState<{ agent: Agent; identity: string } | null>(null);
+  const [activationAgent, setActivationAgent] = useState<{ agent: Agent; identity: string } | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [auditAgentId, setAuditAgentId] = useState<string | null>(null);
+  const [auditRevision, setAuditRevision] = useState(0);
+  useEffect(() => {
+    setTrialAgent(null);
+    setActivationAgent(null);
+    setShowEditAgent(false);
+    setShowDeleteConfirm(false);
+    setSelectedAgent(null);
+    setAuditAgentId(null);
+  }, [trialIdentity]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -170,7 +195,28 @@ const AgentManagement: React.FC = () => {
   }, [agents, currentPage, pageSize, searchQuery]);
 
   const handleCreateAgent = (): void => {
+    useScenarioDraftStore.getState().startNew();
     setShowCreateAgentModal(true);
+  };
+
+  const handleUseScenario = (scenario: BusinessScenario) => {
+    useScenarioDraftStore.getState().startNew();
+    const state = useAIStore.getState();
+    state.resetCreateAgentForm();
+    const entry = useScenarioPreparationStore.getState().current('agents', scenario.id);
+    const catalog = useScenarioResourceStore.getState().catalog;
+    const resources = entry?.status === 'checked' && entry.report && catalog
+      ? preparationAgentResources(entry.report, catalog) : {};
+    state.setCreateAgentFormData({
+      ...initialRoleSettings(scenario.id, useAIStore.getState().createAgentFormData),
+      ...resources,
+      scenarioId: scenario.id,
+      name: t(`businessScenarios.scenes.${scenario.id}.title`),
+      profession: t(`businessScenarios.scenes.${scenario.id}.title`),
+      description: `${t(`businessScenarios.scenes.${scenario.id}.benefit`)}\n${t(`businessScenarios.scenes.${scenario.id}.steps`)}\n基于已接入的知识库和业务工具回答。缺少资料或查询结果时说明情况并请求人工协助。退款、取消订单等操作由人工处理。`,
+    });
+    state.setShowCreateAgentModal(true);
+    useScenarioDraftStore.getState().setStep('business');
   };
 
   const handleChatWithDefaultAgent = (): void => {
@@ -204,9 +250,18 @@ const AgentManagement: React.FC = () => {
   }, [loadAgents, showError, t]);
 
   const handleAgentAction = (actionType: string, agent: Agent): void => {
+    if (['activation', 'edit', 'view', 'copy', 'delete', 'refresh'].includes(actionType)
+      && useAuthStore.getState().user?.role !== 'admin') return;
     setSelectedAgent(agent);
+    setAuditAgentId(null);
 
     switch (actionType) {
+      case 'activation':
+        if (trialIdentity) setActivationAgent({ agent, identity: trialIdentity });
+        break;
+      case 'trial':
+        if (trialIdentity) setTrialAgent({ agent, identity: trialIdentity });
+        break;
       case 'view':
       case 'edit':
         setShowEditAgent(true);
@@ -254,9 +309,10 @@ const AgentManagement: React.FC = () => {
   };
 
   const handleRefreshAgent = async (agent: Agent): Promise<void> => {
+    if (agent.status !== 'active') { handleAgentAction('activation', agent); return; }
     try {
       await updateAgent(agent.id, {
-        status: agent.status === 'active' ? 'inactive' : 'active'
+        status: 'inactive'
       });
       showSuccess(
         t('agents.messages.statusUpdateSuccess', '刷新成功'),
@@ -304,9 +360,9 @@ const AgentManagement: React.FC = () => {
   };
 
   return (
-    <main className="flex-grow flex flex-col bg-[#f8fafc] dark:bg-gray-950 overflow-hidden">
+    <main className="min-h-0 min-w-0 flex-1 flex flex-col bg-[#f8fafc] dark:bg-gray-950 overflow-hidden">
       {/* Header */}
-      <header className="px-8 py-5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col xl:flex-row xl:items-center justify-between gap-4 sticky top-0 z-30">
+      <header className="shrink-0 px-4 py-4 sm:px-8 sm:py-5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 flex flex-col xl:flex-row xl:items-center justify-between gap-4 sticky top-0 z-30">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2 whitespace-nowrap">
             <Bot className="w-7 h-7 text-blue-600" />
@@ -350,6 +406,7 @@ const AgentManagement: React.FC = () => {
             <button
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl shadow-lg shadow-blue-200 dark:shadow-none transition-all active:scale-95"
               onClick={handleCreateAgent}
+              aria-label={t('agents.actions.create', '创建AI员工')}
             >
               <LuPlus className="w-4 h-4" />
               <span className="hidden sm:inline">{t('agents.actions.create', '创建AI员工')}</span>
@@ -359,8 +416,8 @@ const AgentManagement: React.FC = () => {
       </header>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <div className="max-w-[1600px] mx-auto p-8 space-y-8">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+        <div className="max-w-[1600px] mx-auto p-4 space-y-6 sm:p-8 sm:space-y-8">
           {/* Quick Actions / Default Agent */}
           <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-3xl p-6 text-white shadow-xl shadow-blue-200 dark:shadow-none flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
@@ -385,6 +442,19 @@ const AgentManagement: React.FC = () => {
             </div>
           </div>
 
+          <DeviceAgentSetupEntry />
+          {trialIdentity && <WorkflowReleaseAuditPanel key={trialIdentity} identity={trialIdentity} revision={auditRevision} onChanged={() => {
+            setAuditRevision(value => value + 1);
+            void loadAgents();
+          }} onReview={agentId => {
+            const user = useAuthStore.getState().user;
+            if (user?.role !== 'admin' || `${user.project_id}:${user.id}` !== trialIdentity) return;
+            setAuditAgentId(agentId);
+            setShowEditAgent(true);
+          }} />}
+          {trialIdentity && <WorkflowPinTransitionHistoryPanel key={`history:${trialIdentity}`}
+            identity={trialIdentity} revision={auditRevision} agents={agents} />}
+          <ScenarioLibrary module="agents" hasResources={agents.length > 0} onUse={handleUseScenario} />
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">{t('agents.listTitle', 'AI员工列表')}</h3>
@@ -470,7 +540,9 @@ const AgentManagement: React.FC = () => {
         onClose={() => setSelectedTool(null)}
       />
       <CreateAgentModal />
-      <EditAgentModal agentId={selectedAgent?.id || null} isOpen={showEditAgent} onClose={() => setShowEditAgent(false)} />
+      {trialAgent && trialAgent.identity === trialIdentity && <AgentTrialDialog key={trialIdentity} agent={trialAgent.agent} onClose={() => setTrialAgent(null)} />}
+      {activationAgent && activationAgent.identity === trialIdentity && <AgentActivationDialog key={`${trialIdentity}:${activationAgent.agent.id}`} agent={activationAgent.agent} onClose={() => setActivationAgent(null)} onTrial={() => { setTrialAgent(activationAgent); setActivationAgent(null); }} />}
+      <EditAgentModal key={trialIdentity ?? 'unavailable'} agentId={auditAgentId ?? selectedAgent?.id ?? null} isOpen={showEditAgent} onClose={() => { setShowEditAgent(false); setAuditAgentId(null); setAuditRevision(value => value + 1); }} />
       
 
       <ConfirmDialog

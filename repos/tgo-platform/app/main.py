@@ -3,6 +3,7 @@ import asyncio
 import base64
 import uuid
 import logging
+from time import perf_counter
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from fastapi import FastAPI, Request
@@ -14,6 +15,7 @@ from app.api.v1 import platforms as platforms_v1
 from app.api.v1 import callbacks as callbacks_v1
 from app.api.v1 import internal as internal_v1
 from app.api.v1 import billing_receipts
+from app.api.v1 import metrics as metrics_v1
 from app.infra.http import HttpxTgoApiClient
 from app.infra.sse import DefaultSSEManager
 from app.db.base import SessionLocal
@@ -28,6 +30,7 @@ from app.domain.services.media.storage import (
 )
 from app.domain.services.media.wecom_bridge import WeComMediaBridge
 from app.domain.services.media.observability import InMemoryMediaMetrics
+from app.domain.services.callback_observability import CallbackMetrics
 from app.domain.services.media.wecom_downloader import WeComMediaDownloader
 from app.domain.services.listeners.wukongim_listener import WuKongIMChannelListener
 from app.domain.services.listeners.feishu_listener import FeishuChannelListener
@@ -68,9 +71,11 @@ async def lifespan(app: FastAPI):
     media_storage = None
     media_bridge = None
     if settings.media_cleanup_enabled:
+        media_object_deleter = LocalMediaObjectDeleter(root=media_storage_path)
         app.state.media_cleanup_listener = MediaCleanupListener(
             session_factory=SessionLocal,
-            object_deleter=LocalMediaObjectDeleter(root=media_storage_path),
+            object_deleter=media_object_deleter,
+            temporary_cleaner=media_object_deleter,
             metrics=app.state.media_metrics,
         )
     if settings.media_ingestion_enabled:
@@ -205,6 +210,7 @@ async def lifespan(app: FastAPI):
         await app.state.tgo_api_client.aclose()
 
 app = FastAPI(lifespan=lifespan, docs_url="/v1/docs", redoc_url="/v1/redoc")
+app.state.callback_metrics = CallbackMetrics()
 
 # Register global exception handlers and request ID middleware
 register_exception_handlers(app)
@@ -218,6 +224,27 @@ async def add_request_id(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def observe_platform_callback(request: Request, call_next):
+    if request.method != "POST" or not request.url.path.startswith(
+        "/v1/platforms/callback/"
+    ):
+        return await call_next(request)
+
+    started_at = perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        request.app.state.callback_metrics.observe(
+            channel=getattr(request.state, "callback_channel", "other"),
+            status_code=status_code,
+            duration_seconds=perf_counter() - started_at,
+        )
+
+
 
 
 
@@ -228,3 +255,4 @@ app.include_router(callbacks_v1.router, tags=["callbacks"])
 
 app.include_router(internal_v1.router, tags=["internal"])
 app.include_router(billing_receipts.router, tags=["internal billing"])
+app.include_router(metrics_v1.router, tags=["internal metrics"])

@@ -1,17 +1,28 @@
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictBool
 from typing import Optional, Dict, Any
 from datetime import datetime
+from uuid import UUID
+
+
+class ToolAvailability(BaseModel):
+    """Narrow receipt from the AI service for a tool dependency."""
+    model_config = ConfigDict(extra="forbid")
+    tool_id: UUID
+    project_id: UUID
+    available: StrictBool
+    workflow_read_only: StrictBool
 
 class ToolExecuteRequest(BaseModel):
-    """Request schema for executing a tool."""
-    inputs: Dict[str, JsonValue] = Field(..., description="Input parameters for the tool")
+    """Direct execution contract accepted by tgo-ai /tools/{id}/execute."""
+    model_config = ConfigDict(extra="forbid")
+    input_data: Dict[str, JsonValue] = Field(..., description="Input parameters for the tool")
 
 class ToolExecuteResponse(BaseModel):
-    """Response schema for tool execution."""
-    success: bool = Field(..., description="Whether the tool execution was successful")
-    result: Optional[JsonValue] = Field(None, description="The result of the tool execution")
+    """Direct execution response returned by tgo-ai."""
+    model_config = ConfigDict(extra="forbid")
+    success: StrictBool = Field(..., description="Whether the tool execution was successful")
+    output_data: JsonValue = Field(..., description="The tool output, including JSON null")
     error: Optional[str] = Field(None, description="Error message if the execution failed")
-    execution_time: Optional[float] = Field(None, description="Time taken to execute the tool in seconds")
 
 class ToolResponse(BaseModel):
     """Schema for Tool API responses, simplified for workflow engine usage."""

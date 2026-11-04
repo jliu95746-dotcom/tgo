@@ -1,10 +1,11 @@
 """Workflow Service client for external workflow data retrieval."""
 
-import uuid
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
+from uuid import UUID
 
 import httpx
 from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
 
 from app.config import settings
 from app.exceptions import NotFoundError, ValidationError
@@ -19,7 +20,38 @@ class WorkflowData(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Workflow tags")
     status: str = Field(description="Current status")
     version: int = Field(description="Version number")
-    updated_at: str = Field(description="Last update time")
+    published_version: Optional[int] = None
+    enabled: bool = True
+    bound_release_version: Optional[int] = None
+    bound_release_id: Optional[str] = None
+    bound_release_digest: Optional[str] = None
+    details_available: bool = True
+    updated_at: Optional[str] = Field(description="Last update time, null if details are unavailable")
+
+
+class WorkflowInputParameter(BaseModel):
+    name: str
+    type: str = "string"
+    description: Optional[str] = None
+    required: bool = False
+
+
+class WorkflowBusinessQueryDependency(BaseModel):
+    connection_id: UUID
+    operation: Literal["order_query", "logistics_query"]
+
+
+class WorkflowIntegrationRelease(BaseModel):
+    """Verified fixed publication contract returned by tgo-workflow."""
+
+    workflow_id: str
+    release_version: int = Field(ge=1)
+    release_id: str
+    definition_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    input_parameters: List[WorkflowInputParameter] = Field(default_factory=list)
+    node_types: Optional[List[str]] = None
+    required_business_queries: Optional[List[WorkflowBusinessQueryDependency]] = None
+    approval_actions: Optional[List[str]] = None
 
 
 class WorkflowBatchResponse(BaseModel):
@@ -56,9 +88,6 @@ class WorkflowServiceClient:
             return []
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            print(f"Getting workflows from {self.base_url}/v1/workflows/batch")
-            print(f"Project ID: {project_id}")
-            print(f"Workflow IDs: {workflow_ids}")
             try:
                 response = await client.get(
                     f"{self.base_url}/v1/workflows/batch",
@@ -94,6 +123,55 @@ class WorkflowServiceClient:
                     "workflows",
                     {"status_code": e.response.status_code}
                 )
+
+    async def resolve_published_bindings(
+        self, workflow_ids: List[str], project_id: str,
+        selected_versions: Optional[Dict[str, int]] = None,
+    ) -> Dict[str, WorkflowIntegrationRelease]:
+        """Pin the active release and digest when an employee is saved."""
+        selected_versions = selected_versions or {}
+        if not set(selected_versions).issubset(set(workflow_ids)):
+            raise ValidationError("指定版本的工作流必须已关联员工", "workflow_release_versions")
+        if any(type(version) is not int or version < 1
+               for version in selected_versions.values()):
+            raise ValidationError("工作流发布版本必须是正整数", "workflow_release_versions")
+        if not workflow_ids:
+            return {}
+        workflows = await self.get_workflows_batch(workflow_ids, project_id)
+        found = {workflow.id for workflow in workflows}
+        if found != set(workflow_ids):
+            raise NotFoundError("Workflow")
+        resolved: Dict[str, WorkflowIntegrationRelease] = {}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            for workflow in workflows:
+                current_version = workflow.published_version
+                if (workflow.status != "active" or current_version is None
+                        or current_version < 1):
+                    raise ValidationError(
+                        "请先发布所选工作流，再关联为员工业务能力。", "workflows"
+                    )
+                version = selected_versions.get(workflow.id, current_version)
+                try:
+                    response = await client.get(
+                        f"{self.base_url}/v1/workflows/{workflow.id}/releases/"
+                        f"{version}/integration",
+                        params={"project_id": project_id},
+                    )
+                    response.raise_for_status()
+                    release = WorkflowIntegrationRelease.model_validate(response.json())
+                except (httpx.RequestError, httpx.HTTPStatusError, PydanticValidationError, ValueError) as exc:
+                    raise ValidationError(
+                        "工作流发布版本无法核验，请稍后重试。", "workflows"
+                    ) from exc
+                if (
+                    release.workflow_id != workflow.id
+                    or release.release_version != version
+                ):
+                    raise ValidationError(
+                        "工作流发布版本与当前项目不一致。", "workflows"
+                    )
+                resolved[workflow.id] = release
+        return resolved
 
     async def validate_workflows_exist(
         self,

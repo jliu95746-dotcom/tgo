@@ -32,7 +32,9 @@ async def server(monkeypatch):
         server_module.DeviceService, "update_device_status", AsyncMock()
     )
     session = MagicMock()
-    session.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
+    database = MagicMock()
+    database.get = AsyncMock(return_value=None)
+    session.return_value.__aenter__ = AsyncMock(return_value=database)
     session.return_value.__aexit__ = AsyncMock(return_value=False)
     monkeypatch.setattr(server_module, "AsyncSessionLocal", session)
     instance = TcpRpcServer("127.0.0.1", 0)
@@ -175,3 +177,44 @@ async def test_cancelled_reconnect_does_not_leave_unowned_connection(server):
         await task
     assert manager.get_connection(device_id) is None
     new_writer.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("new_registration", [True, False])
+async def test_auth_reply_precedes_heartbeat_while_status_commit_waits(
+    server, monkeypatch, new_registration
+):
+    """A slow status commit must not expose the socket before its auth reply."""
+    instance, manager, _, _ = server
+    original_result = instance._authenticate.return_value
+    instance._authenticate.return_value = (*original_result[:-1], new_registration)
+    registered = asyncio.Event()
+    release_status_commit = asyncio.Event()
+
+    async def slow_status_commit(*args):
+        registered.set()
+        await release_status_commit.wait()
+
+    monkeypatch.setattr(
+        server_module.DeviceService, "update_device_status", slow_status_commit
+    )
+    monkeypatch.setattr(server_module.settings, "HEARTBEAT_INTERVAL", 0.005)
+    await manager.initialize()
+    port = instance.server.sockets[0].getsockname()[1]
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        writer.write(b'{"jsonrpc":"2.0","id":17,"method":"auth","params":{}}\n')
+        await writer.drain()
+        await asyncio.wait_for(registered.wait(), 1)
+        # Let the actual heartbeat loop tick while registration awaits commit.
+        await asyncio.sleep(0.03)
+        release_status_commit.set()
+        first_frame = json.loads(await asyncio.wait_for(reader.readline(), 1))
+        assert first_frame.get("id") == 17
+        assert "method" not in first_frame
+        assert first_frame["result"]["status"] == "ok"
+        assert ("deviceToken" in first_frame["result"]) is new_registration
+    finally:
+        release_status_commit.set()
+        writer.close()
+        await writer.wait_closed()

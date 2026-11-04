@@ -10,7 +10,32 @@ export const operationsWorkspaceZh = {
   adjustCredits: '调整 AI 额度', suspend: '暂停服务', restore: '恢复服务', delta: '调整次数（正数增加，负数扣除）', creditHint: '扣除只影响尚未使用且未预占的次数；追加次数需设置有效期。', stateHint: '将变更商家的服务状态，套餐、订单和历史记录会继续保留。恢复后仍需具有有效授权。', memberHint: '账号权限变更会让旧登录凭证失效。系统会保护最后一个管理员；停用账号前需转交正在接待的会话。', emailHint: '重置邮件发送到该账号已验证的邮箱，由账号本人设置新密码。', emailQueued: '密码重置邮件已加入发送队列',
   operator: '操作人', action: '操作类型', time: '时间', changes: '查看变更明细', summary: '当前配置', services: '编辑服务与默认模型', usage: '调用记录', connectionTest: '测试服务连接', testHint: '测试已保存的服务地址和凭证；不代表所有模型的实际推理均已验证。未保存的修改不参与测试。', version: '配置版本 {{version}}', model: '默认模型', service: '模型服务', credential: '凭证', configured: '已配置', missing: '未配置', sync: '同步状态', syncComplete: '所有商家配置已同步', syncPending: '正在同步 / 待同步', syncFailed: '同步失败，请核对服务后重新发布',
   financialTabs: { orders: '订单', refunds: '退款', invoices: '发票', reconciliation: '对账', quotaReview: '额度核对' }, monitorTabs: { health: '服务状态', tasks: '任务处理', readiness: '上线检查' }, planTabs: { catalogue: '套餐管理', policy: '试用规则', codes: '试用激活码' },
-  auditActions: { 'authorization.change': '商家授权调整', 'member.change': '账号权限调整', 'member.reset_email': '发送密码重置邮件', 'quota.adjust': 'AI 额度调整', 'company.suspend': '暂停商家服务', 'company.restore': '恢复商家服务', shared_models_change: '统一模型发布', task_retry: '任务重试' },
+  wecomDurable: {
+    title: '企业微信客服处理状态',
+    hint: '统计当前存储的客户消息、媒体任务和媒体失败提示，包含所有商家；不包含客户身份或消息内容。此处仅显示数据库状态，不代表企业微信接口连通。',
+    attention: '有失败任务、过期执行锁或待核对的失败提示',
+    clear: '暂无失败任务、过期执行锁或待核对的失败提示',
+    groups: { inbox: '客户消息', media_jobs: '媒体任务', failure_notices: '媒体失败提示' },
+    counts: { queued: '待处理', processing: '处理中', terminal_failure: '最终失败', completed: '已完成', other: '其他状态', stale_lease: '执行锁过期' },
+    notices: { pending: '待发送', sending: '发送中', submitted: '已提交发送', unknown: '结果待核对', needs_attention: '需人工处理' },
+    noticeAction: '请核对企业微信中的实际发送结果；结果未知时不要直接重发提示。',
+  },
+  sessionCommands: {
+    title: '会话操作待核对',
+    hint: '显示超过 5 分钟仍未完成的关闭或转接通知与频道同步。仅展示操作状态，不包含客户消息。',
+    attention: '{{count}} 条会话操作需要核对',
+    clear: '暂无超时的会话操作',
+    company: '商家 ID', operation: '操作编号', kind: '操作类型',
+    notice: '会话通知（尝试次数）', effects: '频道同步（尝试次数）', error: '最近错误码',
+    action: '处理', reconcileNotice: '核对通知结果',
+    reconcileHint: '只按原消息编号查询 IM 回执，不重新发送通知。系统会记录操作人、原因和核对结果。',
+    confirmReconcile: '确认核对',
+    states: {
+      close: '关闭会话', transfer: '转接会话', pending: '待处理', sending: '发送中',
+      sent: '已发送', unknown: '结果待核对', skipped: '已跳过', done: '已完成',
+    },
+  },
+  auditActions: { 'authorization.change': '商家授权调整', 'member.change': '账号权限调整', 'member.reset_email': '发送密码重置邮件', 'quota.adjust': 'AI 额度调整', 'company.suspend': '暂停商家服务', 'company.restore': '恢复商家服务', shared_models_change: '统一模型发布', task_retry: '任务重试', session_notice_reconcile: '核对会话通知回执' },
 };
 
 export const operationsWorkspaceEn = operationsWorkspaceZh;

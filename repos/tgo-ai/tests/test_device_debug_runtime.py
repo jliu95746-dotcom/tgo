@@ -37,6 +37,8 @@ async def test_device_fence_checks_the_resolved_agent_before_build(
         session_factory=Mock(), tools_runtime_service=Mock(_settings=None)
     )
     runtime._agent_service_context = service_context
+    runtime._authorize_execution = AsyncMock(return_value=resolved)
+    runtime._reference_for_execution = AsyncMock(return_value=None)
     monkeypatch.setattr(
         runtime_module,
         "AgentExecutionContext",
@@ -55,6 +57,74 @@ async def test_device_fence_checks_the_resolved_agent_before_build(
             await runtime._prepare_context(
                 request, project, {"X-Request-ID": "owned"}
             )
+
+
+@pytest.mark.asyncio
+async def test_workflow_device_policy_pin_rejects_changed_employee_policy(monkeypatch):
+    device, project, agent = uuid4(), uuid4(), uuid4()
+    resolved = SimpleNamespace(
+        id=agent, bound_device_id=str(device),
+        bound_device_policy_digest="b" * 64,
+    )
+
+    @asynccontextmanager
+    async def service_context():
+        yield Mock()
+
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.get_agent.return_value = resolved
+    monkeypatch.setattr(runtime_module, "AIServiceClient", Mock(return_value=client))
+    runtime = SupervisorRuntimeService(
+        session_factory=Mock(), tools_runtime_service=Mock(_settings=None)
+    )
+    runtime._agent_service_context = service_context
+    runtime._authorize_execution = AsyncMock(return_value=resolved)
+    runtime._reference_for_execution = AsyncMock(return_value=None)
+    request = SupervisorRunRequest(
+        agent_id=str(agent), message="测试", expected_device_id=device,
+        expected_device_policy_digest="a" * 64,
+    )
+    with pytest.raises(ValueError, match="设备读取策略已变化"):
+        await runtime._prepare_context(request, project, {"X-Request-ID": "owned"})
+
+
+def test_policy_pin_requires_device_identity():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        SupervisorRunRequest(message="测试", expected_device_policy_digest="a" * 64)
+
+
+@pytest.mark.asyncio
+async def test_workflow_cannot_run_bound_device_employee_without_policy_pin(monkeypatch):
+    device, project, agent = uuid4(), uuid4(), uuid4()
+    resolved = SimpleNamespace(
+        id=agent, bound_device_id=str(device),
+        bound_device_policy_digest="a" * 64,
+    )
+
+    @asynccontextmanager
+    async def service_context():
+        yield Mock()
+
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.get_agent.return_value = resolved
+    monkeypatch.setattr(runtime_module, "AIServiceClient", Mock(return_value=client))
+    runtime = SupervisorRuntimeService(
+        session_factory=Mock(), tools_runtime_service=Mock(_settings=None)
+    )
+    runtime._agent_service_context = service_context
+    runtime._authorize_execution = AsyncMock(return_value=resolved)
+    runtime._reference_for_execution = AsyncMock(return_value=None)
+    request = SupervisorRunRequest(agent_id=str(agent), message="测试")
+    headers = {
+        "X-Request-ID": "owned",
+        "X-Workflow-Parent-Execution-ID": str(uuid4()),
+    }
+    with pytest.raises(ValueError, match="工作流必须固定设备读取策略"):
+        await runtime._prepare_context(request, project, headers)
 
 
 @pytest.mark.asyncio

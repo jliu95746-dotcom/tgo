@@ -21,6 +21,10 @@ export interface UseNotificationReturn {
   permission: NotificationPermission;
   /** 浏览器是否支持通知 */
   isSupported: boolean;
+  /** 是否在企业微信内置网页中 */
+  isWeCom: boolean;
+  /** 最近一次请求结束后仍未取得权限 */
+  permissionRequestIncomplete: boolean;
   /** 是否正在请求权限 */
   isRequesting: boolean;
   /** 通知偏好设置 */
@@ -41,7 +45,9 @@ export const useNotification = (): UseNotificationReturn => {
     notificationService.getPermission()
   );
   const [isRequesting, setIsRequesting] = useState(false);
+  const [permissionRequestIncomplete, setPermissionRequestIncomplete] = useState(false);
   const isSupported = notificationService.isSupported();
+  const isWeCom = notificationService.isWeComEnvironment();
 
   // 从 uiStore 获取通知偏好设置
   const uiPreferences = useUIStore(state => state.preferences);
@@ -82,13 +88,15 @@ export const useNotification = (): UseNotificationReturn => {
    */
   const requestPermission = useCallback(async (): Promise<NotificationPermission> => {
     if (!isSupported) {
-      return 'denied';
+      return notificationService.getPermission();
     }
 
     setIsRequesting(true);
+    setPermissionRequestIncomplete(false);
     try {
       const result = await notificationService.requestPermission();
       setPermission(result);
+      setPermissionRequestIncomplete(result === 'default');
       return result;
     } finally {
       setIsRequesting(false);
@@ -112,6 +120,8 @@ export const useNotification = (): UseNotificationReturn => {
   return {
     permission,
     isSupported,
+    isWeCom,
+    permissionRequestIncomplete,
     isRequesting,
     preferences,
     requestPermission,

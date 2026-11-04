@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { TgoWidgetClient } from '../client.js';
 import { loadConfig, resolveOutput, resolveServer, resolveApiKey } from '../config.js';
 import { printError, printResult } from '../output.js';
+import {captureCurrentVisitorDataAccess} from '../visitorDataAccess.js';
 
 function makeClient(globals: Record<string, string>) {
   return new TgoWidgetClient({ server: resolveServer(globals.server), apiKey: resolveApiKey(globals.apiKey) });
@@ -37,6 +38,7 @@ export async function channelInfo(
 ): Promise<unknown> {
   client.requireApiKey();
   const config = loadConfig();
+  const proof = captureCurrentVisitorDataAccess(client, config);
   const channelId = params?.channelId || config.channel_id;
   const channelType = params?.channelType ?? config.channel_type;
   if (!channelId) throw new Error('No channel_id. Run: tgo-widget init');
@@ -45,7 +47,6 @@ export async function channelInfo(
   const qs = new URLSearchParams({
     channel_id: channelId,
     channel_type: String(channelType),
-    platform_api_key: client.apiKey!,
   });
-  return client.get(`/v1/channels/info?${qs.toString()}`);
+  return client.getVisitor(`/v1/channels/info?${qs.toString()}`, proof);
 }

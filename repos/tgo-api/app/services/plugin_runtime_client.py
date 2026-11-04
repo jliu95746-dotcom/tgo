@@ -6,6 +6,8 @@ import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.schemas.connection_test_protocol import ConnectionTestCommand, ConnectionTestReceipt
+from app.services.connection_test_client import request_connection_test
 
 logger = get_logger("services.plugin_runtime_client")
 
@@ -16,6 +18,10 @@ class PluginRuntimeClient:
     def __init__(self):
         self.base_url = settings.PLUGIN_RUNTIME_URL.rstrip("/")
         self.timeout = settings.PLUGIN_RUNTIME_TIMEOUT
+
+    async def test_business_connection(self, command: ConnectionTestCommand) -> ConnectionTestReceipt:
+        """Use dedicated typed transport; legacy plugin requests log raw bodies."""
+        return await request_connection_test(self.base_url, self.timeout, command)
 
     async def _request(
         self,

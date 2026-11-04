@@ -1,20 +1,13 @@
 """Visitor endpoints."""
 
-import hashlib
-import mimetypes
-import os
 import re
-import secrets
-import time
 import uuid
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status, Query
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile, status, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import case
@@ -25,11 +18,30 @@ from app.core.security import verify_token
 
 from app.services.wukongim_client import wukongim_client
 from app.services.im_access import issue_visitor_im_token
+from app.schemas.visitor_access import VisitorAccessInput
+from app.services.visitor_access import registration_access, require_access, denied as visitor_access_denied
 from app.services.reply_history import reconcile_reply_history
+from app.core.exceptions import TGOAPIException
+from app.services.visitor_data_access import (
+    require_visitor_data_access, authorize_visitor_data_channel,
+    reauthorize_visitor_data,
+)
+from app.services.visitor_history import require_owned_history_batch
+from app.api.current_access_route import CurrentAccessRoute
+from app.schemas.visitor_public_profile import VisitorPublicProfile
+from app.schemas.visitor_data_access import VisitorDataAccess
+from app.services.profile_access import require_profile_access, require_profile_visitor, profile_guard
+from app.services.staff_record_access import require_staff_record_access, staff_record_guard
+from app.services.visitor_mutation_access import begin_mutation, commit_change, create_customer, VisitorMutationScope
+from app.services.visitor_registration_output import RegistrationOrigin, registration_output
+
 from app.schemas.employee_style import EmployeeStyle
 from app.services.employee_style import resolve_employee_style
 from app.services.visitor_notifications import notify_visitor_profile_updated
+from app.services.platform_message_client import prepare_native_mode
 from app.utils.intent import localize_visitor_response_intent
+from app.models.platform import PlatformType
+from app.utils.wechat_local import is_filehelper_identity
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_VISITOR
 from app.utils.request import get_client_ip, get_client_language
 from app.services.geoip_service import geoip_service
@@ -94,7 +106,23 @@ logger = get_logger("endpoints.visitors")
 from app.services.staff_conversation_scope import (
     enforce_visitor_detail_scope, owned_visitor_ids, restricted_staff,
 )
-router = APIRouter(dependencies=[Depends(enforce_visitor_detail_scope)])
+router = APIRouter(route_class=CurrentAccessRoute, dependencies=[Depends(enforce_visitor_detail_scope)])
+
+
+async def _visitor_mutation_response(
+    request: Request, db: Session, visitor: Visitor,
+    scope: VisitorMutationScope, user_language: UserLanguage,
+) -> VisitorResponse:
+    guard = scope.guard()
+    request.state.operation_guard = guard
+    guard.check()
+    await notify_visitor_profile_updated(db, visitor)
+    guard.check()
+    response = VisitorResponse.model_validate(visitor)
+    populate_visitor_ai_settings(response, visitor.platform)
+    localize_visitor_response_intent(response, request.headers.get("Accept-Language"))
+    set_visitor_display_nickname(response, user_language)
+    return response
 
 
 @router.get("", response_model=VisitorListResponse)
@@ -113,6 +141,7 @@ async def list_visitors(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:list")),
     user_language: UserLanguage = Depends(get_user_language),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorListResponse:
     """
     List visitors.
@@ -121,6 +150,8 @@ async def list_visitors(
     online status, tags, and search query. Requires visitors:list permission.
     """
     logger.info(f"User {current_user.username} listing visitors (tag_ids={tag_ids}, recent_online_minutes={recent_online_minutes}, service_status={service_status})")
+
+    access = require_staff_record_access(db, credentials, current_user, "visitors:list")
 
     # Build query
     query = db.query(Visitor).options(
@@ -226,6 +257,10 @@ async def list_visitors(
     # Apply pagination
     visitors = query.offset(offset).limit(limit).all()
 
+    guard = staff_record_guard(access, tuple(visitor.id for visitor in visitors), "visitors:list")
+    request.state.operation_guard = guard
+    guard.check()
+
     # Convert to response models
     accept_language = request.headers.get("Accept-Language")
     visitor_responses = []
@@ -259,6 +294,7 @@ async def create_visitor(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:create")),
     user_language: UserLanguage = Depends(get_user_language),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorResponse:
     """
     Create visitor.
@@ -268,6 +304,8 @@ async def create_visitor(
     Requires visitors:create permission.
     """
     logger.info(f"User {current_user.username} creating visitor: {visitor_data.platform_open_id}")
+
+    access = require_staff_record_access(db, credentials, current_user, "visitors:create")
 
     # Determine platform_id
     platform_id = visitor_data.platform_id
@@ -340,24 +378,19 @@ async def create_visitor(
         geo_isp=geo_location.isp,
     )
 
-    db.add(visitor)
-    db.commit()
-    db.refresh(visitor)
+    visitor, output_scope = create_customer(db, access, visitor)
 
     logger.info(f"Created visitor {visitor.id} for platform {platform_id}")
 
-    await notify_visitor_profile_updated(db, visitor)
+    return await _visitor_mutation_response(request, db, visitor, output_scope, user_language)
 
-    response = VisitorResponse.model_validate(visitor)
-    populate_visitor_ai_settings(response, visitor.platform)
-    localize_visitor_response_intent(response, request.headers.get("Accept-Language"))
-    set_visitor_display_nickname(response, user_language)
-    return response
+
 
 @router.post("/register", response_model=VisitorRegisterResponse, status_code=status.HTTP_201_CREATED)
 async def register_visitor(
     request: Request,
     req: VisitorRegisterRequest,
+    response: Response,
     db: Session = Depends(get_db),
     user_language: UserLanguage = Depends(get_user_language),
 ) -> VisitorRegisterResponse:
@@ -380,23 +413,46 @@ async def register_visitor(
     if not platform:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform API key")
 
+    local_wechat = platform.type == PlatformType.WECHAT_LOCAL.value
+    if local_wechat and (
+        not is_filehelper_identity(req.platform_open_id) or req.customer_sessions
+    ):
+        raise visitor_access_denied()
+    if platform.type != "website" and not local_wechat:
+        raise HTTPException(status_code=403, detail="此渠道的访客由已验证的服务端消息接入")
+
+    from pydantic import SecretStr
+    origin = RegistrationOrigin(
+        platform.project_id, platform.id, SecretStr(req.platform_api_key), platform.type,
+    )
+    origin.check(db)
+
     # 2) Find existing or create new visitor
     normalized_open_id = (req.platform_open_id or "").strip() or None
     visitor: Optional[Visitor] = None
-    if normalized_open_id:
+    if normalized_open_id or req.visitor_id is not None:
         visitor = (
             db.query(Visitor)
             .filter(
-                Visitor.platform_open_id == normalized_open_id,
+                Visitor.id == req.visitor_id if req.visitor_id is not None else Visitor.platform_open_id == normalized_open_id,
                 Visitor.project_id == platform.project_id,
                 Visitor.platform_id == platform.id,
                 Visitor.deleted_at.is_(None),
             )
             .first()
         )
+        if req.visitor_id is not None and (visitor is None or (normalized_open_id and visitor.platform_open_id != normalized_open_id)):
+            raise visitor_access_denied()
 
     profile_changed = False
     is_new_visitor = False
+    proof = VisitorAccessInput(visitor_access_token=req.visitor_access_token, im_token=req.im_token,
+        customer_sessions=req.customer_sessions)
+    if visitor is not None:
+        # Ownership is checked before profiles, channels, notifications or IM credentials change.
+        access_secret, access = registration_access(db, visitor, proof, new=False)
+    elif proof.customer_sessions or proof.visitor_access_token is not None or proof.im_token is not None:
+        raise visitor_access_denied()
 
     # if nickname provided, nickname_zh not provided, set nickname_zh to nickname
     if req.nickname and not req.nickname_zh:
@@ -429,6 +485,9 @@ async def register_visitor(
             language=real_language,
             ip_address=real_ip,
         )
+        origin.check(db)
+        access_secret, access = registration_access(db, visitor, VisitorAccessInput(), new=True)
+        db.commit()
         profile_changed = True
     else:
         # Update existing visitor with non-None fields provided in request
@@ -486,17 +545,22 @@ async def register_visitor(
     # For new visitors, channel was already created by visitor_service.create_visitor_with_channel or visitor_service.ensure_visitor_channel
     # For existing visitors, we need to ensure channel exists
     if not is_new_visitor:
+        origin.check(db)
         await visitor_service.ensure_visitor_channel(db, visitor, platform)
+        origin.check(db)
 
     if profile_changed:
+        origin.check(db)
         await notify_visitor_profile_updated(db, visitor)
+        origin.check(db)
 
     # 3c) Register or login visitor to WuKongIM and generate token for IM login
-    im_token = (
-        issue_visitor_im_token(
-            visitor, timedelta(minutes=settings.SAAS_VISITOR_IM_TOKEN_MINUTES)
-        )
-        if settings.SAAS_ENABLED else str(uuid.uuid4())
+    current_proof = VisitorAccessInput(visitor_access_token=access_secret, customer_sessions=req.customer_sessions)
+    origin.check(db)
+    access = require_access(db, visitor, current_proof)
+    db.commit()
+    im_token = issue_visitor_im_token(
+        visitor, timedelta(minutes=settings.SAAS_VISITOR_IM_TOKEN_MINUTES), business=access
     )
     try:
         await wukongim_client.register_or_login_user(
@@ -509,23 +573,18 @@ async def register_visitor(
         )
     except Exception as e:
         logger.error(
-            f"Failed to register/login visitor on WuKongIM: {e}",
-            extra={"uid": str(visitor.id)},
+            "Failed to register/login visitor on WuKongIM",
+            extra={"uid": str(visitor.id), "error_type": type(e).__name__},
         )
 
-    # 4) Build response with additional fields
-    channel_id = build_visitor_channel_id(visitor.id)
-    visitor_response = VisitorResponse.model_validate(visitor)
-    populate_visitor_ai_settings(visitor_response, visitor.platform)
-    base_payload = visitor_response.model_dump()
-    resp = VisitorRegisterResponse.model_validate({
-        **base_payload,
-        "channel_id": channel_id,
-        "channel_type": CHANNEL_TYPE_CUSTOMER_SERVICE,
-        "im_token": im_token,
-    })
-    localize_visitor_response_intent(resp, request.headers.get("Accept-Language"))
-    set_visitor_display_nickname(resp, user_language)
+    origin.check(db)
+    access = require_access(db, visitor, current_proof)
+    db.commit()
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    resp, guard = registration_output(db, origin, visitor, im_token, access_secret, access, user_language)
+    request.state.operation_guard = guard
+    guard.check()
     return resp
 
 
@@ -541,6 +600,8 @@ async def register_visitor(
 )
 async def record_visitor_activity(
     req: VisitorActivityCreateRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
     x_platform_api_key: Optional[str] = Header(None, alias="X-Platform-API-Key"),
     db: Session = Depends(get_db),
 ) -> VisitorActivityCreateResponse:
@@ -561,50 +622,15 @@ async def record_visitor_activity(
     if not platform:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform API key")
 
-    visitor = (
-        db.query(Visitor)
-        .filter(
-            Visitor.id == req.visitor_id,
-            Visitor.project_id == platform.project_id,
-            Visitor.platform_id == platform.id,
-            Visitor.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if not visitor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
+    access = require_visitor_data_access(db, platform, credentials)
+    visitor = require_profile_visitor(db, access, req.visitor_id)
+    guard = profile_guard(access, visitor_id=visitor.id)
+    request.state.operation_guard = guard
 
     # Update visitor's last visit time
     visitor.last_visit_time = datetime.utcnow()
     db.add(visitor)
     # Don't commit yet, we'll commit with the activity
-
-    # 1.5) Update platform website info if it's a website type and not yet marked as used
-    if platform.type == PlatformType.WEBSITE.value and not getattr(platform, "is_used", False):
-        website_url = None
-        if req.context and req.context.page_url:
-            try:
-                parsed_url = urlparse(req.context.page_url)
-                if parsed_url.netloc:
-                    website_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-            except Exception:
-                pass
-        
-        # Use req.title as website_title as requested
-        website_title = req.title
-
-        if website_url or website_title:
-            # Truncate if data is too long for DB columns (URL: 1024, Title: 255)
-            if website_url and len(website_url) > 1024:
-                website_url = website_url[:1021] + "..."
-            if website_title and len(website_title) > 255:
-                website_title = website_title[:252] + "..."
-
-            platform.is_used = True
-            platform.used_website_url = website_url
-            platform.used_website_title = website_title
-            db.commit()
-            db.refresh(platform)
 
     data = req.model_dump(exclude_unset=True)
 
@@ -665,6 +691,7 @@ async def record_visitor_activity(
         activity.context = context_payload
     elif not is_update:
         activity.context = None
+    reauthorize_visitor_data(db, access)
     db.commit()
     db.refresh(activity)
 
@@ -697,8 +724,10 @@ async def record_visitor_activity(
 )
 async def accept_visitor_direct(
     visitor_id: UUID,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> AcceptVisitorResponse:
     """
     客服接入访客。
@@ -707,6 +736,8 @@ async def accept_visitor_direct(
     - 如果访客在等待队列中，会自动更新其队列条目状态
     - 调用 transfer_to_staff 完成实际分配和 WuKongIM 关联
     """
+    scope = begin_mutation(db, credentials, current_user, visitor_id, "visitors:update", claim=True)
+
     # 1. 查找访客
     visitor = (
         db.query(Visitor)
@@ -760,6 +791,7 @@ async def accept_visitor_direct(
         add_to_queue_if_no_staff=False,
         notes=f"Accepted manually by {current_user.username}",
         expected_unassigned=True,
+        mutation_scope=scope,
     )
 
     if not result.success:
@@ -767,6 +799,11 @@ async def accept_visitor_direct(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result.message or "Failed to accept visitor",
         )
+
+    assert result.operation_guard is not None
+    guard = result.operation_guard
+    request.state.operation_guard = guard
+    guard.check()
 
     # 4. 如果之前在排队，更新队列状态
     wait_duration = 0
@@ -797,6 +834,8 @@ async def accept_visitor_direct(
     )
 
 
+
+
 @router.get("/by-channel", response_model=VisitorResponse)
 async def get_visitor_by_channel(
     request: Request,
@@ -805,6 +844,7 @@ async def get_visitor_by_channel(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:read")),
     user_language: UserLanguage = Depends(get_user_language),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorResponse:
     """Get visitor details by channel identifiers. Requires visitors:read permission.
 
@@ -826,6 +866,12 @@ async def get_visitor_by_channel(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid visitor_id in channel")
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported channel_type")
+
+    access = require_staff_record_access(db, credentials, current_user, "visitors:read")
+    require_profile_visitor(db, access, visitor_uuid)
+    guard = staff_record_guard(access, (visitor_uuid,), "visitors:read")
+    request.state.operation_guard = guard
+    guard.check()
 
     # Query visitor with eager-loaded platform to populate platform_type
     visitor = (
@@ -849,37 +895,29 @@ async def get_visitor_by_channel(
     return response
 
 
-@router.get("/{visitor_id}/basic", response_model=VisitorBasicResponse)
+@router.get("/{visitor_id}/basic", response_model=VisitorBasicResponse | VisitorPublicProfile)
 async def get_visitor_basic(
     visitor_id: UUID,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    x_platform_api_key: str | None = Header(None, alias="X-Platform-API-Key"),
     db: Session = Depends(get_db),
     user_language: UserLanguage = Depends(get_user_language),
-) -> VisitorBasicResponse:
-    """Get basic visitor information without heavy related entities.
-
-    This endpoint is optimized for quick lookups and avoids loading tags, AI data,
-    system info, or recent activities. It only loads the platform relation to
-    populate platform_type if available.
-    """
-    visitor = (
-        db.query(Visitor)
-        .options(selectinload(Visitor.platform))
-        .filter(
-            Visitor.id == visitor_id,
-            Visitor.deleted_at.is_(None),
-        )
-        .first()
-    )
-
-    if not visitor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
-
+) -> VisitorBasicResponse | VisitorPublicProfile:
+    """Staff sees current owned details; a visitor sees only their own display."""
+    access = require_profile_access(db, credentials, x_platform_api_key)
+    visitor = require_profile_visitor(db, access, visitor_id)
+    guard = profile_guard(access, visitor_id=visitor_id) if isinstance(access, VisitorDataAccess) else staff_record_guard(access, (visitor_id,), "visitors:read")
+    request.state.operation_guard = guard
+    guard.check()
     response = VisitorBasicResponse.model_validate(visitor)
-    populate_visitor_ai_settings(response, visitor.platform)
     set_visitor_display_nickname(response, user_language)
+    if isinstance(access, VisitorDataAccess):
+        return VisitorPublicProfile(id=visitor.id, name=response.name,
+            display_nickname=response.display_nickname, avatar_url=response.avatar_url,
+            is_online=visitor.is_online)
+    populate_visitor_ai_settings(response, visitor.platform)
     return response
-
-
 
 
 @router.get("/{visitor_id}", response_model=VisitorResponse)
@@ -889,16 +927,20 @@ async def get_visitor(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:read")),
     user_language: UserLanguage = Depends(get_user_language),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorResponse:
     """Get visitor details. Requires visitors:read permission."""
     logger.info(f"User {current_user.username} getting visitor: {visitor_id}")
 
-    # Try to parse visitor_id as UUID for database query
+    access = require_staff_record_access(db, credentials, current_user, "visitors:read")
     try:
         visitor_uuid = UUID(visitor_id)
     except (ValueError, AttributeError):
-        # If visitor_id is not a valid UUID, skip database query
-        visitor_uuid = None
+        raise HTTPException(404, "Visitor not found") from None
+    require_profile_visitor(db, access, visitor_uuid)
+    guard = staff_record_guard(access, (visitor_uuid,), "visitors:read")
+    request.state.operation_guard = guard
+    guard.check()
 
     visitor = None
     if visitor_uuid:
@@ -919,77 +961,7 @@ async def get_visitor(
             .first()
         )
     if not visitor:
-        # Generate a default visitor response instead of returning 404
-        logger.info(f"Visitor {visitor_id} not found, generating default visitor response")
-
-        # Generate deterministic name based on visitor_id
-        default_name = visitor_service.generate_default_visitor_name(visitor_id)
-
-        # Get the first platform for the project as a default
-        default_platform = (
-            db.query(Platform)
-            .filter(
-                Platform.project_id == current_user.project_id,
-                Platform.deleted_at.is_(None)
-            )
-            .first()
-        )
-
-        # Use a fallback platform_id if no platform exists
-        default_platform_id = default_platform.id if default_platform else current_user.project_id
-
-        # Convert visitor_id to UUID for the response schema
-        # If visitor_id is already a valid UUID, use it; otherwise generate a deterministic UUID
-        if visitor_uuid:
-            response_id = visitor_uuid
-        else:
-            # Generate a deterministic UUID from the string visitor_id
-            id_hash = hashlib.sha256(visitor_id.encode('utf-8')).digest()
-            # Use first 16 bytes of hash to create a UUID
-            response_id = UUID(bytes=id_hash[:16])
-
-        # Create default visitor response with generated data
-        now = datetime.utcnow()
-        default_visitor_response = VisitorResponse(
-            id=response_id,
-            project_id=current_user.project_id,
-            platform_id=default_platform_id,
-            platform_open_id=f"default_{visitor_id}",
-            name=default_name,
-            nickname=None,
-            nickname_zh=None,
-            avatar_url=None,
-            phone_number=None,
-            email=None,
-            company=None,
-            job_title=None,
-            source=None,
-            note=None,
-            custom_attributes={},
-            first_visit_time=now,
-            last_visit_time=now,
-            last_message_at=None,
-                    visitor_send_count=0,
-                    last_message_seq=0,
-                    last_client_msg_no=None,
-                    is_last_message_from_visitor=False,
-                    is_last_message_from_ai=False,
-                    last_offline_time=None,
-            is_online=False,
-            created_at=now,
-            updated_at=now,
-            deleted_at=None,
-            platform_type=(default_platform.type if default_platform else None),
-            tags=[],
-            ai_profile=None,
-            ai_insights=None,
-            system_info=None,
-            recent_activities=[],
-        )
-
-        populate_visitor_ai_settings(default_visitor_response, default_platform)
-        set_visitor_display_nickname(default_visitor_response, user_language)
-        return default_visitor_response
+        raise HTTPException(404, "Visitor not found")
 
     active_tags = [
         vt.tag
@@ -1054,106 +1026,20 @@ async def set_visitor_attributes(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
     user_language: UserLanguage = Depends(get_user_language),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorResponse:
-    """Set visitor profile attributes including custom fields. Requires visitors:update permission."""
-    logger.info(f"User {current_user.username} setting attributes for visitor: {visitor_id}")
+    scope = begin_mutation(db, credentials, current_user, visitor_id, "visitors:update")
+    updates = attributes.model_dump(exclude_unset=True)
+    custom_attributes = updates.pop("custom_attributes", None)
 
-    visitor_query = db.query(Visitor).filter(
-        Visitor.id == visitor_id,
-        Visitor.project_id == current_user.project_id,
-    )
-    visitor = visitor_query.filter(Visitor.deleted_at.is_(None)).first()
+    def apply(locked: Visitor) -> None:
+        for field, value in updates.items():
+            setattr(locked, field, value)
+        if custom_attributes is not None:
+            locked.custom_attributes = custom_attributes or {}
 
-    created_new = False
-    restored_deleted = False
-    if not visitor:
-        soft_deleted = visitor_query.first()
-        if soft_deleted:
-            visitor = soft_deleted
-            visitor.deleted_at = None
-            restored_deleted = True
-        else:
-            platform = (
-                db.query(Platform)
-                .filter(
-                    Platform.project_id == current_user.project_id,
-                    Platform.is_active == True,
-                    Platform.deleted_at.is_(None)
-                )
-                .order_by(Platform.created_at)
-                .first()
-            )
-
-            if not platform:
-                # Use unknown platform fallback when no active platform is available
-                from app.core.config import settings
-                unknown_platform_id = UUID(settings.UNKNOWN_PLATFORM_ID)
-                logger.warning(
-                    f"No active platform found for project {current_user.project_id}, "
-                    f"using unknown platform fallback: {settings.UNKNOWN_PLATFORM_NAME} ({unknown_platform_id})"
-                )
-                platform_id = unknown_platform_id
-            else:
-                platform_id = platform.id
-
-            visitor = Visitor(
-                id=visitor_id,
-                project_id=current_user.project_id,
-                platform_id=platform_id,
-                platform_open_id=str(visitor_id),
-            )
-            db.add(visitor)
-            created_new = True
-    else:
-        # Check if the visitor's platform still exists
-        visitor_platform = (
-            db.query(Platform)
-            .filter(
-                Platform.id == visitor.platform_id,
-                Platform.deleted_at.is_(None)
-            )
-            .first()
-        )
-
-        if not visitor_platform:
-            # Platform doesn't exist or was deleted, use unknown platform fallback
-            from app.core.config import settings
-            unknown_platform_id = UUID(settings.UNKNOWN_PLATFORM_ID)
-            logger.warning(
-                f"Platform {visitor.platform_id} not found for visitor {visitor.id}, "
-                f"using unknown platform fallback: {settings.UNKNOWN_PLATFORM_NAME} ({unknown_platform_id})"
-            )
-            visitor.platform_id = unknown_platform_id
-
-    update_data = attributes.model_dump(exclude_unset=True)
-    custom_attributes = update_data.pop("custom_attributes", None)
-
-    for field, value in update_data.items():
-        setattr(visitor, field, value)
-
-    if custom_attributes is not None:
-        visitor.custom_attributes = custom_attributes or {}
-
-    visitor.updated_at = datetime.utcnow()
-
-    db.commit()
-    db.refresh(visitor)
-
-    if created_new:
-        action = "Created"
-    elif restored_deleted:
-        action = "Restored"
-    else:
-        action = "Updated"
-    logger.info(f"{action} attributes for visitor {visitor.id}")
-
-    await notify_visitor_profile_updated(db, visitor)
-
-    response = VisitorResponse.model_validate(visitor)
-    populate_visitor_ai_settings(response, visitor.platform)
-    localize_visitor_response_intent(response, request.headers.get("Accept-Language"))
-    set_visitor_display_nickname(response, user_language)
-    return response
+    visitor, output_scope = commit_change(db, scope, apply)
+    return await _visitor_mutation_response(request, db, visitor, output_scope, user_language)
 
 
 
@@ -1165,51 +1051,20 @@ async def update_visitor(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
     user_language: UserLanguage = Depends(get_user_language),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorResponse:
-    """
-    Update visitor.
+    scope = begin_mutation(db, credentials, current_user, visitor_id, "visitors:update")
+    updates = visitor_data.model_dump(exclude_unset=True)
+    custom_attributes = updates.pop("custom_attributes", None)
 
-    Update visitor information including contact details and activity status.
-    Requires visitors:update permission.
-    """
-    logger.info(f"User {current_user.username} updating visitor: {visitor_id}")
+    def apply(locked: Visitor) -> None:
+        for field, value in updates.items():
+            setattr(locked, field, value)
+        if custom_attributes is not None:
+            locked.custom_attributes = custom_attributes or {}
 
-    visitor = db.query(Visitor).filter(
-        Visitor.id == visitor_id,
-        Visitor.project_id == current_user.project_id,
-        Visitor.deleted_at.is_(None)
-    ).first()
-
-    if not visitor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Visitor not found"
-        )
-
-    # Update fields
-    update_data = visitor_data.model_dump(exclude_unset=True)
-    custom_attributes = update_data.pop("custom_attributes", None)
-
-    for field, value in update_data.items():
-        setattr(visitor, field, value)
-
-    if custom_attributes is not None:
-        visitor.custom_attributes = custom_attributes or {}
-
-    visitor.updated_at = datetime.utcnow()
-
-    db.commit()
-    db.refresh(visitor)
-
-    logger.info(f"Updated visitor {visitor.id}")
-
-    await notify_visitor_profile_updated(db, visitor)
-
-    response = VisitorResponse.model_validate(visitor)
-    populate_visitor_ai_settings(response, visitor.platform)
-    localize_visitor_response_intent(response, request.headers.get("Accept-Language"))
-    set_visitor_display_nickname(response, user_language)
-    return response
+    visitor, output_scope = commit_change(db, scope, apply)
+    return await _visitor_mutation_response(request, db, visitor, output_scope, user_language)
 
 
 
@@ -1220,36 +1075,23 @@ async def enable_ai_for_visitor(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
     user_language: UserLanguage = Depends(get_user_language),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorResponse:
-    """Enable AI for a visitor (set ai_disabled=False). Requires visitors:update permission."""
-    logger.info("User %s enabling AI for visitor %s", current_user.username, str(visitor_id))
+    scope = begin_mutation(db, credentials, current_user, visitor_id, "visitors:update")
 
-    visitor = (
-        db.query(Visitor)
-        .filter(
-            Visitor.id == visitor_id,
-            Visitor.project_id == current_user.project_id,
-            Visitor.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if not visitor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
+    try:
+        await prepare_native_mode(scope.check(db, lock=True), "auto")
+    except BaseException:
+        db.rollback()
+        raise
 
-    visitor.ai_disabled = False
-    visitor.service_mode = "auto"
-    visitor.updated_at = datetime.utcnow()
+    def apply(locked: Visitor) -> None:
+        locked.ai_disabled = False
+        locked.service_mode = "auto"
 
-    db.commit()
-    db.refresh(visitor)
+    visitor, output_scope = commit_change(db, scope, apply)
+    return await _visitor_mutation_response(request, db, visitor, output_scope, user_language)
 
-    logger.info("AI enabled for visitor %s by user %s", str(visitor.id), current_user.username)
-    await notify_visitor_profile_updated(db, visitor)
-    response = VisitorResponse.model_validate(visitor)
-    populate_visitor_ai_settings(response, visitor.platform)
-    localize_visitor_response_intent(response, request.headers.get("Accept-Language"))
-    set_visitor_display_nickname(response, user_language)
-    return response
 
 
 @router.post("/{visitor_id}/disable-ai", response_model=VisitorResponse)
@@ -1259,56 +1101,46 @@ async def disable_ai_for_visitor(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
     user_language: UserLanguage = Depends(get_user_language),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorResponse:
-    """Disable AI for a visitor (set ai_disabled=True). Requires visitors:update permission."""
-    logger.info("User %s disabling AI for visitor %s", current_user.username, str(visitor_id))
+    scope = begin_mutation(db, credentials, current_user, visitor_id, "visitors:update")
 
-    visitor = (
-        db.query(Visitor)
-        .filter(
-            Visitor.id == visitor_id,
-            Visitor.project_id == current_user.project_id,
-            Visitor.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if not visitor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
+    def apply(locked: Visitor) -> None:
+        locked.ai_disabled = True
+        locked.service_mode = "manual"
+        locked.humanization_skill_enabled = False
 
-    visitor.ai_disabled = True
-    visitor.service_mode = "manual"
-    visitor.humanization_skill_enabled = False
-    visitor.updated_at = datetime.utcnow()
+    visitor, output_scope = commit_change(db, scope, apply)
+    return await _visitor_mutation_response(request, db, visitor, output_scope, user_language)
 
-    db.commit()
-    db.refresh(visitor)
-
-    logger.info("AI disabled for visitor %s by user %s", str(visitor.id), current_user.username)
-    await notify_visitor_profile_updated(db, visitor)
-    response = VisitorResponse.model_validate(visitor)
-    populate_visitor_ai_settings(response, visitor.platform)
-    localize_visitor_response_intent(response, request.headers.get("Accept-Language"))
-    set_visitor_display_nickname(response, user_language)
-    return response
 
 
 @router.get("/{visitor_id}/humanization-settings", response_model=EmployeeStyle)
 async def get_visitor_humanization_settings(
     visitor_id: UUID,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> EmployeeStyle:
+    access = require_staff_record_access(db, credentials, current_user, "visitors:read")
+    require_profile_visitor(db, access, visitor_id)
+    guard = staff_record_guard(access, (visitor_id,), "visitors:read")
+    request.state.operation_guard = guard
+    guard.check()
     visitor = db.query(Visitor).options(joinedload(Visitor.platform)).filter(
         Visitor.id == visitor_id, Visitor.project_id == current_user.project_id,
         Visitor.deleted_at.is_(None),
     ).first()
     if not visitor:
         raise HTTPException(404, "Visitor not found")
-    return await resolve_employee_style(
+    result = await resolve_employee_style(
         str(current_user.project_id),
         str(visitor.platform.agent_id) if visitor.platform and visitor.platform.agent_id else None,
         visitor.humanization_skill_name, visitor.humanization_skill_enabled,
     )
+    guard.check()
+    return result
 
 
 @router.put("/{visitor_id}/service-mode", response_model=VisitorResponse)
@@ -1319,83 +1151,48 @@ async def update_visitor_service_mode(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
     user_language: UserLanguage = Depends(get_user_language),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorResponse:
-    """Set AI customer service, assist, or fully manual mode."""
-    visitor = (
-        db.query(Visitor)
-        .options(joinedload(Visitor.platform))
-        .filter(
-            Visitor.id == visitor_id,
-            Visitor.project_id == current_user.project_id,
-            Visitor.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if not visitor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Visitor not found",
-        )
+    scope = begin_mutation(db, credentials, current_user, visitor_id, "visitors:update")
+    # The awaited skill check changes only a detached object, never the session's
+    # pending ORM record. The current original customer is locked afterwards.
+    staged = Visitor()
+    try:
+        await visitor_service.configure_service_mode(staged, str(scope.access.project_id), data)
+    except ValueError as exc:
+        scope.guard().check()
+        raise HTTPException(422, detail=str(exc)) from exc
 
     try:
-        await visitor_service.configure_service_mode(
-            visitor,
-            str(current_user.project_id),
-            data,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
-        ) from exc
+        await prepare_native_mode(scope.check(db, lock=True), staged.service_mode)
+    except BaseException:
+        db.rollback()
+        raise
 
-    db.commit()
-    db.refresh(visitor)
-    await notify_visitor_profile_updated(db, visitor)
+    def apply(locked: Visitor) -> None:
+        locked.service_mode = staged.service_mode
+        locked.ai_disabled = staged.ai_disabled
+        locked.humanization_skill_name = staged.humanization_skill_name
+        locked.humanization_skill_enabled = staged.humanization_skill_enabled
 
-    response = VisitorResponse.model_validate(visitor)
-    populate_visitor_ai_settings(response, visitor.platform)
-    localize_visitor_response_intent(
-        response, request.headers.get("Accept-Language")
-    )
-    set_visitor_display_nickname(response, user_language)
-    return response
+    visitor, output_scope = commit_change(db, scope, apply)
+    return await _visitor_mutation_response(request, db, visitor, output_scope, user_language)
+
 
 
 @router.delete("/{visitor_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_visitor(
     visitor_id: UUID,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:delete")),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> None:
-    """
-    Delete visitor (soft delete).
-
-    Soft delete a visitor record. This also removes all associated assignments and tags.
-    Requires visitors:delete permission.
-    """
-    logger.info(f"User {current_user.username} deleting visitor: {visitor_id}")
-
-    visitor = db.query(Visitor).filter(
-        Visitor.id == visitor_id,
-        Visitor.project_id == current_user.project_id,
-        Visitor.deleted_at.is_(None)
-    ).first()
-
-    if not visitor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Visitor not found"
-        )
-
-    # Soft delete
-    visitor.deleted_at = datetime.utcnow()
-    visitor.updated_at = datetime.utcnow()
-
-    db.commit()
-
-    logger.info(f"Deleted visitor {visitor.id}")
-
+    scope = begin_mutation(db, credentials, current_user, visitor_id, "visitors:delete")
+    visitor, output_scope = commit_change(db, scope, lambda locked: setattr(locked, "deleted_at", datetime.utcnow()))
+    guard = output_scope.guard()
+    request.state.operation_guard = guard
+    guard.check()
     return None
 
 
@@ -1404,14 +1201,16 @@ async def delete_visitor(
     "/messages/sync",
     response_model=WuKongIMChannelMessageSyncResponse,
     summary="Visitor: Sync Channel Messages",
-    description="Visitor-facing endpoint to retrieve historical messages from a channel."
+    description="Retrieve the current visitor's own history using the platform key and signed visitor Bearer grant."
 )
 async def sync_visitor_channel_messages(
     req: VisitorMessageSyncRequest,
+    response: Response,
     db: Session = Depends(get_db),
     x_platform_api_key: Optional[str] = Header(None, alias="X-Platform-API-Key"),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
 ) -> WuKongIMChannelMessageSyncResponse:
-    """Retrieve historical messages for a channel using platform API key authentication."""
+    """A public platform identifier never grants access to visitor messages."""
     # 1) Authenticate platform via API key (body param or header)
     api_key = req.platform_api_key or x_platform_api_key
     if not api_key:
@@ -1429,50 +1228,9 @@ async def sync_visitor_channel_messages(
     if not platform:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform_api_key")
 
-    # 2) Authorize access to the channel and determine login_uid (visitor UID)
-    login_uid: Optional[str] = None
-
-    if req.channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE:
-        try:
-            visitor_uuid = parse_visitor_channel_id(req.channel_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid channel_id format")
-
-        visitor = (
-            db.query(Visitor)
-            .filter(Visitor.id == visitor_uuid, Visitor.deleted_at.is_(None))
-            .first()
-        )
-        if not visitor:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
-        if visitor.platform_id != platform.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access to this channel is forbidden for this platform")
-
-        login_uid = str(visitor.id)
-
-    elif req.channel_type == 1:
-        # Personal channel: channel_id should be a visitor UUID (not a staff UID)
-        if req.channel_id.endswith("-staff"):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Staff personal channels are not accessible to visitors")
-        try:
-            visitor_uuid = UUID(req.channel_id)
-        except Exception:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid channel_id format for personal channel")
-
-        visitor = (
-            db.query(Visitor)
-            .filter(Visitor.id == visitor_uuid, Visitor.deleted_at.is_(None))
-            .first()
-        )
-        if not visitor:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
-        if visitor.platform_id != platform.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access to this visitor is forbidden for this platform")
-
-        login_uid = str(visitor.id)
-
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported channel_type")
+    access = require_visitor_data_access(db,platform,credentials)
+    authorize_visitor_data_channel(access,req.channel_id,req.channel_type)
+    login_uid = f"{access.visitor_id}-vtr"
 
     # Defaults and bounds
     start_seq = req.start_message_seq if req.start_message_seq is not None else 0
@@ -1505,16 +1263,22 @@ async def sync_visitor_channel_messages(
             include_event_meta=1,
             event_summary_mode="full",
         )
+        reauthorize_visitor_data(db,access)
+        require_owned_history_batch(access,req.channel_id,req.channel_type,result)
         msg_count = len(result.messages)
         logger.info(
             "Visitor messages sync success",
             extra={"platform_id": str(platform.id), "channel_id": req.channel_id, "channel_type": req.channel_type, "messages": msg_count},
         )
-        return await reconcile_reply_history(
+        reconciled = await reconcile_reply_history(
             result, project_id=str(platform.project_id),
             channel_id=req.channel_id, channel_type=req.channel_type,
         )
-    except HTTPException:
+        reauthorize_visitor_data(db,access)
+        require_owned_history_batch(access,req.channel_id,req.channel_type,reconciled)
+        response.headers['Cache-Control'] = 'no-store'
+        return reconciled
+    except (HTTPException,TGOAPIException):
         raise
     except Exception as e:
         logger.error(f"Failed to sync channel messages for visitor: {e}")
@@ -1530,156 +1294,30 @@ async def sync_visitor_channel_messages(
     "/{visitor_id}/avatar",
     response_model=VisitorAvatarUploadResponse,
     summary="Upload visitor avatar",
-    description="""
-    Upload an avatar image for a visitor.
-
-    **Authentication**: JWT (Staff) authentication required.
-    - Use `Authorization: Bearer <token>` header
-
-    **File Requirements**:
-    - Allowed formats: JPEG, PNG, GIF, WebP
-    - Maximum size: 5MB
-
-    **Storage**:
-    - Files are stored locally on the server
-    - The `avatar_url` field is updated with a relative path (e.g., `/v1/visitors/{visitor_id}/avatar`)
-    """,
+    description="Staff authorization required; JPEG, PNG, GIF or WebP, up to 5MB.",
     tags=["Visitors"],
 )
 async def upload_visitor_avatar(
     visitor_id: UUID,
+    request: Request,
     file: UploadFile = File(..., description="Avatar image file"),
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorAvatarUploadResponse:
-    """Upload an avatar image for a visitor."""
-    # 1) Query visitor
-    visitor = (
-        db.query(Visitor)
-        .filter(Visitor.id == visitor_id, Visitor.deleted_at.is_(None))
-        .first()
-    )
-    if not visitor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Visitor not found"
-        )
+    from app.schemas.staff_data_access import StaffDataAccess
+    from app.services.visitor_avatar_access import save_avatar, avatar_guard, saved_image
 
-    # 2) Authorization check: Staff must belong to the same project
-    if visitor.project_id != current_user.project_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied to this visitor"
-        )
-
-    # 4) Validate file type and extension
-    original_name = file.filename or "avatar.jpg"
-    sanitized_name = visitor_service.sanitize_avatar_filename(original_name)
-    ext = sanitized_name.rsplit(".", 1)[-1].lower() if "." in sanitized_name else ""
-    mime = file.content_type or mimetypes.guess_type(sanitized_name)[0] or "application/octet-stream"
-
-    if ext not in visitor_service.AVATAR_ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File type not allowed. Allowed types: {', '.join(visitor_service.AVATAR_ALLOWED_EXTENSIONS)}"
-        )
-
-    if mime not in visitor_service.AVATAR_ALLOWED_MIME_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"MIME type not allowed. Allowed types: {', '.join(visitor_service.AVATAR_ALLOWED_MIME_TYPES)}"
-        )
-
-    max_bytes = visitor_service.AVATAR_MAX_SIZE_MB * 1024 * 1024
-
-    # 5) Build storage path
-    ts_ms = int(time.time() * 1000)
-    rand = secrets.token_hex(4)
-    fname = f"{ts_ms}_{rand}.{ext}"
-
-    # Path: uploads/avatars/{project_id}/{visitor_id}/{filename}
-    rel_path = f"avatars/{visitor.project_id}/{visitor_id}/{fname}"
-    base_dir = Path(settings.UPLOAD_BASE_DIR).resolve()
-    dest_path = base_dir / rel_path
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # 6) Save file in chunks with size validation
-    total = 0
-    try:
-        with open(dest_path, "wb") as out:
-            while True:
-                chunk = await file.read(1024 * 1024)  # 1MB chunks
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > max_bytes:
-                    try:
-                        out.flush()
-                        out.close()
-                    finally:
-                        try:
-                            os.unlink(dest_path)
-                        except Exception:
-                            pass
-                    raise HTTPException(
-                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                        detail=(
-                            "File too large. Maximum size: "
-                            f"{visitor_service.AVATAR_MAX_SIZE_MB}MB"
-                        ),
-                    )
-                out.write(chunk)
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Cleanup on failure
-        try:
-            if dest_path.exists():
-                os.unlink(dest_path)
-        except Exception:
-            pass
-        logger.error(f"Failed to save avatar file: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to save avatar file"
-        )
-
-    # 7) Delete old avatar file if exists (local file only, not external URL)
-    old_avatar_url = visitor.avatar_url
-    if old_avatar_url and old_avatar_url.startswith("/v1/visitors/"):
-        # Extract old file path and try to delete
-        try:
-            # Old avatar is stored in same structure
-            old_files = list((base_dir / f"avatars/{visitor.project_id}/{visitor_id}").glob("*"))
-            for old_file in old_files:
-                if old_file.name != fname and old_file.is_file():
-                    os.unlink(old_file)
-        except Exception as e:
-            logger.warning(f"Failed to delete old avatar file: {e}")
-
-    # 8) Update visitor avatar_url with relative path (stored in DB)
-    # Use relative URL path that can be served by the API
-    relative_avatar_url = f"/v1/visitors/{visitor_id}/avatar"
-    visitor.avatar_url = relative_avatar_url
-    db.commit()
-    db.refresh(visitor)
-
-    # Build absolute URL for response
-    absolute_avatar_url = f"{settings.API_BASE_URL.rstrip('/')}{relative_avatar_url}"
-
-    logger.info(
-        "Visitor avatar uploaded",
-        extra={
-            "visitor_id": str(visitor_id),
-            "file_size": total,
-            "file_type": mime,
-        }
-    )
-
+    access = require_profile_access(db, credentials, None)
+    if not isinstance(access, StaffDataAccess) or access.staff_id != current_user.id:
+        raise visitor_access_denied()
+    visitor, total, mime = await save_avatar(db, access, visitor_id, file)
+    request.state.operation_guard = avatar_guard(access, visitor_id, visitor.avatar_url, saved_image(visitor))
+    absolute_avatar_url = f"{settings.API_BASE_URL.rstrip('/')}{visitor.avatar_url}"
     return VisitorAvatarUploadResponse(
         visitor_id=visitor_id,
         avatar_url=absolute_avatar_url,
-        file_name=original_name,
+        file_name=file.filename or "avatar.jpg",
         file_size=total,
         file_type=mime,
         uploaded_at=visitor.updated_at,
@@ -1688,101 +1326,19 @@ async def upload_visitor_avatar(
 
 @router.get(
     "/{visitor_id}/avatar",
-    summary="Get visitor avatar",
-    description="""
-    Retrieve the avatar image for a visitor.
-
-    **Public Access**: This endpoint allows public access to serve avatar images.
-    If the visitor has no avatar or an external URL, returns 404.
-    """,
+    summary="Get private visitor avatar",
+    description="Staff or original visitor authorization required in request headers. No public image access.",
     tags=["Visitors"],
-    responses={
-        200: {"content": {"image/*": {}}, "description": "Avatar image file"},
-        404: {"description": "Avatar not found"},
-    },
+    responses={200: {"content": {"image/*": {}}, "description": "Authorized avatar image"}},
 )
 async def get_visitor_avatar(
     visitor_id: UUID,
     db: Session = Depends(get_db),
-):
-    """Get visitor avatar image file."""
-    # 1) Query visitor
-    visitor = (
-        db.query(Visitor)
-        .filter(Visitor.id == visitor_id, Visitor.deleted_at.is_(None))
-        .first()
-    )
-    if not visitor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Visitor not found"
-        )
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    platform_api_key: str | None = Header(None, alias="X-Platform-API-Key"),
+    v: str | None = Query(None, max_length=128),
+) -> Response:
+    from app.services.visitor_avatar_access import avatar_response
 
-    # 2) Check if avatar exists and is a local file
-    avatar_url = visitor.avatar_url
-    if not avatar_url:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Visitor has no avatar"
-        )
-
-    # If avatar is an external URL (https://...), redirect or return 404
-    if avatar_url.startswith("http://") or avatar_url.startswith("https://"):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Avatar is hosted externally. Use the avatar_url field directly."
-        )
-
-    # 3) Find the avatar file on disk
-    base_dir = Path(settings.UPLOAD_BASE_DIR).resolve()
-    avatar_dir = base_dir / f"avatars/{visitor.project_id}/{visitor_id}"
-
-    if not avatar_dir.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Avatar file not found"
-        )
-
-    # Get the most recent avatar file
-    avatar_files = sorted(avatar_dir.glob("*"), key=lambda f: f.stat().st_mtime, reverse=True)
-    if not avatar_files:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Avatar file not found"
-        )
-
-    avatar_file = avatar_files[0]
-
-    # 4) Ensure file path stays under base directory (security)
-    try:
-        avatar_file.resolve().relative_to(base_dir)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Invalid file path"
-        )
-
-    if not avatar_file.exists() or not avatar_file.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Avatar file not found"
-        )
-
-    # 5) Determine content type
-    ext = avatar_file.suffix.lower().lstrip(".")
-    content_type_map = {
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "png": "image/png",
-        "gif": "image/gif",
-        "webp": "image/webp",
-    }
-    content_type = content_type_map.get(ext, "application/octet-stream")
-
-    return FileResponse(
-        path=str(avatar_file),
-        media_type=content_type,
-        headers={
-            "Cache-Control": "public, max-age=86400",  # Cache for 1 day
-        },
-    )
+    access = require_profile_access(db, credentials, platform_api_key)
+    return avatar_response(db, access, visitor_id, v)

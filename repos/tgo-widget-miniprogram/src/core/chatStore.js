@@ -4,8 +4,10 @@
  */
 var IMService = require('../services/wukongim')
 var visitorService = require('../services/visitor')
+var visitorLifecycle = require('../services/visitorLifecycle')
 var historyService = require('../services/messageHistory')
 var chatService = require('../services/chat')
+var businessCustomer = require('../services/businessCustomerSession')
 var uploadService = require('../services/upload')
 var systemInfoAdapter = require('../adapters/systemInfo')
 var types = require('./types')
@@ -97,6 +99,10 @@ function ChatStore() {
     // identity
     apiBase: '',
     platformApiKey: '',
+    sessionRevision: 0,
+    visitorId: '',
+    projectId: '',
+    platformId: '',
     myUid: '',
     channelId: '',
     channelType: 251,
@@ -106,12 +112,68 @@ function ChatStore() {
     streamingClientMsgNo: ''
   }
   this._listeners = []
+  this._businessCustomer = businessCustomer.createProvider()
   this._throttleTimer = null
   this._pendingState = null
+  this._sessionOwner = null
+  this._sessionActive = false
+  this._restartTarget = null
+  this._uploadTasks = []
 }
 
 ChatStore.prototype.getState = function () {
   return this._state
+}
+
+ChatStore.prototype.setBusinessCustomerSessionProvider = function (provider) {
+  var self = this
+  var release = this._businessCustomer.set(provider)
+  if (this._sessionActive) this._restartSession()
+  return function () { if (release() && self._sessionActive) self._restartSession() }
+}
+
+ChatStore.prototype.notifyBusinessCustomerChanged = function () {
+  this._businessCustomer.invalidate()
+  return this._sessionActive ? this._restartSession() : Promise.resolve()
+}
+
+ChatStore.prototype._captureAction = function () {
+  var self = this
+  var revision = this._state.sessionRevision
+  function current() { return self._state.sessionRevision === revision }
+  return {isCurrent:current,assertCurrent:function () {
+    if (!current()) throw new Error('聊天身份已变化，请重新发送。')
+  },guard:function (callback) {return function () {
+    if (current()) return callback.apply(this,arguments)
+  }}}
+}
+
+ChatStore.prototype._restartSession = function (options) {
+  var self = this
+  var cfg = options || this._restartTarget || {apiBase:this._state.apiBase,platformApiKey:this._state.platformApiKey}
+  var ending = this.endSession()
+  this._sessionActive = true
+  this._restartTarget = cfg
+  var action = this._captureAction()
+  return Promise.resolve(ending).then(action.guard(function () {
+    self._sessionActive = false
+    self._restartTarget = null
+    return self.initIM(cfg)
+  }))
+    .catch(action.guard(function () {self._setState({error:'旧会话退出未完成，请重试或检查存储。'})}))
+}
+
+ChatStore.prototype.claimSessionOwner = function () {
+  var self = this
+  var ready = this._sessionOwner || this._sessionActive ? this.endSession() : Promise.resolve()
+  var owner = {}
+  this._sessionOwner = owner
+  return {ready:ready,isCurrent:function () {return self._sessionOwner === owner},release:function () {
+    if (self._sessionOwner !== owner) return Promise.resolve()
+    self._sessionOwner = null
+    self._businessCustomer.set(null)
+    return self.endSession()
+  }}
 }
 
 ChatStore.prototype._setState = function (partial) {
@@ -151,7 +213,12 @@ ChatStore.prototype.subscribe = function (fn) {
 // ========== Initialization ==========
 
 ChatStore.prototype.initIM = function (cfg) {
+  var action = this._captureAction()
   if (!cfg || !cfg.apiBase || !cfg.platformApiKey) return Promise.resolve()
+  if (this._sessionActive && (this._state.apiBase !== cfg.apiBase || this._state.platformApiKey !== cfg.platformApiKey)) {
+    return this._restartSession(cfg)
+  }
+  this._sessionActive = true
   var self = this
   var st = this._state
   if (st.initializing || IMService.isReady()) return Promise.resolve()
@@ -160,25 +227,20 @@ ChatStore.prototype.initIM = function (cfg) {
 
   var apiBase = cfg.apiBase
   var platformApiKey = cfg.platformApiKey
+  Promise.resolve(visitorLifecycle.retryPendingVisitorEnds(cfg)).catch(action.guard(function () {}))
 
-  // Load or register visitor
-  var cached = visitorService.loadCachedVisitor(apiBase, platformApiKey)
-  var visitorPromise
-  if (cached) {
-    visitorPromise = Promise.resolve(cached)
-  } else {
-    var sysInfo = systemInfoAdapter.collectSystemInfo()
-    visitorPromise = visitorService.registerVisitor({
-      apiBase: apiBase,
-      platformApiKey: platformApiKey,
-      extra: sysInfo ? { system_info: sysInfo } : {}
-    }).then(function (res) {
-      visitorService.saveCachedVisitor(apiBase, platformApiKey, res)
-      return visitorService.loadCachedVisitor(apiBase, platformApiKey)
-    })
-  }
+  // Refresh possession/current customer before initializing IM or reading any history.
+  var sysInfo = systemInfoAdapter.collectSystemInfo()
+  var visitorPromise = visitorService.refreshVisitorSession({
+    apiBase: apiBase,
+    platformApiKey: platformApiKey,
+    extra: sysInfo ? { system_info: sysInfo } : {},
+    assertCurrent: action.assertCurrent,
+    captureCustomerSessionState:function () {return self._businessCustomer.capture()},
+    acquireCustomerSessions: function (context, registration) { return self._businessCustomer.acquire(context, registration) }
+  })
 
-  return visitorPromise.then(function (visitor) {
+  return visitorPromise.then(action.guard(function (visitor) {
     var uid = String(visitor.visitor_id || '')
     var uidForIM = uid.endsWith('-vtr') ? uid : uid + '-vtr'
     var target = visitor.channel_id
@@ -186,6 +248,9 @@ ChatStore.prototype.initIM = function (cfg) {
 
     self._setState({
       myUid: uidForIM,
+      visitorId: visitor.visitor_id,
+      projectId: visitor.project_id,
+      platformId: visitor.platform_id,
       channelId: target,
       channelType: visitor.channel_type || 251
     })
@@ -201,35 +266,36 @@ ChatStore.prototype.initIM = function (cfg) {
       target: target,
       channelType: 'group'
     })
-  }).then(function () {
+  })).then(action.guard(function () {
     // Subscribe to IM events
     self._bindIMEvents()
     return IMService.connect()
-  }).then(function () {
+  })).then(action.guard(function () {
     // Load initial history
     return self.loadInitialHistory(20)
-  }).catch(function (e) {
+  })).catch(action.guard(function (e) {
     var errMsg = e && e.message ? e.message : String(e)
     console.error('[Chat] IM initialization failed:', errMsg)
     self._setState({ error: errMsg, online: false })
-  }).then(function () {
+  })).then(action.guard(function () {
     self._setState({ initializing: false })
-  })
+  }))
 }
 
 ChatStore.prototype._bindIMEvents = function () {
+  var action = this._captureAction()
   var self = this
   var uidForIM = this._state.myUid
 
   // Status events
   if (offStatus) { try { offStatus() } catch (e) {} ; offStatus = null }
-  offStatus = IMService.onStatus(function (s) {
+  offStatus = IMService.onStatus(action.guard(function (s) {
     self._setState({ online: s === 'connected' })
-  })
+  }))
 
   // Message events
   if (offMsg) { try { offMsg() } catch (e) {} ; offMsg = null }
-  offMsg = IMService.onMessage(function (m) {
+  offMsg = IMService.onMessage(action.guard(function (m) {
     if (!m.fromUid || m.fromUid === uidForIM) return
     var payload = types.toPayloadFromAny(m && m.payload)
     if (payload && payload.type === 99) return
@@ -245,6 +311,7 @@ ChatStore.prototype._bindIMEvents = function () {
       channelId: m.channelId,
       channelType: m.channelType
     }
+    if (payload.type === 100 && payload.sender_kind === 'ai') chat.senderKind = 'ai'
 
     if (payload.type === 100 && chat.clientMsgNo) {
       var completed = self._state.messages.some(function (message) {
@@ -258,11 +325,11 @@ ChatStore.prototype._bindIMEvents = function () {
     self._setState({
       messages: mergeHistoryMessages(self._state.messages, [chat])
     })
-  })
+  }))
 
   // Custom stream events
   if (offCustom) { try { offCustom() } catch (e) {} ; offCustom = null }
-  offCustom = IMService.onCustom(function (ev) {
+  offCustom = IMService.onCustom(action.guard(function (ev) {
     try {
       if (!ev) return
       var customEvent = ev
@@ -377,12 +444,13 @@ ChatStore.prototype._bindIMEvents = function () {
     } catch (err) {
       console.error('[Chat] Custom event handler error:', err)
     }
-  })
+  }))
 }
 
 // ========== Send Message ==========
 
 ChatStore.prototype.sendMessage = function (text) {
+  var action = this._captureAction()
   var v = (text || '').trim()
   if (!v) return Promise.resolve()
 
@@ -407,6 +475,18 @@ ChatStore.prototype.sendMessage = function (text) {
     return Promise.resolve()
   }
   var lastKnownSequence = 0
+  var identity = { apiBase: st.apiBase, platformApiKey: st.platformApiKey, myUid: st.myUid,
+    channelId: st.channelId, channelType: st.channelType, visitorId: st.visitorId,
+    projectId: st.projectId, platformId: st.platformId }
+  var customer
+  var deliveryConfirmed = false
+  function assertIdentity() {
+    action.assertCurrent()
+    if (customer) customer.assertCurrent()
+    if (Object.keys(identity).some(function (key) { return self._state[key] !== identity[key] })) {
+      throw new Error('聊天身份已变化，请重新发送。')
+    }
+  }
   st.messages.forEach(function (message) {
     if (
       typeof message.messageSeq === 'number' &&
@@ -419,22 +499,36 @@ ChatStore.prototype.sendMessage = function (text) {
   // Auto-cancel previous streaming
   var cancelPromise = st.isStreaming ? this.cancelStreaming('auto_cancel_on_new_send') : Promise.resolve()
 
-  return cancelPromise.then(function () {
+  return cancelPromise.then(action.guard(function () {
+    if (self._state.isStreaming) throw new Error('上一条回复尚未确认停止，请稍后重试。')
+    // Human handoff does not query merchant business data. It must remain
+    // reachable when an optional business identity provider is unavailable.
+    if (v === '转人工') return {sessions:undefined,assertCurrent:function () {}}
+    var possession = visitorService.loadCachedVisitor(identity.apiBase, identity.platformApiKey)
+    return self._businessCustomer.acquire({ visitorId: identity.visitorId, projectId: identity.projectId,
+      platformId: identity.platformId, sourceMessageId: clientMsgNo }, possession && possession.visitor_id === identity.visitorId ? {
+        apiBase:identity.apiBase,visitorAccessToken:possession.visitor_access_token
+      } : undefined)
+  })).then(action.guard(function (value) {
+    customer = value
+    assertIdentity()
     // Wait for IM ready
     if (!IMService.isReady()) {
       return self._waitForIMReady(10000)
     }
-  }).then(function () {
+  })).then(action.guard(function () {
     if (!IMService.isReady()) {
       throw new Error('IM service is not ready')
     }
+    assertIdentity()
     return IMService.sendText(v, { clientMsgNo: clientMsgNo })
-  }).then(function (result) {
+  })).then(action.guard(function (result) {
     var ReasonCode = require('easyjssdk').ReasonCode
     if (result.reasonCode !== ReasonCode.Success) {
       self._updateMessage(id, { status: undefined, reasonCode: result.reasonCode })
       return
     }
+    deliveryConfirmed = true
     if (
       typeof result.messageSeq === 'number' &&
       result.messageSeq > lastKnownSequence
@@ -443,32 +537,37 @@ ChatStore.prototype.sendMessage = function (text) {
     }
 
     // Call chat completion API
+    assertIdentity()
     return chatService.sendChatCompletion({
-      apiBase: self._state.apiBase,
-      platformApiKey: self._state.platformApiKey,
+      apiBase: identity.apiBase,
+      platformApiKey: identity.platformApiKey,
       message: v,
-      fromUid: self._state.myUid,
-      channelId: self._state.channelId,
-      channelType: self._state.channelType,
-      sourceMessageId: clientMsgNo
-    }).then(function () {
+      fromUid: identity.myUid,
+      channelId: identity.channelId,
+      channelType: identity.channelType,
+      sourceMessageId: clientMsgNo,
+      customerSessions: customer.sessions
+    }).then(action.guard(function (completion) {
       self._updateMessage(id, { status: undefined, reasonCode: result.reasonCode })
+      if (completion && ['human_handoff','queued','ai_disabled','assist_mode'].indexOf(completion.event_type) >= 0) return
       return self._reconcileReplyHistory(lastKnownSequence)
-    })
-  }).catch(function (e) {
+    }))
+  })).catch(action.guard(function (e) {
     console.error('[Chat] Send failed:', e)
     self.markStreamingEnd()
     var ReasonCode = require('easyjssdk').ReasonCode
-    self._updateMessage(id, { status: undefined, reasonCode: ReasonCode.Unknown })
+    self._updateMessage(id, { status: undefined, reasonCode: deliveryConfirmed ? ReasonCode.Success : ReasonCode.Unknown,
+      replyRequestFailed: deliveryConfirmed })
     self._setState({ error: e && e.message ? e.message : String(e) })
-  })
+  }))
 }
 
 ChatStore.prototype._waitForIMReady = function (timeoutMs) {
+  var action = this._captureAction()
   var start = Date.now()
   return new Promise(function (resolve) {
     var check = function () {
-      if (IMService.isReady() || (Date.now() - start) >= timeoutMs) {
+      if (!action.isCurrent() || IMService.isReady() || (Date.now() - start) >= timeoutMs) {
         resolve()
       } else {
         setTimeout(check, 120)
@@ -487,6 +586,7 @@ ChatStore.prototype._updateMessage = function (id, partial) {
 }
 
 ChatStore.prototype._reconcileReplyHistory = function (lastKnownSequence) {
+  var action = this._captureAction()
   var self = this
   var channelId = this._state.channelId
   var channelType = this._state.channelType
@@ -496,7 +596,7 @@ ChatStore.prototype._reconcileReplyHistory = function (lastKnownSequence) {
     if (attempt >= maxAttempts) return Promise.resolve()
     return new Promise(function (resolve) {
       setTimeout(resolve, attempt === 0 ? 1000 : 2000)
-    }).then(function () {
+    }).then(action.guard(function () {
       var current = self._state
       if (
         !current.apiBase ||
@@ -515,7 +615,7 @@ ChatStore.prototype._reconcileReplyHistory = function (lastKnownSequence) {
         endSeq: 0,
         limit: 20,
         pullMode: 1
-      }).then(function (res) {
+      }).then(action.guard(function (res) {
         var latest = res.messages.slice().sort(function (a, b) {
           return (a.message_seq || 0) - (b.message_seq || 0)
         }).map(function (message) {
@@ -537,11 +637,11 @@ ChatStore.prototype._reconcileReplyHistory = function (lastKnownSequence) {
         })
         if (completedReply) return
         return poll(attempt + 1)
-      }).catch(function (historyError) {
+      })).catch(action.guard(function (historyError) {
         console.warn('[Chat] Reply history reconciliation failed:', historyError)
         return poll(attempt + 1)
-      })
-    })
+      }))
+    }))
   }
 
   return poll(0)
@@ -550,8 +650,14 @@ ChatStore.prototype._reconcileReplyHistory = function (lastKnownSequence) {
 // ========== Upload ==========
 
 ChatStore.prototype.uploadImage = function (tempFilePath) {
+  var action = this._captureAction()
   var self = this
   var st = this._state
+  var uploadTask = null
+  function forgetTask() {
+    var index = self._uploadTasks.indexOf(uploadTask)
+    if (index >= 0) self._uploadTasks.splice(index,1)
+  }
   if (!st.apiBase || !st.channelId) {
     this._setState({ error: '[Upload] Not initialized' })
     return Promise.resolve()
@@ -570,34 +676,42 @@ ChatStore.prototype.uploadImage = function (tempFilePath) {
   }
   this._setState({ messages: this._state.messages.concat([placeholder]) })
 
-  return uploadService.getImageInfo(tempFilePath).then(function (dims) {
+  return uploadService.getImageInfo(tempFilePath).then(action.guard(function (dims) {
     return uploadService.uploadChatFile({
       apiBase: st.apiBase,
       apiKey: st.platformApiKey,
       channelId: st.channelId,
       channelType: st.channelType,
       filePath: tempFilePath,
-      onProgress: function (p) {
+      onProgress: action.guard(function (p) {
         self._updateMessage(id, { uploadProgress: p })
+      }),
+      onTask:function (task) {
+        if (!action.isCurrent()) {task.abort();return}
+        uploadTask = task
+        self._uploadTasks.push(task)
       }
-    }).then(function (res) {
+    }).then(action.guard(function (res) {
       var w = dims ? Math.max(1, dims.width) : 1
       var h = dims ? Math.max(1, dims.height) : 1
       var payload = { type: 2, url: res.file_url, width: w, height: h }
       self._updateMessage(id, { payload: payload, status: 'sending', uploadProgress: undefined })
       return IMService.sendPayload(payload, { clientMsgNo: clientMsgNo })
-    }).then(function (result) {
+    })).then(action.guard(function (result) {
+      forgetTask()
       self._updateMessage(id, { status: undefined, reasonCode: result && result.reasonCode })
-    })
-  }).catch(function (err) {
+    }))
+  })).catch(action.guard(function (err) {
+    forgetTask()
     console.error('[Chat] Upload failed:', err)
     self._updateMessage(id, { status: undefined, uploadError: err && err.message ? err.message : '上传失败' })
-  })
+  }))
 }
 
 // ========== History ==========
 
 ChatStore.prototype.loadInitialHistory = function (limit) {
+  var action = this._captureAction()
   limit = limit || 20
   var self = this
   var st = this._state
@@ -615,7 +729,7 @@ ChatStore.prototype.loadInitialHistory = function (limit) {
     endSeq: 0,
     limit: limit,
     pullMode: 1
-  }).then(function (res) {
+  }).then(action.guard(function (res) {
     var myUid = self._state.myUid
     var list = res.messages.slice().sort(function (a, b) {
       return (a.message_seq || 0) - (b.message_seq || 0)
@@ -637,14 +751,15 @@ ChatStore.prototype.loadInitialHistory = function (limit) {
       earliestSeq: earliest,
       historyHasMore: res.more === 1
     })
-  }).catch(function (e) {
+  })).catch(action.guard(function (e) {
     self._setState({ historyError: e && e.message ? e.message : String(e) })
-  }).then(function () {
+  })).then(action.guard(function () {
     self._setState({ historyLoading: false })
-  })
+  }))
 }
 
 ChatStore.prototype.loadMoreHistory = function (limit) {
+  var action = this._captureAction()
   limit = limit || 20
   var self = this
   var st = this._state
@@ -663,7 +778,7 @@ ChatStore.prototype.loadMoreHistory = function (limit) {
     endSeq: 0,
     limit: limit,
     pullMode: 0
-  }).then(function (res) {
+  }).then(action.guard(function (res) {
     var myUid = self._state.myUid
     var listAsc = res.messages.slice().sort(function (a, b) {
       return (a.message_seq || 0) - (b.message_seq || 0)
@@ -683,21 +798,23 @@ ChatStore.prototype.loadMoreHistory = function (limit) {
       earliestSeq: earliest,
       historyHasMore: res.more === 1
     })
-  }).catch(function (e) {
+  })).catch(action.guard(function (e) {
     self._setState({ historyError: e && e.message ? e.message : String(e) })
-  }).then(function () {
+  })).then(action.guard(function () {
     self._setState({ historyLoading: false })
-  })
+  }))
 }
 
 // ========== Streaming ==========
 
 ChatStore.prototype.markStreamingStart = function (clientMsgNo) {
+  var action = this._captureAction()
   if (!clientMsgNo) return
   if (streamTimer) { try { clearTimeout(streamTimer) } catch (e) {} ; streamTimer = null }
   var self = this
   this._setState({ isStreaming: true, streamCanceling: false, streamingClientMsgNo: clientMsgNo })
   streamTimer = setTimeout(function () {
+    if (!action.isCurrent()) return
     var s = self._state
     if (s.isStreaming && s.streamingClientMsgNo === clientMsgNo) {
       self._setState({ isStreaming: false, streamingClientMsgNo: '', streamCanceling: false })
@@ -712,6 +829,7 @@ ChatStore.prototype.markStreamingEnd = function (clientMsgNo) {
 }
 
 ChatStore.prototype.cancelStreaming = function (reason) {
+  var action = this._captureAction()
   var self = this
   var st = this._state
   if (st.streamCanceling) return Promise.resolve()
@@ -728,15 +846,15 @@ ChatStore.prototype.cancelStreaming = function (reason) {
     platformApiKey: st.platformApiKey,
     clientMsgNo: st.streamingClientMsgNo,
     reason: reason || 'user_cancel'
-  }).then(function () {
+  }).then(action.guard(function () {
     if (self._state.streamingClientMsgNo === st.streamingClientMsgNo &&
         self._state.platformApiKey === st.platformApiKey) self.markStreamingEnd()
-  }).catch(function (e) {
+  })).catch(action.guard(function (e) {
     console.warn('[Chat] Cancel streaming error:', e)
     if (self._state.streamingClientMsgNo === st.streamingClientMsgNo) {
       self._setState({ streamCanceling: false, error: '尚未确认停止，请稍后重试。' })
     }
-  })
+  }))
 }
 
 ChatStore.prototype.appendStreamData = function (clientMsgNo, data) {
@@ -875,12 +993,26 @@ ChatStore.prototype.ensureWelcomeMessage = function (text) {
   }
 }
 
-ChatStore.prototype.disconnect = function () {
+ChatStore.prototype.endSession = function () {
+  var original = {apiBase:this._state.apiBase,platformApiKey:this._state.platformApiKey}
+  this._sessionActive = false
+  this._restartTarget = null
+  this._businessCustomer.invalidate()
   if (offMsg) { try { offMsg() } catch (e) {} ; offMsg = null }
   if (offStatus) { try { offStatus() } catch (e) {} ; offStatus = null }
   if (offCustom) { try { offCustom() } catch (e) {} ; offCustom = null }
-  this.markStreamingEnd()
-  IMService.disconnect()
+  if (streamTimer) {clearTimeout(streamTimer);streamTimer = null}
+  if (this._throttleTimer) {clearTimeout(this._throttleTimer);this._throttleTimer = null}
+  activeParsers = {}
+  this._uploadTasks.forEach(function (task) {try {task.abort()} catch (error) {}})
+  this._uploadTasks = []
+  this._setState({sessionRevision:this._state.sessionRevision+1,messages:[],myUid:'',visitorId:'',projectId:'',platformId:'',
+    channelId:'',channelType:251,online:false,initializing:false,error:null,historyLoading:false,historyHasMore:true,
+    historyError:null,earliestSeq:null,isStreaming:false,streamCanceling:false,streamingClientMsgNo:''})
+  var ending = original.apiBase && original.platformApiKey ? visitorLifecycle.endCachedVisitorAccess(original) : Promise.resolve()
+  return Promise.all([ending,Promise.resolve(IMService.disconnect())]).then(function (results) {return results[0]})
 }
+
+ChatStore.prototype.disconnect = function () {return this.endSession()}
 
 module.exports = new ChatStore()

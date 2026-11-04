@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { KnowledgeBaseHeader } from '@/components/knowledge/KnowledgeBaseHeader';
 import { FileUpload } from '@/components/knowledge/FileUpload';
 import { DocumentList } from '@/components/knowledge/DocumentList';
-import { FileManagementService } from '@/services/fileManagementService';
+import { FileManagementService, type FileUploadProgress } from '@/services/fileManagementService';
 import { transformCollectionToKnowledgeBase } from '@/utils/knowledgeBaseTransforms';
 import { KnowledgeBaseApiService } from '@/services/knowledgeBaseApi';
 import { useToast } from '@/hooks/useToast';
@@ -15,9 +15,8 @@ import { useAuthStore } from '@/stores/authStore';
 
 import { SearchTest } from '@/components/knowledge/SearchTest';
 import { QADataView } from '@/components/knowledge/QADataView';
-import { KnowledgeGovernancePanel } from '@/components/knowledge/KnowledgeGovernancePanel';
 import { KnowledgeVersionsPanel } from '@/components/knowledge/KnowledgeVersionsPanel';
-import { TestTube, FileText, ShieldCheck } from 'lucide-react';
+import { TestTube, FileText } from 'lucide-react';
 
 /**
  * Knowledge Base Detail Page Component
@@ -26,6 +25,11 @@ import { TestTube, FileText, ShieldCheck } from 'lucide-react';
 const KnowledgeBaseDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const routeState = location.state as { knowledgeTextDraft?: { title: string; body: string }; importError?: string } | null;
+  const [editorRequest, setEditorRequest] = useState(0);
+  const [editingFileId, setEditingFileId] = useState<string | undefined>();
+  const [editingMode, setEditingMode] = useState<'paste' | 'upload'>('paste');
   const { showToast } = useToast();
   const { t, i18n } = useTranslation();
 
@@ -37,12 +41,12 @@ const KnowledgeBaseDetail: React.FC = () => {
   const [fileTypeFilter, setFileTypeFilter] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [hasError, setHasError] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<Map<string, any>>(new Map());
+  const [uploadProgress, setUploadProgress] = useState<Map<string, FileUploadProgress>>(new Map());
   const [downloadingFiles, setDownloadingFiles] = useState<Set<string>>(new Set());
   const [deletingFiles, setDeletingFiles] = useState<Set<string>>(new Set());
 
   // Tabs State
-  const [activeTab, setActiveTab] = useState<'documents' | 'search' | 'governance'>('documents');
+  const [activeTab, setActiveTab] = useState<'documents' | 'search'>('documents');
 
   // QA View State
   const [qaFile, setQaFile] = useState<{ id: string; name: string } | null>(null);
@@ -100,6 +104,8 @@ const KnowledgeBaseDetail: React.FC = () => {
       return;
     }
 
+    fileServiceRef.current = null;
+    let cancelled = false;
     const initializePage = async (): Promise<(() => void) | undefined> => {
       setIsLoading(true);
       setError(null);
@@ -108,6 +114,7 @@ const KnowledgeBaseDetail: React.FC = () => {
       try {
         // Get knowledge base from API
         const collection = await KnowledgeBaseApiService.getCollection(id);
+        if (cancelled) return undefined;
         const kb = transformCollectionToKnowledgeBase(collection);
         setKnowledgeBase(kb);
 
@@ -116,6 +123,9 @@ const KnowledgeBaseDetail: React.FC = () => {
 
         // Subscribe to file service state changes
         const unsubscribe = fileServiceRef.current.subscribe((state) => {
+          if (cancelled) return;
+          setError(state.error);
+          setHasError(state.hasError);
           setDocuments(state.files);
           setIsLoading(state.isLoading);
           setUploadProgress(state.uploadProgress);
@@ -124,10 +134,12 @@ const KnowledgeBaseDetail: React.FC = () => {
         // Load files
         await fileServiceRef.current.loadFiles();
 
+        if (cancelled) { unsubscribe(); return undefined; }
         setIsLoading(false);
         return unsubscribe;
 
       } catch (error) {
+        if (cancelled) return undefined;
         console.error('Failed to load knowledge base:', error);
         const errorMessage = error instanceof Error ? error.message : t('knowledge.detail.loadFailedDefault', '加载知识库详情失败');
         setError(errorMessage);
@@ -140,9 +152,33 @@ const KnowledgeBaseDetail: React.FC = () => {
     const cleanup = initializePage();
 
     return () => {
+      cancelled = true;
       cleanup?.then(unsubscribe => unsubscribe?.());
     };
   }, [id, navigate, t]);
+
+  useEffect(() => {
+    if (!id || isLoading || !fileServiceRef.current) return;
+    let stopped = false;
+    let running = false;
+    const refresh = async () => {
+      if (stopped || running || document.hidden) return;
+      running = true;
+      try { await fileServiceRef.current?.loadFiles(true); }
+      catch { /* The file service retains the concrete error for display. */ }
+      finally { running = false; }
+    };
+    const processing = documents.some((file) => file.statusType === 'processing');
+    const timer = window.setInterval(() => void refresh(), processing ? 5000 : 30000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { stopped = true; window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, [id, isLoading, documents]);
+
+  const openEditor = (mode: 'paste' | 'upload', fileId = documents[0]?.id) => {
+    setEditingFileId(fileId); setEditingMode(mode); setActiveTab('documents'); setEditorRequest(value => value + 1);
+    window.requestAnimationFrame(() => document.getElementById('knowledge-versions')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+  };
 
   // Handle back navigation
   const handleBack = () => {
@@ -154,7 +190,7 @@ const KnowledgeBaseDetail: React.FC = () => {
     if (fileServiceRef.current) {
       try {
         await fileServiceRef.current.loadFiles();
-      } catch (error) {
+              } catch (error) {
         console.error('Failed to refresh files:', error);
         // Error is already handled in the file service
       }
@@ -205,7 +241,7 @@ const KnowledgeBaseDetail: React.FC = () => {
       if (result.failedCount === 0) {
         // All files uploaded successfully
         if (files.length === 1) {
-          showFileSuccess(showToast, 'upload', files[0].name);
+          showToast('info', t('knowledgeOnboarding.uploaded'), t('knowledgeOnboarding.afterUpload'));
         } else {
           showToast('success', t('knowledge.upload.uploadComplete', '上传完成'), t('knowledge.upload.multipleSuccessMessage', { count: files.length, defaultValue: `${files.length} 个文件上传成功` }));
         }
@@ -230,6 +266,16 @@ const KnowledgeBaseDetail: React.FC = () => {
       }
     }
   };
+
+  const handleTextImport = async (file: File): Promise<void> => {
+    if (!hasEmbeddingModel || isCheckingEmbedding || !fileServiceRef.current) throw new Error(t('knowledge.embedding.checkFailedDesc'));
+    for (const [key, progress] of fileServiceRef.current.getState().uploadProgress) {
+      if (progress.fileName === file.name && progress.status === 'error') fileServiceRef.current.clearUploadProgress(key);
+    }
+    await fileServiceRef.current.uploadFile(file, { tags: ['knowledge-material'] });
+    navigate(location.pathname, { replace: true, state: null });
+    showToast('info', t('knowledgeOnboarding.uploaded'), t('knowledgeOnboarding.afterUpload'));
+      };
 
   // Handle document actions
   const handleDownload = async (docId: string) => {
@@ -332,7 +378,7 @@ const KnowledgeBaseDetail: React.FC = () => {
   }, [documents, i18n.language]);
 
   // Show loading state
-  if (isLoading) {
+  if (isLoading && !knowledgeBase) {
     return (
       <div className="flex-grow flex items-center justify-center bg-gray-100 dark:bg-gray-900">
         <div className="text-center">
@@ -349,7 +395,7 @@ const KnowledgeBaseDetail: React.FC = () => {
   }
 
   // Show error state
-  if (hasError) {
+  if (hasError && !knowledgeBase) {
     return (
       <div className="flex-grow flex items-center justify-center bg-gray-100 dark:bg-gray-900">
         <div className="text-center max-w-md">
@@ -402,7 +448,7 @@ const KnowledgeBaseDetail: React.FC = () => {
 
   return (
     <div className="flex h-full w-full bg-gray-100 dark:bg-gray-900">
-      <div className="flex-grow flex flex-col overflow-hidden">
+      <div className="min-w-0 flex-grow flex flex-col overflow-hidden">
         {/* Header */}
         <KnowledgeBaseHeader
           knowledgeBase={{
@@ -414,7 +460,8 @@ const KnowledgeBaseDetail: React.FC = () => {
           }}
           onBack={handleBack}
           onRefresh={handleRefresh}
-          onToggleUpload={handleToggleUpload}
+          onPasteText={() => openEditor('paste')}
+          onToggleUpload={() => openEditor('upload')}
           isUploadVisible={isUploadVisible}
           searchTerm={searchTerm}
           onSearchChange={setSearchTerm}
@@ -428,7 +475,7 @@ const KnowledgeBaseDetail: React.FC = () => {
         {/* Tabs - Only show if not in legacy QA view */}
         {!qaFile && (
           <div className="px-6 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-            <div className="flex items-center space-x-1">
+            <div className="flex flex-wrap items-center gap-1">
               <button
                 onClick={() => setActiveTab('documents')}
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'documents'
@@ -449,21 +496,12 @@ const KnowledgeBaseDetail: React.FC = () => {
                 <TestTube className="w-4 h-4" />
                 {t('knowledge.tabs.searchTest', '搜索测试')}
               </button>
-              <button
-                onClick={() => setActiveTab('governance')}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'governance'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-                  }`}
-              >
-                <ShieldCheck className="w-4 h-4" />
-                {t('knowledge.tabs.governance')}
-              </button>
+
             </div>
           </div>
         )}
 
-        <div className="flex-grow overflow-y-auto" style={{ height: 0 }}>
+        <div className="min-w-0 flex-grow overflow-y-auto" style={{ height: 0 }}>
           <div className='h-full w-full'>
 
             {/* QA Data View Overlay */}
@@ -480,6 +518,11 @@ const KnowledgeBaseDetail: React.FC = () => {
             {/* Document List View */}
             {activeTab === 'documents' && !qaFile && (
               <>
+                <div className="m-4 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-200">
+                  <p className="font-medium">{t('knowledgeOnboarding.flow')}</p>
+                  {routeState?.importError && <p role="alert" className="break-words text-red-600">{t('knowledgeOnboarding.createdButNotImported')} {routeState.importError}</p>}
+                  {hasError && <p role="alert" className="break-words text-red-600">{error}</p>}
+                </div>
                 {/* Upload Area */}
                 <FileUpload
                   onUpload={handleFileUpload}
@@ -494,6 +537,7 @@ const KnowledgeBaseDetail: React.FC = () => {
                 {/* Document List */}
                 <DocumentList
                   documents={documents}
+                  onEditFile={(fileId) => openEditor('paste', fileId)}
                   isLoading={isLoading}
                   onDownload={handleDownload}
                   onDelete={handleDelete}
@@ -507,18 +551,12 @@ const KnowledgeBaseDetail: React.FC = () => {
             )}
 
             {/* Search Test View */}
-            {activeTab === 'documents' && !qaFile && <div className="px-6 pb-6"><KnowledgeVersionsPanel collectionId={id!} kind="file" /></div>}
+            {activeTab === 'documents' && !qaFile && <div className="px-6 pb-6"><KnowledgeVersionsPanel collectionId={id!} kind="file" initialFileId={editingFileId} initialMode={editingMode} openRequest={editorRequest} initialDraft={routeState?.knowledgeTextDraft} onAddFile={handleTextImport} onUpdated={handleRefresh} /></div>}
             {activeTab === 'search' && !qaFile && (
               <SearchTest collectionId={id!} />
             )}
 
-            {activeTab === 'governance' && !qaFile && (
-              <KnowledgeGovernancePanel
-                collectionId={id!}
-                collectionName={knowledgeBase.name}
-                documents={documents}
-              />
-            )}
+
 
           </div>
           <br /><br /><br /><br />

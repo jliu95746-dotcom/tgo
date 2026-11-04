@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import ChannelMember, Staff, Visitor
+from app.models.platform import DIRECT_VISITOR_PLATFORM_TYPES
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_STAFF
 from app.utils.encoding import parse_visitor_channel_id
 
@@ -26,7 +27,8 @@ class PlatformMessageTarget(BaseModel):
     @property
     def requires_external_delivery(self) -> bool:
         return (
-            self.platform_type != "website" and self.platform_open_id != self.channel_id
+            self.platform_type not in DIRECT_VISITOR_PLATFORM_TYPES
+            and self.platform_open_id != self.channel_id
         )
 
 

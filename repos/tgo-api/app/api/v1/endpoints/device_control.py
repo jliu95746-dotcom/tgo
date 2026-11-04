@@ -1,6 +1,6 @@
 """Device Control API endpoints - Proxies to tgo-device-control service."""
 
-from typing import Optional
+from typing import NoReturn, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -9,12 +9,20 @@ from pydantic import BaseModel, Field
 import httpx
 
 from app.core.logging import get_logger
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_admin
 from app.services.device_control_client import device_control_client
 from app.models import Staff
 from app.core.exceptions import TGOAPIException
 from app.schemas.device_debug_chat import DeviceDebugChatRequest
 from app.schemas.device_session import DeviceSessionDetail, DeviceSessionList
+from app.schemas.device_scenario import (
+    DeviceScenario, DeviceScenarioDraftRead, DeviceScenarioDraftWrite,
+)
+from app.schemas.device_read_policy import (
+    DeviceReadPolicyPublish,
+    DeviceReadPolicyRead,
+    DeviceReadPolicyTest,
+)
 from app.services.device_debug_chat import (
     stream_device_debug,
     validate_device_debug,
@@ -24,9 +32,88 @@ logger = get_logger("api.device_control")
 router = APIRouter()
 
 
+@router.get("/devices/{device_id}/read-policy", response_model=DeviceReadPolicyRead)
+async def get_device_read_policy(
+    device_id: UUID,
+    current_user: Staff = Depends(require_admin()),
+) -> DeviceReadPolicyRead:
+    try:
+        return await device_control_client.get_read_policy(
+            device_id, str(current_user.project_id)
+        )
+    except Exception as error:
+        _handle_service_error(error, "get_read_policy")
+
+
+@router.put("/devices/{device_id}/read-policy", response_model=DeviceReadPolicyRead)
+async def publish_device_read_policy(
+    device_id: UUID,
+    request: DeviceReadPolicyPublish,
+    current_user: Staff = Depends(require_admin()),
+) -> DeviceReadPolicyRead:
+    try:
+        return await device_control_client.publish_read_policy(
+            device_id, str(current_user.project_id), request
+        )
+    except Exception as error:
+        _handle_service_error(error, "publish_read_policy")
+
+
+@router.post(
+    "/devices/{device_id}/read-policy/test", response_model=DeviceReadPolicyRead
+)
+async def test_device_read_policy(
+    device_id: UUID,
+    request: DeviceReadPolicyTest,
+    current_user: Staff = Depends(require_admin()),
+) -> DeviceReadPolicyRead:
+    try:
+        return await device_control_client.test_read_policy(
+            device_id, str(current_user.project_id), request
+        )
+    except Exception as error:
+        _handle_service_error(error, "test_read_policy")
+
+
+@router.get(
+    "/devices/{device_id}/scenario-drafts/{scenario}",
+    response_model=DeviceScenarioDraftRead,
+)
+async def get_device_scenario_draft(
+    device_id: UUID,
+    scenario: DeviceScenario,
+    current_user: Staff = Depends(get_current_active_user),
+) -> DeviceScenarioDraftRead:
+    try:
+        return await device_control_client.get_scenario_draft(
+            device_id, scenario, str(current_user.project_id)
+        )
+    except Exception as error:
+        _handle_service_error(error, "get_scenario_draft")
+
+
+@router.put(
+    "/devices/{device_id}/scenario-drafts/{scenario}",
+    response_model=DeviceScenarioDraftRead,
+)
+async def save_device_scenario_draft(
+    device_id: UUID,
+    scenario: DeviceScenario,
+    request: DeviceScenarioDraftWrite,
+    current_user: Staff = Depends(get_current_active_user),
+) -> DeviceScenarioDraftRead:
+    try:
+        return await device_control_client.save_scenario_draft(
+            device_id, scenario, str(current_user.project_id), request
+        )
+    except Exception as error:
+        _handle_service_error(error, "save_scenario_draft")
+
+
 @router.get("/sessions", response_model=DeviceSessionList)
 async def list_device_sessions(
     device_id: UUID | None = None,
+    workflow_execution_id: UUID | None = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current_user: Staff = Depends(get_current_active_user),
@@ -34,6 +121,7 @@ async def list_device_sessions(
     return await device_control_client.list_sessions(
         str(current_user.project_id),
         device_id=device_id,
+        workflow_execution_id=workflow_execution_id,
         skip=skip,
         limit=limit,
     )
@@ -54,7 +142,7 @@ async def get_device_session(
     )
 
 
-def _handle_service_error(e: Exception, context: str):
+def _handle_service_error(e: Exception, context: str) -> NoReturn:
     """Helper to handle errors from device control service."""
     if isinstance(e, (HTTPException, TGOAPIException)):
         raise e

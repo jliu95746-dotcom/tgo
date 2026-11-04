@@ -30,7 +30,7 @@ const AIMenuItem: React.FC<AIMenuItemProps> = ({ item }) => {
     <NavLink
       to={item.path}
       className={({ isActive }) => `
-        group flex items-center px-4 py-3 rounded-2xl text-sm transition-all duration-300 w-full text-left mb-1
+        group mb-1 flex w-auto shrink-0 items-center rounded-2xl px-3 py-2 text-left text-sm transition-all duration-300 md:w-full md:px-4 md:py-3
         ${isActive
           ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 font-bold shadow-sm border border-gray-100 dark:border-gray-700'
           : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200 border border-transparent'
@@ -41,7 +41,7 @@ const AIMenuItem: React.FC<AIMenuItemProps> = ({ item }) => {
       {({ isActive }) => (
         <>
           <div className={`
-            p-2 rounded-xl transition-all duration-300 mr-3
+            mr-1 rounded-xl p-1 transition-all duration-300 md:mr-3 md:p-2
             ${isActive 
               ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 shadow-inner' 
               : 'bg-transparent text-gray-400 group-hover:bg-gray-100 dark:group-hover:bg-gray-700 group-hover:text-gray-600'
@@ -68,9 +68,9 @@ const AIMenuItem: React.FC<AIMenuItemProps> = ({ item }) => {
 const AIMenu: React.FC = () => {
   const { t } = useTranslation();
   return (
-    <aside className="w-64 bg-[#f8fafc] dark:bg-gray-950 border-r border-gray-200/50 dark:border-gray-800/50 flex flex-col shrink-0">
+    <aside className="ai-section-menu flex w-full min-w-0 shrink-0 flex-col border-b border-gray-200/50 bg-[#f8fafc] dark:border-gray-800/50 dark:bg-gray-950 md:w-64 md:border-r md:border-b-0">
       {/* Header */}
-      <div className="px-6 py-8">
+      <div className="hidden px-6 py-8 md:block">
         <div className="flex items-center gap-3 mb-1">
           <div className="p-2 bg-blue-600 rounded-xl text-white shadow-lg shadow-blue-200 dark:shadow-none">
             <LuSparkles className="w-5 h-5" />
@@ -85,7 +85,7 @@ const AIMenu: React.FC = () => {
       </div>
 
       {/* Menu Navigation */}
-      <nav className="flex-grow overflow-y-auto px-4 space-y-1 custom-scrollbar">
+      <nav aria-label={t('ai.menu.title', 'AI 功能')} className="custom-scrollbar flex min-w-0 gap-1 overflow-x-auto px-2 py-2 md:block md:flex-grow md:space-y-1 md:overflow-x-hidden md:overflow-y-auto md:px-4 md:py-0">
         {AI_MENU_ITEMS.map((item) => (
           <AIMenuItem
             key={item.id}
@@ -95,7 +95,7 @@ const AIMenu: React.FC = () => {
       </nav>
 
       {/* Onboarding Panel */}
-      <div className="p-4 mt-auto">
+      <div className="mt-auto hidden p-4 md:block">
         <OnboardingSidebarPanel />
       </div>
     </aside>

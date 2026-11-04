@@ -47,7 +47,7 @@ def test_paid_company_full_lifecycle(commercial_company):
         )
     )
     higher = BillingPlan(
-        code="higher",
+        code="standard",
         version=1,
         status="published",
         definition={
@@ -130,7 +130,7 @@ def test_paid_company_full_lifecycle(commercial_company):
     assert account.seat_limit == 7 and utc(account.expires_at) == prepaid_end
     purchase("ai_pack", higher.id, quantity=2)
     pack = db.query(AICreditBatch).filter_by(kind="pack").one()
-    assert pack.remaining == 200 and utc(pack.expires_at) > prepaid_end
+    assert pack.remaining == 200 and utc(pack.expires_at) == original_end
 
     _, renewal_quote = purchase("renew", higher.id)
     assert renewal_quote.details["resulting_seats"] == 7
@@ -139,11 +139,11 @@ def test_paid_company_full_lifecycle(commercial_company):
     with pytest.raises(TGOAPIException) as error:
         require_service(account, expired)
     assert error.value.code == "SUBSCRIPTION_EXPIRED"
-    assert pack.remaining == 200  # Subscription expiry does not erase a valid pack.
+    assert utc(pack.expires_at) < expired
 
     purchase("renew", higher.id, instant=expired)
     require_service(account, expired)
     assert utc(account.started_at) <= expired < utc(account.expires_at)
-    assert pack.remaining == 200 and utc(pack.expires_at) > expired
+    assert pack.remaining == 200 and utc(pack.expires_at) < utc(account.started_at)
     assert db.query(BillingJob).count() == db.query(BillingOrder).count() == 7
     assert db.query(PaymentEvent).count() == 7

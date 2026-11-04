@@ -68,7 +68,7 @@ const DouyinPlatformConfig: React.FC<Props> = ({ platform }) => {
     const origAgentIds = platform.agent_id ? [platform.agent_id] : [];
     const origMode = platform.ai_mode ?? 'auto';
     const origTimeout = platform.fallback_to_ai_timeout ?? null;
-    const agentIdsChanged = JSON.stringify(aiAgentIds.sort()) !== JSON.stringify([...origAgentIds].sort());
+    const agentIdsChanged = JSON.stringify([...aiAgentIds].sort()) !== JSON.stringify([...origAgentIds].sort());
     const modeChanged = aiMode !== origMode;
     const timeoutChanged = fallbackTimeout !== origTimeout;
     return agentIdsChanged || modeChanged || timeoutChanged;

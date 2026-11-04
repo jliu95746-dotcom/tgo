@@ -4,6 +4,17 @@ from enum import Enum, IntEnum
 CHANNEL_TYPE_CUSTOMER_SERVICE = 251
 CHANNEL_TYPE_PROJECT_STAFF = 249  # 项目坐席群组频道
 SETUP_DEFAULT_AGENT_MODEL = "default"
+STAFF_AVATAR_MAX_BYTES = 5 * 1024 * 1024
+PUBLIC_AI_FAILURE_MESSAGE = "AI 暂时无法完成回复，请稍后重试或联系人工客服。"
+AI_INTERACTION_FAILURE_CODES = frozenset({
+    "ai_processing_failed",
+    "ai_workflow_failed",
+    "ai_stream_failed",
+    "ai_stream_cancelled",
+    "ai_background_cancelled",
+    "business_context_unavailable",
+    "visitor_access_ended",
+})
 
 # member_type
 MEMBER_TYPE_STAFF = "staff"

@@ -18,8 +18,10 @@ from app.db.base import get_db
 from app.db.models import Platform
 from app.domain.entities import NormalizedMessage
 from app.domain.services.dispatcher import process_message
+from app.api.v1.wecom_native_mode import router as native_mode_router
 
 router = APIRouter(prefix="/internal", tags=["internal"])
+router.include_router(native_mode_router)
 logger = logging.getLogger(__name__)
 
 
@@ -63,7 +65,8 @@ async def reload_slack_platform(config: SlackPlatformConfig, request: Request):
         else:
             return ReloadResponse(success=False, message=f"Failed to reload Slack platform {config.platform_id}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Slack reload failed: error_type=%s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Slack listener reload failed") from None
 
 
 @router.post("/slack/stop/{platform_id}", response_model=ReloadResponse)
@@ -83,7 +86,8 @@ async def stop_slack_platform(platform_id: str, request: Request):
         else:
             return ReloadResponse(success=False, message=f"Platform {platform_id} was not running")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Slack stop failed: error_type=%s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Slack listener stop failed") from None
 
 
 # --- Vision Agent Inbound Messages ---
@@ -174,5 +178,5 @@ async def vision_agent_inbound(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to process vision agent inbound message: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Vision agent inbound message failed: error_type=%s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Inbound message processing failed") from None

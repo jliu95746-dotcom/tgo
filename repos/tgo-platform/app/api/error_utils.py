@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
-import uuid
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -11,6 +11,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.schemas import ErrorDetail, ErrorResponse
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_request_id(request: Request) -> str | None:
@@ -66,12 +69,14 @@ async def pydantic_validation_exception_handler(request: Request, exc: Validatio
 
 async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
     request_id = get_request_id(request)
-    return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="DATABASE_ERROR", message="A database error occurred", details=str(exc), request_id=request_id)
+    logger.error("Database request failed: error_type=%s", type(exc).__name__)
+    return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="DATABASE_ERROR", message="A database error occurred", request_id=request_id)
 
 
 async def generic_exception_handler(request: Request, exc: Exception):
     request_id = get_request_id(request)
-    return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="INTERNAL_SERVER_ERROR", message="An unexpected error occurred", details=str(exc), request_id=request_id)
+    logger.error("Unexpected request failure: error_type=%s", type(exc).__name__)
+    return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="INTERNAL_SERVER_ERROR", message="An unexpected error occurred", request_id=request_id)
 
 
 def register_exception_handlers(app: FastAPI) -> None:

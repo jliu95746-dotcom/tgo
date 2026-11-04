@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Pencil, Trash2, MessageCircle, MoreVertical, Copy, Power, Bot } from 'lucide-react';
+import { Pencil, Trash2, MessageCircle, MoreVertical, Copy, Power, Bot, FlaskConical } from 'lucide-react';
 import AgentToolTag from '@/components/ui/AgentToolTag';
 import KnowledgeBaseTag from '@/components/ui/KnowledgeBaseTag';
+import AgentKnowledgeCapabilities from '@/components/business/AgentKnowledgeCapabilities';
+import AgentActivationSummary from '@/components/business/AgentActivationSummary';
+import AgentBusinessCapabilitySummary from '@/components/business/AgentBusinessCapabilitySummary';
 import WorkflowTag from '@/components/ui/WorkflowTag';
 import DeviceTag from '@/components/ui/DeviceTag';
 import { generateDefaultAvatar, hasValidAvatar } from '@/utils/avatarUtils';
@@ -27,6 +30,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
   const { t } = useTranslation();
   const navigate = useNavigate();
   const projectId = useAuthStore(state => state.user?.project_id);
+  const canTrial = useAuthStore(state => state.user?.role === 'admin');
   const modelCheck = useAgentReadinessStore();
   const loadModelCheck = modelCheck.load;
   useEffect(() => {
@@ -38,6 +42,8 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
   const [showAllCollections, setShowAllCollections] = useState(false);
   const [showAllTools, setShowAllTools] = useState(false);
   const [showAllWorkflows, setShowAllWorkflows] = useState(false);
+  const unpinnedWorkflowCount = agent.workflows?.filter(workflow =>
+    typeof workflow === 'string' || workflow.bound_release_version == null).length ?? 0;
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const statusChangePending = useRef(false);
@@ -86,12 +92,13 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
 
   const handleToggleStatus = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!canTrial) return;
+    if (agent.status !== 'active') { handleAction('activation'); return; }
     if (statusChangePending.current) return;
     statusChangePending.current = true;
     setShowMenu(false);
     try {
-      const newStatus = agent.status === 'active' ? 'inactive' : 'active';
-      await updateAgent(agent.id, { status: newStatus });
+      await updateAgent(agent.id, { status: 'inactive' });
       showToast('success', t('agents.messages.statusUpdateSuccess', '刷新成功'), t('agents.messages.statusUpdateSuccessDesc', `AI员工 "${agent.name}" 状态已更新`, { name: agent.name }));
     } catch {
       showToast('error', t('agents.messages.statusUpdateFailed', '刷新失败'), t('agents.messages.statusUpdateFailedDesc', '更新AI员工状态时发生错误'));
@@ -212,7 +219,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
                 <button onClick={() => handleAction('copy')} className="w-full flex items-center px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                   <Copy className="w-4 h-4 mr-2" /> {t('agents.actions.copy', '复制')}
                 </button>
-                <button onClick={handleToggleStatus} disabled={isChangingAgentActivation} title={t('agents.activation.rule')} className="w-full flex items-center px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors disabled:opacity-50 disabled:cursor-wait">
+                <button onClick={handleToggleStatus} disabled={!canTrial || isChangingAgentActivation} title={t('agents.activation.rule')} className="w-full flex items-center px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors disabled:opacity-50 disabled:cursor-wait">
                   <Power className={`w-4 h-4 mr-2 ${agent.status === 'active' ? 'text-orange-500' : 'text-green-500'}`} /> 
                   {agent.status === 'active' ? t('agents.actions.disable', '停止') : t('agents.actions.enable', '启用')}
                 </button>
@@ -230,6 +237,9 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
         </p>
 
         <div className="space-y-3">
+          <AgentActivationSummary agentId={agent.id} enabled={agent.status === 'active'} onOpen={() => handleAction('activation')} />
+          <AgentKnowledgeCapabilities agentId={agent.id} />
+          <AgentBusinessCapabilitySummary agentId={agent.id} onOpen={() => handleAction('edit')} />
           {/* Model info */}
           <div className="flex items-center text-[11px] text-gray-500 dark:text-gray-500 bg-gray-50 dark:bg-gray-800/50 px-2 py-1.5 rounded-lg border border-gray-100/50 dark:border-gray-700/50">
             <Bot className="w-3.5 h-3.5 mr-2 opacity-70" />
@@ -260,12 +270,18 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
             {agent.workflows && agent.workflows.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
                 {(showAllWorkflows ? agent.workflows : agent.workflows.slice(0, 2)).map((workflow) => (
-                  <WorkflowTag
-                    key={typeof workflow === 'string' ? workflow : workflow.id}
-                    workflow={typeof workflow === 'string' ? { id: workflow, name: workflow } : workflow}
-                    size="xs"
-                    onClick={() => navigate(`/ai/workflows/${typeof workflow === 'string' ? workflow : workflow.id}/edit`)}
-                  />
+                  typeof workflow !== 'string' && workflow.details_available === false ? (
+                    <span key={workflow.id} className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-700 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-400">
+                      {t('workflowRelease.unavailableBadge')}: {workflow.id}
+                    </span>
+                  ) : (
+                    <WorkflowTag
+                      key={typeof workflow === 'string' ? workflow : workflow.id}
+                      workflow={typeof workflow === 'string' ? { id: workflow, name: workflow } : workflow}
+                      size="xs"
+                      onClick={() => navigate(`/ai/workflows/${typeof workflow === 'string' ? workflow : workflow.id}/edit`)}
+                    />
+                  )
                 ))}
                 {agent.workflows.length > 2 && (
                   <button onClick={() => setShowAllWorkflows(!showAllWorkflows)} className="text-[10px] text-purple-500 hover:text-purple-600 font-medium px-1 underline-offset-2 hover:underline">
@@ -274,6 +290,11 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
                 )}
               </div>
             ) : null}
+            {unpinnedWorkflowCount > 0 && (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                {t('workflowRelease.needsPin', { count: unpinnedWorkflowCount })}
+              </p>
+            )}
           </div>
 
           {/* 知识库标签 */}
@@ -304,6 +325,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction, onToolClick }) =
       </div>
 
       <div className="mt-5 flex items-center gap-2">
+        {canTrial && <button type="button" onClick={() => handleAction('trial')} className="flex items-center justify-center gap-1.5 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300"><FlaskConical className="h-3.5 w-3.5" />{t('businessScenarios.trial.open')}</button>}
         <button
           onClick={handleChatWithAgent}
           disabled={agent.status === 'inactive'}

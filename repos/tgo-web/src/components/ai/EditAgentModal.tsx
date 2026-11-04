@@ -14,18 +14,24 @@ import Toggle from '@/components/ui/Toggle';
 
 import SectionHeader from '@/components/ui/SectionHeader';
 import { AIAgentsApiService, AIAgentsTransformUtils, SYSTEM_DEFAULT_MODEL } from '@/services/aiAgentsApi';
+import { WorkflowApiService } from '@/services/workflowApi';
 import ToolSelectionModal from './ToolSelectionModal';
 import KnowledgeBaseSelectionModal from './KnowledgeBaseSelectionModal';
 import DeviceSelectionModal from './DeviceSelectionModal';
 import { WorkflowSelectionModal } from '@/components/workflow';
-import type { Agent, AiTool, AgentToolResponse, KnowledgeBaseItem, AgentToolDetailed, AgentToolUnion, ToolSummary } from '@/types';
-import type { WorkflowSummary } from '@/types/workflow';
+import type { Agent, AgentWorkflowBinding, AiTool, AgentToolResponse, KnowledgeBaseItem, AgentToolDetailed, AgentToolUnion, ToolSummary } from '@/types';
+import type { WorkflowReleaseSummary, WorkflowSummary } from '@/types/workflow';
 import AgentToolsSection from '@/components/ui/AgentToolsSection';
 import AgentKnowledgeBasesSection from '@/components/ui/AgentKnowledgeBasesSection';
 import AgentWorkflowsSection from '@/components/ui/AgentWorkflowsSection';
 import AgentDeviceSection from '@/components/ui/AgentDeviceSection';
 import { useWorkflowStore } from '@/stores/workflowStore';
-import { useAgentForm } from '@/hooks/useAgentForm';
+import { useAgentForm, type AgentFormState } from '@/hooks/useAgentForm';
+import { agentEditChanges } from '@/utils/agentEditChanges';
+import { useAuthStore } from '@/stores/authStore';
+import AgentActivationPanel from '@/components/business/AgentActivationPanel';
+import AgentBusinessConnections from '@/components/business/AgentBusinessConnections';
+import AgentDeviceScriptPanel from '@/components/business/AgentDeviceScriptPanel';
 import AgentHumanizationField from './AgentHumanizationField';
 import { useProjectToolsStore } from '@/stores/projectToolsStore';
 import AIProvidersApiService from '@/services/aiProvidersApi';
@@ -49,6 +55,9 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
   const { aiTools, loadTools } = useProjectToolsStore();
   const { showToast } = useToast();
   const { t } = useTranslation();
+  const user = useAuthStore(state => state.user);
+  const editingIdentity = user?.role === 'admin' ? `${user.project_id}:${user.id}` : null;
+  const originalForm = useRef<AgentFormState | null>(null);
 
   const [llmOptions, setLlmOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [llmLoading, setLlmLoading] = useState(false);
@@ -107,6 +116,11 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
   const { devices, loadDevices } = useDeviceControlStore();
 
   const [isUpdating, setIsUpdating] = useState(false);
+  const [refreshWorkflowReleases, setRefreshWorkflowReleases] = useState(false);
+  const [selectedReleaseVersions, setSelectedReleaseVersions] = useState<Record<string, number>>({});
+  const [releaseOptions, setReleaseOptions] = useState<Record<string, WorkflowReleaseSummary[]>>({});
+  const [releaseFailures, setReleaseFailures] = useState<string[]>([]);
+  const [releaseLoading, setReleaseLoading] = useState(false);
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [showToolSelectionModal, setShowToolSelectionModal] = useState(false);
   const [showKnowledgeBaseSelectionModal, setShowKnowledgeBaseSelectionModal] = useState(false);
@@ -127,6 +141,11 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
 
   // Fetch agent data from API
   const fetchAgent = useCallback(async (id: string): Promise<void> => {
+    if (!editingIdentity) return;
+    const owns = () => {
+      const current = useAuthStore.getState().user;
+      return current?.role === 'admin' && `${current.project_id}:${current.id}` === editingIdentity;
+    };
     const requestVersion = ++agentRequestVersion.current;
     setIsLoadingAgent(true);
     setAgentError(null);
@@ -134,19 +153,19 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
 
     try {
       const apiResponse = await AIAgentsApiService.getAgent(id);
-      if (requestVersion !== agentRequestVersion.current) return;
+      if (requestVersion !== agentRequestVersion.current || !owns()) return;
       const agentData = AIAgentsTransformUtils.transformApiAgentToAgent(apiResponse);
       setAgent(agentData);
     } catch (error) {
-      if (requestVersion !== agentRequestVersion.current) return;
+      if (requestVersion !== agentRequestVersion.current || !owns()) return;
       console.error('Failed to fetch agent:', error);
       const errorMessage = error instanceof Error ? error.message : i18n.t('agents.edit.loadAgentError', '无法加载AI员工详情');
       setAgentError(errorMessage);
       showToast('error', i18n.t('common.loadFailed', '加载失败'), i18n.t('agents.edit.loadAgentError', '无法加载AI员工详情，请稍后重试'));
     } finally {
-      if (requestVersion === agentRequestVersion.current) setIsLoadingAgent(false);
+      if (requestVersion === agentRequestVersion.current && owns()) setIsLoadingAgent(false);
     }
-  }, [showToast]);
+  }, [showToast, editingIdentity]);
 
   // Fetch agent when modal opens or agentId changes
   useEffect(() => {
@@ -190,6 +209,34 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
     }
   }, [isOpen, workflows.length, loadWorkflows]);
 
+  const selectedWorkflowIds = formData.workflows.join('|');
+  useEffect(() => {
+    if (!isOpen || !editingIdentity) return;
+    const ids = selectedWorkflowIds ? selectedWorkflowIds.split('|') : [];
+    let cancelled = false;
+    if (ids.length === 0) {
+      setReleaseOptions({});
+      setReleaseFailures([]);
+      setReleaseLoading(false);
+      return;
+    }
+    setReleaseLoading(true);
+    void Promise.allSettled(ids.map(id => WorkflowApiService.getReleases(id))).then(results => {
+      const current = useAuthStore.getState().user;
+      if (cancelled || current?.role !== 'admin' || `${current.project_id}:${current.id}` !== editingIdentity) return;
+      const options: Record<string, WorkflowReleaseSummary[]> = {};
+      const failures: string[] = [];
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') options[ids[index]] = result.value;
+        else failures.push(ids[index]);
+      });
+      setReleaseOptions(options);
+      setReleaseFailures(failures);
+      setReleaseLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [isOpen, editingIdentity, selectedWorkflowIds]);
+
   // 初始化表单数据（直接基于 agent.tools，无需依赖工具商店列表）
   useEffect(() => {
     if (!agent) initializedAgent.current = null;
@@ -204,7 +251,7 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
       // Handle workflows - extract IDs if objects are returned
       const workflowIds = (agent.workflows || []).map((w: any) => typeof w === 'string' ? w : w.id);
 
-      reset({
+      const initial: AgentFormState = {
         name: agent.name,
         profession: agent.role || t('agents.copy.defaultProfession', '专家'),
         description: agent.description,
@@ -222,7 +269,11 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
         humanization_skill_enabled: agent.humanization_skill_enabled ?? false,
         tool_call_limit: agent.config?.tool_call_limit ?? 10,
         num_history_runs: agent.config?.num_history_runs ?? 5,
-      });
+      };
+      originalForm.current = structuredClone(initial);
+      reset(initial);
+      setRefreshWorkflowReleases(false);
+      setSelectedReleaseVersions({});
     }
   }, [agent, isLoadingAgent, reset, t]);
 
@@ -367,6 +418,13 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     if (!agent || !agentId) return;
+    const chosenVersions = Object.fromEntries(
+      Object.entries(selectedReleaseVersions).filter(([id]) => formData.workflows.includes(id))
+    );
+    if ((refreshWorkflowReleases || Object.keys(chosenVersions).length > 0) && agent.status === 'active') {
+      showToast('error', t('workflowRelease.activeTitle'), t('workflowRelease.activeHint'));
+      return;
+    }
 
     setIsUpdating(true);
     try {
@@ -436,31 +494,20 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
         return;
       }
 
-      // Build config object
-      const configForUpdate: Record<string, any> = {
-        markdown: formData.markdown,
-        add_datetime_to_context: formData.add_datetime_to_context,
-        tool_call_limit: formData.tool_call_limit,
-        num_history_runs: formData.num_history_runs,
+      const currentActor = useAuthStore.getState().user;
+      if (!originalForm.current || currentActor?.role !== 'admin' || `${currentActor.project_id}:${currentActor.id}` !== editingIdentity) return;
+      const changes = agentEditChanges(formData, originalForm.current, agent?.config);
+      if (Object.keys(changes).length || refreshWorkflowReleases || Object.keys(chosenVersions).length > 0) {
+        await updateAgent(agentId, changes, mergedAvailable, refreshWorkflowReleases, chosenVersions);
+      }
+      const owns = () => {
+        const current = useAuthStore.getState().user;
+        return current?.role === 'admin' && `${current.project_id}:${current.id}` === editingIdentity;
       };
-
-      await updateAgent(agentId, {
-        name: formData.name,
-        description: formData.description,
-        llmModel: uiModel,
-        role: formData.profession,
-        tools: formData.tools,
-        toolConfigs: formData.toolConfigs,
-        knowledgeBases: formData.knowledgeBases,
-        workflows: formData.workflows,
-        boundDeviceId: formData.boundDeviceId || undefined,
-        skills_enabled: formData.skills_enabled,
-        humanization_skill_name: formData.humanization_skill_name || null,
-        humanization_skill_enabled: formData.humanization_skill_enabled ?? false,
-        config: configForUpdate,
-      }, mergedAvailable);
+      if (!owns()) return;
       // 强制刷新列表，确保卡片立即展示最新 tools/collections
       await refreshAgents();
+      if (!owns()) return;
       showToast('success', t('agents.messages.updateSuccess', '更新成功'), t('agents.messages.updateSuccessDesc', 'AI员工 "{{name}}" 已成功更新', { name: formData.name }));
       onClose();
     } catch (error) {
@@ -502,10 +549,12 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
         tool_call_limit: agent.config?.tool_call_limit ?? 10,
         num_history_runs: agent.config?.num_history_runs ?? 5,
       });
+      setRefreshWorkflowReleases(false);
+      setSelectedReleaseVersions({});
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !editingIdentity) return null;
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center p-4 sm:p-6">
@@ -570,6 +619,9 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
           <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
             <div className="flex-1 overflow-y-auto custom-scrollbar bg-gray-50 dark:bg-gray-950">
               <div className="p-8 space-y-8">
+                <AgentActivationPanel key={`${editingIdentity}:${agent.id}`} agentId={agent.id} name={agent.name} allowActivation={false} />
+                <AgentBusinessConnections key={`business:${editingIdentity}:${agent.id}`} agentId={agent.id} active={agent.status === 'active'} />
+                <AgentDeviceScriptPanel key={`script:${editingIdentity}:${agent.id}`} agentId={agent.id} active={agent.status === 'active'} disabled={isUpdating} />
                 {/* 基本信息 Section */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 px-1">
@@ -841,10 +893,76 @@ const EditAgentModal: React.FC<EditAgentModalProps> = ({
                         <SectionHeader icon={<GitBranch className="w-4 h-4 text-purple-600" />} title={t('workflow.title', '工作流')} />
                         <AgentWorkflowsSection
                           workflows={addedWorkflows}
+                          bindings={agent?.workflows?.filter((workflow): workflow is AgentWorkflowBinding =>
+                            typeof workflow !== 'string' && formData.workflows.includes(workflow.id))}
                           onAdd={() => setShowWorkflowSelectionModal(true)}
                           onRemove={handleWorkflowRemove}
                           disabled={isUpdating}
                         />
+                        {formData.workflows.length > 0 && (
+                          <div className="mt-4 space-y-3 border-t border-gray-100 pt-4 dark:border-gray-800">
+                            <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                              {t('workflowRelease.selectVersion')}
+                            </p>
+                            {formData.workflows.map(workflowId => {
+                              const workflow = workflows.find(item => item.id === workflowId);
+                              const binding = agent?.workflows?.find(item => typeof item !== 'string' && item.id === workflowId);
+                              const failed = releaseFailures.includes(workflowId);
+                              return (
+                                <div key={workflowId} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
+                                  <label htmlFor={`release-${workflowId}`} className="truncate text-xs text-gray-600 dark:text-gray-400">
+                                    {workflow?.name || workflowId}
+                                  </label>
+                                  <select
+                                    id={`release-${workflowId}`}
+                                    value={selectedReleaseVersions[workflowId] ?? ''}
+                                    onChange={event => setSelectedReleaseVersions(previous => {
+                                      const next = { ...previous };
+                                      if (event.target.value) next[workflowId] = Number(event.target.value);
+                                      else delete next[workflowId];
+                                      return next;
+                                    })}
+                                    disabled={isUpdating || agent?.status === 'active' || releaseLoading || failed}
+                                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-800 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                                  >
+                                    <option value="">{refreshWorkflowReleases || !binding
+                                      ? t('workflowRelease.bindCurrent')
+                                      : typeof binding !== 'string' && binding.bound_release_version
+                                        ? t('workflowRelease.keepVersion')
+                                        : t('workflowRelease.unbound')}</option>
+                                    {(releaseOptions[workflowId] || []).map(release => (
+                                      <option key={release.id} value={release.version}>
+                                        {t('workflowRelease.versionOption', { version: release.version })}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {(failed || releaseLoading) && (
+                                    <p className="text-xs text-amber-600 sm:col-start-2 dark:text-amber-400">
+                                      {t(failed ? 'workflowRelease.versionsFailed' : 'workflowRelease.loadingVersions')}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {formData.workflows.length > 0 && (
+                          <label className="mt-4 flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400">
+                            <input
+                              type="checkbox"
+                              checked={refreshWorkflowReleases}
+                              onChange={event => setRefreshWorkflowReleases(event.target.checked)}
+                              disabled={isUpdating || agent?.status === 'active'}
+                              className="mt-0.5"
+                            />
+                            <span>
+                              {t('workflowRelease.refresh')}
+                              <span className="block mt-1">{agent?.status === 'active'
+                                ? t('workflowRelease.activeHint')
+                                : t('workflowRelease.refreshHint')}</span>
+                            </span>
+                          </label>
+                        )}
                       </div>
 
                       {/* 绑定设备 */}

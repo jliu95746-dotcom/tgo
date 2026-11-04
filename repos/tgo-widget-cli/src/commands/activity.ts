@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { TgoWidgetClient } from '../client.js';
 import { loadConfig, resolveOutput, resolveServer, resolveApiKey } from '../config.js';
 import { printError, printResult } from '../output.js';
+import {captureCurrentVisitorDataAccess} from '../visitorDataAccess.js';
 
 function makeClient(globals: Record<string, string>) {
   return new TgoWidgetClient({ server: resolveServer(globals.server), apiKey: resolveApiKey(globals.apiKey) });
@@ -47,6 +48,7 @@ export async function activityRecord(
 ): Promise<unknown> {
   client.requireApiKey();
   const config = loadConfig();
+  const proof = captureCurrentVisitorDataAccess(client, config);
   if (!config.visitor_id) throw new Error('No visitor_id. Run: tgo-widget init');
 
   const body: Record<string, unknown> = {
@@ -59,5 +61,5 @@ export async function activityRecord(
   if (params.durationSeconds != null) body.duration_seconds = params.durationSeconds;
   if (params.context) body.context = params.context;
 
-  return client.post('/v1/visitors/activities', body);
+  return client.postVisitor('/v1/visitors/activities', body, proof);
 }

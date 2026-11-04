@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Test script for internal service endpoints.
 
-This script tests the internal AI events endpoint without authentication.
+This script tests the authenticated internal AI events endpoint.
 """
 
 import asyncio
 import httpx
+import os
 from uuid import uuid4
 
 
@@ -24,14 +25,17 @@ async def test_internal_health():
 
 
 async def test_internal_ai_event():
-    """Test internal AI event endpoint (no authentication)."""
+    """Test the internal AI event endpoint with the service key from the environment."""
     print("\nTesting internal AI event endpoint...")
+    service_key = os.environ.get("SECRET_KEY")
+    if not service_key:
+        print("SECRET_KEY is required for the internal AI event probe")
+        return False
     
     # Sample event data
     event_data = {
         "event_type": "manual_service.request",
-        "project_id": str(uuid4()),  # Replace with actual project_id
-        "visitor_id": str(uuid4()),  # Replace with actual visitor_id
+        "user_id": str(uuid4()),  # Deliberately nonexistent: no business mutation
         "payload": {
             "reason": "Test event from internal service",
             "urgency": "low",
@@ -49,6 +53,7 @@ async def test_internal_ai_event():
             response = await client.post(
                 "http://localhost:8001/internal/ai/events",
                 json=event_data,
+                headers={"X-Internal-API-Key": service_key},
                 timeout=10.0
             )
             print(f"Status: {response.status_code}")

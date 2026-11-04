@@ -9,7 +9,7 @@ from alembic import context
 
 # Import the application models
 from app.core.database import Base
-from app.models import Device, DeviceSession
+from app.models import Device, DeviceSession, DeviceScenarioDraft, DeviceReadPolicy, DeviceScreenPolicy
 from app.config import settings
 
 # this is the Alembic Config object

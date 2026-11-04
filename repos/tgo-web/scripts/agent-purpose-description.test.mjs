@@ -7,7 +7,7 @@ const read = path => readFileSync(new URL(`../src/${path}`, import.meta.url), 'u
 test('employee page explains its purpose with one subtitle and no guide', () => {
   const page = read('components/ai/AgentManagement.tsx');
   const zh = JSON.parse(read('i18n/locales/zh.json'));
-  assert.equal(zh.agents.subtitle, '为不同品牌或产品，配置各自的专职客服');
+  assert.equal(zh.agents.subtitle, '配置多位客服，按需要切换当前启用的一位');
   assert.match(page, /t\('agents\.subtitle'/);
   assert.doesNotMatch(page, /AgentPurposeGuide|agents\.guide/);
   assert.equal(zh.agents.guide, undefined);

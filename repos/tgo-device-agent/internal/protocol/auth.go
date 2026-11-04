@@ -11,9 +11,9 @@ type DeviceInfo struct {
 
 // AuthParams is the params payload for the "auth" method.
 type AuthParams struct {
-	BindCode    string      `json:"bindCode,omitempty"`
-	DeviceToken string      `json:"deviceToken,omitempty"`
-	DeviceInfo  DeviceInfo  `json:"deviceInfo"`
+	BindCode    string     `json:"bindCode,omitempty"`
+	DeviceToken string     `json:"deviceToken,omitempty"`
+	DeviceInfo  DeviceInfo `json:"deviceInfo"`
 }
 
 // AuthResult is the successful result of the "auth" method.

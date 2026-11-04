@@ -1,7 +1,7 @@
-"""Internal services FastAPI application (no authentication required).
+"""Internal services FastAPI application.
 
 This application runs on a separate port and is designed for inter-service
-communication within the internal network. It does not require authentication.
+communication within the internal network. Route-level authentication varies.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ logging.getLogger("uvicorn").setLevel(logging.WARNING)
 # Create internal app
 internal_app = FastAPI(
     title=f"{settings.PROJECT_NAME} - Internal Services",
-    description="Internal services for inter-service communication (no authentication required)",
+    description="Internal services for inter-service communication; route-level authentication varies",
     version=settings.PROJECT_VERSION,
     openapi_url="/internal/openapi.json",
     docs_url="/internal/docs",
@@ -68,7 +68,7 @@ async def internal_root() -> dict[str, str]:
     return {
         "message": "TGO-Tech Internal Services",
         "version": settings.PROJECT_VERSION,
-        "note": "This service is for internal use only. No authentication required.",
+        "note": "Internal use only; consult each route's authentication requirements.",
     }
 
 
@@ -90,8 +90,8 @@ async def internal_startup_event():
     startup_log(f"   📚 API Docs: http://localhost:{settings.INTERNAL_SERVICE_PORT}/internal/docs")
     startup_log(f"   🏥 Health Check: http://localhost:{settings.INTERNAL_SERVICE_PORT}/health")
     startup_log("")
-    startup_log("⚠️  WARNING: This service has NO AUTHENTICATION")
-    startup_log("   Only expose to trusted internal network!")
+    startup_log("⚠️  WARNING: Some internal routes have no authentication")
+    startup_log("   Keep this service on a trusted internal network!")
     startup_log("")
     startup_log("🎉 Internal Services Ready!")
     startup_log("═" * 64)

@@ -8,10 +8,19 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/tgoai/tgo-device-agent/internal/protocol"
+	"github.com/tgoai/tgo-device-agent/internal/screen"
 )
 
 // Config holds all runtime settings for the device agent.
 type Config struct {
+	// Screen is an explicit LOCAL grant. Its zero value disables every screen tool.
+	Screen screen.Grant `json:"screen"`
+	// ApprovedScripts are reviewed on this device; server discovery cannot add grants.
+	ApprovedScripts        []protocol.ScriptGrant `json:"approved_scripts,omitempty"`
+	ScriptExecutionEnabled bool                   `json:"script_execution_enabled"`
+	ScriptStateDirectory   string                 `json:"script_state_directory,omitempty"`
 	// Server connection
 	ServerHost string `json:"server_host"`
 	ServerPort int    `json:"server_port"`
@@ -40,10 +49,10 @@ type Config struct {
 	MaxWriteBytes int64    `json:"max_write_bytes"`
 
 	// Sandbox – shell execution
-	ShellTimeout     time.Duration `json:"-"`
-	MaxOutputBytes   int64         `json:"max_output_bytes"`
-	BlockedCommands  []string      `json:"blocked_commands,omitempty"`
-	AllowedShells    []string      `json:"allowed_shells,omitempty"`
+	ShellTimeout    time.Duration `json:"-"`
+	MaxOutputBytes  int64         `json:"max_output_bytes"`
+	BlockedCommands []string      `json:"blocked_commands,omitempty"`
+	AllowedShells   []string      `json:"allowed_shells,omitempty"`
 
 	// Logging
 	LogLevel string `json:"log_level"`
@@ -55,6 +64,7 @@ func DefaultConfig() *Config {
 	tokenFile := filepath.Join(home, ".tgo-device-agent", "device_token")
 
 	return &Config{
+		Screen:                screen.Grant{MaxActions: 20},
 		ServerHost:            "localhost",
 		ServerPort:            9876,
 		TokenFile:             tokenFile,

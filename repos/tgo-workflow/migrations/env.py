@@ -1,6 +1,7 @@
 import asyncio
 from logging.config import fileConfig
 from sqlalchemy import pool
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
@@ -17,7 +18,14 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 from app.database import Base
 from app.models.workflow import Workflow
+from app.models.workflow_release import WorkflowRelease
 from app.models.execution import WorkflowExecution, NodeExecution
+from app.models.approval import WorkflowApprovalRequest
+from app.models.aftersales_review import WorkflowAfterSalesReview
+import app.models.workflow_schedule  # noqa: F401 - register schedule tables
+import app.models.workflow_timer_occurrence  # noqa: F401 - timer source facts
+import app.models.workflow_webhook  # noqa: F401 - webhook source bindings
+import app.models.workflow_webhook_delivery  # noqa: F401 - durable deliveries
 target_metadata = Base.metadata
 
 from app.config import settings
@@ -36,7 +44,7 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
-def do_run_migrations(connection):
+def do_run_migrations(connection: Connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
@@ -59,6 +67,12 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
+    supplied = config.attributes.get("connection")
+    if supplied is not None:
+        if not isinstance(supplied, Connection):
+            raise TypeError("Migration requires a SQLAlchemy connection")
+        do_run_migrations(supplied)
+        return
     asyncio.run(run_async_migrations())
 
 if context.is_offline_mode():

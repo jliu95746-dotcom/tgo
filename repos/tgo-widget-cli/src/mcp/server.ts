@@ -2,7 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { TgoWidgetClient } from '../client.js';
-import { loadConfig, resetConfig, resolveServer, resolveApiKey } from '../config.js';
+import { loadConfig, resolveServer, resolveApiKey } from '../config.js';
+import { endCurrentVisitorSession } from '../sessionLifecycle.js';
 
 // Commands
 import { initVisitor } from '../commands/init.js';
@@ -163,8 +164,7 @@ export async function startMcpServer(): Promise<void> {
     'Clear saved visitor configuration',
     {},
     async () => {
-      resetConfig();
-      return text({ status: 'reset', message: 'Configuration cleared' });
+      return text({ status: 'reset', ...(await endCurrentVisitorSession()) });
     },
   );
 

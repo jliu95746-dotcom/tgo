@@ -7,6 +7,9 @@
  */
 
 import apiClient from './api';
+import type { ScriptCatalog, ScriptLocalStatusRead, ScriptPolicyPublish, ScriptPolicyRead } from '@/types/deviceScriptPolicy';
+import type { DeviceScreenPolicy, ScreenLocalGrant, ScreenPolicyPublish } from '@/types/deviceScreenPolicy';
+import type { DeviceToolDescription } from '@/types/businessScenarios';
 import type {
   Device,
   DeviceListResponse,
@@ -16,9 +19,85 @@ import type {
   DeviceSessionDetail,
   DeviceSessionListParams,
   DeviceSessionDetailParams,
+  DeviceScenarioDraft,
+  DeviceScenarioDraftWrite,
+  DeviceScenarioId,
+  DeviceReadPolicy,
+  DeviceReadPolicyPublish,
+  DeviceReadPolicyTest,
 } from '@/types/deviceControl';
 
 const DEVICE_CONTROL_BASE_URL = '/v1/device-control';
+
+export function getDeviceScriptCatalog(deviceId: string, options: { signal?: AbortSignal } = {}): Promise<ScriptCatalog> {
+  return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/script-catalog`, options);
+}
+
+export function getDeviceScriptStatus(deviceId: string, options: { signal?: AbortSignal } = {}): Promise<ScriptLocalStatusRead> {
+  return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/script-status`, options);
+}
+
+export function getDeviceScriptPolicy(deviceId: string, options: { signal?: AbortSignal } = {}): Promise<ScriptPolicyRead> {
+  return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/script-policy`, options);
+}
+
+export function publishDeviceScriptPolicy(deviceId: string, data: ScriptPolicyPublish): Promise<ScriptPolicyRead> {
+  return apiClient.put(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/script-policy`, data);
+}
+
+export function revokeDeviceScriptPolicy(deviceId: string, expectedRevision: number): Promise<ScriptPolicyRead> {
+  return apiClient.post(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/script-policy/revoke`, { expected_policy_revision: expectedRevision });
+}
+
+export function getDeviceScreenGrant(deviceId: string, options: { signal?: AbortSignal } = {}): Promise<ScreenLocalGrant> {
+  return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/screen-grant`, options);
+}
+export function getDeviceScreenPolicy(deviceId: string, options: { signal?: AbortSignal } = {}): Promise<DeviceScreenPolicy> {
+  return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/screen-policy`, options);
+}
+export function publishDeviceScreenPolicy(deviceId: string, data: ScreenPolicyPublish): Promise<DeviceScreenPolicy> {
+  return apiClient.put(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/screen-policy`, data);
+}
+export function revokeDeviceScreenPolicy(deviceId: string, expectedRevision: number): Promise<DeviceScreenPolicy> {
+  return apiClient.post(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/screen-policy/revoke`, { expected_policy_revision: expectedRevision });
+}
+export function revokeDeviceReadPolicy(deviceId: string, expectedRevision: number): Promise<DeviceReadPolicy> {
+  return apiClient.post(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/read-policy/revoke`, { expected_policy_revision: expectedRevision });
+}
+
+export function getDeviceReadPolicy(
+  deviceId: string, options: { signal?: AbortSignal } = {},
+): Promise<DeviceReadPolicy> {
+  return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/read-policy`, options);
+}
+
+export function publishDeviceReadPolicy(
+  deviceId: string, data: DeviceReadPolicyPublish,
+): Promise<DeviceReadPolicy> {
+  return apiClient.put(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/read-policy`, data);
+}
+
+export function testDeviceReadPolicy(
+  deviceId: string, data: DeviceReadPolicyTest,
+): Promise<DeviceReadPolicy> {
+  return apiClient.post(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/read-policy/test`, data);
+}
+
+export function getDeviceScenarioDraft(
+  deviceId: string, scenario: DeviceScenarioId, options: { signal?: AbortSignal } = {},
+): Promise<DeviceScenarioDraft> {
+  return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/scenario-drafts/${scenario}`, options);
+}
+
+export function saveDeviceScenarioDraft(
+  deviceId: string, scenario: DeviceScenarioId, data: DeviceScenarioDraftWrite,
+): Promise<DeviceScenarioDraft> {
+  return apiClient.put(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/scenario-drafts/${scenario}`, data);
+}
+
+export function getDeviceTools(deviceId: string, options: { signal?: AbortSignal } = {}): Promise<{ tools: DeviceToolDescription[] }> {
+  return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}/tools`, options);
+}
 
 export function listDeviceSessions(
   params: DeviceSessionListParams = {},
@@ -26,6 +105,7 @@ export function listDeviceSessions(
 ): Promise<DeviceSessionListResponse> {
   const query = new URLSearchParams();
   if (params.device_id) query.set('device_id', params.device_id);
+  if (params.workflow_execution_id) query.set('workflow_execution_id', params.workflow_execution_id);
   query.set('skip', String(params.skip ?? 0));
   query.set('limit', String(params.limit ?? 20));
   return apiClient.get(`${DEVICE_CONTROL_BASE_URL}/sessions?${query}`, options);
@@ -73,8 +153,8 @@ export async function listDevices(
 /**
  * Get a specific device by ID
  */
-export async function getDevice(deviceId: string): Promise<Device> {
-  return apiClient.get<Device>(`${DEVICE_CONTROL_BASE_URL}/devices/${deviceId}`);
+export async function getDevice(deviceId: string, options: { signal?: AbortSignal } = {}): Promise<Device> {
+  return apiClient.get<Device>(`${DEVICE_CONTROL_BASE_URL}/devices/${encodeURIComponent(deviceId)}`, options);
 }
 
 /**

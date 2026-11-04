@@ -2,12 +2,94 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Literal, TYPE_CHECKING
+from typing import Annotated, Any, Dict, List, Optional, Literal, TYPE_CHECKING
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.base import BaseSchema, PaginationMetadata
+
+PublishedVersion = Annotated[int, Field(strict=True, ge=1)]
+
+
+class AgentDeviceActionReadiness(BaseSchema):
+    """Current fixed device action status for a selected AI employee."""
+
+    agent_id: UUID
+    device_id: str | None = None
+    tool_name: Literal["fs_read"] = "fs_read"
+    status: Literal[
+        "not_bound", "ready", "needs_rebind", "needs_test",
+        "legacy_unverified", "device_missing", "invalid_binding",
+    ]
+    policy_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_ready_identity(self) -> "AgentDeviceActionReadiness":
+        if self.status == "ready":
+            if self.device_id is None or self.policy_digest is None:
+                raise ValueError("Ready device action requires a device ID and policy digest")
+            UUID(self.device_id)
+        elif self.status == "not_bound" and self.device_id is not None:
+            raise ValueError("Unbound action cannot carry a device ID")
+        elif self.policy_digest is not None:
+            raise ValueError("Unready device action cannot carry a policy digest")
+        return self
+
+
+class WorkflowReleaseAuditItem(BaseSchema):
+    """One locally stored employee workflow binding requiring a release pin."""
+
+    binding_id: UUID
+    agent_id: UUID
+    agent_name: str
+    agent_active: bool
+    agent_default: bool
+    workflow_id: str
+    workflow_enabled: bool
+    workflow_name: Optional[str] = None
+    workflow_status: Optional[str] = None
+    current_published_version: Optional[int] = None
+    details_available: bool
+
+
+class WorkflowReleaseAuditResponse(BaseSchema):
+    data: List[WorkflowReleaseAuditItem]
+    pagination: PaginationMetadata
+
+
+class WorkflowPinTransitionCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID
+    expected_binding_id: UUID
+    release_version: int = Field(strict=True, ge=1)
+    confirmed_disabled: Literal[True]
+
+
+class WorkflowPinTransitionReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    project_id: UUID
+    requested_by: UUID
+    request_id: UUID
+    agent_id: UUID
+    binding_id: UUID
+    workflow_id: str
+    old_release_version: Optional[int] = None
+    old_release_id: Optional[str] = None
+    old_release_digest: Optional[str] = None
+    release_version: int
+    release_id: str
+    release_digest: str
+    agent_active: bool
+    binding_enabled: Literal[False]
+    created_at: datetime
+
+
+class WorkflowPinTransitionHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    data: List[WorkflowPinTransitionReceipt]
+    pagination: PaginationMetadata
 
 if TYPE_CHECKING:
     from app.schemas.ai_workflows import WorkflowSummary
@@ -233,7 +315,7 @@ class AgentCreateRequest(BaseSchema):
 
     """Schema for creating a new agent."""
 
-    is_active: bool = Field(default=True, description="Whether the agent accepts new runs")
+    is_active: bool = Field(default=False, description="New employees stay paused until current tests and reviews pass")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -311,6 +393,10 @@ class AgentCreateRequest(BaseSchema):
                 "987fcdeb-51a2-43d1-9f6e-123456789abc"
             ]
         ]
+    )
+    workflow_release_versions: Dict[str, PublishedVersion] = Field(
+        default_factory=dict,
+        description="Explicit published versions; omitted workflows use the current release",
     )
     bound_device_id: Optional[str] = Field(
         None,
@@ -405,6 +491,14 @@ class AgentUpdateRequest(BaseSchema):
                 "987fcdeb-51a2-43d1-9f6e-123456789abc"
             ]
         ]
+    )
+    workflow_release_versions: Dict[str, PublishedVersion] = Field(
+        default_factory=dict,
+        description="Explicit published versions for selected workflow bindings",
+    )
+    refresh_workflow_releases: bool = Field(
+        False,
+        description="Explicitly rebind selected workflows to their current published versions",
     )
     bound_device_id: Optional[str] = Field(
         None,
@@ -526,16 +620,27 @@ class AIWorkflowResponse(BaseSchema):
     tags: List[str] = Field(default_factory=list, description="Workflow tags")
     status: str = Field(..., description="Current status")
     version: int = Field(..., description="Version number")
-    updated_at: datetime = Field(..., description="Last update time")
+    updated_at: Optional[datetime] = Field(..., description="Last update time, null if details are unavailable")
     enabled: bool = Field(
         default=True,
         description="Whether this workflow is enabled for the current agent binding"
+    )
+    bound_release_version: Optional[int] = None
+    bound_release_id: Optional[str] = None
+    bound_release_digest: Optional[str] = None
+    details_available: bool = Field(
+        default=True,
+        description="Whether the workflow owner returned current details",
     )
 
 
 # Detailed Response Schemas
 class AgentWithDetailsResponse(AgentResponse):
     """Schema for agent response with additional details."""
+
+    bound_device_id: Optional[str] = Field(
+        None, description="Currently bound device ID, if any"
+    )
 
     tools: List[AgentToolResponse] = Field(
         default_factory=list,

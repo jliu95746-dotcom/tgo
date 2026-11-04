@@ -60,8 +60,10 @@ def make_message() -> NormalizedMessage:
         extra={
             "msg_type": "text",
             "message_id": "customer-message",
+            "source_type": "wecom_kf",
             "wecom": {
                 "is_from_colleague": False,
+                "source_type": "wecom_kf",
                 "open_kfid": "wk-test",
                 "external_userid": "external-user",
             },
@@ -118,8 +120,8 @@ async def test_current_agent_stream_contract_produces_one_complete_reply(
         sse_manager=FakeSSEManager(events),
     )
 
-    assert reply == "你好"
-    assert adapter.final_payloads == [{"text": "你好"}]
+    assert reply == "【AI 客服】如需人工服务，请回复“转人工”。\n你好"
+    assert adapter.final_payloads == [{"text": reply}]
     assert client.requests[0].msg_type == 1
 
 
@@ -156,6 +158,62 @@ async def test_failed_stream_never_sends_partial_reply(
         )
 
     assert adapter.final_payloads == []
+
+
+@pytest.mark.asyncio
+async def test_failure_before_customer_send_is_typed_for_safe_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = FakeAdapter()
+
+    async def fake_select_adapter(*_: object, **__: object) -> FakeAdapter:
+        return adapter
+
+    monkeypatch.setattr(dispatcher, "select_adapter_for_target", fake_select_adapter)
+    events = [
+        StreamEvent(event="workflow_failed", payload={"event_type": "workflow_failed"})
+    ]
+
+    with pytest.raises(dispatcher.UnsentReplyFailure):
+        await dispatcher.process_message(
+            msg=make_message(),
+            db=FakeSession(),
+            tgo_api_client=FakeTgoApiClient(),
+            sse_manager=FakeSSEManager(events),
+        )
+    assert adapter.final_payloads == []
+
+
+@pytest.mark.asyncio
+async def test_outbound_timeout_is_not_misclassified_as_unsent_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UncertainAdapter(FakeAdapter):
+        async def send_final(self, content: dict[str, object]) -> None:
+            raise TimeoutError("customer send outcome unknown")
+
+    async def fake_select_adapter(*_: object, **__: object) -> UncertainAdapter:
+        return UncertainAdapter()
+
+    monkeypatch.setattr(dispatcher, "select_adapter_for_target", fake_select_adapter)
+    events = [
+        StreamEvent(
+            event="agent_content_chunk",
+            payload={"event_type": "agent_content_chunk", "data": {"content": "reply"}},
+        ),
+        StreamEvent(
+            event="workflow_completed", payload={"event_type": "workflow_completed"}
+        ),
+    ]
+
+    with pytest.raises(TimeoutError) as error:
+        await dispatcher.process_message(
+            msg=make_message(),
+            db=FakeSession(),
+            tgo_api_client=FakeTgoApiClient(),
+            sse_manager=FakeSSEManager(events),
+        )
+    assert not isinstance(error.value, dispatcher.UnsentReplyFailure)
 
 
 @pytest.mark.asyncio
@@ -241,8 +299,8 @@ async def test_agent_final_content_is_used_when_no_chunks_are_emitted(
         sse_manager=FakeSSEManager(events),
     )
 
-    assert reply == "final reply"
-    assert adapter.final_payloads == [{"text": "final reply"}]
+    assert reply == "【AI 客服】如需人工服务，请回复“转人工”。\nfinal reply"
+    assert adapter.final_payloads == [{"text": reply}]
 
 
 @pytest.mark.asyncio
@@ -283,5 +341,63 @@ async def test_team_intermediate_content_is_not_sent_to_customer(
         sse_manager=FakeSSEManager(events),
     )
 
-    assert reply == "customer reply"
-    assert adapter.final_payloads == [{"text": "customer reply"}]
+    assert reply == "【AI 客服】如需人工服务，请回复“转人工”。\ncustomer reply"
+    assert adapter.final_payloads == [{"text": reply}]
+
+
+@pytest.mark.asyncio
+async def test_internal_colleague_reply_is_not_labeled_as_customer_ai(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = FakeAdapter()
+    message = make_message()
+    message.extra["wecom"]["is_from_colleague"] = True
+
+    async def fake_select_adapter(*_: object, **__: object) -> FakeAdapter:
+        return adapter
+
+    monkeypatch.setattr(dispatcher, "select_adapter_for_target", fake_select_adapter)
+    reply = await dispatcher.process_message(
+        msg=message,
+        db=FakeSession(),
+        tgo_api_client=FakeTgoApiClient(),
+        sse_manager=FakeSSEManager([
+            StreamEvent(event="agent_content_chunk", payload={
+                "event_type": "agent_content_chunk",
+                "data": {"data": {"content_chunk": "内部答复"}},
+            }),
+            StreamEvent(event="workflow_completed", payload={
+                "event_type": "workflow_completed", "data": {},
+            }),
+        ]),
+    )
+    assert reply == "内部答复"
+    assert adapter.final_payloads == [{"text": "内部答复"}]
+
+
+@pytest.mark.asyncio
+async def test_explicit_handoff_confirms_to_wecom_customer_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = FakeAdapter()
+
+    async def fake_select_adapter(*_: object, **__: object) -> FakeAdapter:
+        return adapter
+
+    monkeypatch.setattr(dispatcher, "select_adapter_for_target", fake_select_adapter)
+    reply = await dispatcher.process_message(
+        msg=make_message(),
+        db=FakeSession(),
+        tgo_api_client=FakeTgoApiClient(),
+        sse_manager=FakeSSEManager([
+            StreamEvent(event="human_handoff", payload={
+                "event_type": "human_handoff",
+                "data": {
+                    "routing_reason": "explicit_customer_request",
+                    "handoff": {"status": "pending"},
+                },
+            }),
+        ]),
+    )
+    assert reply == "已收到转人工请求，请稍候。"
+    assert adapter.final_payloads == [{"text": reply}]

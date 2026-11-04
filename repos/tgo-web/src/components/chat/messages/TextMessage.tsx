@@ -53,7 +53,7 @@ const TextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, onSend
 
   if (isStaff) {
     return (
-      <div className="inline-block bg-blue-500 dark:bg-blue-600 text-white p-3 rounded-lg rounded-tr-none shadow-sm overflow-hidden">
+      <div className="min-w-0 max-w-full inline-block bg-blue-500 dark:bg-blue-600 text-white p-3 rounded-lg rounded-tr-none shadow-sm overflow-hidden">
         {shouldRenderMarkdown ? (
           <>
             <MarkdownContent content={textContent} className="text-sm markdown-white" onSendMessage={onSendMessage} />
@@ -77,7 +77,7 @@ const TextMessage: React.FC<MessageComponentProps> = ({ message, isStaff, onSend
   }
 
   return (
-    <div className="inline-block bg-white dark:bg-gray-700 p-3 rounded-lg rounded-tl-none shadow-sm border border-gray-100 dark:border-gray-600 overflow-hidden">
+    <div className="min-w-0 max-w-full inline-block bg-white dark:bg-gray-700 p-3 rounded-lg rounded-tl-none shadow-sm border border-gray-100 dark:border-gray-600 overflow-hidden">
       {shouldRenderMarkdown ? (
         <>
           <MarkdownContent content={textContent} className="text-sm dark:text-gray-200" onSendMessage={onSendMessage} />

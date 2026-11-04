@@ -45,7 +45,7 @@ async def get_redis_client():
         await _redis_client.ping()
         return _redis_client
     except Exception as e:  # pragma: no cover
-        logging.warning("[FEISHU] Redis unavailable: %s", e)
+        logging.warning("[FEISHU] Redis unavailable: %s", type(e).__name__)
         return None
 
 
@@ -106,7 +106,7 @@ def feishu_decrypt_message(encrypt_b64: str, encrypt_key: str) -> Optional[str]:
 
         return plain.decode("utf-8")
     except Exception as e:
-        logging.error("[FEISHU] Decrypt failed: %s", e)
+        logging.error("[FEISHU] Decrypt failed: %s", type(e).__name__)
         return None
 
 
@@ -147,7 +147,7 @@ async def feishu_get_tenant_access_token(
                     _token_cache[app_id] = (data["token"], data["expires_at"])
                     return data["token"]
         except Exception as e:
-            logging.warning("[FEISHU] Redis get failed: %s", e)
+            logging.warning("[FEISHU] Redis get failed: %s", type(e).__name__)
 
     # Fetch new token from Feishu API
     url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
@@ -162,7 +162,7 @@ async def feishu_get_tenant_access_token(
         data = resp.json()
 
         if data.get("code") != 0:
-            raise RuntimeError(f"Feishu get tenant_access_token failed: {data}")
+            raise RuntimeError("Feishu get tenant_access_token failed")
 
         token = data["tenant_access_token"]
         expire = data.get("expire", 7200)  # Default 2 hours
@@ -180,7 +180,7 @@ async def feishu_get_tenant_access_token(
                     json.dumps({"token": token, "expires_at": expires_at}),
                 )
             except Exception as e:
-                logging.warning("[FEISHU] Redis set failed: %s", e)
+                logging.warning("[FEISHU] Redis set failed: %s", type(e).__name__)
 
         return token
 
@@ -219,7 +219,7 @@ async def feishu_reply_message(
         "content": json.dumps(content, ensure_ascii=False),
     }
 
-    logging.info("[FEISHU] Replying to message_id=%s, msg_type=%s", message_id, msg_type)
+    logging.debug("[FEISHU] Reply request started")
 
     async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
         resp = await client.post(url, headers=headers, json=payload)
@@ -227,9 +227,9 @@ async def feishu_reply_message(
         data = resp.json()
 
         if data.get("code") != 0:
-            raise RuntimeError(f"Feishu reply message failed: {data}")
+            raise RuntimeError("Feishu reply message failed")
 
-        logging.info("[FEISHU] Reply success: message_id=%s", data.get("data", {}).get("message_id"))
+        logging.debug("[FEISHU] Reply request completed")
         return data
 
 
@@ -299,9 +299,8 @@ async def feishu_get_user_info(
     Returns:
         Tuple of (name, avatar_url), either can be None if not found
     """
-    print("get user info---->", app_id, app_secret, open_id)
     if not (app_id and app_secret and open_id):
-        logging.debug("[FEISHU] Missing required parameters for get user info: app_id=%s, app_secret=%s, open_id=%s", app_id, app_secret, open_id)
+        logging.debug("[FEISHU] Missing required user info parameters")
         return None, None
 
     try:
@@ -321,14 +320,13 @@ async def feishu_get_user_info(
                 try:
                     error_data = resp.json()
                     error_code = error_data.get("code")
-                    error_msg = error_data.get("msg", "")
                     # Common error codes:
                     # 99991672: No permission (contact:user.base:readonly required)
                     # 99991663: User not found
                     if error_code == 99991672:
-                        logging.info("[FEISHU] No permission to get user info (contact:user.base:readonly required) %s %s", error_code, error_data)
+                        logging.info("[FEISHU] No permission to get user info")
                     else:
-                        logging.debug("[FEISHU] Get user info API error: code=%s, msg=%s", error_code, error_msg)
+                        logging.debug("[FEISHU] Get user info API returned an error")
                 except Exception:
                     logging.debug("[FEISHU] Get user info failed with status %s", resp.status_code)
                 return None, None
@@ -336,18 +334,18 @@ async def feishu_get_user_info(
             data = resp.json()
 
             if data.get("code") != 0:
-                logging.debug("[FEISHU] Get user info API returned error: %s", data)
+                logging.debug("[FEISHU] Get user info API returned an error")
                 return None, None
 
             user = data.get("data", {}).get("user", {})
             name = user.get("name") or user.get("en_name") or None
             avatar_url = user.get("avatar", {}).get("avatar_origin") or user.get("avatar", {}).get("avatar_72") or None
 
-            logging.info("[FEISHU] Got user info: open_id=%s, name=%s", open_id, name)
+            logging.debug("[FEISHU] Got user info")
             return name, avatar_url
 
     except Exception as e:
-        logging.debug("[FEISHU] Get user info exception for %s: %s", open_id, e)
+        logging.debug("[FEISHU] Get user info failed: %s", type(e).__name__)
         return None, None
 
 

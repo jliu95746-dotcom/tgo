@@ -3,11 +3,9 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql import Select
 
-from ..models import Collection, FileDocument
 from ..models.knowledge_governance import KnowledgeGovernanceRecord
 from ..schemas.knowledge_availability import (
     ChannelUpdateRequest,
@@ -25,49 +23,15 @@ from .knowledge_governance import (
     KnowledgeGovernancePolicy,
     KnowledgeGovernanceService,
 )
-
-
-def collection_counts_statement(
-    project: UUID, channel: KnowledgeChannel | str, at: datetime
-) -> Select[tuple[UUID, int, int]]:
-    admitted = KnowledgeGovernancePolicy.eligible_document_ids_statement(
-        project_id=project,
-        at=at,
-        channel=KnowledgeChannel(channel),
-    )
-    return (
-        select(
-            FileDocument.collection_id,
-            func.count(FileDocument.id),
-            func.count(FileDocument.id).filter(FileDocument.id.in_(admitted)),
-        )
-        .where(FileDocument.project_id == project)
-        .group_by(FileDocument.collection_id)
-    )
+from .knowledge_revision import collection_counts_statement as collection_counts_statement
+from .knowledge_revision import collection_revision_statement
 
 
 async def knowledge_availability(
     db: AsyncSession, project: UUID, channel: KnowledgeChannel
 ) -> KnowledgeAvailability:
     at = datetime.now(UTC)
-    collections = (
-        await db.scalars(
-            select(Collection)
-            .where(
-                Collection.project_id == project,
-                Collection.deleted_at.is_(None),
-            )
-            .order_by(Collection.display_name)
-        )
-    ).all()
-    counts = {
-        row[0]: (row[1], row[2])
-        for row in (
-            await db.execute(
-                collection_counts_statement(project, channel, at),
-            )
-        ).all()
-    }
+    collections = (await db.execute(collection_revision_statement(project, channel, at))).all()
     reasons: dict[UUID, set[str]] = {}
     sources = (
         await db.execute(KnowledgeGovernanceService._source_statement(project))
@@ -102,13 +66,14 @@ async def knowledge_availability(
         channel=channel,
         collections=[
             CollectionAvailability(
-                id=c.id,
-                name=c.display_name,
-                total_chunk_count=counts.get(c.id, (0, 0))[0],
-                eligible_chunk_count=counts.get(c.id, (0, 0))[1],
-                blocked_reasons=sorted(reasons.get(c.id, set())),
+                id=row[0],
+                name=row[1],
+                total_chunk_count=row[2],
+                eligible_chunk_count=row[3],
+                resource_revision=row[4],
+                blocked_reasons=sorted(reasons.get(row[0], set())),
             )
-            for c in collections
+            for row in collections
         ],
     )
 

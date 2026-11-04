@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import '../models/api_types.dart';
 import 'api_client.dart';
 
@@ -33,10 +32,6 @@ class HistoryService {
   }) async {
     const url = 'v1/visitors/messages/sync';
 
-    debugPrint('[HistoryService] Syncing messages: '
-        'channelId=$channelId, channelType=$channelType, '
-        'startSeq=$startSeq, endSeq=$endSeq, limit=$limit, pullMode=$pullMode');
-
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         url,
@@ -57,8 +52,7 @@ class HistoryService {
       }
 
       return MessageSyncResponse.fromJson(response.data!);
-    } on DioException catch (e) {
-      debugPrint('[HistoryService] Sync error: ${e.message}');
+    } on DioException {
       rethrow;
     }
   }
@@ -87,8 +81,7 @@ class HistoryService {
       }
 
       return ChannelInfo.fromJson(response.data!);
-    } catch (e) {
-      debugPrint('[HistoryService] Fetch channel info error: $e');
+    } catch (_) {
       return null;
     }
   }

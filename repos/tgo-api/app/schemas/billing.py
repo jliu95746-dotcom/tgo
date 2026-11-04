@@ -7,6 +7,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 BillingKind = Literal["subscribe", "renew", "upgrade", "seats", "ai_pack"]
+STANDARD_PLAN_RANKS = {"basic": 1, "standard": 2, "pro": 3}
+STANDARD_PLAN_NAMES = {"basic": "轻量额度", "standard": "常用额度", "pro": "扩展额度"}
+CUSTOM_PLAN_RANK = 4
 
 
 class PlanDefinition(BaseModel):
@@ -18,11 +21,12 @@ class PlanDefinition(BaseModel):
     seats: int = Field(ge=1, le=10000, strict=True)
     monthly_ai: int = Field(ge=0, le=100000000, strict=True)
     knowledge_bytes: int = Field(ge=1, le=10000000000000, strict=True)
-    channel_limit: int = Field(ge=1, le=10000, strict=True)
+    channel_limit: int | None = Field(ge=1, le=10000, strict=True)
     seat_monthly_price: int = Field(ge=1, le=10000000, strict=True)
     seat_annual_price: int = Field(ge=1, le=10000000, strict=True)
     ai_pack_price: int = Field(ge=1, le=100000000, strict=True)
     ai_pack_replies: int = Field(ge=1, le=100000000, strict=True)
+    target_project_id: UUID | None = None
 
     def price(self, months: int) -> int:
         return self.annual_price if months == 12 else self.monthly_price
@@ -35,6 +39,16 @@ class PlanCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     code: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,39}$")
     definition: PlanDefinition
+
+
+class StandardPlanDrafts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plans: list[PlanCreate] = Field(min_length=3, max_length=3)
+
+
+class StandardPlanPublication(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plan_ids: list[UUID] = Field(min_length=3, max_length=3)
 
 
 class PlanResponse(BaseModel):

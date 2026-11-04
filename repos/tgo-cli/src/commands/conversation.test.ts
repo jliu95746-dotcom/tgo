@@ -5,6 +5,7 @@ import {
   conversationTransfer,
   conversationClose,
   conversationWaitingCount,
+  conversationReceipt,
 } from './conversation.js';
 import type { TgoClient } from '../client.js';
 
@@ -65,13 +66,21 @@ describe('conversation commands', () => {
   });
 
   describe('conversationTransfer', () => {
+    it('sends the caller operation id for recoverable transfer', async () => {
+      const client = mockClient();
+      const operationId = 'd9503a7a-91e1-4f6a-8da3-cc31ff535d21';
+      await conversationTransfer(client, 'v-1', 'staff-2', undefined, operationId);
+      expect(client.post).toHaveBeenCalledWith('/v1/sessions/visitor/v-1/transfer', {
+        target_staff_id: 'staff-2',
+      }, { 'X-Session-Operation-ID': operationId });
+    });
     it('should POST transfer with target staff and reason', async () => {
       const client = mockClient();
       await conversationTransfer(client, 'v-1', 'staff-2', 'customer request');
       expect(client.post).toHaveBeenCalledWith('/v1/sessions/visitor/v-1/transfer', {
         target_staff_id: 'staff-2',
         reason: 'customer request',
-      });
+      }, { 'X-Session-Operation-ID': expect.stringMatching(/^[0-9a-f-]{36}$/) });
     });
 
     it('should omit reason when not provided', async () => {
@@ -79,15 +88,34 @@ describe('conversation commands', () => {
       await conversationTransfer(client, 'v-1', 'staff-2');
       expect(client.post).toHaveBeenCalledWith('/v1/sessions/visitor/v-1/transfer', {
         target_staff_id: 'staff-2',
-      });
+      }, { 'X-Session-Operation-ID': expect.stringMatching(/^[0-9a-f-]{36}$/) });
     });
   });
 
   describe('conversationClose', () => {
+    it('sends the caller operation id for recoverable close', async () => {
+      const client = mockClient();
+      const operationId = 'd9503a7a-91e1-4f6a-8da3-cc31ff535d21';
+      await conversationClose(client, 'v-1', operationId);
+      expect(client.post).toHaveBeenCalledWith(
+        '/v1/sessions/visitor/v-1/close', {}, { 'X-Session-Operation-ID': operationId },
+      );
+    });
     it('should POST /v1/sessions/visitor/:id/close', async () => {
       const client = mockClient();
       await conversationClose(client, 'v-1');
-      expect(client.post).toHaveBeenCalledWith('/v1/sessions/visitor/v-1/close', {});
+      expect(client.post).toHaveBeenCalledWith('/v1/sessions/visitor/v-1/close', {}, {
+        'X-Session-Operation-ID': expect.stringMatching(/^[0-9a-f-]{36}$/),
+      });
+    });
+  });
+
+  describe('conversationReceipt', () => {
+    it('queries the original operation by id', async () => {
+      const client = mockClient();
+      const operationId = 'd9503a7a-91e1-4f6a-8da3-cc31ff535d21';
+      await conversationReceipt(client, operationId);
+      expect(client.get).toHaveBeenCalledWith(`/v1/sessions/operations/${operationId}`);
     });
   });
 

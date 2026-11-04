@@ -76,9 +76,8 @@ class TextBubble extends StatelessWidget {
                   onCopySuccess: onCopySuccess,
                 );
               }
-            } catch (e) {
-              debugPrint('Error parsing tgo-ui-widget: $e');
-              debugPrint('Raw code: $code');
+            } catch (_) {
+              // Render the original code block without logging customer content.
             }
           }
 

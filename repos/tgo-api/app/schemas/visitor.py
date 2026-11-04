@@ -12,6 +12,8 @@ from app.models.visitor import VisitorServiceMode
 from app.schemas.base import BaseSchema, PaginatedResponse, SoftDeleteMixin, TimestampMixin
 from app.schemas.tag import TagResponse
 from app.schemas.platform_schema import PlatformAISettings
+from app.schemas.visitor_access import VisitorAccessInput
+from app.schemas.visitor_registration import VisitorRegisterResponse as VisitorRegisterResponse
 
 
 def _resolve_avatar_url(avatar_url: Optional[str]) -> Optional[str]:
@@ -507,9 +509,10 @@ class VisitorAvatarUploadResponse(BaseSchema):
     uploaded_at: datetime = Field(..., description="Upload timestamp")
 
 
-class VisitorRegisterRequest(BaseSchema):
+class VisitorRegisterRequest(VisitorAccessInput, BaseSchema):
     """Incoming payload for visitor registration."""
     platform_api_key: str
+    visitor_id: UUID | None = None
     # Optional visitor identifier on the platform (maps to Visitor.platform_open_id)
     platform_open_id: Optional[str] = None
     # Optional profile fields (aligned with VisitorBase)
@@ -543,13 +546,6 @@ class VisitorRegisterRequest(BaseSchema):
         max_length=45,
         description="Visitor IP address (if not provided, will be extracted from request headers)",
     )
-
-
-class VisitorRegisterResponse(VisitorResponse):
-    """Response payload for visitor registration."""
-    channel_id: str
-    channel_type: int = 2
-    im_token: str
 
 
 class VisitorMessageSyncRequest(BaseSchema):

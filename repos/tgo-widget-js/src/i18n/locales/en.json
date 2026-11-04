@@ -1,5 +1,10 @@
 {
   "brand": { "poweredBy": "Powered by 域见" },
+  "customerService": {
+    "aiDisclosure": "AI support may reply in this chat. You can request a human agent.",
+    "requestHuman": "Human agent",
+    "requestingHuman": "Requesting…"
+  },
   "common": {
     "servicePaused": "New conversations are paused. Existing staff conversations may continue during the closing window.",
     "retry": "Retry",
@@ -24,11 +29,15 @@
     "typing": "is typing..."
   },
   "messageList": {
+    "aiLabel": "AI support",
     "loadingHistory": "Loading...",
     "loadHistoryFailed": "Failed to load message history",
     "noMoreMessages": "No more messages",
     "sending": "Sending...",
-    "uploading": "Uploading..."
+    "uploading": "Uploading...",
+    "uploadingImage": "Uploading image...",
+    "uploadingVoice": "Uploading voice...",
+    "uploadingFile": "Uploading file..."
   },
   "errors": {
     "textReplyUnconfirmed": "Message delivered. Follow-up handling is not yet confirmed. Please wait; no need to resend.",
@@ -47,6 +56,11 @@
   },
   "file": {
     "download": "Download"
+  },
+  "voice": {
+    "label": "Voice message",
+    "play": "Play voice message",
+    "unavailable": "Voice is unavailable. Reconnect and try again."
   },
   "system": {
     "staffAssigned": "You have been connected to customer service. Agent {{name0}} will assist you.",

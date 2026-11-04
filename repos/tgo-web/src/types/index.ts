@@ -55,6 +55,7 @@ export interface AgentAdvancedConfig {
 
 export enum PlatformType {
   WEBSITE = "website",
+  WECHAT_LOCAL = "wechat_local",
   WECHAT = "wechat",
   WHATSAPP = "whatsapp",
   TELEGRAM = "telegram",
@@ -150,7 +151,7 @@ export interface Agent {
   knowledgeBases: string[]; // 知识库ID列表 (for backward compatibility)
   collections?: AICollectionResponse[]; // Full collection objects from API
   agentTools?: AgentToolResponse[]; // Full tool objects from API
-  workflows?: any[]; // Full workflow objects from API
+  workflows?: Array<AgentWorkflowBinding | string>;
   config?: AgentAdvancedConfig; // 高级配置
   skills_enabled?: boolean; // 是否启用技能发现（独立字段，默认 true）
   boundDeviceId?: string; // 绑定的设备ID
@@ -162,6 +163,8 @@ export type AgentType = 'coordinator' | 'expert';
 
 // AI员工创建表单数据类型
 export interface CreateAgentFormData {
+  scenarioId?: import('./businessScenarios').ScenarioId;
+  companySummary?: string;
   humanization_skill_name?: string | null;
   humanization_skill_enabled?: boolean;
   name: string;
@@ -214,6 +217,20 @@ export interface AgentToolResponse {
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
+}
+
+export interface AgentWorkflowBinding {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  version: number;
+  updated_at: string | null;
+  enabled: boolean;
+  bound_release_version: number | null;
+  bound_release_id: string | null;
+  bound_release_digest: string | null;
+  details_available?: boolean;
 }
 
 // Some agent detail APIs may return full tool details instead of AgentToolResponse
@@ -283,7 +300,7 @@ export interface AgentWithDetailsResponse {
   deleted_at?: string | null;
   tools: AgentToolResponse[];
   collections: AICollectionResponse[];
-  workflows?: any[];
+  workflows?: AgentWorkflowBinding[];
   bound_device_id?: string | null; // 绑定的设备ID
   bound_device?: import('./deviceControl').Device | null; // 绑定的设备完整对象（由 tgo-api 聚合）
   skills_enabled?: boolean; // 是否启用技能发现（默认 true）
@@ -311,6 +328,7 @@ export interface AgentCreateRequest {
   tools?: AgentToolCreateRequest[] | null;
   collections?: string[] | null; // Collection IDs (UUID strings)
   workflows?: string[] | null; // Workflow IDs
+  workflow_release_versions?: Record<string, number>;
   bound_device_id?: string | null; // 绑定的设备ID
   skills_enabled?: boolean; // 是否启用技能发现（默认 true）
 }
@@ -329,6 +347,8 @@ export interface AgentUpdateRequest {
   tools?: AgentToolCreateRequest[] | null;
   collections?: string[] | null; // Collection IDs (UUID strings)
   workflows?: string[] | null; // Workflow IDs
+  workflow_release_versions?: Record<string, number>;
+  refresh_workflow_releases?: boolean;
   bound_device_id?: string | null; // 绑定的设备ID
   skills_enabled?: boolean; // 是否启用技能发现
 }
@@ -352,6 +372,7 @@ export interface PaginationMetadata {
 export interface AgentQueryParams {
   model?: string | null;
   is_default?: boolean | null;
+  bound_device_id?: string;
   limit?: number;
   offset?: number;
 }
@@ -891,6 +912,8 @@ export interface Message {
   fromInfo?: ChannelInfo;
   // Ownership/display type (no longer tied to sender identity like 'visitor'/'staff')
   type: MessageSenderType;
+  /** Exact AI stream anchor marker; absent on manual and legacy messages. */
+  senderKind?: 'ai';
   content: string;
   timestamp: string;
   status?: MessageStatus;
@@ -918,6 +941,7 @@ export interface Message {
 
   // Metadata (no nested wukongim)
   metadata?: {
+    native_staff?: boolean;
     sender_avatar?: string;
     is_read?: boolean;
     has_stream_data?: boolean; // Flag to indicate if content comes from stream/event_meta data
@@ -1013,6 +1037,11 @@ export interface ChannelAIInsights {
   insight_summary: string | null;
 }
 
+export interface VisitorAIProfile {
+  persona_tags: string[];
+  summary?: Record<string, unknown> | null;
+}
+
 export interface VisitorAISettings {
   ai_mode: PlatformAIMode;
   fallback_to_ai_timeout?: number | null;
@@ -1053,6 +1082,7 @@ export interface ChannelVisitorExtra {
   ai_settings?: VisitorAISettings | null;
   assigned_staff_id?: string; // ID of the staff member assigned to this visitor
   ai_insights?: ChannelAIInsights | null; // AI insights from backend
+  ai_profile?: VisitorAIProfile | null;
   tags?: VisitorTag[];
   recent_activities?: VisitorActivity[];
   system_info?: SystemInfo;
@@ -1196,6 +1226,7 @@ export interface KnowledgeBase {
 
 // Knowledge Base File/Document (compatible with API FileResponse)
 export interface KnowledgeFile {
+  processing_status?: string;
   error_message?: string | null;
   id: string;
   name: string;
@@ -1306,6 +1337,7 @@ export interface WuKongIMMessageHeader {
 export interface WuKongIMMessagePayload {
   content?: string; // Message content
   type: number; // Message type
+  sender_kind?: 'ai'; // Optional AI stream anchor marker
   cmd?: string;
   param?: Record<string, unknown>;
 }

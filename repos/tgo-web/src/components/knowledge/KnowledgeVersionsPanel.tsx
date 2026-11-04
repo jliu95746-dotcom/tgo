@@ -1,3 +1,6 @@
+import { KnowledgeMaterialInput, type KnowledgeInputMode } from './KnowledgeMaterialInput';
+import { loadKnowledgeBody } from '@/services/knowledgeContent';
+import { createKnowledgeTextFile } from '@/utils/knowledgeOnboarding';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/authStore';
@@ -5,11 +8,11 @@ import { KnowledgeBaseApiService } from '@/services/knowledgeBaseApi';
 import { knowledgeVersionsApi as api, type SourceKind, type VersionAction, type VersionContent, type VersionHistory } from '@/services/knowledgeVersionsApi';
 
 interface Source { id: string; name: string; content?: VersionContent }
-interface Props { collectionId: string; kind: SourceKind; refreshKey?: number }
+interface Props { collectionId: string; kind: SourceKind; refreshKey?: number; initialFileId?: string; initialMode?: KnowledgeInputMode; openRequest?: number; initialDraft?: { title: string; body: string }; onAddFile?: (file: File) => Promise<void>; onUpdated?: () => Promise<void> }
 const control = 'rounded border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900 disabled:opacity-40';
 
-/** Daily updates are separated from advanced governance settings. */
-export function KnowledgeVersionsPanel({ collectionId, kind, refreshKey = 0 }: Props) {
+/** File editing and replacement share the existing version publication workflow. */
+export function KnowledgeVersionsPanel({ collectionId, kind, refreshKey = 0, initialFileId, initialMode, openRequest = 0, initialDraft, onAddFile, onUpdated }: Props) {
   const { t } = useTranslation();
   const admin = useAuthStore(state => state.user?.role === 'admin');
   const [open, setOpen] = useState(false);
@@ -17,6 +20,14 @@ export function KnowledgeVersionsPanel({ collectionId, kind, refreshKey = 0 }: P
   const [selected, setSelected] = useState('');
   const [history, setHistory] = useState<VersionHistory | null>(null);
   const [content, setContent] = useState<VersionContent>({});
+  const [fileMode, setFileMode] = useState<KnowledgeInputMode>('paste');
+  const [fileBody, setFileBody] = useState(initialDraft?.body || '');
+  const [originalBody, setOriginalBody] = useState('');
+  const [loadingBody, setLoadingBody] = useState(false);
+  const [parsedBody, setParsedBody] = useState(false);
+  const [bodyError, setBodyError] = useState('');
+  const onUpdatedRef = useRef(onUpdated);
+  onUpdatedRef.current = onUpdated;
   const [replacement, setReplacement] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -26,6 +37,13 @@ export function KnowledgeVersionsPanel({ collectionId, kind, refreshKey = 0 }: P
   const historyRequest = useRef(0);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
+
+  useEffect(() => {
+    if (!openRequest && !initialDraft) return;
+    setOpen(true); setFileMode(initialMode || 'paste');
+    if (initialFileId) setSelected(initialFileId);
+    if (initialDraft) setFileBody(initialDraft.body);
+  }, [openRequest, initialFileId, initialMode, initialDraft]);
 
   const loadSources = useCallback(async () => {
     const items: Source[] = [];
@@ -88,6 +106,31 @@ export function KnowledgeVersionsPanel({ collectionId, kind, refreshKey = 0 }: P
   }, [selected, open, kind, refreshKey, loadHistory]);
 
   useEffect(() => {
+    if (!open || kind !== 'file' || !selected) return;
+    let cancelled = false;
+    setLoadingBody(true); setBodyError(''); setFileBody(''); setOriginalBody(''); setParsedBody(false);
+    void loadKnowledgeBody(selected).then(result => {
+      if (!cancelled) { setFileBody(result.body); setOriginalBody(result.body); setParsedBody(result.parsed); }
+    }).catch(reason => { if (!cancelled) { setFileBody(''); setOriginalBody(''); setBodyError(String(reason)); } })
+      .finally(() => { if (!cancelled) setLoadingBody(false); });
+    return () => { cancelled = true; };
+  }, [open, selected, kind, history?.active_number]);
+
+  const previousActive = useRef<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (!open || kind !== 'file') return;
+    if (previousActive.current !== undefined && history?.active_number && previousActive.current !== history.active_number) { setMessage(t('knowledgeOnboarding.updated')); setError(''); void onUpdatedRef.current?.(); void loadSources(); }
+    previousActive.current = history?.active_number;
+  }, [open, kind, history?.active_number, loadSources, t]);
+
+  const latestRevision = history?.versions[0];
+  useEffect(() => {
+    if (kind === 'file' && latestRevision?.state === 'failed') {
+      setMessage(''); setError(latestRevision.error || t('knowledgeOnboarding.updateFailed'));
+    }
+  }, [kind, latestRevision?.id, latestRevision?.state, latestRevision?.error, t]);
+
+  useEffect(() => {
     if (!open || !selected || !history?.versions.some(version => version.state === 'processing')) return;
     const timer = window.setInterval(() => {
       void loadHistory(selected).catch(reason => setError(String(reason)));
@@ -103,8 +146,10 @@ export function KnowledgeVersionsPanel({ collectionId, kind, refreshKey = 0 }: P
   };
   const update = (action: VersionAction, retryContent?: VersionContent) => run(async () => {
     let input = retryContent || content;
-    if (kind === 'file' && replacement) {
-      const uploaded = await api.upload(selected, replacement);
+    if (kind === 'file' && !retryContent) {
+      const file = fileMode === 'upload' ? replacement : createKnowledgeTextFile(sources.find(item => item.id === selected)?.name.replace(/\.[^.]+$/, '') || 'knowledge', fileBody);
+      if (!file) return;
+      const uploaded = await api.upload(selected, file);
       input = { replacement_file_id: uploaded.id };
     }
     await api.change(kind, selected, input, action);
@@ -167,46 +212,65 @@ export function KnowledgeVersionsPanel({ collectionId, kind, refreshKey = 0 }: P
     return () => window.clearTimeout(timer);
   }, [batchResults, open, kind]);
 
+  const addMaterial = () => run(async () => {
+    const file = fileMode === 'upload' ? replacement : createKnowledgeTextFile(initialDraft?.title || 'knowledge', fileBody);
+    if (!file || !onAddFile) return;
+    await onAddFile(file);
+    const items = await loadSources();
+    setSelected(items[0]?.id || ''); setReplacement(null);
+    setMessage(t('knowledgeOnboarding.afterUpload'));
+  });
+
   const stateLabel = (state: string) => t(`knowledge.versions.states.${state}`, ({
     processing: '处理中', ready: '草稿', pending_review: '待审核', published: '已生效', retired: '历史版本',
     failed: '处理失败', unchanged: '无内容变化',
   } as Record<string, string>)[state] || state);
   const processing = history?.versions.some(version => version.state === 'processing');
-  return <section className="my-4 rounded-lg border border-gray-200 bg-white text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
+  return <section id="knowledge-versions" className="my-4 rounded-lg border border-gray-200 bg-white text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
     <button type="button" className="w-full px-5 py-3 text-left font-medium" aria-expanded={open} onClick={() => setOpen(!open)}>
       {t('knowledge.versions.title', '更新与历史版本')} {open ? '−' : '+'}
     </button>
     {open && <div className="space-y-3 border-t border-gray-200 p-5 dark:border-gray-700">
       <p className="text-sm text-gray-500">{t('knowledge.versions.hint', '修改成功生效后，客服才会使用新内容；失败不影响原内容。无需重新绑定 AI 员工。')}</p>
       <div className="flex flex-wrap gap-2">
-        <select aria-label={t('knowledge.versions.select', '选择要更新的资料')} value={selected} disabled={busy} onChange={event => setSelected(event.target.value)} className={`${control} min-w-0 flex-1`}>
-          {!sources.length && <option value="">{t('knowledge.versions.empty', '暂无资料')}</option>}
+        <select aria-label={t('knowledge.versions.select', '选择要更新的资料')} value={selected} disabled={busy} onChange={event => {
+          setSelected(event.target.value);
+          if (!event.target.value) { setFileBody(''); setOriginalBody(''); setReplacement(null); setHistory(null); setError(''); setMessage(''); setBodyError(''); setParsedBody(false); setLoadingBody(false); }
+        }} className={`${control} min-w-0 flex-1`}>
+          {onAddFile ? <option value="">{t('knowledgeOnboarding.addMaterial')}</option> : !sources.length && <option value="">{t('knowledge.versions.empty', '暂无资料')}</option>}
           {sources.map(source => <option key={source.id} value={source.id}>{source.name}</option>)}
         </select>
         <button type="button" className={control} disabled={busy} onClick={() => void run(async () => { await loadSources(); })}>{t('common.refresh', '刷新')}</button>
         {kind === 'website' && <button type="button" className={control} disabled={busy || !sources.length} onClick={() => void batchCheck()}>{t('knowledge.versions.checkAll', '检查全部网站页面更新')}</button>}
-        {admin && <button type="button" className={control} disabled={busy || !sources.length} onClick={() => void batchPublish()}>{t('knowledge.versions.batchPublish', '批量生效待更新内容')}</button>}
+        {admin && kind !== 'file' && <button type="button" className={control} disabled={busy || !sources.length} onClick={() => void batchPublish()}>{t('knowledge.versions.batchPublish', '批量生效待更新内容')}</button>}
       </div>
       {selected && <>
         {kind === 'qa' && <div className="space-y-2">
           <input aria-label={t('knowledge.versions.question', '问题')} className={`${control} w-full`} value={content.question || ''} onChange={event => setContent({ ...content, question: event.target.value })} />
           <textarea aria-label={t('knowledge.versions.answer', '答案')} className={`${control} min-h-32 w-full resize-y`} value={content.answer || ''} onChange={event => setContent({ ...content, answer: event.target.value })} />
         </div>}
-        {kind === 'file' && <label className="block text-sm">{t('knowledge.versions.replace', '选择替换文件（保留原资料和历史版本）')}
-          <input type="file" className="mt-2 block w-full" disabled={busy || processing} onChange={event => setReplacement(event.target.files?.[0] || null)} />
-        </label>}
+        {kind === 'file' && <div className="space-y-3">
+          <KnowledgeMaterialInput mode={fileMode} body={fileBody} file={replacement} onMode={setFileMode} onBody={setFileBody} onFile={setReplacement} disabled={busy || processing} bodyDisabled={loadingBody} />
+          {loadingBody && <p className="text-sm text-gray-500">{t('knowledgeOnboarding.loadingBody')}</p>}
+          {parsedBody && fileMode === 'paste' && <p className="text-sm text-amber-600">{t('knowledgeOnboarding.parsedBodyHint')}</p>}
+          {bodyError && fileMode === 'paste' && <p role="alert" className="break-words text-sm text-red-500">{bodyError}</p>}
+        </div>}
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className={`${control} bg-blue-600 text-white`} disabled={busy || processing || (kind === 'file' && !replacement)} onClick={() => void update(admin ? 'publish' : 'submit')}>
-            {admin ? t('knowledge.versions.update', '更新并生效') : t('knowledge.versions.submit', '提交更新审核')}
+          <button type="button" className={`${control} bg-blue-600 text-white`} disabled={busy || processing || (kind === 'file' && (fileMode === 'upload' ? !replacement : loadingBody || !!bodyError || !fileBody.trim() || fileBody === originalBody))} onClick={() => void update(kind === 'file' || admin ? 'publish' : 'submit')}>
+            {kind === 'file' || admin ? t('knowledge.versions.update', '更新并生效') : t('knowledge.versions.submit', '提交更新审核')}
           </button>
-          <button type="button" className={control} disabled={busy || processing || (kind === 'file' && !replacement)} onClick={() => void update('save')}>{t('knowledge.versions.save', '保存草稿')}</button>
-          {admin && <button type="button" className={control} disabled={busy || history?.disabled || !history} onClick={() => {
+          {kind !== 'file' && <button type="button" className={control} disabled={busy || processing} onClick={() => void update('save')}>{t('knowledge.versions.save', '保存草稿')}</button>}
+          {admin && kind !== 'file' && <button type="button" className={control} disabled={busy || history?.disabled || !history} onClick={() => {
             if (window.confirm(t('knowledge.versions.disableConfirm', '停用后，客服将不再引用这份资料。确定停用？'))) void run(() => api.disable(kind, selected));
           }}>{t('knowledge.versions.disable', '停用')}</button>}
-          {admin && history?.disabled && <button type="button" className={control} disabled={busy} onClick={() => void run(() => api.enable(kind, selected))}>{t('knowledge.versions.enable', '重新启用')}</button>}
+          {admin && kind !== 'file' && history?.disabled && <button type="button" className={control} disabled={busy} onClick={() => void run(() => api.enable(kind, selected))}>{t('knowledge.versions.enable', '重新启用')}</button>}
           <span className="text-sm text-gray-500">{history?.disabled ? t('knowledge.versions.disabled', '已停用') : history?.active_number ? `V${history.active_number}` : t('knowledge.versions.original', '尚未产生更新版本')}</span>
         </div>
       </>}
+      {kind === 'file' && !selected && onAddFile && <div className="space-y-3">
+        <KnowledgeMaterialInput mode={fileMode} body={fileBody} file={replacement} onMode={setFileMode} onBody={setFileBody} onFile={setReplacement} disabled={busy} />
+        <button type="button" className={`${control} bg-blue-600 text-white`} disabled={busy || (fileMode === 'paste' ? !fileBody.trim() : !replacement)} onClick={() => void addMaterial()}>{t('knowledgeOnboarding.import')}</button>
+      </div>}
       {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
       {message && <p role="status" className="text-sm text-blue-500">{message}</p>}
       {busy && <p role="status">{t('common.loading', '处理中…')}</p>}
@@ -223,7 +287,7 @@ export function KnowledgeVersionsPanel({ collectionId, kind, refreshKey = 0 }: P
         <div className="flex flex-wrap gap-2">
           {admin && ['ready', 'pending_review'].includes(version.state) && <button className={control} disabled={busy} onClick={() => void run(() => api.transition(version.id, 'publish'))}>{t('knowledge.versions.publish', '确认生效')}</button>}
           {version.state === 'ready' && !admin && <button className={control} disabled={busy} onClick={() => void run(() => api.transition(version.id, 'submit'))}>{t('knowledge.versions.submit', '提交更新审核')}</button>}
-          {version.state === 'failed' && <button className={control} disabled={busy} onClick={() => void update(admin ? 'publish' : 'submit', version.content)}>{t('common.retry', '重试')}</button>}
+          {version.state === 'failed' && <button className={control} disabled={busy} onClick={() => void update(kind === 'file' || admin ? 'publish' : 'submit', version.content)}>{t('common.retry', '重试')}</button>}
           {admin && ['ready', 'pending_review', 'processing', 'failed'].includes(version.state) && <button className={control} disabled={busy} onClick={() => {
             if (window.confirm(t('knowledge.versions.discardConfirm', '放弃这次修改？原生效内容不会改变。'))) void run(() => api.transition(version.id, 'discard'));
           }}>{t('knowledge.versions.discard', '放弃修改')}</button>}

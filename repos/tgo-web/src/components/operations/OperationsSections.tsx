@@ -4,6 +4,8 @@ import OperationsBilling from '../settings/OperationsBilling';
 import OperationsTrialPolicy from '../settings/OperationsTrialPolicy';
 import OperationsTrialCodes from '../settings/OperationsTrialCodes';
 import OperationsHealth from '../settings/OperationsHealth';
+import SessionCommandHealth from '../settings/SessionCommandHealth';
+import WeComDurableHealth from '../settings/WeComDurableHealth';
 import OperationsTasks from '../settings/OperationsTasks';
 import OperationsSupport from '../settings/OperationsSupport';
 import CommercialReadiness from '../settings/CommercialReadiness';
@@ -20,6 +22,6 @@ export default function OperationsSections({ kind }: { kind: 'plans' | 'monitor'
   const tab = tabs.find(item => item === params.get('tab')) || tabs[0];
   const namespace = kind === 'plans' ? 'planTabs' : 'monitorTabs';
   return <div className="space-y-5"><div role="group" className="flex flex-wrap gap-2">{tabs.map(item => <button key={item} aria-pressed={tab === item} className={`${opsButton} ${tab === item ? '!border-indigo-200 !bg-indigo-50 !text-indigo-700' : ''}`} onClick={() => setParams({ tab: item })}>{t(`opsWorkspace.${namespace}.${item}`)}</button>)}</div>
-    {tab === 'catalogue' && <OperationsBilling />}{tab === 'policy' && <OperationsTrialPolicy />}{tab === 'codes' && <OperationsTrialCodes />}{tab === 'health' && <OperationsHealth />}{tab === 'tasks' && <OperationsTasks tasksOnly />}{tab === 'readiness' && <CommercialReadiness />}
+    {tab === 'catalogue' && <OperationsBilling />}{tab === 'policy' && <OperationsTrialPolicy />}{tab === 'codes' && <OperationsTrialCodes />}{tab === 'health' && <><OperationsHealth /><SessionCommandHealth /><WeComDurableHealth /></>}{tab === 'tasks' && <OperationsTasks tasksOnly />}{tab === 'readiness' && <CommercialReadiness />}
   </div>;
 }

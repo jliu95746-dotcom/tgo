@@ -7,6 +7,11 @@
     <view wx:else class="status-dot offline"></view>
   </view>
 
+  <view class="service-notice">
+    <text class="service-notice-text">{{aiDisclosure}}</text>
+    <button class="service-notice-button" disabled="{{!online || initializing || handoffSending}}" bindtap="onRequestHuman">{{humanRequestLabel}}</button>
+  </view>
+
   <!-- Initializing state -->
   <view wx:if="{{initializing}}" class="init-loading">
     <text class="init-text">连接中...</text>
@@ -24,10 +29,17 @@
   <view wx:else class="chat-body">
     <message-list
       messages="{{messages}}"
+      apiBase="{{apiBase}}"
+      platformApiKey="{{apiKey}}"
+      sessionRevision="{{sessionRevision}}"
       historyLoading="{{historyLoading}}"
       historyHasMore="{{historyHasMore}}"
       isStreaming="{{isStreaming}}"
       themeColor="{{resolvedThemeColor}}"
+      aiLabel="{{aiLabel}}"
+      voicePlayLabel="{{voicePlayLabel}}"
+      voiceStopLabel="{{voiceStopLabel}}"
+      voiceUnavailableLabel="{{voiceUnavailableLabel}}"
       bind:loadmore="onLoadMore"
       bind:sendmessage="onSendMessage"
     />
@@ -36,10 +48,11 @@
   <!-- Input bar -->
   <view class="chat-footer">
     <message-input
+      sessionRevision="{{sessionRevision}}"
       isStreaming="{{isStreaming}}"
       streamCanceling="{{streamCanceling}}"
       themeColor="{{resolvedThemeColor}}"
-      disabled="{{initializing}}"
+      disabled="{{initializing || !online}}"
       bind:send="onSendMessage"
       bind:cancel="onCancelStream"
       bind:image="onChooseImage"

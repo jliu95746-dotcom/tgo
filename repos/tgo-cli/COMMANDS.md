@@ -27,6 +27,8 @@ Source: `src/commands/auth.ts`
 | `tgo auth logout` | Clear saved token | — |
 | `tgo auth whoami` | Show current login info | — |
 
+登录响应仅在本次请求仍是最新登录操作时保存。若等待响应期间执行了新的登录或登出，旧登录会报错且不会改写当前令牌。登出只清除本地令牌并取消尚未完成的本地登录，不代表服务端令牌已被撤销；MCP 的 `tgo_auth_login` 和 `tgo_auth_logout` 使用同一规则。
+
 ### conversation (alias: `conv`)
 
 Source: `src/commands/conversation.ts`
@@ -35,9 +37,12 @@ Source: `src/commands/conversation.ts`
 |---------|-------------|---------------------|
 | `tgo conversation list` | List conversations | `--scope <mine\|waiting\|all>` (default: mine), `--limit <n>`, `--offset <n>`, `--msg-count <n>` |
 | `tgo conversation accept <visitor-id>` | Accept a visitor from waiting queue | `visitor-id` (required) |
-| `tgo conversation transfer <visitor-id>` | Transfer visitor to another staff | `visitor-id` (required), `--to <staff-id>` (required), `--reason <text>` |
-| `tgo conversation close <visitor-id>` | Close a visitor session | `visitor-id` (required) |
+| `tgo conversation transfer <visitor-id>` | Transfer visitor to another staff; persist and print the operation ID before submitting | `visitor-id` (required), `--to <staff-id>` (required), `--reason <text>`, `--operation-id <uuid>` (explicit retry of the original), `--new-operation` (start another action only after the last is resolved) |
+| `tgo conversation close <visitor-id>` | Close a visitor session; persist and print the operation ID before submitting | `visitor-id` (required), `--operation-id <uuid>` (explicit retry of the original), `--new-operation` (start another action only after the last is resolved) |
+| `tgo conversation receipt <operation-id>` | Query the original close or transfer receipt and reconcile the matching local record | `operation-id` (UUIDv4, required) |
 | `tgo conversation waiting-count` | Get waiting queue count | — |
+
+Close and transfer keep the latest operation pointer per server, project, staff member and visitor in `~/.tgo/session-commands/`. The file contains only IDs, command kind, target staff ID, status and timestamps; it contains no token, password, transfer reason or message. If the CLI exits after reserving an ID, rerun the same command to query its receipt. A pending operation with no receipt is never resent automatically: first verify the intended action, then pass the **same** `--operation-id` to retry. Use `--new-operation` only after the prior operation is confirmed and a separate close or transfer is intended. MCP tools require the caller to retain their own supplied operation ID; they do not use the CLI's local journal.
 
 ### chat
 
@@ -171,8 +176,9 @@ Each tool is named `tgo_<resource>_<action>` and maps to the corresponding CLI c
 | `tgo_auth_whoami` | Get current logged-in user info | — |
 | `tgo_conversation_list` | List conversations | `scope` (mine/waiting/all), `limit`, `offset`, `msg_count` |
 | `tgo_conversation_accept` | Accept visitor from waiting queue | `visitor_id` (string) |
-| `tgo_conversation_transfer` | Transfer visitor to another staff | `visitor_id`, `target_staff_id`, `reason?` |
-| `tgo_conversation_close` | Close a visitor session | `visitor_id` (string) |
+| `tgo_conversation_transfer` | Transfer visitor to another staff | `visitor_id`, `target_staff_id`, `reason?`, `operation_id` (caller-owned UUIDv4, required) |
+| `tgo_conversation_close` | Close a visitor session | `visitor_id`, `operation_id` (caller-owned UUIDv4, required) |
+| `tgo_conversation_receipt` | Query the original close or transfer receipt | `operation_id` (UUIDv4, required) |
 | `tgo_conversation_waiting_count` | Get waiting queue count | — |
 | `tgo_chat_send` | Send message via WuKongIM WebSocket | `channel_id`, `channel_type` (number), `message` |
 | `tgo_chat_send_platform` | Send message via HTTP API (non-website) | `channel_id`, `channel_type` (number), `message` |

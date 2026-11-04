@@ -100,11 +100,11 @@ export class TgoClient {
     return this.handleResponse<T>(res);
   }
 
-  async post<T>(endpoint: string, data?: unknown): Promise<T> {
+  async post<T>(endpoint: string, data?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
     this.requireAuth();
     const res = await fetch(this.url(endpoint), {
       method: 'POST',
-      headers: this.headers('application/json'),
+      headers: { ...extraHeaders, ...this.headers('application/json') },
       body: data !== undefined ? JSON.stringify(data) : undefined,
     });
     return this.handleResponse<T>(res);

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,6 +25,10 @@ type fixtureServer struct {
 }
 
 func startFixture(t *testing.T, customize func(*config.Config, *tools.Registry)) *fixtureServer {
+	return startConfiguredFixture(t, nil, customize)
+}
+
+func startConfiguredFixture(t *testing.T, configure func(*config.Config), customize func(*config.Config, *tools.Registry)) *fixtureServer {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -38,6 +43,9 @@ func startFixture(t *testing.T, customize func(*config.Config, *tools.Registry))
 	cfg.HeartbeatInterval = time.Hour
 	cfg.ReconnectInitialDelay = time.Millisecond
 	cfg.ReconnectMaxDelay = 5 * time.Millisecond
+	if configure != nil {
+		configure(cfg)
+	}
 	registry := tools.NewRegistry(cfg)
 	if customize != nil {
 		customize(cfg, registry)
@@ -85,6 +93,84 @@ func waitSignal(t *testing.T, ch <-chan struct{}, label string) {
 	case <-ch:
 	case <-time.After(time.Second):
 		t.Errorf("timed out: %s", label)
+	}
+}
+
+func TestReadPolicyAcknowledgementAndReconnectFailClosed(t *testing.T) {
+	f := startFixture(t, nil)
+	directory := filepath.Join(f.client.cfg.WorkRoot, "approved")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(directory, "answer.txt")
+	if err := os.WriteFile(file, []byte("approved"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policy := protocol.ReadPolicy{
+		Revision: 1, ToolName: "fs_read", AllowedDirectory: directory,
+		MaxLines: 10, MaxOffset: 100,
+		Digest: protocol.ReadPolicyDigest(1, "fs_read", directory, 10, 100),
+	}
+	conn := f.accept(t, true)
+	request, _ := protocol.NewRequest(41, "policy/apply", policy)
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		t.Fatal(err)
+	}
+	var response protocol.Response
+	if err := json.NewDecoder(conn).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	var ack protocol.ReadPolicyAck
+	if err := json.Unmarshal(response.Result, &ack); err != nil || ack.Digest != policy.Digest {
+		t.Fatalf("policy acknowledgement mismatch: %#v, %v", ack, err)
+	}
+	list := func(target net.Conn, id int) protocol.ToolsListResult {
+		t.Helper()
+		message, _ := protocol.NewRequest(id, "tools/list", nil)
+		if err := json.NewEncoder(target).Encode(message); err != nil {
+			t.Fatal(err)
+		}
+		var reply protocol.Response
+		if err := json.NewDecoder(target).Decode(&reply); err != nil {
+			t.Fatal(err)
+		}
+		var result protocol.ToolsListResult
+		if err := json.Unmarshal(reply.Result, &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	if listed := list(conn, 42); len(listed.Tools) != 1 || listed.Tools[0].Name != "fs_read" {
+		t.Fatalf("policy advertised unavailable tools over TCP: %#v", listed)
+	}
+	call := func(target net.Conn, id int) protocol.ToolCallResult {
+		t.Helper()
+		message, _ := protocol.NewRequest(id, "tools/call", protocol.ToolCallParams{
+			Name: "fs_read", Arguments: map[string]interface{}{"path": file, "limit": 10},
+		})
+		if err := json.NewEncoder(target).Encode(message); err != nil {
+			t.Fatal(err)
+		}
+		var reply protocol.Response
+		if err := json.NewDecoder(target).Decode(&reply); err != nil {
+			t.Fatal(err)
+		}
+		var result protocol.ToolCallResult
+		if err := json.Unmarshal(reply.Result, &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	if result := call(conn, 43); result.IsError {
+		t.Fatalf("approved read failed: %#v", result)
+	}
+	conn.Close()
+	second := f.accept(t, true)
+	if listed := list(second, 44); len(listed.Tools) != 0 {
+		t.Fatalf("reconnected client advertised unconfirmed tools: %#v", listed)
+	}
+	if result := call(second, 45); !result.IsError {
+		t.Fatal("reconnected client used an old policy acknowledgement")
 	}
 }
 

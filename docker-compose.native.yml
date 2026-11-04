@@ -3,6 +3,10 @@ services:
     ports: !override
       - "${NATIVE_POSTGRES_PORT:-15432}:5432"
 
+  redis:
+    ports: !override
+      - "127.0.0.1:${NATIVE_REDIS_PORT:-${REDIS_PORT:-6379}}:6379"
+
   wukongim:
     environment:
       WK_WEBHOOK_HTTPADDR: ${WUKONGIM_WEBHOOK_URL:-http://host.docker.internal:18001/internal/integrations/wukongim/webhook}

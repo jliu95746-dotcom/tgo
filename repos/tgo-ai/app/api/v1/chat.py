@@ -7,7 +7,7 @@ that proxies requests to various LLM providers based on the provider_id.
 import uuid
 from typing import Union
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 

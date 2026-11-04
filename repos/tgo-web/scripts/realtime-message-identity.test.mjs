@@ -21,6 +21,12 @@ const scope = {
   toAbsoluteApiUrl: url => url,
   createMixedStreamParser: () => ({ push() {}, flush() {} }),
 };
+const nativeScope = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(
+  new URL('../src/utils/nativeWecomSender.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS },
+}).outputText, nativeScope);
+scope.isNativeWecomStaffPayload = nativeScope.exports.isNativeWecomStaffPayload;
 vm.runInNewContext(ts.transpileModule(utilityClass.getText(ast), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText, scope);
@@ -38,6 +44,19 @@ function realtime(fromUid, seq = 2, payload = { type: 1, content: 'test reply' }
     messageSeq: seq, timestamp: seq, channelId: 'test-vtr', channelType: 251,
     header: {}, payload: btoa(JSON.stringify(payload)) };
 }
+
+test('native employee source survives text normalization in SDK and historical copies', () => {
+  const payload = { type: 1, content: 'native reply',
+    extra: { source: 'wecom_native', native_role: 'staff' } };
+  const live = WuKongIMUtils.convertToMessage(realtime('native-staff', 2, payload));
+  const historical = WuKongIMUtils.convertToMessage({ from_uid: 'native-staff',
+    message_id_str: 'native-2', message_seq: 2, timestamp: 2,
+    channel_id: 'test-vtr', channel_type: 251, payload });
+  for (const message of [live, historical]) {
+    assert.equal(message.type, 'staff');
+    assert.equal(message.metadata.native_staff, true);
+  }
+});
 
 test('actual converter identifies SDK staff and system senders, including encoded payloads', () => {
   for (const [uid, type] of [['operator-staff', 'staff'], ['system', 'system'], ['test-visitor', 'visitor']]) {
@@ -62,6 +81,36 @@ test('SDK and history copies agree on sender, identity, and channel', () => {
   for (const field of ['type', 'fromUid', 'id', 'clientMsgNo', 'messageSeq', 'channelId', 'channelType']) {
     assert.equal(live[field], history[field], field);
   }
+});
+
+test('AI stream identity survives realtime and historical conversion', () => {
+  const payload = { type: 100, content: '', sender_kind: 'ai' };
+  const live = WuKongIMUtils.convertToMessage(realtime('assistant-staff', 2, payload));
+  const history = WuKongIMUtils.convertToMessage({
+    from_uid: 'assistant-staff', message_id_str: 'server-2', client_msg_no: 'client-2',
+    message_seq: 2, timestamp: 2, channel_id: 'test-vtr', channel_type: 251,
+    payload, end: 1,
+    event_meta: { has_events: true, completed: true,
+      events: [{ event_key: 'main', snapshot: { kind: 'text', text: 'AI reply' } }] },
+  });
+  assert.equal(live.senderKind, 'ai');
+  assert.equal(history.senderKind, 'ai');
+  assert.equal(history.content, 'AI reply');
+});
+
+test('manual, legacy, and invalid source markers are not labeled AI', () => {
+  for (const payload of [
+    { type: 1, content: 'manual reply' },
+    { type: 1, content: 'manual reply', sender_kind: 'ai' },
+    { type: 100, content: '', sender_kind: 'unknown' },
+    { type: 100, content: '' },
+  ]) {
+    const message = WuKongIMUtils.convertToMessage(realtime('operator-staff', 2, payload));
+    assert.equal(message.senderKind, undefined);
+  }
+  assert.equal(WuKongIMUtils.convertToMessage(
+    realtime('visitor', 2, { type: 100, content: '', sender_kind: 'ai' })
+  ).senderKind, undefined);
 });
 
 test('server echo replaces an optimistic staff reply without creating a new customer turn', () => {

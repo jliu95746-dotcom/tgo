@@ -17,12 +17,14 @@ class DeviceExecutionIdentity(BaseModel):
     session_id: UUID
     agent_id: UUID
     agent_name: str = Field(min_length=1, max_length=255)
+    workflow_execution_id: UUID | None = None
 
 
 class DeviceSessionReceipt(BaseModel):
     id: UUID
     device_id: UUID
     agent_id: UUID | None
+    workflow_execution_id: UUID | None = None
     status: Literal[
         "running", "completed", "failed", "cancelled", "interrupted"
     ]

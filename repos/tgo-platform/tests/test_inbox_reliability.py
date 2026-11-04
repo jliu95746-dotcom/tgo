@@ -92,3 +92,23 @@ def test_finalize_inbox_failure_schedules_retry_then_moves_to_dead() -> None:
     assert exhausted.status == "dead"
     assert exhausted.retry_count == 3
     assert exhausted.next_attempt_at is None
+
+
+def test_finalize_inbox_failure_does_not_store_exception_content() -> None:
+    record = SimpleNamespace(
+        status="processing",
+        retry_count=0,
+        processed_at=None,
+        processing_started_at=datetime.now(timezone.utc),
+        lease_expires_at=datetime.now(timezone.utc),
+        next_attempt_at=None,
+        error_message=None,
+    )
+
+    finalize_inbox_failure(
+        record,
+        RuntimeError("private@example.com"),
+        max_retry_attempts=2,
+    )
+
+    assert record.error_message == "RuntimeError"

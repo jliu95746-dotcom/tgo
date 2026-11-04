@@ -4,13 +4,20 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
+from fastapi import HTTPException
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.exceptions import TGOAPIException
+from app.services.visitor_mutation_access import VisitorMutationScope, changed
+from app.services.staff_queue_access import StaffQueueScope
+from app.services.staff_session_access import StaffSessionScope
+from app.services.session_command_delivery import record_transfer
+from app.services.profile_access import OperationGuard
 from app.core.logging import get_logger
 from app.models import (
     Visitor,
@@ -53,6 +60,7 @@ class TransferResult:
     waiting_queue: Optional[VisitorWaitingQueue]
     queue_position: Optional[int]
     message: str
+    operation_guard: OperationGuard | None = None
 
 
 @dataclass
@@ -98,6 +106,10 @@ async def transfer_to_staff(
     send_notification: bool = True,
     expected_queue_entry_id: Optional[UUID] = None,
     expected_unassigned: bool = False,
+    mutation_scope: VisitorMutationScope | None = None,
+    queue_scope: StaffQueueScope | None = None,
+    session_scope: StaffSessionScope | None = None,
+    operation_id: UUID | None = None,
 ) -> TransferResult:
     """
     Transfer a visitor to staff service.
@@ -130,6 +142,39 @@ async def transfer_to_staff(
     Returns:
         TransferResult with success status and related objects
     """
+    if mutation_scope is not None:
+        if (
+            mutation_scope.visitor_id != visitor_id or mutation_scope.access.project_id != project_id
+            or mutation_scope.access.staff_id != target_staff_id
+            or mutation_scope.access.staff_id != assigned_by_staff_id
+            or mutation_scope.permission != "visitors:update"
+            or not mutation_scope.claim or not expected_unassigned or not auto_commit
+            or add_to_queue_if_no_staff
+            or platform_id != mutation_scope.platform_id
+        ):
+            raise changed()
+        mutation_scope.check(db)
+    if session_scope is not None:
+        if (mutation_scope is not None or queue_scope is not None
+                or session_id != session_scope.session_id
+                or visitor_id != session_scope.visitor_id
+                or project_id != session_scope.access.project_id
+                or platform_id != session_scope.platform_id
+                or assigned_by_staff_id != session_scope.access.staff_id
+                or target_staff_id is None or source != AssignmentSource.TRANSFER
+                or not auto_commit or send_notification):
+            raise changed()
+        session_scope.check(db, target_staff_id=target_staff_id)
+    if queue_scope is not None:
+        if (mutation_scope != queue_scope.customer or expected_queue_entry_id != queue_scope.entry_id
+                or session_id != queue_scope.session_id or not queue_scope.accepting):
+            raise changed()
+        queue_scope.check(db)
+    elif mutation_scope is not None and expected_queue_entry_id is not None:
+        raise changed()
+    output_scope: VisitorMutationScope | None = None
+    output_queue: StaffQueueScope | None = None
+    output_session_guard: OperationGuard | None = None
     llm_response = None
     llm_reasoning = None
     candidate_staff_ids: List[UUID] = []
@@ -152,6 +197,7 @@ async def transfer_to_staff(
             Visitor.id == visitor_id,
             Visitor.project_id == project_id,
             Visitor.deleted_at.is_(None),
+            Visitor.access_retired_at.is_(None),
         ).populate_existing().with_for_update().first()
         
         if not visitor:
@@ -182,7 +228,8 @@ async def transfer_to_staff(
                     waiting_queue=None, queue_position=None,
                     message="Queue entry is no longer waiting or has expired",
                 )
-            expected_entry.record_attempt()
+            if queue_scope is None:
+                expected_entry.record_attempt()
 
         # 1.5. Check if visitor can enter queue (only for non-direct assignments)
         # Skip this check if:
@@ -203,22 +250,21 @@ async def transfer_to_staff(
                 message=f"Visitor cannot enter queue (current status: {visitor.service_status}). Only NEW or CLOSED status allowed.",
             )
         
-        # 2. Get or create session
-        session = await _get_or_create_session(
-            db=db,
-            visitor_id=visitor_id,
-            project_id=project_id,
-            session_id=session_id,
-            platform_id=platform_id or visitor.platform_id,
-        )
-        
+        # Preserve existing internal callers; scoped manual claims defer session
+        # creation until staff selection and current authority have succeeded.
+        session: VisitorSession
+        if mutation_scope is None and session_scope is None:
+            session = await _get_or_create_session(
+                db=db, visitor_id=visitor_id, project_id=project_id,
+                session_id=session_id, platform_id=platform_id or visitor.platform_id,
+            )
+
         # 3. Get assignment rule for the project
         assignment_rule = db.query(VisitorAssignmentRule).filter(
             VisitorAssignmentRule.project_id == project_id,
         ).first()
         
         # 4. Determine staff assignment using assign_staff method
-        previous_staff_id = session.staff_id  # Record previous staff for transfers
         
         assignment_result = await assign_staff(
             db=db,
@@ -227,8 +273,27 @@ async def transfer_to_staff(
             target_staff_id=target_staff_id,
             visitor_message=visitor_message,
             assignment_rule=assignment_rule,
+            strict_target=mutation_scope is not None or session_scope is not None,
         )
         
+        if mutation_scope is not None:
+            visitor = mutation_scope.check(db, lock=True)
+            if queue_scope is not None:
+                expected_entry, _ = queue_scope.check(db, lock=True)
+                expected_entry.record_attempt()
+            if assignment_result.assigned_staff_id != mutation_scope.access.staff_id:
+                raise changed()
+            session = await _get_or_create_session(
+                db=db, visitor_id=visitor_id, project_id=project_id,
+                session_id=session_id, platform_id=platform_id or visitor.platform_id,
+            )
+        elif session_scope is not None:
+            session = session_scope.check(db, lock=True, target_staff_id=target_staff_id)
+            if assignment_result.assigned_staff_id != target_staff_id:
+                raise changed()
+
+        previous_staff_id = session.staff_id
+
         assigned_staff_id = assignment_result.assigned_staff_id
         candidate_staff_ids = assignment_result.candidate_staff_ids
         llm_response = assignment_result.llm_response
@@ -291,7 +356,31 @@ async def transfer_to_staff(
         # 9. Flush and commit to release the FOR UPDATE lock on visitor
         # This minimizes lock holding time and prevents deadlocks with concurrent
         # UPDATE operations on api_visitors (e.g., from message stats updates)
+        if mutation_scope is not None:
+            visitor.updated_at = max(datetime.utcnow(), mutation_scope.original_version + timedelta(microseconds=1))
         db.flush()
+        if session_scope is not None:
+            assert target_staff_id is not None
+            notice_target = db.get(Staff, target_staff_id)
+            if notice_target is None:
+                raise changed()
+            notice_from = db.get(Staff, previous_staff_id) if previous_staff_id else None
+            record_transfer(
+                db,
+                session_scope,
+                session,
+                notice_from,
+                notice_target,
+                operation_id or uuid4(),
+            )
+        if mutation_scope is not None:
+            output_scope = mutation_scope.after_commit(visitor)
+            if queue_scope is not None:
+                output_queue = queue_scope.completed(output_scope, expected_entry, session)
+        if session_scope is not None:
+            output_session_guard = session_scope.completed_guard(
+                session, status="open", staff_id=target_staff_id,
+            )
         if auto_commit:
             db.commit()
             db.refresh(session)
@@ -300,9 +389,17 @@ async def transfer_to_staff(
             if waiting_queue_entry:
                 db.refresh(waiting_queue_entry)
         
+        if mutation_scope is not None:
+            assert output_scope is not None
+            output_scope.guard().check()
+            if output_queue is not None:
+                output_queue.guard().check()
+        if output_session_guard is not None:
+            output_session_guard.check()
+
         # 10. Add staff to visitor's channel and send notification
         # This runs in a new transaction after the visitor lock is released
-        if assigned_staff_id:
+        if assigned_staff_id and session_scope is None:
             await _add_staff_to_channel(
                 db=db,
                 project_id=project_id,
@@ -310,7 +407,14 @@ async def transfer_to_staff(
                 staff_id=assigned_staff_id,
                 ai_disabled=visitor.ai_disabled or False,
                 send_notification=send_notification,
+                operation_guard=output_queue.guard() if output_queue is not None else output_scope.guard() if output_scope is not None else output_session_guard,
             )
+            if output_scope is not None:
+                output_scope.guard().check()
+            if output_queue is not None:
+                output_queue.guard().check()
+            if output_session_guard is not None:
+                output_session_guard.check()
             # Commit channel member changes
             if auto_commit:
                 db.commit()
@@ -338,11 +442,17 @@ async def transfer_to_staff(
             waiting_queue=waiting_queue_entry,
             queue_position=queue_position,
             message=message,
+            operation_guard=output_queue.guard() if output_queue is not None else output_scope.guard() if output_scope is not None else output_session_guard,
         )
         
     except Exception as e:
-        logger.error(f"Error transferring visitor {visitor_id} to human: {e}")
         db.rollback()
+        if mutation_scope is not None or session_scope is not None:
+            if isinstance(e, (TGOAPIException, HTTPException)):
+                raise
+            logger.error("Manual visitor transfer failed", extra={"visitor_id": str(visitor_id), "error_type": type(e).__name__})
+            raise TGOAPIException("接入失败，请刷新客户状态后重试", "TRANSFER_FAILED", status_code=502) from e
+        logger.error(f"Error transferring visitor {visitor_id} to human: {e}")
         return TransferResult(
             success=False,
             session=None,
@@ -362,6 +472,7 @@ async def assign_staff(
     target_staff_id: Optional[UUID] = None,
     visitor_message: Optional[str] = None,
     assignment_rule: Optional[VisitorAssignmentRule] = None,
+    strict_target: bool = False,
 ) -> StaffAssignmentResult:
     """
     Assign a staff member to handle a visitor.
@@ -420,6 +531,8 @@ async def assign_staff(
         else:
             if settings.SAAS_BILLING_ENABLED:
                 raise ValueError("Target staff account is not available")
+            if strict_target:
+                raise changed()
             logger.warning(f"Target staff {target_staff_id} not found, will try auto-assignment")
     
     # Auto-assignment if no target specified or target not found
@@ -602,6 +715,7 @@ async def _add_staff_to_channel(
     staff_id: UUID,
     ai_disabled: bool = False,
     send_notification: bool = True,
+    operation_guard: OperationGuard | None = None,
 ) -> None:
     """
     Add staff to visitor's channel (both DB and WuKongIM) and send notification.
@@ -618,6 +732,8 @@ async def _add_staff_to_channel(
         ai_disabled: Whether AI is disabled (only send message when True)
         send_notification: Whether to send staff assigned system message
     """
+    if operation_guard is not None:
+        operation_guard.check()
     visitor_channel_id = build_visitor_channel_id(visitor_id)
     staff_uid = f"{staff_id}-staff"
     
@@ -678,6 +794,8 @@ async def _add_staff_to_channel(
     
     # 2.1 Remove old staff from WuKongIM
     for old_staff_uid in old_staff_uids_to_remove:
+        if operation_guard is not None:
+            operation_guard.check()
         try:
             await wukongim_client.remove_channel_subscribers(
                 channel_id=visitor_channel_id,
@@ -686,8 +804,12 @@ async def _add_staff_to_channel(
             )
         except Exception as e:
             logger.warning(f"Failed to remove old staff {old_staff_uid} from WuKongIM: {e}")
+        if operation_guard is not None:
+            operation_guard.check()
     
     # 2.2 Add new staff to WuKongIM channel
+    if operation_guard is not None:
+        operation_guard.check()
     try:
         await wukongim_client.add_channel_subscribers(
             channel_id=visitor_channel_id,
@@ -700,9 +822,13 @@ async def _add_staff_to_channel(
         )
     except Exception as e:
         logger.error(f"Failed to add staff {staff_id} to WuKongIM channel: {e}")
+    if operation_guard is not None:
+        operation_guard.check()
     
     # 2.3 Send staff assigned system message (only when AI is disabled and notification is enabled)
     if staff_display_name:
+        if operation_guard is not None:
+            operation_guard.check()
         try:
             await wukongim_client.send_staff_assigned_message(
                 from_uid=staff_uid,
@@ -717,6 +843,9 @@ async def _add_staff_to_channel(
             )
         except Exception as e:
             logger.error(f"Failed to send staff assigned message: {e}")
+
+    if operation_guard is not None:
+        operation_guard.check()
 
 
 def _create_assignment_history(

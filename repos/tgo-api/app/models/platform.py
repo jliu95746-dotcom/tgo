@@ -20,6 +20,7 @@ class PlatformType(str, Enum):
     """Platform type enumeration."""
 
     WEBSITE = "website"
+    WECHAT_LOCAL = "wechat_local"
     WECHAT = "wechat"
     WHATSAPP = "whatsapp"
     TELEGRAM = "telegram"
@@ -40,6 +41,9 @@ class PlatformType(str, Enum):
     WECOM_BOT = "wecom_bot"  # 企业微信机器人
     FEISHU_BOT = "feishu_bot"  # 飞书机器人
     DINGTALK_BOT = "dingtalk_bot"  # 钉钉机器人
+
+
+DIRECT_VISITOR_PLATFORM_TYPES = (PlatformType.WEBSITE.value, PlatformType.WECHAT_LOCAL.value)
 
 
 class PlatformTypeDefinition(Base):
@@ -324,6 +328,8 @@ def _platform_after_update(mapper, connection, target: Platform) -> None:
 
 @event.listens_for(Platform, "after_delete")
 def _platform_after_delete(mapper, connection, target: Platform) -> None:
+    if target.type == PlatformType.WECHAT_LOCAL.value:
+        return
     try:
         from app.services.platform_sync import trigger_platform_delete
         trigger_platform_delete(str(target.id))

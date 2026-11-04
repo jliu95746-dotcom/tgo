@@ -80,6 +80,7 @@ def create_app(
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Session-Operation-ID", "X-Session-Notification-Status"],
     )
 
     # Add additional middlewares (before exception handlers)
@@ -185,10 +186,20 @@ def create_app(
 
         from app.tasks.recover_staff_delivery_history import start_staff_history_recovery
         start_staff_history_recovery()
+        from app.tasks.workflow_source_dispatch import start_workflow_source_dispatch
+        start_workflow_source_dispatch()
         from app.tasks.company_mail import start_company_mail
         start_company_mail()
         from app.tasks.billing import start_billing
         start_billing()
+        from app.tasks.finalize_shadow_protocols import start_shadow_protocol_finalization
+        start_shadow_protocol_finalization()
+        from app.tasks.assist_draft_retention import start_assist_draft_retention
+        start_assist_draft_retention()
+        from app.tasks.visitor_avatar_retention import start_visitor_avatar_retention
+        start_visitor_avatar_retention()
+        from app.tasks.visitor_end_recovery import start_visitor_end_recovery
+        start_visitor_end_recovery()
 
         # Start background sync monitor
         try:
@@ -276,6 +287,16 @@ def create_app(
         await stop_company_mail()
         from app.tasks.billing import stop_billing
         await stop_billing()
+        from app.tasks.finalize_shadow_protocols import stop_shadow_protocol_finalization
+        await stop_shadow_protocol_finalization()
+        from app.tasks.assist_draft_retention import stop_assist_draft_retention
+        await stop_assist_draft_retention()
+        from app.tasks.visitor_avatar_retention import stop_visitor_avatar_retention
+        await stop_visitor_avatar_retention()
+        from app.tasks.visitor_end_recovery import stop_visitor_end_recovery
+        await stop_visitor_end_recovery()
+        from app.tasks.workflow_source_dispatch import stop_workflow_source_dispatch
+        await stop_workflow_source_dispatch()
         # Stop periodic AIProvider sync task (best-effort)
         try:
             from app.tasks.sync_ai_providers import stop_ai_provider_sync_task

@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # Server Configuration
     HOST: str = Field(default="0.0.0.0")
     PORT: int = Field(default=8085)
+    SCRIPT_BUSINESS_EXECUTION_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Enable signed AI script execution after business acceptance"
+        ),
+    )
 
     # Heartbeat Configuration
     HEARTBEAT_INTERVAL: int = Field(

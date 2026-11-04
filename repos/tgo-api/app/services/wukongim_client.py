@@ -1014,7 +1014,11 @@ class WuKongIMClient:
                 strict_response=raise_on_error,
             )
 
-            if not response:
+            # Some WuKongIM versions report an absent message in a successful
+            # HTTP response as {"status": 404}, rather than HTTP 404.
+            if not response or (
+                response.get("status") == 404 and "message_id" not in response
+            ):
                 return None
 
             # Decode payload if present
@@ -1391,10 +1395,10 @@ class WuKongIMClient:
         device_level = (
             device_level if device_level is not None else settings.WUKONGIM_DEVICE_LEVEL
         )
-        # SaaS sessions share an IM identity across browser tabs. Primary
+        # Managed visitor/SaaS sessions share an IM identity across browser tabs. Primary
         # devices evict earlier connections; the gateway authorizes each
         # secondary connection independently and rechecks revocation.
-        if settings.SAAS_ENABLED:
+        if settings.SAAS_ENABLED or uid.endswith("-vtr"):
             device_level = 0
 
         request_data = {

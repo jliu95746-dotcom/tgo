@@ -1,9 +1,9 @@
 """Plugin API endpoints - Proxies to tgo-plugin-runtime service."""
 
-from typing import Optional
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import StreamingResponse
 import httpx
 import json
@@ -15,9 +15,11 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.core.security import get_current_active_user, require_admin
 from app.services.plugin_runtime_client import plugin_runtime_client
-from app.models import Visitor, Staff
+from app.models import Staff
+from app.api.current_access_route import CurrentAccessRoute
+from app.core.exceptions import TGOAPIException
+from app.services.plugin_request_scope import capture_plugin_scope
 from app.schemas.plugin import (
-    VisitorInfo,
     PluginListResponse,
     PluginInfo,
     PluginRenderRequest,
@@ -39,12 +41,12 @@ from app.schemas.plugin import (
 )
 
 logger = get_logger("api.plugins")
-router = APIRouter()
+router = APIRouter(route_class=CurrentAccessRoute)
 
 
 def _handle_runtime_error(e: Exception, context: str):
     """Helper to handle errors from plugin runtime service."""
-    if isinstance(e, HTTPException):
+    if isinstance(e, (HTTPException, TGOAPIException)):
         raise e
         
     if isinstance(e, httpx.HTTPStatusError):
@@ -63,50 +65,6 @@ def _handle_runtime_error(e: Exception, context: str):
     
     logger.error(f"Unexpected error during {context}: {e}")
     raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-
-def _get_visitor_info(db_visitor: Visitor, language: Optional[str] = None) -> VisitorInfo:
-    """Helper to create VisitorInfo with prioritized name logic."""
-    name = db_visitor.name
-    if not name:
-        is_zh = language and language.lower().startswith("zh")
-        if is_zh and db_visitor.nickname_zh:
-            name = db_visitor.nickname_zh
-        else:
-            name = db_visitor.nickname or f"Visitor {str(db_visitor.id)[:4]}"
-
-    return VisitorInfo(
-        id=str(db_visitor.id),
-        platform_open_id=db_visitor.platform_open_id,
-        name=name,
-        email=db_visitor.email,
-        phone=db_visitor.phone_number,
-        avatar=db_visitor.avatar_url,
-        metadata=db_visitor.custom_attributes or {}
-    )
-
-
-def _enrich_visitor_info(
-    request_visitor: Optional[VisitorInfo],
-    visitor_id: Optional[str],
-    language: Optional[str],
-    db: Session
-) -> Optional[VisitorInfo]:
-    """Enrich visitor info from database if not provided."""
-    if request_visitor:
-        return request_visitor
-    
-    if not visitor_id:
-        return None
-    
-    try:
-        db_visitor = db.query(Visitor).filter(Visitor.id == visitor_id).first()
-        if db_visitor:
-            return _get_visitor_info(db_visitor, language)
-    except Exception as e:
-        logger.warning(f"Failed to fetch visitor info: {e}")
-    
-    return None
 
 
 # ==================== Plugin List ====================
@@ -140,20 +98,21 @@ async def get_chat_toolbar_buttons(
 @router.post("/visitor-panel/render", response_model=VisitorPanelRenderResponse)
 async def render_visitor_panels(
     request: VisitorPanelRenderRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
     current_user: Staff = Depends(get_current_active_user)
 ) -> VisitorPanelRenderResponse:
     """Render all visitor panel plugins for a specific visitor."""
+    scope = await capture_plugin_scope(db, current_user, credentials, request.visitor_id,
+        request.visitor, session_id=request.session_id, agent_id=None)
+    http_request.state.operation_guard = scope.guard
+
     # Enrich visitor info
-    visitor_info = _enrich_visitor_info(
-        request.visitor,
-        request.visitor_id,
-        request.language,
-        db
-    )
-    
+    visitor_info = scope.visitor
+
     request_data = {
-        "visitor_id": request.visitor_id,
+        "visitor_id": scope.visitor_id,
         "session_id": request.session_id,
         "visitor": visitor_info.model_dump(exclude_none=True) if visitor_info else None,
         "language": request.language,
@@ -162,6 +121,7 @@ async def render_visitor_panels(
     
     try:
         data = await plugin_runtime_client.render_visitor_panels(request_data, project_id=str(current_user.project_id))
+        scope.guard.check()
         return VisitorPanelRenderResponse(**data)
     except Exception as e:
         _handle_runtime_error(e, "render_visitor_panels")
@@ -173,19 +133,20 @@ async def render_visitor_panels(
 async def render_chat_toolbar_plugin(
     plugin_id: str,
     request: PluginRenderRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
     current_user: Staff = Depends(get_current_active_user)
 ) -> PluginRenderResponse:
     """Render a chat toolbar plugin's content."""
-    visitor_info = _enrich_visitor_info(
-        request.visitor,
-        request.visitor_id,
-        request.language,
-        db
-    )
-    
+    scope = await capture_plugin_scope(db, current_user, credentials, request.visitor_id,
+        request.visitor, session_id=request.session_id, agent_id=request.agent_id)
+    http_request.state.operation_guard = scope.guard
+
+    visitor_info = scope.visitor
+
     request_data = {
-        "visitor_id": request.visitor_id,
+        "visitor_id": scope.visitor_id,
         "session_id": request.session_id,
         "visitor": visitor_info.model_dump(exclude_none=True) if visitor_info else None,
         "agent_id": request.agent_id,
@@ -200,6 +161,7 @@ async def render_chat_toolbar_plugin(
             request_data, 
             project_id=str(current_user.project_id)
         )
+        scope.guard.check()
         if data is None:
             raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
         return PluginRenderResponse(**data)
@@ -213,14 +175,21 @@ async def render_chat_toolbar_plugin(
 async def send_chat_toolbar_event(
     plugin_id: str,
     request: PluginEventRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
     current_user: Staff = Depends(get_current_active_user)
 ) -> PluginActionResponse:
     """Send an event to a chat toolbar plugin."""
+    scope = await capture_plugin_scope(db, current_user, credentials, request.visitor_id,
+        None, session_id=request.session_id, agent_id=None)
+    http_request.state.operation_guard = scope.guard
+
     request_data = {
         "event_type": request.event_type,
         "action_id": request.action_id,
         "extension_type": request.extension_type,
-        "visitor_id": request.visitor_id,
+        "visitor_id": scope.visitor_id,
         "session_id": request.session_id,
         "selected_id": request.selected_id,
         "language": request.language,
@@ -234,6 +203,7 @@ async def send_chat_toolbar_event(
             request_data, 
             project_id=str(current_user.project_id)
         )
+        scope.guard.check()
         if data is None:
             raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
         return PluginActionResponse(**data)
@@ -397,19 +367,20 @@ async def get_plugin(
 async def render_plugin(
     plugin_id: str,
     request: PluginRenderRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
     current_user: Staff = Depends(get_current_active_user)
 ) -> PluginRenderResponse:
     """Trigger a plugin to render its UI."""
-    visitor_info = _enrich_visitor_info(
-        request.visitor,
-        request.visitor_id,
-        request.language,
-        db
-    )
-    
+    scope = await capture_plugin_scope(db, current_user, credentials, request.visitor_id,
+        request.visitor, session_id=request.session_id, agent_id=request.agent_id)
+    http_request.state.operation_guard = scope.guard
+
+    visitor_info = scope.visitor
+
     request_data = {
-        "visitor_id": request.visitor_id,
+        "visitor_id": scope.visitor_id,
         "session_id": request.session_id,
         "visitor": visitor_info.model_dump(exclude_none=True) if visitor_info else None,
         "agent_id": request.agent_id,
@@ -422,8 +393,9 @@ async def render_plugin(
         data = await plugin_runtime_client.render_plugin(
             plugin_id, 
             request_data, 
-            project_id=str(current_user.project_id)
+            project_id=str(scope.access.project_id)
         )
+        scope.guard.check()
         if data is None:
             raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
         return PluginRenderResponse(**data)
@@ -435,14 +407,21 @@ async def render_plugin(
 async def send_plugin_event(
     plugin_id: str,
     request: PluginEventRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
     current_user: Staff = Depends(get_current_active_user)
 ) -> PluginActionResponse:
     """Send an event to a plugin."""
+    scope = await capture_plugin_scope(db, current_user, credentials, request.visitor_id,
+        None, session_id=request.session_id, agent_id=None)
+    http_request.state.operation_guard = scope.guard
+
     request_data = {
         "event_type": request.event_type,
         "action_id": request.action_id,
         "extension_type": request.extension_type,
-        "visitor_id": request.visitor_id,
+        "visitor_id": scope.visitor_id,
         "session_id": request.session_id,
         "selected_id": request.selected_id,
         "language": request.language,
@@ -454,8 +433,9 @@ async def send_plugin_event(
         data = await plugin_runtime_client.send_plugin_event(
             plugin_id, 
             request_data, 
-            project_id=str(current_user.project_id)
+            project_id=str(scope.access.project_id)
         )
+        scope.guard.check()
         if data is None:
             raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
         return PluginActionResponse(**data)

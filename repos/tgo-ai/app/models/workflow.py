@@ -3,7 +3,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,6 +43,10 @@ class AgentWorkflow(BaseModel):
         default=True,
         comment="Whether this workflow is enabled for the agent",
     )
+
+    release_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    release_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    release_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Relationships
     agent: Mapped["Agent"] = relationship(

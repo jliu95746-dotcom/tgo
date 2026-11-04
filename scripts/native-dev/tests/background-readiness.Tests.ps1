@@ -7,6 +7,7 @@ function Assert-True($Value, [string]$Message) {
 }
 $definitions = @(Get-NativeBackgroundServices)
 $worker = $definitions | Where-Object Name -eq 'tgo-workflow-worker'
+$beat = $definitions | Where-Object Name -eq 'tgo-workflow-beat'
 $plugin = $definitions | Where-Object Name -eq 'tgo-plugin-runtime'
 $entry = [pscustomobject]@{ name = $worker.Name; pid = 999 }
 $script:alive = $true
@@ -28,6 +29,7 @@ try { Wait-NativeBackgroundReady $worker $entry 'fixture' -TimeoutSeconds 0 } ca
 Assert-True $failed 'Exited process must fail even if a stale pong exists'
 $script:alive = $true
 Wait-NativeBackgroundReady $plugin $entry 'fixture' -TimeoutSeconds 0
+Wait-NativeBackgroundReady $beat $entry 'fixture' -TimeoutSeconds 0
 
 # The orchestration tests use only in-memory state and never start/stop a process.
 $script:testState = @()

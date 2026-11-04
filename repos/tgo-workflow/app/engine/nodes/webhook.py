@@ -1,16 +1,16 @@
-from typing import Any, Dict, Optional, Tuple
+from pydantic import JsonValue
 from app.engine.nodes.base import BaseNodeExecutor
 from app.engine.context import ExecutionContext
 from app.engine.nodes.registry import register_node
+from app.services.execution_snapshot import copy_json_object
+
 
 @register_node("webhook")
 class WebhookNodeExecutor(BaseNodeExecutor):
-    async def execute(self, context: ExecutionContext) -> Tuple[Dict[str, Any], Optional[str]]:
-        # Webhook node should have body, params, and headers in context
-        outputs = {
-            "body": context.get_variable(f"{self.reference_key}.body"),
-            "params": context.get_variable(f"{self.reference_key}.params"),
-            "headers": context.get_variable(f"{self.reference_key}.headers")
-        }
-        return outputs, None
-
+    async def execute(
+        self, context: ExecutionContext
+    ) -> tuple[dict[str, JsonValue], str | None]:
+        data = context.get_variable(f"{self.reference_key}.data")
+        if not isinstance(data, dict):
+            raise ValueError("外部通知缺少已核验的业务数据。")
+        return {"body": copy_json_object(data)}, None

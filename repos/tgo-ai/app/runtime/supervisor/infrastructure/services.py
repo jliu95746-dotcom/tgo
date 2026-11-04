@@ -17,6 +17,7 @@ from app.models.internal import AgentCollection as InternalAgentCollection
 from app.models.internal import AgentExecutionRequest, AgentExecutionResponse
 from app.models.internal import AgentTool as InternalAgentTool
 from app.models.internal import AgentWorkflow as InternalAgentWorkflow
+from app.schemas.agent_business_connections import AgentBusinessConnectionRecord
 from app.runtime.core.exceptions import (
     AgentExecutionError,
     DataMappingError,
@@ -62,6 +63,8 @@ def _safe_uuid(value: str) -> uuid.UUID:
 def _convert_agent(
     agent: DBAgent,
     tool_associations_map: Optional[Dict[uuid.UUID, ToolAssociationData]] = None,
+    *,
+    allow_inactive_trial: bool = False,
 ) -> InternalAgent:
     """Convert database agent to internal agent model.
 
@@ -77,7 +80,7 @@ def _convert_agent(
     """
     try:
         # Validate required fields
-        if getattr(agent, "is_active", True) is False:
+        if getattr(agent, "is_active", True) is False and not allow_inactive_trial:
             raise DataMappingError("AI员工已停用，请先启用后再发起对话", agent_id=str(agent.id))
         if not agent.id:
             raise DataMappingError(
@@ -186,6 +189,9 @@ def _convert_agent(
                         id=binding.id,
                         workflow_id=binding.workflow_id,
                         enabled=binding.enabled,
+                        release_version=binding.release_version,
+                        release_id=binding.release_id,
+                        release_digest=binding.release_digest,
                     )
                 )
             except Exception as e:
@@ -237,12 +243,22 @@ def _convert_agent(
             tools=tools,
             collections=collections,
             workflows=workflows,
+            business_connections=[AgentBusinessConnectionRecord.model_validate({
+                key: getattr(row, key) for key in (
+                    "id", "project_id", "agent_id", "connection_id", "operations", "enabled", "revision",
+                    "configuration_revision", "authorization_revision", "resource_revision", "configured_by",
+                )
+            }) for row in getattr(agent, "business_connections", []) if row.enabled],
             is_default=agent.is_active or agent.is_default,
             is_remote_store_agent=getattr(agent, "is_remote_store_agent", False),
             remote_agent_url=getattr(agent, "remote_agent_url", None),
             store_agent_id=getattr(agent, "store_agent_id", None),
             bound_device_id=getattr(agent, "bound_device_id", None),
+            bound_device_policy_digest=getattr(agent, "bound_device_policy_digest", None),
             skills_enabled=getattr(agent, "skills_enabled", True),
+            humanization_skill_name=getattr(agent, "humanization_skill_name", None),
+            humanization_skill_enabled=getattr(agent, "humanization_skill_enabled", False) or False,
+            agent_category=getattr(agent, "agent_category", "normal") or "normal",
             created_at=agent.created_at or datetime.now(timezone.utc),
             updated_at=agent.updated_at or datetime.now(timezone.utc),
             llm_provider_credentials=provider_credentials,
@@ -308,6 +324,29 @@ class AIServiceClient:
 
         return await self._convert_agent_with_associations(db_agent)
 
+    async def get_trial_agent(
+        self, agent_id: uuid.UUID, *, requested_by: uuid.UUID | None = None, verify_runtime: bool = True,
+    ) -> InternalAgent:
+        """Trusted trial preparation only; never toggles persisted activation."""
+        db_agent = await self._agent_service.get_agent(
+            self._project_id, agent_id, enrich_resources=False,
+        )
+        converted = await self._convert_agent_with_associations(
+            db_agent, allow_inactive_trial=True, resolve_model=verify_runtime or requested_by is None,
+        )
+        if requested_by is not None:
+            from app.services.agent_activation_model_verification import verify_model_configuration
+            from app.services.api_service import api_service_client
+            if not verify_runtime:
+                # Platform checks only need owner metadata; tenant credentials stay local.
+                from app.config import settings as runtime_settings
+                if not (runtime_settings.saas_enabled and runtime_settings.saas_billing_enabled):
+                    converted = await resolve_system_default_model(self._agent_service.db, converted)
+            converted = await verify_model_configuration(
+                db_agent, converted, requested_by, api_service_client, verify_runtime=verify_runtime,
+            )
+        return converted
+
     async def get_default_agent(
         self,
         auth_headers: Dict[str, str],
@@ -334,6 +373,9 @@ class AIServiceClient:
     async def _convert_agent_with_associations(
         self,
         db_agent: DBAgent,
+        *,
+        allow_inactive_trial: bool = False,
+        resolve_model: bool = True,
     ) -> InternalAgent:
         """Attach association-level config and convert a database agent."""
 
@@ -359,8 +401,17 @@ class AIServiceClient:
                 }
                 for assoc in associations
             }
-            converted = _convert_agent(db_agent, tool_associations_map=tool_associations_map)
-            return await resolve_system_default_model(self._agent_service.db, converted)
+            converted = _convert_agent(
+                db_agent, tool_associations_map=tool_associations_map,
+                allow_inactive_trial=allow_inactive_trial,
+            )
+            from app.services.agent_device_script_selection_identity import (
+                selection_snapshot,
+            )
+            converted.device_script_selection = await selection_snapshot(
+                self._agent_service.db, self._project_id, agent_uuid,
+            )
+            return await resolve_system_default_model(self._agent_service.db, converted) if resolve_model else converted
         except DataMappingError:
             raise
         except Exception as exc:
@@ -778,11 +829,27 @@ class AgentServiceClient:
         if workflow_service_url and agent.workflows:
             workflow_config = WorkflowConfig(
                 workflow_url=workflow_service_url,
+                agent_id=str(agent.id),
                 workflows=[
                     str(binding.workflow_id)
                     for binding in agent.workflows
                     if binding.enabled
                 ],
+                release_versions={
+                    str(binding.workflow_id): binding.release_version
+                    for binding in agent.workflows
+                    if binding.enabled and binding.release_version is not None
+                },
+                release_ids={
+                    str(binding.workflow_id): binding.release_id
+                    for binding in agent.workflows
+                    if binding.enabled and binding.release_id is not None
+                },
+                release_digests={
+                    str(binding.workflow_id): binding.release_digest
+                    for binding in agent.workflows
+                    if binding.enabled and binding.release_digest is not None
+                },
                 project_id=str(getattr(agent, "project_id", None)),
             )
 

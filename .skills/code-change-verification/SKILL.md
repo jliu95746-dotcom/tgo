@@ -24,3 +24,14 @@ After any code modification is complete.
 ```bash
 bash .skills/code-change-verification/scripts/verify.sh
 ```
+
+On Windows, run the native checker so Python virtual environments and Node
+dependencies use their Windows binaries. Omit `-Services` to check every
+changed service, including untracked files. Pass service names for a focused
+check; missing tools and unconfigured checks are reported as unavailable, not
+as passing.
+
+```powershell
+pwsh -File .skills/code-change-verification/scripts/verify.ps1 -Services tgo-platform
+pwsh -File .skills/code-change-verification/scripts/verify.ps1
+```

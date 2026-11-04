@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header, UploadFile, File, Query
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session, joinedload, contains_eager
 from sqlalchemy import func
 
@@ -24,6 +25,8 @@ from app.services.platform_knowledge import platform_knowledge_availability
 from app.schemas.knowledge_availability import AgentKnowledgeAvailability
 from app.models.platform import PlatformType
 from app.services.platform_configuration import is_platform_configured
+from app.services.visitor_data_access import require_visitor_data_access
+from app.services.wechat_local_bridge import WeChatLocalStatus, bridge_status
 from app.schemas import (
     PlatformAPIKeyResponse,
     PlatformCreate,
@@ -389,6 +392,45 @@ async def get_platform(
     return _build_platform_response(platform, language=x_user_language)
 
 
+@router.get("/{platform_id}/wechat-local/status", response_model=WeChatLocalStatus)
+async def get_wechat_local_status(
+    platform_id: UUID,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(require_permission("platforms:read")),
+) -> WeChatLocalStatus:
+    platform = db.query(Platform).filter(
+        Platform.id == platform_id,
+        Platform.project_id == current_user.project_id,
+        Platform.type == PlatformType.WECHAT_LOCAL.value,
+        Platform.deleted_at.is_(None),
+    ).first()
+    if platform is None:
+        raise HTTPException(404, "Platform not found")
+    response.headers["Cache-Control"] = "no-store"
+    return await bridge_status(platform)
+
+
+@router.post("/{platform_id}/wechat-local/heartbeat", response_model=WeChatLocalStatus)
+async def wechat_local_heartbeat(
+    platform_id: UUID,
+    db: Session = Depends(get_db),
+    api_key: str = Header("", alias="X-Platform-API-Key"),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+) -> WeChatLocalStatus:
+    platform = db.query(Platform).filter(
+        Platform.id == platform_id,
+        Platform.api_key == api_key,
+        Platform.type == PlatformType.WECHAT_LOCAL.value,
+        Platform.is_active.is_(True),
+        Platform.deleted_at.is_(None),
+    ).first()
+    if platform is None:
+        raise HTTPException(401, "Invalid platform API key")
+    require_visitor_data_access(db, platform, credentials)
+    return await bridge_status(platform, heartbeat=True)
+
+
 @router.patch("/{platform_id}", response_model=PlatformResponse)
 async def update_platform(
     platform_id: UUID,
@@ -453,6 +495,10 @@ async def update_platform(
 
     # Update fields
     update_data = platform_data.model_dump(exclude_unset=True)
+    if platform.type == "wecom" and isinstance(update_data.get("config"), dict):
+        from app.services.wecom_native_context import preserve_native_config
+
+        update_data["config"] = preserve_native_config(platform.config or {}, update_data["config"])
     for field, value in update_data.items():
         setattr(platform, field, value)
 

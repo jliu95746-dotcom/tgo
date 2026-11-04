@@ -7,6 +7,10 @@ vi.mock('../config.js', () => ({
   resolveServer: vi.fn(),
   resolveToken: vi.fn(),
   updateConfig: vi.fn(),
+  beginAuthLogin: vi.fn(() => 'request-1'),
+  completeAuthLogin: vi.fn(() => true),
+  cancelAuthLogin: vi.fn(),
+  clearAuthSession: vi.fn(),
   loadConfig: vi.fn(() => ({})),
 }));
 
@@ -24,12 +28,15 @@ vi.mock('../client.js', () => ({
 }));
 
 import { TgoClient as MockedTgoClient } from '../client.js';
-import { updateConfig } from '../config.js';
+import { beginAuthLogin, cancelAuthLogin, clearAuthSession, completeAuthLogin } from '../config.js';
 
 describe('auth commands', () => {
   beforeEach(() => {
     vi.mocked(MockedTgoClient).mockClear();
-    vi.mocked(updateConfig).mockClear();
+    vi.mocked(beginAuthLogin).mockClear();
+    vi.mocked(completeAuthLogin).mockClear();
+    vi.mocked(cancelAuthLogin).mockClear();
+    vi.mocked(clearAuthSession).mockClear();
   });
 
   describe('authLogin', () => {
@@ -55,11 +62,9 @@ describe('auth commands', () => {
         grant_type: 'password',
       });
 
-      // Verify config was updated
-      expect(updateConfig).toHaveBeenCalledWith({
-        server: 'http://localhost:8000/api',
-        token: 'new-token-123',
-      });
+      expect(beginAuthLogin).toHaveBeenCalledOnce();
+      expect(completeAuthLogin).toHaveBeenCalledWith('request-1', 'http://localhost:8000/api', 'new-token-123');
+      expect(cancelAuthLogin).not.toHaveBeenCalled();
 
       // Verify return value
       expect(result).toEqual({
@@ -76,14 +81,15 @@ describe('auth commands', () => {
       }) as any);
 
       await expect(authLogin('http://test', 'bad', 'bad')).rejects.toThrow('Invalid credentials');
-      expect(updateConfig).not.toHaveBeenCalled();
+      expect(completeAuthLogin).not.toHaveBeenCalled();
+      expect(cancelAuthLogin).toHaveBeenCalledWith('request-1');
     });
   });
 
   describe('authLogout', () => {
     it('should clear token from config', () => {
       const result = authLogout();
-      expect(updateConfig).toHaveBeenCalledWith({ token: undefined });
+      expect(clearAuthSession).toHaveBeenCalledOnce();
       expect(result).toEqual({ success: true, message: 'Logged out' });
     });
   });

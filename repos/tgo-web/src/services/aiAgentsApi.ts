@@ -4,6 +4,12 @@
  */
 
 import BaseApiService from './base/BaseApiService';
+import { apiClient } from './api';
+import type { AgentDeviceActionReadiness } from '@/types/agentDeviceReadiness';
+import type {
+  WorkflowReleaseAuditResponse, WorkflowPinTransitionCommand,
+  WorkflowPinTransitionReceipt, WorkflowPinTransitionHistory,
+} from '@/types/workflowReleaseAudit';
 import type {
   AgentListResponse,
   AgentWithDetailsResponse,
@@ -40,7 +46,49 @@ export class AIAgentsApiService extends BaseApiService {
   static async getAgent(id: string): Promise<AgentWithDetailsResponse> {
     const service = new AIAgentsApiService();
     const endpoint = service.endpoints.AGENT_BY_ID(id);
-    return service.get<AgentWithDetailsResponse>(endpoint);
+    return service.get<AgentWithDetailsResponse>(endpoint, { include_workflows: true });
+  }
+
+  static async getDeviceActionReadiness(
+    agentId: string, signal?: AbortSignal,
+  ): Promise<AgentDeviceActionReadiness> {
+    const service = new AIAgentsApiService();
+    return apiClient.get<AgentDeviceActionReadiness>(
+      `${service.endpoints.AGENT_BY_ID(encodeURIComponent(agentId))}/device-action-readiness`,
+      { signal },
+    );
+  }
+
+  static async getWorkflowReleaseAudit(offset = 0, limit = 10): Promise<WorkflowReleaseAuditResponse> {
+    const service = new AIAgentsApiService();
+    return service.get<WorkflowReleaseAuditResponse>(
+      `${service.endpoints.AGENTS}/workflow-release-audit`, { offset, limit }
+    );
+  }
+
+  static async setAgentWorkflowEnabled(agentId: string, workflowId: string, enabled: boolean): Promise<void> {
+    const service = new AIAgentsApiService();
+    return service.patch<void>(
+      `${service.endpoints.AGENT_BY_ID(agentId)}/workflows/${workflowId}/enabled`, { enabled }
+    );
+  }
+
+  static async pinLegacyWorkflow(
+    agentId: string, workflowId: string, command: WorkflowPinTransitionCommand
+  ): Promise<WorkflowPinTransitionReceipt> {
+    const service = new AIAgentsApiService();
+    return service.post<WorkflowPinTransitionReceipt>(
+      `${service.endpoints.AGENT_BY_ID(agentId)}/workflows/${workflowId}/pin-legacy`, command
+    );
+  }
+
+  static async getWorkflowPinTransitions(
+    agentId: string, offset = 0, limit = 20
+  ): Promise<WorkflowPinTransitionHistory> {
+    const service = new AIAgentsApiService();
+    return service.get<WorkflowPinTransitionHistory>(
+      `${service.endpoints.AGENT_BY_ID(agentId)}/workflow-pin-transitions`, { offset, limit }
+    );
   }
 
   /**
@@ -188,6 +236,7 @@ export class AIAgentsTransformUtils {
     // Build config object
     const configObj: Record<string, any> = {
       profession: formData.profession,
+      ...(formData.companySummary ? { company_summary: formData.companySummary } : {}),
       markdown: formData.markdown,
       add_datetime_to_context: formData.add_datetime_to_context,
       tool_call_limit: formData.tool_call_limit,
@@ -251,7 +300,7 @@ export class AIAgentsTransformUtils {
       knowledgeBases,
       collections,
       agentTools: tools,
-      workflows: (apiAgent as any).workflows || [],
+      workflows: apiAgent.workflows || [],
       boundDeviceId: apiAgent.bound_device_id || undefined,
       boundDevice: apiAgent.bound_device || null,
       skills_enabled: (apiAgent as any).skills_enabled ?? true,
@@ -369,7 +418,8 @@ export class AIAgentsTransformUtils {
       config: configObj,
       tools,
       collections,
-      workflows: agent.workflows || [],
+      workflows: (agent.workflows || []).map(workflow =>
+        typeof workflow === 'string' ? workflow : workflow.id),
       bound_device_id: agent.boundDeviceId || null,
       skills_enabled: agent.skills_enabled,
       humanization_skill_name: agent.humanization_skill_name || null,
@@ -386,7 +436,22 @@ export class AIAgentsTransformUtils {
       return { is_active: updates.status === 'active' };
     }
     const request = this.transformAgentToUpdateRequest({ ...current, ...updates }, availableTools);
-    if (updates.status === undefined) delete request.is_active;
+    const fields: Partial<Record<keyof import('@/types').Agent, (keyof AgentUpdateRequest)[]>> = {
+      name: ['name'], description: ['instruction'], llmModel: ['model', 'ai_provider_id'],
+      status: ['is_active'], role: ['config'], capabilities: ['config'], config: ['config'],
+      tools: ['tools'], toolConfigs: ['tools'], agentTools: ['tools'],
+      knowledgeBases: ['collections'], collections: ['collections'], workflows: ['workflows'],
+      boundDeviceId: ['bound_device_id'], skills_enabled: ['skills_enabled'],
+      humanization_skill_name: ['humanization_skill_name'],
+      humanization_skill_enabled: ['humanization_skill_enabled'],
+    };
+    const requested = new Set<keyof AgentUpdateRequest>();
+    for (const key of Object.keys(updates) as (keyof import('@/types').Agent)[]) {
+      for (const field of fields[key] ?? []) requested.add(field);
+    }
+    for (const field of Object.keys(request) as (keyof AgentUpdateRequest)[]) {
+      if (!requested.has(field)) delete request[field];
+    }
     return request;
   }
 

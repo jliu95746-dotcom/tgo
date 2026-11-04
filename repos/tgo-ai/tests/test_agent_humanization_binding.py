@@ -34,12 +34,16 @@ async def test_create_validates_and_persists_binding(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_switch_off_keeps_binding_and_other_settings(monkeypatch):
+async def test_switch_off_keeps_binding_and_other_settings(monkeypatch, db_session, test_project):
+    from app.models.agent import Agent
     monkeypatch.setattr("app.services.agent_service.validate_humanization_binding", AsyncMock())
-    agent = SimpleNamespace(humanization_skill_name="brand-style", humanization_skill_enabled=True)
-    service = AgentService(Mock(commit=AsyncMock(), refresh=AsyncMock()))
-    service.get_agent = AsyncMock(return_value=agent)
-    await service.update_agent(uuid4(), uuid4(), AgentUpdate(humanization_skill_enabled=False))
+    agent = Agent(project_id=test_project.id, name="隔离表达员工", model="fixture", is_active=False,
+                  humanization_skill_name="brand-style", humanization_skill_enabled=True)
+    db_session.add(agent)
+    await db_session.commit()
+    service = AgentService(db_session)
+    await service.update_agent(test_project.id, agent.id, AgentUpdate(humanization_skill_enabled=False),
+                               enrich_resources=False)
     assert agent.humanization_skill_name == "brand-style"
     assert agent.humanization_skill_enabled is False
 

@@ -1,8 +1,8 @@
 """Bind one durable quota permit to the complete multi-phase reply execution."""
 
 import asyncio
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from uuid import UUID
@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models import Platform, Visitor
 from app.models.ai_interaction_run import AIInteractionRun
+from app.models.platform import DIRECT_VISITOR_PLATFORM_TYPES
 from app.services import ai_usage
 
 
@@ -31,6 +32,16 @@ _permit: ContextVar[ReplyPermit | None] = ContextVar("ai_reply_quota", default=N
 
 def current_permit() -> ReplyPermit | None:
     return _permit.get()
+
+
+@contextmanager
+def bind_permit(permit: ReplyPermit | None) -> Iterator[None]:
+    """Bind a service-owned permit without applying IM delivery semantics."""
+    token = _permit.set(permit)
+    try:
+        yield
+    finally:
+        _permit.reset(token)
 
 
 def authorization_headers() -> dict[str, str]:
@@ -69,7 +80,8 @@ def _reserve(
             if visitor is None or visitor.project_id != project_id or platform is None:
                 raise ValueError("Invalid quota channel")
             external = (
-                platform.type != "website" and visitor.platform_open_id != channel_id
+                platform.type not in DIRECT_VISITOR_PLATFORM_TYPES
+                and visitor.platform_open_id != channel_id
             )
             if external:
                 run = db.scalar(

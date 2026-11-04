@@ -2,6 +2,8 @@
 
 from app.models.platform import Platform, PlatformType, PlatformTypeDefinition
 from app.models.project import Project
+from app.models.business_customer_identity import BusinessCustomerBinding, BusinessCustomerIdentityPolicy
+from app.models.visitor_business_scope import VisitorBusinessScope
 from app.models.platform_operator import PlatformOperator
 from app.models.billing import (
     BillingPlan, BillingQuote, BillingOrder, SubscriptionPeriod, SeatAddon,
@@ -27,13 +29,28 @@ from app.models.visitor_activity import VisitorActivity
 from app.models.visitor_tag import VisitorTag
 from app.models.channel_member import ChannelMember
 from app.models.chat_file import ChatFile
+from app.models.assist_draft_record import AssistDraftRecord
+from app.models.shadow_draft_review import ShadowDraftReview
+from app.models.shadow_review_adjudication import ShadowReviewAdjudication
+from app.models.shadow_gate_signoff import ShadowGateSignoff
+from app.models.shadow_review_batch import (
+    ShadowReviewBatch, ShadowReviewBatchItem,
+)
+from app.models.shadow_review_protocol import (
+    ShadowReviewProtocol,
+    ShadowReviewProtocolCandidate,
+)
 from app.models.staff_message_delivery import StaffMessageDelivery
+from app.models.session_command_delivery import SessionCommandDelivery
 from app.models.visitor_customer_update import VisitorCustomerUpdate
 from app.models.ai_provider import AIProvider
 from app.models.ai_model import AIModel
 from app.models.ai_provider_default_model import AIProviderDefaultModel
 from app.models.project_ai_config import ProjectAIConfig
 from app.models.project_onboarding import ProjectOnboardingProgress
+from app.models.scenario_draft import ScenarioDraft
+from app.models.business_connection import BusinessConnection
+from app.models.business_connection_test import BusinessConnectionTest
 from app.models.permission import Permission, RolePermission, ProjectRolePermission
 from app.models.visitor_assignment_rule import VisitorAssignmentRule, DEFAULT_ASSIGNMENT_PROMPT
 from app.models.visitor_assignment_history import VisitorAssignmentHistory, AssignmentSource
@@ -51,6 +68,18 @@ from app.models.media_analysis_result import MediaAnalysisResult
 from app.models.message_intent_result import MessageIntentResult
 from app.models.manual_service_request import ManualServiceRequest
 from app.models.ai_interaction_run import AIInteractionRun, AIInteractionRunStatus
+from app.models.ai_execution_attempt import AIExecutionAttempt
+from app.models.ai_execution_tool_event import AIExecutionToolEvent
+from app.models.ai_execution_business_query import AIExecutionBusinessQuery
+from app.models.hidden_shadow_run import HiddenShadowRun
+from app.models.hidden_shadow_review import HiddenShadowCaseReview
+from app.models.hidden_shadow_adjudication import (
+    HiddenShadowAdjudication,
+)
+from app.models.hidden_shadow_gate_signoff import HiddenShadowGateSignoff
+from app.models.hidden_shadow_protocol import (
+    HiddenShadowProtocol, HiddenShadowProtocolCase,
+)
 from app.models.customer_logistics import (
     CustomerShipment,
     LogisticsSettings,
@@ -77,12 +106,26 @@ __all__ = [
     "VisitorTag",
     "ChannelMember",
     "ChatFile",
+    "AssistDraftRecord",
+    "ShadowDraftReview",
+    "ShadowReviewAdjudication",
+    "ShadowReviewBatch",
+    "ShadowReviewBatchItem",
+    "ShadowReviewProtocol",
+    "ShadowReviewProtocolCandidate",
     "StaffMessageDelivery",
+    "SessionCommandDelivery",
+    "WorkflowEventSubscription",
+    "WorkflowEventDelivery",
     "AIProvider",
     "AIModel",
     "AIProviderDefaultModel",
     "ProjectAIConfig",
     "ProjectOnboardingProgress",
+    "ScenarioDraft",
+    "BusinessConnection",
+    "BusinessConnectionTest",
+    "VisitorBusinessScope",
     "SystemSetup",
     "Permission",
     "RolePermission",
@@ -99,6 +142,15 @@ __all__ = [
     "MessageIntentResult",
     "ManualServiceRequest",
     "AIInteractionRun",
+    "AIExecutionAttempt",
+    "AIExecutionToolEvent",
+    "AIExecutionBusinessQuery",
+    "HiddenShadowRun",
+    "HiddenShadowCaseReview",
+    "HiddenShadowAdjudication",
+    "HiddenShadowGateSignoff",
+    "HiddenShadowProtocol",
+    "HiddenShadowProtocolCase",
     "CustomerShipment",
     "LogisticsSettings",
     "ShipmentTrackingEvent",
@@ -117,5 +169,6 @@ __all__ = [
 ]
 from app.models.ai_usage import AIUsageReservation, AIUsageMovement
 from app.models.billing_reconciliation import BillingReconciliation
+from app.models.workflow_event_subscription import WorkflowEventSubscription, WorkflowEventDelivery
 from app.models.trial_policy import TrialPolicy
 from app.models.trial_activation_code import TrialActivationCode

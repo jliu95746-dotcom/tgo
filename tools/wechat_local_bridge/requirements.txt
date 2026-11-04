@@ -1,0 +1,7 @@
+pycryptodome>=3.20,<5
+zstandard>=0.23,<1
+PyAutoGUI>=0.9.54,<1
+pyperclip>=1.9,<2
+Pillow>=10,<15
+opencv-python-headless>=4.10,<6
+comtypes>=1.4.8,<2

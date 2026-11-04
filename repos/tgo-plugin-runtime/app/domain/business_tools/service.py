@@ -17,9 +17,12 @@ from app.domain.business_tools.models import (
     OrderOwnership,
     OrderQueryInput,
     OrderQueryResult,
+    message_lookup_digest,
 )
 from app.domain.business_tools.providers import (
     BusinessProviderAccessDenied,
+    BusinessProviderResultError,
+    BusinessResultCode,
     BusinessQueryAuditSink,
     ReadOnlyBusinessProvider,
 )
@@ -43,6 +46,20 @@ class BusinessQueryProviderError(BusinessQueryError):
 
 class BusinessQueryAuditError(BusinessQueryError):
     """The required audit event could not be safely persisted."""
+
+
+class BusinessQueryResultError(BusinessQueryProviderError):
+    """Safe distinct outcomes; upstream messages are never copied."""
+
+    def __init__(self, code: BusinessResultCode) -> None:
+        self.code = code
+        messages = {
+            "not_found": "没有查到可核验的订单，请核对订单号或转人工",
+            "not_shipped": "订单尚未发货，暂无物流记录",
+            "authentication_failed": "业务连接鉴权失败，请联系管理员检查凭证",
+            "business_failed": "业务系统未完成查询，请稍后重试或转人工",
+        }
+        super().__init__(messages[code])
 
 
 class BusinessQueryService:
@@ -78,6 +95,15 @@ class BusinessQueryService:
                 self._provider.query_order(query, context),
                 timeout=self._timeout_seconds,
             )
+        except BusinessProviderResultError as exc:
+            await self._audit(
+                operation="order_query",
+                outcome="failed",
+                order_no=query.order_no,
+                context=context,
+                started_at=started_at,
+            )
+            raise BusinessQueryResultError(exc.code) from None
         except BusinessProviderAccessDenied as exc:
             await self._audit(
                 operation="order_query",
@@ -86,9 +112,7 @@ class BusinessQueryService:
                 context=context,
                 started_at=started_at,
             )
-            raise BusinessQueryAccessDenied(
-                "无法确认订单归属，请转人工核验"
-            ) from exc
+            raise BusinessQueryAccessDenied("无法确认订单归属，请转人工核验") from exc
         except TimeoutError as exc:
             await self._audit(
                 operation="order_query",
@@ -144,6 +168,15 @@ class BusinessQueryService:
                 self._provider.query_logistics(query, context),
                 timeout=self._timeout_seconds,
             )
+        except BusinessProviderResultError as exc:
+            await self._audit(
+                operation="logistics_query",
+                outcome="failed",
+                order_no=query.order_no,
+                context=context,
+                started_at=started_at,
+            )
+            raise BusinessQueryResultError(exc.code) from None
         except BusinessProviderAccessDenied as exc:
             await self._audit(
                 operation="logistics_query",
@@ -152,9 +185,7 @@ class BusinessQueryService:
                 context=context,
                 started_at=started_at,
             )
-            raise BusinessQueryAccessDenied(
-                "无法确认订单归属，请转人工核验"
-            ) from exc
+            raise BusinessQueryAccessDenied("无法确认订单归属，请转人工核验") from exc
         except TimeoutError as exc:
             await self._audit(
                 operation="logistics_query",
@@ -237,6 +268,14 @@ class BusinessQueryService:
                     parameter_fingerprint=self._fingerprint(
                         context.tenant_id.hex,
                         order_no,
+                    ),
+                    source_message_digest=(
+                        message_lookup_digest(context.tenant_id, context.source_message_id)
+                        if context.source_message_id is not None else None
+                    ),
+                    response_message_digest=(
+                        message_lookup_digest(context.tenant_id, context.response_client_msg_no)
+                        if context.response_client_msg_no is not None else None
                     ),
                     duration_ms=(monotonic() - started_at) * 1000,
                 )

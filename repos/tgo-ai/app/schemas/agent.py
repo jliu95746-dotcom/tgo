@@ -2,7 +2,7 @@
 
 import enum
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from pydantic import Field, field_validator
 from pydantic import ConfigDict
@@ -10,6 +10,8 @@ from pydantic import ConfigDict
 from app.schemas.base import BaseSchema, IDMixin, PaginatedResponse, TimestampMixin
 from app.schemas.tool import AgentToolDetail
 from pydantic import computed_field
+
+PublishedVersion = Annotated[int, Field(strict=True, ge=1)]
 
 
 class AgentCategory(str, enum.Enum):
@@ -59,7 +61,7 @@ class AgentBase(BaseSchema):
 
     humanization_skill_name: Optional[str] = Field(default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]{1,63}$")
     humanization_skill_enabled: bool = False
-    is_active: bool = Field(default=True, description="Whether the agent accepts new runs")
+    is_active: bool = Field(default=False, description="New employees stay paused until current tests and reviews pass")
 
     name: str = Field(
         max_length=255,
@@ -121,18 +123,22 @@ class AgentCreate(AgentBase):
         description="LLM provider (credentials) ID to use for this agent",
     )
     tools: Optional[List[AgentToolCreate]] = Field(
-        default_factory=list,
+        default_factory=lambda: [],
         description="Tools to bind to the agent",
     )
     collections: Optional[List[str]] = Field(
-        default_factory=list,
+        default_factory=lambda: [],
         description="Collection IDs to associate with the agent (UUID strings)",
         examples=[["123e4567-e89b-12d3-a456-426614174000", "987fcdeb-51a2-43d1-9f6e-123456789abc"]],
     )
     workflows: Optional[List[str]] = Field(
-        default_factory=list,
+        default_factory=lambda: [],
         description="Workflow IDs to associate with the agent (UUID strings)",
         examples=[["123e4567-e89b-12d3-a456-426614174000", "987fcdeb-51a2-43d1-9f6e-123456789abc"]],
+    )
+    workflow_release_versions: Dict[str, PublishedVersion] = Field(
+        default_factory=dict,
+        description="Explicit published version for selected workflows; omitted IDs use the current release",
     )
     @field_validator("collections", "workflows")
     @classmethod
@@ -226,6 +232,14 @@ class AgentUpdate(BaseSchema):
         default=None,
         description="Updated workflow IDs to associate with the agent (UUID strings). Replaces existing associations.",
         examples=[["123e4567-e89b-12d3-a456-426614174000", "987fcdeb-51a2-43d1-9f6e-123456789abc"]],
+    )
+    workflow_release_versions: Dict[str, PublishedVersion] = Field(
+        default_factory=dict,
+        description="Explicit published versions to pin for selected workflows",
+    )
+    refresh_workflow_releases: bool = Field(
+        default=False,
+        description="Explicitly rebind selected workflows to their current published versions",
     )
     bound_device_id: Optional[str] = Field(
         default=None,

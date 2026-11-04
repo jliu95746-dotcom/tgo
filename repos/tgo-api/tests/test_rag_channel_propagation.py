@@ -83,6 +83,27 @@ async def test_non_stream_ai_client_payload_supports_plain_rewrite_mode() -> Non
 
 
 @pytest.mark.asyncio
+async def test_hidden_shadow_request_keeps_governed_knowledge_without_business_authority() -> None:
+    client = AIServiceClient()
+    client._make_request = AsyncMock(return_value=object())
+    client._handle_response = AsyncMock(return_value={"content": "ok"})
+
+    await client.run_supervisor_agent(
+        message="包是什么材质？", project_id=str(uuid4()),
+        knowledge_channel="wecom_kf", require_current_knowledge=True,
+        knowledge_only=True, enable_memory=False,
+    )
+
+    call = client._make_request.await_args.kwargs
+    assert call["json_data"]["knowledge_only"] is True
+    assert call["json_data"]["ui_mode"] == "text"
+    assert call["json_data"]["require_current_knowledge"] is True
+    assert call["json_data"]["enable_memory"] is False
+    assert call["extra_headers"]["X-Execution-Channel"] == "wecom_kf"
+    assert "X-Business-Request-Context" not in call["extra_headers"]
+
+
+@pytest.mark.asyncio
 async def test_chat_service_forwards_channel_to_streaming_ai_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

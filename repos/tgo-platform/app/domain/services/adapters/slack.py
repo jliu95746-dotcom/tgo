@@ -3,12 +3,15 @@
 Sends messages to Slack using the Web API chat.postMessage endpoint.
 """
 from __future__ import annotations
+import logging
 
 from app.domain.entities import StreamEvent
 from app.domain.services.adapters.base import BasePlatformAdapter
 from app.core.config import settings
 
 from app.api.slack_utils import slack_send_text
+
+logger = logging.getLogger(__name__)
 
 
 class SlackAdapter(BasePlatformAdapter):
@@ -58,10 +61,10 @@ class SlackAdapter(BasePlatformAdapter):
             RuntimeError: If bot_token or channel is missing
         """
         text = (content or {}).get("text") or ""
-        print(f"[SLACK ADAPTER] send_final called with text length: {len(text)}")
+        logger.debug("Slack reply prepared")
 
         if not text:
-            print("[SLACK ADAPTER] Empty text, skipping send")
+            logger.debug("Slack empty reply skipped")
             return
 
         if not self.bot_token:
@@ -70,7 +73,7 @@ class SlackAdapter(BasePlatformAdapter):
         if not self.channel:
             raise RuntimeError("Slack adapter requires channel")
 
-        print(f"[SLACK ADAPTER] Sending to channel={self.channel}: {text[:100]}...")
+        logger.debug("Slack reply sending")
 
         # Send text message via Slack Web API
         result = await slack_send_text(
@@ -81,6 +84,6 @@ class SlackAdapter(BasePlatformAdapter):
         )
 
         if result:
-            print(f"[SLACK ADAPTER] Reply sent to {self.channel}")
+            logger.debug("Slack reply send completed")
         else:
-            print(f"[SLACK ADAPTER] Failed to send reply to {self.channel}")
+            logger.warning("Slack reply send failed")

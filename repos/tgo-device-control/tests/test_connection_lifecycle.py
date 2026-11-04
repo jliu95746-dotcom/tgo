@@ -87,6 +87,35 @@ async def test_initialize_is_idempotent(manager):
 
 
 @pytest.mark.asyncio
+async def test_pending_auth_blocks_business_frames_until_reply_is_sent(manager):
+    writer = MagicMock()
+    writer.drain = AsyncMock()
+    writer.wait_closed = AsyncMock()
+    connection = await manager.register_connection(
+        "pending-auth", "Test", "1", [], asyncio.StreamReader(), writer,
+        authentication_pending=True,
+    )
+    with pytest.raises(ConnectionError, match="authentication response is pending"):
+        await connection.send_message({"method": "tools/list"})
+    writer.write.assert_not_called()
+    connection.auth_response_sent = True
+    await connection.send_message({"method": "tools/list"})
+    writer.write.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_pending_auth_still_expires_on_heartbeat_timeout(manager, monkeypatch):
+    connection = await connect(manager)
+    connection.auth_response_sent = False
+    connection.last_seen = datetime(2000, 1, 1)
+    monkeypatch.setattr(settings, "HEARTBEAT_INTERVAL", 0.005)
+    await manager.initialize()
+    await asyncio.sleep(0.04)
+    assert manager.get_connection(connection.agent_id) is None
+    connection.writer.write.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_lifecycle_lock_serializes_same_device_only(manager):
     entered = asyncio.Event()
 

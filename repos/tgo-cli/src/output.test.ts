@@ -71,7 +71,7 @@ describe('output', () => {
     it('should format ApiError as JSON', () => {
       const err = new ApiError(404, { code: 'NOT_FOUND', message: 'Not found' }, 'req-1');
       printError(err, 'json');
-      const output = JSON.parse(errorSpy.mock.calls[0][0]);
+      const output = JSON.parse(String(errorSpy.mock.calls[0][0]));
       expect(output.error).toBe(true);
       expect(output.status).toBe(404);
       expect(output.message).toBe('Not found');
@@ -87,7 +87,7 @@ describe('output', () => {
 
     it('should format plain Error', () => {
       printError(new Error('Something broke'), 'json');
-      const output = JSON.parse(errorSpy.mock.calls[0][0]);
+      const output = JSON.parse(String(errorSpy.mock.calls[0][0]));
       expect(output.error).toBe(true);
       expect(output.message).toBe('Something broke');
     });

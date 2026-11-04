@@ -10,6 +10,8 @@ interface CustomerDeliveryOptions {
   channelType: number;
   clientMsgNo: string;
   payload: StaffDeliveryPayload;
+  sourceMessageId?: string;
+  assistDraftId?: string;
   training?: AssistTrainingIntent | null;
   platformType?: string;
   isConnected: boolean;
@@ -19,10 +21,11 @@ interface CustomerDeliveryOptions {
 
 /** One customer delivery authority for text, attachments and upload retries. */
 export async function sendCustomerMessage(options: CustomerDeliveryOptions): Promise<boolean> {
-  const { staffId, channelId, channelType, clientMsgNo, payload, training, platformType, updateMessage } = options;
+  const { staffId, channelId, channelType, clientMsgNo, payload, sourceMessageId, assistDraftId, training, platformType, updateMessage } = options;
   if (channelType === 251) {
     const receipt = await useStaffDeliveryStore.getState().submit(staffId, {
-      channel_id: channelId, channel_type: 251, client_msg_no: clientMsgNo, payload, training,
+      channel_id: channelId, channel_type: 251, client_msg_no: clientMsgNo,
+      payload, source_message_id: sourceMessageId, assist_draft_id: assistDraftId, training,
     });
     updateMessage(clientMsgNo, { metadata: {
       delivery_managed: true,

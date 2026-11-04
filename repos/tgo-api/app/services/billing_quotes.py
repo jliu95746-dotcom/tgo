@@ -4,13 +4,17 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from typing import Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import TGOAPIException
 from app.models import Staff
-from app.models.billing import BillingPlan, BillingQuote, SeatAddon, SubscriptionPeriod
+from app.models.billing import (
+    BillingOrder, BillingPlan, BillingQuote, SeatAddon, SubscriptionPeriod,
+)
+from app.models.company_account import AICreditBatch
 from app.schemas.billing import (
+    STANDARD_PLAN_RANKS,
     PeriodSnapshot,
     PlanDefinition,
     QuoteDetails,
@@ -29,9 +33,16 @@ def conflict(message: str, code: str = "BILLING_CONFLICT") -> TGOAPIException:
     return TGOAPIException(message, code=code, status_code=409)
 
 
-def published_plan(db: Session, plan_id: UUID | None) -> BillingPlan:
+def published_plan(
+    db: Session, plan_id: UUID | None, project_id: UUID, *, legacy_code: str | None = None
+) -> BillingPlan:
     plan = db.get(BillingPlan, plan_id) if plan_id else None
     if plan is None or plan.status != "published":
+        raise conflict("套餐不存在或尚未发布", "PLAN_UNAVAILABLE")
+    target = PlanDefinition.model_validate(plan.definition).target_project_id
+    if target is not None and target != project_id:
+        raise conflict("套餐不存在或尚未发布", "PLAN_UNAVAILABLE")
+    if target is None and plan.code not in STANDARD_PLAN_RANKS and plan.code != legacy_code:
         raise conflict("套餐不存在或尚未发布", "PLAN_UNAVAILABLE")
     return plan
 
@@ -42,6 +53,78 @@ def cycle_months(value: int) -> Literal[1, 12]:
     if value == 12:
         return 12
     raise conflict("订阅周期无效，请联系平台核对")
+
+
+def next_add_on_tier(
+    db: Session,
+    plan_code: str,
+    definition: PlanDefinition,
+    dimension: Literal["seats", "monthly_ai"],
+) -> PlanDefinition | None:
+    rank = STANDARD_PLAN_RANKS.get(plan_code)
+    if rank is None or definition.target_project_id is not None:
+        return None
+    higher_codes = [
+        code for code, higher_rank in STANDARD_PLAN_RANKS.items()
+        if higher_rank > rank
+    ]
+    if not higher_codes:
+        return None
+    plans = db.scalars(
+        select(BillingPlan).where(
+            BillingPlan.status == "published", BillingPlan.code.in_(higher_codes),
+        )
+    )
+    tiers = sorted(plans, key=lambda plan: STANDARD_PLAN_RANKS[plan.code])
+    for tier in tiers:
+        candidate = PlanDefinition.model_validate(tier.definition)
+        if (candidate.target_project_id is None
+                and getattr(candidate, dimension) > getattr(definition, dimension)):
+            return candidate
+    return None
+
+
+def ai_pack_window(
+    periods: list[PeriodSnapshot], anchor: int, now: datetime, subscription_end: datetime,
+) -> tuple[datetime, datetime]:
+    period = next((p for p in periods if p.start <= now < p.end), None)
+    if period is None:
+        # Operator-authorized accounts can buy packs without a paid period.
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return start, min(add_months(start, 1), subscription_end)
+    month_starts = [
+        add_months(period.start, i, anchor_day=anchor) for i in range(period.months)
+    ]
+    month_start = max(start for start in month_starts if start <= now)
+    month_end = min((start for start in month_starts if start > now), default=period.end)
+    return month_start, month_end
+
+
+def check_ai_add_on(
+    db: Session, project_id: UUID, current: PlanDefinition, higher: PlanDefinition,
+    month_start: datetime, additional_ai: int, now: datetime,
+) -> None:
+    purchased_at = func.coalesce(BillingOrder.paid_at, AICreditBatch.created_at)
+    # Count spent purchases this month and honor balances sold under older terms.
+    counted_credit = case(
+        (purchased_at >= month_start, AICreditBatch.amount),
+        else_=AICreditBatch.remaining,
+    )
+    packed_ai = db.scalar(
+        select(func.coalesce(func.sum(counted_credit), 0))
+        .select_from(AICreditBatch)
+        .outerjoin(BillingOrder, BillingOrder.id == AICreditBatch.order_id)
+        .where(
+            AICreditBatch.project_id == project_id,
+            AICreditBatch.kind == "pack",
+            AICreditBatch.expires_at > now,
+        )
+    ) or 0
+    if current.monthly_ai + packed_ai + additional_ai >= higher.monthly_ai:
+        raise conflict(
+            f"加购后 AI 回复额度将达到「{higher.name}」，请升级套餐",
+            "ADD_ON_UPGRADE_REQUIRED",
+        )
 
 
 def create_quote(
@@ -81,8 +164,11 @@ def create_quote(
                 .order_by(BillingPlan.version.desc())
                 .limit(1)
             )
-        plan = published_plan(db, selected or account.plan_id)
+        legacy_code = current.code if current is not None and request.kind == "renew" else None
+        plan = published_plan(db, selected or account.plan_id, staff.project_id, legacy_code=legacy_code)
     definition = PlanDefinition.model_validate(plan.definition)
+    if definition.target_project_id not in (None, staff.project_id):
+        raise conflict("套餐不存在或尚未发布", "PLAN_UNAVAILABLE")
     months = request.months
     extras = (
         db.scalar(
@@ -158,9 +244,11 @@ def create_quote(
                     or definition.seats < old.seats
                     or definition.monthly_ai < old.monthly_ai
                     or definition.knowledge_bytes < old.knowledge_bytes
-                    or definition.channel_limit < old.channel_limit
+                    or (definition.channel_limit is not None and (
+                        old.channel_limit is None or definition.channel_limit < old.channel_limit
+                    ))
                 ):
-                    raise conflict("只能升级到席位、额度和功能不减少的更高套餐")
+                    raise conflict("只能升级到坐席和额度不减少的档位")
             amount = prorated_charge(
                 [
                     (definition.price(p.months) - p.current_price, p.start, p.end)
@@ -187,6 +275,13 @@ def create_quote(
             if plan.id != current.id:
                 raise conflict("加购必须使用当前套餐")
             if request.kind == "seats":
+                resulting_seats = account.seat_limit + request.quantity
+                higher = next_add_on_tier(db, plan.code, definition, "seats")
+                if higher is not None and resulting_seats >= higher.seats:
+                    raise conflict(
+                        f"加购后的席位数将达到「{higher.name}」，请升级套餐",
+                        "ADD_ON_UPGRADE_REQUIRED",
+                    )
                 amount = prorated_charge(
                     [
                         (
@@ -198,12 +293,18 @@ def create_quote(
                     ],
                     now,
                 )
-                resulting_seats = account.seat_limit + request.quantity
             else:
                 amount = definition.ai_pack_price * request.quantity
                 additional_ai = definition.ai_pack_replies * request.quantity
-                end = add_months(now, 12)
+                month_start, end = ai_pack_window(periods, anchor, now, end)
+                expires = min(expires, end)
                 resulting_seats = account.seat_limit
+                higher = next_add_on_tier(db, plan.code, definition, "monthly_ai")
+                if higher is not None:
+                    check_ai_add_on(
+                        db, staff.project_id, definition, higher, month_start,
+                        additional_ai, now,
+                    )
         expires = min(expires, utc(account.expires_at))
     used, reserved = seat_usage(db, staff.project_id)
     if resulting_seats < used + reserved:

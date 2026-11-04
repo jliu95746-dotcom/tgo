@@ -38,7 +38,9 @@ const PlatformListItem: React.FC<PlatformListItemProps> = ({ platform }) => {
     }
   };
 
-  const statusConfig = getStatusConfig(platformDisplayStatus(platform));
+  const statusConfig = platform.type === PlatformType.WECHAT_LOCAL && platform.status !== 'disabled'
+    ? { color: 'bg-gray-400', text: t('platforms.wechatLocal.bridgeLink', '查看桥接状态'), textColor: 'text-gray-500' }
+    : getStatusConfig(platformDisplayStatus(platform));
   const isSupported = platform.is_supported !== false; // default to true if not specified
   const displayName = platform.display_name || platform.name;
 
@@ -177,7 +179,7 @@ const PlatformList: React.FC = () => {
 
   return (
     <>
-      <aside className="w-72 bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg border-r border-gray-200/60 dark:border-gray-700/60 flex flex-col shrink-0">
+      <aside className="platform-section-list w-72 bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg border-r border-gray-200/60 dark:border-gray-700/60 flex flex-col shrink-0">
       {/* Header */}
       <div className="p-4 border-b border-gray-200/60 dark:border-gray-700/60 sticky top-0 bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg z-10 flex justify-between items-center">
         <h3 className="text-md font-semibold text-gray-800 dark:text-gray-200">

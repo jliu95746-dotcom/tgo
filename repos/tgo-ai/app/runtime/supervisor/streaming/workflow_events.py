@@ -6,8 +6,10 @@ from typing import Any, Dict, Optional
 
 from app.models.internal import AgentExecutionContext
 from app.schemas.knowledge_evidence import KnowledgeEvidence
+from app.schemas.agent_execution import AgentExecutionReference
 from app.models.streaming import (
     AgentContentChunkData,
+    AgentBusinessQueryLink,
     AgentExecutionData,
     AgentResponseCompleteData,
     AgentToolCallData,
@@ -166,6 +168,7 @@ class WorkflowEventEmitter:
         tool_input: Optional[dict] = None,
         tool_output: Optional[str] = None,
         tool_call_error: bool = False,
+        business_query_links: list[AgentBusinessQueryLink] | None = None,
     ) -> None:
         """Emit agent tool call completed event."""
         data = AgentToolCallData(
@@ -178,6 +181,7 @@ class WorkflowEventEmitter:
             tool_output=tool_output,
             status="failed" if tool_call_error else "completed",
             error=(tool_output or "Tool execution failed") if tool_call_error else None,
+            business_query_links=business_query_links or [],
         )
         self.emitter.emit(
             EventType.AGENT_TOOL_CALL_COMPLETED,
@@ -200,6 +204,7 @@ class WorkflowEventEmitter:
         total_chunks: int,
         tool_calls_count: int = 0,
         knowledge_evidence: KnowledgeEvidence | None = None,
+        execution_reference: AgentExecutionReference | None = None,
     ) -> None:
         """Emit final agent response event."""
         data = AgentResponseCompleteData(
@@ -212,6 +217,7 @@ class WorkflowEventEmitter:
             tool_calls_count=tool_calls_count,
             response_length=len(final_content),
             knowledge_evidence=knowledge_evidence,
+            execution_reference=execution_reference,
         )
         severity = EventSeverity.SUCCESS if success else EventSeverity.ERROR
         self.emitter.emit(
