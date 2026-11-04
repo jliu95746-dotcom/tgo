@@ -18,6 +18,22 @@ from app.schemas.agent_run import SupervisorRunRequest
 from app.schemas.knowledge import KnowledgeChannel
 
 
+@pytest.fixture
+def rag_identity_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, str]:
+    expected = {"Authorization": "Bearer synthetic-rag-identity"}
+
+    def headers(base_url: str | None = None) -> dict[str, str]:
+        assert base_url == "http://tgo-rag:18082"
+        return expected.copy()
+
+    monkeypatch.setattr(
+        "app.services.service_identity.rag_service_headers", headers,
+    )
+    return expected
+
+
 def _context(channel: KnowledgeChannel | None) -> AgentExecutionContext:
     now = datetime(2026, 7, 17, tzinfo=UTC)
     agent = Agent(
@@ -96,6 +112,7 @@ async def test_agent_builder_skips_rag_tools_when_channel_is_missing(
 @pytest.mark.asyncio
 async def test_rag_tool_uses_automatic_answer_endpoint_and_channel(
     monkeypatch: pytest.MonkeyPatch,
+    rag_identity_headers: dict[str, str],
 ) -> None:
     captured_posts: list[dict[str, object]] = []
     record_usage = AsyncMock()
@@ -117,6 +134,9 @@ async def test_rag_tool_uses_automatic_answer_endpoint_and_channel(
             return self.payload
 
     class FakeSession:
+        def __init__(self, *, headers: dict[str, str]) -> None:
+            assert headers == rag_identity_headers
+
         async def __aenter__(self) -> "FakeSession":
             return self
 
@@ -177,8 +197,10 @@ async def test_rag_tool_uses_automatic_answer_endpoint_and_channel(
 @pytest.mark.asyncio
 async def test_rag_tool_allows_only_one_remote_search_per_run(
     monkeypatch: pytest.MonkeyPatch,
+    rag_identity_headers: dict[str, str],
 ) -> None:
     post_count = 0
+    record_usage = AsyncMock()
 
     class FakeResponse:
         def __init__(self, payload: dict[str, object]) -> None:
@@ -197,6 +219,9 @@ async def test_rag_tool_allows_only_one_remote_search_per_run(
             return self.payload
 
     class FakeSession:
+        def __init__(self, *, headers: dict[str, str]) -> None:
+            assert headers == rag_identity_headers
+
         async def __aenter__(self) -> "FakeSession":
             return self
 
@@ -231,6 +256,7 @@ async def test_rag_tool_allows_only_one_remote_search_per_run(
             )
 
     monkeypatch.setattr(tool_utils.aiohttp, "ClientSession", FakeSession)
+    monkeypatch.setattr(tool_utils, "_record_collection_usage", record_usage)
     tool = await tool_utils.create_rag_tool(
         "http://tgo-rag:18082",
         str(uuid4()),
@@ -242,6 +268,7 @@ async def test_rag_tool_allows_only_one_remote_search_per_run(
     second = await tool.entrypoint(query="再搜一次其他款")
 
     assert post_count == 1
+    record_usage.assert_awaited_once()
     assert "定价：1299 元" in first
     assert "云朵法棍包：牛皮，莓果红" in first
     assert "这只是界面预览" not in first

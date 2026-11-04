@@ -6,16 +6,14 @@ import json
 import hashlib
 import logging
 import time
-from builtins import ExceptionGroup
 from datetime import UTC, datetime
-from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 from uuid import UUID, NAMESPACE_URL, uuid5
 
 import aiohttp
 from pydantic import JsonValue, SecretStr
 from agno.tools import Function
-from mcp import ClientSession, McpError
+from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 from app.config import settings
@@ -27,6 +25,9 @@ from app.services.mcp_result import mcp_result_text
 from app.services.http_tool_errors import http_tool_error
 from app.services.plugin_result import plugin_result_text
 from app.services.workflow_execution_authorization import verify_current_binding
+from .mcp_authentication import (
+    wrap_mcp_authenticate_tool as _wrap_mcp_authenticate_tool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -699,32 +700,8 @@ def create_plugin_tool(
 
 
 def wrap_mcp_authenticate_tool(func: Function) -> Function:
-    """捕获MCP鉴权异常并提示用户完成登录流程."""
-
-    original = func.entrypoint
-
-    @wraps(original)
-    async def wrapped(**kwargs: Any) -> Any:
-        try:
-            return await original(**kwargs)
-        except BaseException as exc:  # noqa: BLE001
-            mcp_error = _find_first_mcp_error(exc)
-            if not mcp_error:
-                raise
-
-            error_details = getattr(mcp_error, "error", None)
-            if error_details and getattr(error_details, "code", None) == -32003:
-                data = getattr(error_details, "data", {}) or {}
-                message = data.get("message") or "Interaction required"
-                if isinstance(message, dict):
-                    message = message.get("text") or "Interaction required"
-                url = data.get("url")
-                if url:
-                    message = f"{message} {url}"
-                raise RuntimeError(message) from exc
-            raise
-
-    return Function.from_callable(wrapped, name=func.name, description=func.description)
+    """Keep the existing import path for MCP tool builders."""
+    return _wrap_mcp_authenticate_tool(func)
 
 
 def create_http_tool(
@@ -821,14 +798,3 @@ def create_http_tool(
         entrypoint=http_tool_entrypoint,
         skip_entrypoint_processing=True,
     )
-
-
-def _find_first_mcp_error(exc: BaseException) -> Optional[McpError]:
-    if isinstance(exc, McpError):
-        return exc
-    if isinstance(exc, ExceptionGroup):  # type: ignore[name-defined]
-        for sub_exc in exc.exceptions:  # type: ignore[attr-defined]
-            found = _find_first_mcp_error(sub_exc)
-            if found:
-                return found
-    return None
