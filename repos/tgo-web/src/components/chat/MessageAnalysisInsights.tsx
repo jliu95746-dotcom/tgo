@@ -1,6 +1,6 @@
 import React from 'react';
 import type { TFunction } from 'i18next';
-import { AlertTriangle, CircleCheck, Clock3, Lock, Sparkles } from 'lucide-react';
+import { AlertTriangle, CircleCheck, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -130,48 +130,6 @@ const translate = <Key extends string>(
   value: Key,
 ): string => t(dictionary[value]);
 
-const UnavailableContent: React.FC<{ state: Exclude<MessageAnalysisViewState, { status: 'available' }> }> = ({ state }) => {
-  const { t } = useTranslation();
-
-  const content = {
-    loading: {
-      icon: <Clock3 className="h-4 w-4" aria-hidden="true" />,
-      title: t('chat.analysis.state.loading.title'),
-      description: t('chat.analysis.state.loading.description'),
-    },
-    not_found: {
-      icon: <AlertTriangle className="h-4 w-4" aria-hidden="true" />,
-      title: t('chat.analysis.state.not_found.title'),
-      description: t('chat.analysis.state.not_found.description'),
-    },
-    error: {
-      icon: <AlertTriangle className="h-4 w-4" aria-hidden="true" />,
-      title: t('chat.analysis.state.error.title'),
-      description: t('chat.analysis.state.error.description'),
-    },
-    unavailable: {
-      icon: <Lock className="h-4 w-4" aria-hidden="true" />,
-      title: t('chat.analysis.state.unavailable.title'),
-      description: t('chat.analysis.state.unavailable.description'),
-    },
-  } satisfies Record<Exclude<MessageAnalysisViewState['status'], 'available'>, {
-    icon: React.ReactNode;
-    title: string;
-    description: string;
-  }>;
-
-  const selected = content[state.status];
-  return (
-    <div className="flex items-start gap-2 rounded-md bg-gray-50 p-2.5 text-gray-600 dark:bg-gray-900/50 dark:text-gray-300">
-      <span className="mt-0.5 flex-shrink-0">{selected.icon}</span>
-      <div>
-        <p className="text-xs font-medium">{selected.title}</p>
-        <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">{selected.description}</p>
-      </div>
-    </div>
-  );
-};
-
 const AvailableContent: React.FC<{ state: Extract<MessageAnalysisViewState, { status: 'available' }> }> = ({ state }) => {
   const { t, i18n } = useTranslation();
   const { media, intent } = state.analysis;
@@ -179,10 +137,6 @@ const AvailableContent: React.FC<{ state: Extract<MessageAnalysisViewState, { st
     style: 'percent',
     maximumFractionDigits: 0,
   });
-
-  if (media === null && intent === null) {
-    return <p className="text-xs text-gray-500 dark:text-gray-400">{t('chat.analysis.state.not_found.description')}</p>;
-  }
 
   return (
     <div className="space-y-3">
@@ -298,19 +252,21 @@ const MessageAnalysisInsights: React.FC<MessageAnalysisInsightsProps> = ({
   state = MESSAGE_ANALYSIS_UNAVAILABLE,
 }) => {
   const { t } = useTranslation();
-  const isAvailable = state.status === 'available';
+  if (state.status !== 'available' || (state.analysis.intent === null && state.analysis.media === null)) {
+    return null;
+  }
 
   return (
     <details className="mt-2 w-full max-w-xl rounded-lg border border-indigo-100 bg-white/90 text-left shadow-sm dark:border-indigo-900/50 dark:bg-gray-800/90">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-gray-700 marker:hidden dark:text-gray-200">
         <Sparkles className="h-4 w-4 text-indigo-500" aria-hidden="true" />
         <span>{t('chat.analysis.title')}</span>
-        <span className={`ml-auto rounded-full px-2 py-0.5 ${isAvailable ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>
-          {isAvailable ? t('chat.analysis.state.available') : t(`chat.analysis.state.${state.status}.short`)}
+        <span className="ml-auto rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200">
+          {t('chat.analysis.state.available')}
         </span>
       </summary>
       <div className="border-t border-gray-100 px-3 py-2.5 dark:border-gray-700">
-        {state.status === 'available' ? <AvailableContent state={state} /> : <UnavailableContent state={state} />}
+        <AvailableContent state={state} />
       </div>
     </details>
   );
