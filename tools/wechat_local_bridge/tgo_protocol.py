@@ -32,6 +32,8 @@ def decode_reply(
         raise ValueError("客服消息缺少可靠编号")
     sender = str(raw.get("from_uid", ""))
     payload, meta = object_map(raw.get("payload")), object_map(raw.get("event_meta"))
+    if object_map(payload.get("extra")).get("wechat_local_delivery_id"):
+        return BackendReply(key, sequence, None, reason="人工发送回执记录")
     if payload.get("type") == 1004:
         return BackendReply(
             key, sequence, None, reason="客服系统已转人工，等待人工回复"

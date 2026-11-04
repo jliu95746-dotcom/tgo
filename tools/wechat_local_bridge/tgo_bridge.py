@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from datetime import datetime
 from typing import Protocol
+from uuid import UUID
 
 from .reader import Message, WeChatReader
 from .media_pipeline import MediaPipeline
@@ -107,6 +108,12 @@ class TgoBridge(Watcher):
 
     def _read_tgo(self) -> None:
         if self.scoped:
+            for item in self.client.staff_replies():
+                delivery_id = str(UUID(str(item.get("delivery_id"))))
+                key, text = item.get("client_msg_no"), item.get("text")
+                if not isinstance(key, str) or not key or not isinstance(text, str) or not 0 < len(text.strip()) <= 8000:
+                    raise TgoError("人工回复缺少可靠编号或有效正文")
+                self.ledger.queue_staff(key=key, delivery_id=delivery_id, text=" ".join(text.strip().splitlines()))
             for item in self.client.turn_replies():
                 key, turn_id = str(item["client_msg_no"]), str(item["turn_id"])
                 version, text = int(str(item["version"])), str(item["text"])
@@ -183,6 +190,9 @@ class TgoBridge(Watcher):
             return
         filled_here = False
         try:
+            if delivery.staff_delivery_id:
+                attempt = self.ledger.staff_attempt(delivery.key)
+                self.client.staff_action(delivery.staff_delivery_id, "check", attempt_id=attempt)
             if delivery.turn_id:
                 self.client.turn_action(delivery.turn_id, delivery.version, "check")
             if delivery.state == "pending":
@@ -209,6 +219,9 @@ class TgoBridge(Watcher):
             if delivery.turn_id:
                 claim = self.client.turn_action(delivery.turn_id, delivery.version, "claim")
                 self.ledger.save_claim(delivery.key, str(claim["claim_id"]))
+            elif delivery.staff_delivery_id:
+                claim = self.client.staff_action(delivery.staff_delivery_id, "claim", attempt_id=attempt)
+                self.ledger.save_claim(delivery.key, str(claim["claim_id"]))
         except TurnChanged:
             if delivery.state == "filled" or filled_here:
                 try:
@@ -217,7 +230,8 @@ class TgoBridge(Watcher):
                 except (RpaNotReady, RuntimeError):
                     self.rpa_status = "旧回复已停止发送，人工草稿保留"
             self.ledger.supersede(delivery.key)
-            self.rpa_status = "客户已有补充，旧回复已停止发送"
+            self.rpa_status = ("会话归属或发送许可已变化，人工回复已停止发送"
+                               if delivery.staff_delivery_id else "客户已有补充，旧回复已停止发送")
             return
         except RpaNotReady as error:
             self.rpa_status = str(error)
@@ -234,6 +248,11 @@ class TgoBridge(Watcher):
             receipt = self._wait_receipt(baseline, delivery.text)
         finally:
             self.ledger.resolve_send(delivery.key, receipt)
+            if delivery.staff_delivery_id:
+                try:
+                    self._report_staff_receipts()
+                except (TgoError, OSError):
+                    pass  # The durable receipt is retried without repeating the click.
         if receipt is None:
             raise TgoError("微信未观察到唯一发送回执，已停止重复发送")
         self.delivery_failures = 0
@@ -276,9 +295,18 @@ class TgoBridge(Watcher):
         return self.client.submit(message.event_id, message.text)
 
     def _report_receipts(self) -> None:
+        self._report_staff_receipts()
         for key, turn_id, version, claim_id, state, proof in self.ledger.pending_receipts():
             self.client.turn_action(turn_id, version, "receipt", claim_id=claim_id,
                 result="sent" if state == "sent" else "unknown", receipt=proof)
+            self.ledger.receipt_accepted(key)
+
+    def _report_staff_receipts(self) -> None:
+        for key, delivery_id, claim_id, state, proof in self.ledger.pending_staff_receipts():
+            result = self.client.staff_action(delivery_id, "receipt", claim_id=claim_id,
+                result="sent" if state == "sent" else "unknown", receipt=proof)
+            if result.get("accepted") is not True:
+                raise TgoError("云端未确认人工回复发送回执")
             self.ledger.receipt_accepted(key)
 
     def _reconcile_receipts(self) -> None:

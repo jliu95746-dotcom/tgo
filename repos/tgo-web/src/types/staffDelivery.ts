@@ -22,6 +22,7 @@ export interface StaffDeliveryRequest {
 
 export interface StaffDeliveryReceipt {
   client_msg_no: string;
+  delivery_transport?: 'wechat_local' | 'platform' | 'web';
   delivery_status: 'processing' | 'pending' | 'sent' | 'failed' | 'unknown';
   history_status: 'pending' | 'sent';
   error_code?: string | null;

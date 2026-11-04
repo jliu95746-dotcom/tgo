@@ -14,6 +14,7 @@ import { sendCustomerMessage } from '@/services/customerMessageDelivery';
 import type { AssistTrainingIntent, StaffDeliveryRequest } from '@/types/staffDelivery';
 import { deliveryKey, useStaffDeliveryStore } from '@/stores/staffDeliveryStore';
 import { restoreDeliveryPayload } from '@/utils/staffDeliveryPayload';
+import { canReuseStaffDeliveryRequest } from '@/utils/staffDeliveryStatus';
 import { getAssistDraftSource } from '@/utils/assistDraftContext';
 import { getChannelKey } from '@/utils/channelUtils';
 import { useToast } from '@/hooks/useToast';
@@ -188,9 +189,11 @@ const ChatWindow: React.FC<ChatWindowProps> = React.memo(({
         const recovered = Object.entries(useStaffDeliveryStore.getState().entries).find(([key, entry]) =>
           key === deliveryKey(user?.id || '', entry.request.client_msg_no)
           && entry.request.channel_id === channelId && entry.request.payload.type === 1
-          && entry.request.payload.content === message.trim() && entry.receipt.delivery_status !== 'sent');
+          && entry.request.payload.content === message.trim() && entry.receipt.delivery_status !== 'sent'
+          && canReuseStaffDeliveryRequest(entry.receipt));
         const currentIntent = pendingTextSend.current;
-        const retained = currentIntent?.channel_id === channelId && currentIntent.payload.content === message.trim()
+        const currentReceipt = currentIntent ? useStaffDeliveryStore.getState().entries[deliveryKey(user?.id || '', currentIntent.client_msg_no)]?.receipt : undefined;
+        const retained = currentIntent?.channel_id === channelId && currentIntent.payload.content === message.trim() && canReuseStaffDeliveryRequest(currentReceipt)
           ? currentIntent : recovered?.[1].request;
         const sameIntent = retained?.channel_id === channelId && retained.payload.content === message.trim();
         const nowId = sameIntent ? retained.client_msg_no : `local-${crypto.randomUUID()}`;

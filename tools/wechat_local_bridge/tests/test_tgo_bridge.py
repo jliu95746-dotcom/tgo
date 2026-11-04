@@ -42,6 +42,7 @@ class TgoBridgeTests(unittest.TestCase):
         self.client.history.return_value = {"messages": []}
         self.client.submit.return_value = "ai-test"
         self.client.turn_replies.return_value = []
+        self.client.staff_replies.return_value = []
         self.rpa.read_input.return_value = "客服回复"
         self.rpa.send_point.return_value = (900, 800)
         self.bridge = TgoBridge(

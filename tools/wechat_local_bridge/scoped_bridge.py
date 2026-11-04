@@ -43,6 +43,7 @@ class Worker:
     future: Future[None] | None = None
     delivery_future: Future[None] | None = None
     refresh_session: bool = False
+    receipt_error: str = ""
 
 
 class ScopedBridge:
@@ -229,9 +230,44 @@ class ScopedBridge:
         worker.target_title = current.contact.title
         worker.target_same_title = same_title
 
+    def _pause_worker(self, worker: Worker, error: str) -> None:
+        worker.error = error
+        worker.receipt_error = error if worker.bridge.ledger.staff_receipt_recovery_needed() else ""
+
+    def _recover_staff_receipts(self, worker: Worker) -> None:
+        """Frozen sends may inspect receipts, but may never repeat a desktop action."""
+        if worker.error != worker.receipt_error or not worker.receipt_error:
+            return
+        if worker.delivery_future is not None and not worker.delivery_future.done():
+            return
+        bridge = worker.bridge
+        worker.next_poll = time.monotonic() + 2
+        try:
+            if worker.refresh_session:
+                bridge.client.connect(force_refresh=True)
+                worker.refresh_session = False
+            elif visitor_token_expired(bridge.client.session.get("im_token")):
+                bridge.client.connect()
+            with bridge.lock:
+                bridge._reconcile_receipts()
+                bridge._report_staff_receipts()
+                if (worker.error == worker.receipt_error
+                        and not bridge.ledger.staff_receipt_recovery_needed()
+                        and not bridge.ledger.delivery_stats().get("uncertain")):
+                    worker.error = worker.receipt_error = ""
+                    bridge.rpa_status = "迟到发送回执已核对，接待已恢复"
+        except TgoAuthorizationError as error:
+            self._retry_authorization(worker, error)
+        except (RuntimeError, ValueError, OSError, sqlite3.Error):
+            worker.next_poll = time.monotonic() + 6
+            bridge.rpa_status = "发送回执仍待核对，稍后继续查询"
+
     def _process(self, worker: Worker) -> None:
         bridge = worker.bridge
-        if worker.error or not bridge.ledger.initialized() or not self._active(worker.grant):
+        if not bridge.ledger.initialized() or not self._active(worker.grant):
+            return
+        if worker.error:
+            self._recover_staff_receipts(worker)
             return
         if not worker.connected and not bridge.ledger.next_inbound() and bridge.ledger.value("tgo_channel") is None:
             return
@@ -255,7 +291,7 @@ class ScopedBridge:
             worker.next_poll = time.monotonic() + 6
         except (RuntimeError, ValueError, OSError, sqlite3.Error, KeyError) as exc:
             reason = str(exc) if isinstance(exc, (TgoError, RpaNotReady)) else type(exc).__name__
-            worker.error = f"需人工核对（{reason}）"
+            self._pause_worker(worker, f"需人工核对（{reason}）")
 
     def _retry_authorization(self, worker: Worker, error: TgoAuthorizationError) -> None:
         worker.connected = False
@@ -293,20 +329,21 @@ class ScopedBridge:
                 self.error = f"云端连接等待恢复（{type(error).__name__}）"
             self.stop.wait(.25)
 
+    def _deliver_worker(self, worker: Worker) -> None:
+        bridge = worker.bridge
+        try:
+            with self.desktop_lock:
+                self._load_backend(worker)
+            bridge._deliver()
+        except TgoAuthorizationError as error:
+            self._retry_authorization(worker, error)
+            bridge.next_delivery_at = time.monotonic() + 1
+        except TgoUnavailable:
+            bridge.next_delivery_at = time.monotonic() + 1
+        except (RuntimeError, ValueError, OSError, sqlite3.Error) as error:
+            self._pause_worker(worker, f"发送待核对（{type(error).__name__}）")
+
     def _desktop_loop(self) -> None:
-        def deliver(worker: Worker) -> None:
-            bridge = worker.bridge
-            try:
-                with self.desktop_lock:
-                    self._load_backend(worker)
-                bridge._deliver()
-            except TgoAuthorizationError as error:
-                self._retry_authorization(worker, error)
-                bridge.next_delivery_at = time.monotonic() + 1
-            except TgoUnavailable:
-                bridge.next_delivery_at = time.monotonic() + 1
-            except (RuntimeError, ValueError, OSError, sqlite3.Error) as error:
-                worker.error = f"发送待核对（{type(error).__name__}）"
         while not self.stop.is_set():
             for worker in list(self.workers.values()):
                 bridge = worker.bridge
@@ -314,7 +351,7 @@ class ScopedBridge:
                         or time.monotonic() < bridge.next_delivery_at or not bridge.ledger.next_delivery()):
                     continue
                 if worker.delivery_future is None or worker.delivery_future.done():
-                    worker.delivery_future = self.delivery_pool.submit(deliver, worker)
+                    worker.delivery_future = self.delivery_pool.submit(self._deliver_worker, worker)
             self.stop.wait(.05)
 
     def run(self) -> None:

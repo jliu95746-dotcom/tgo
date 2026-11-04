@@ -120,3 +120,4 @@ from app.models.billing_reconciliation import BillingReconciliation
 from app.models.trial_policy import TrialPolicy
 from app.models.trial_activation_code import TrialActivationCode
 from app.models.customer_turn import CustomerTurn as CustomerTurn, CustomerTurnPart as CustomerTurnPart
+from app.models.wechat_staff_delivery import WeChatStaffDelivery as WeChatStaffDelivery

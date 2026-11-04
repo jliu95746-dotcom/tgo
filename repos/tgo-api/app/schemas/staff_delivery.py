@@ -55,6 +55,7 @@ class StaffDeliveryResponse(BaseModel):
     error_message: str | None = None
     training_status: Literal["none", "pending", "saved", "unavailable"] = "none"
     training_skill_name: str | None = None
+    delivery_transport: Literal["wechat_local", "platform", "web"] = "platform"
 
 
 class StaffDeliveryRecord(BaseModel):

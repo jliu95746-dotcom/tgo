@@ -2443,6 +2443,13 @@
       "historyPending": "Channel accepted; chat history is syncing. Do not resend.",
       "unknown": "Delivery unconfirmed. Check whether the customer received it before resending.",
       "processing": "Message processing. Check status; do not resend.",
+      "wechatPending": "Waiting for WeChat to send",
+      "wechatProcessing": "Sending through WeChat",
+      "wechatSent": "Sent through WeChat",
+      "wechatUnknown": "Send result needs verification. Do not resend.",
+      "wechatFailed": "Send failed. Review and compose a new reply.",
+      "wechatHistoryPending": "Sent through WeChat; syncing chat history",
+      "accessChanged": "Conversation transferred or access changed",
       "failed": "The channel did not accept this message.",
       "retry": "Retry send",
       "check": "Check status"

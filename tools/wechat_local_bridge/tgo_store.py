@@ -6,6 +6,7 @@ import json
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
+from uuid import uuid4
 
 from .reader import Message
 from .store import InboxStore, locked
@@ -20,6 +21,8 @@ class Delivery:
     turn_id: str | None = None
     version: int | None = None
     claim_id: str | None = None
+    staff_delivery_id: str | None = None
+    attempt_id: str | None = None
 
 
 class TgoStore(InboxStore):
@@ -33,7 +36,8 @@ class TgoStore(InboxStore):
             )
         """)
         columns = {row[1] for row in self.connection.execute("PRAGMA table_info(outbox)")}
-        for column, kind in (("turn_id", "TEXT"), ("version", "INTEGER"), ("claim_id", "TEXT"), ("cloud_receipt", "TEXT")):
+        for column, kind in (("turn_id", "TEXT"), ("version", "INTEGER"), ("claim_id", "TEXT"),
+                             ("cloud_receipt", "TEXT"), ("staff_delivery_id", "TEXT"), ("attempt_id", "TEXT")):
             if column not in columns:
                 self.connection.execute(f"ALTER TABLE outbox ADD COLUMN {column} {kind}")
         self.connection.commit()
@@ -151,15 +155,44 @@ class TgoStore(InboxStore):
     @locked
     def next_delivery(self) -> Delivery | None:
         row = self.connection.execute(
-            "SELECT key,text,state,turn_id,version,claim_id FROM outbox WHERE state IN ('pending','filled') ORDER BY sequence LIMIT 1"
+            "SELECT key,text,state,turn_id,version,claim_id,staff_delivery_id,attempt_id FROM outbox WHERE state IN ('pending','filled') ORDER BY sequence LIMIT 1"
         ).fetchone()
         return Delivery(*row) if row else None
 
     @locked
     def queue_turn(self, *, key: str, turn_id: str | None, version: int | None, text: str) -> None:
         with self.connection:
+            existing = self.connection.execute("SELECT staff_delivery_id FROM outbox WHERE key=?", (key,)).fetchone()
+            if existing and existing[0] is not None:
+                raise ValueError("人工发送任务不能与 AI 回复共用编号")
             self.connection.execute("INSERT OR IGNORE INTO outbox(key,sequence,text,state,turn_id,version) VALUES (?,0,?,'pending',?,?)",
                                     (key, text, turn_id, version))
+
+    @locked
+    def queue_staff(self, *, key: str, delivery_id: str, text: str) -> None:
+        with self.connection:
+            previous = self.connection.execute(
+                "SELECT key,staff_delivery_id,text FROM outbox WHERE key=? OR staff_delivery_id=?",
+                (key, delivery_id),
+            ).fetchall()
+            if previous and previous != [(key, delivery_id, text)]:
+                raise ValueError("人工回复编号、发送任务或正文不一致")
+            self.connection.execute(
+                "INSERT OR IGNORE INTO outbox(key,sequence,text,state,staff_delivery_id) VALUES (?,0,?,'pending',?)",
+                (key, text, delivery_id),
+            )
+
+    @locked
+    def staff_attempt(self, key: str) -> str:
+        with self.connection:
+            self.connection.execute(
+                "UPDATE outbox SET attempt_id=? WHERE key=? AND staff_delivery_id IS NOT NULL AND attempt_id IS NULL",
+                (str(uuid4()), key),
+            )
+            row = self.connection.execute("SELECT attempt_id FROM outbox WHERE key=?", (key,)).fetchone()
+            if not row or not row[0]:
+                raise ValueError("人工发送任务不存在")
+            return row[0]
 
     @locked
     def supersede(self, key: str) -> None:
@@ -174,6 +207,20 @@ class TgoStore(InboxStore):
     @locked
     def pending_receipts(self) -> list[tuple[str, str, int, str, str, str | None]]:
         return list(self.connection.execute("SELECT key,turn_id,version,claim_id,state,wx_event_id FROM outbox WHERE turn_id IS NOT NULL AND claim_id IS NOT NULL AND state IN ('sent','uncertain') AND cloud_receipt IS NULL"))
+
+    @locked
+    def pending_staff_receipts(self) -> list[tuple[str, str, str, str, str | None]]:
+        return list(self.connection.execute(
+            "SELECT key,staff_delivery_id,claim_id,state,wx_event_id FROM outbox WHERE staff_delivery_id IS NOT NULL AND claim_id IS NOT NULL AND state IN ('sent','uncertain') AND cloud_receipt IS NULL"
+        ))
+
+    @locked
+    def staff_receipt_recovery_needed(self) -> bool:
+        return self.connection.execute(
+            "SELECT 1 FROM outbox WHERE staff_delivery_id IS NOT NULL AND claim_id IS NOT NULL "
+            "AND ((state='uncertain' AND wx_baseline IS NOT NULL AND attempted_at IS NOT NULL) "
+            "OR (state='sent' AND cloud_receipt IS NULL)) LIMIT 1"
+        ).fetchone() is not None
 
     @locked
     def receipt_accepted(self, key: str) -> None:

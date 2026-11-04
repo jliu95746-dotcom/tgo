@@ -11,6 +11,7 @@ from app.api.v1.endpoints import operations_management
 from app.api.v1.endpoints import trial_activation
 from app.api.v1.endpoints import billing_refunds
 from app.api.v1.endpoints import customer_turns
+from app.api.v1.endpoints import wechat_staff_deliveries
 
 from app.api.v1.endpoints import (
     ai_agents,
@@ -61,6 +62,7 @@ from app.api.v1.endpoints import (
 
 api_router = APIRouter()
 api_router.include_router(customer_turns.router, prefix="/chat/turns", tags=["Chat turns"])
+api_router.include_router(wechat_staff_deliveries.router, prefix="/chat/wechat-local-deliveries", tags=["WeChat staff delivery"])
 api_router.include_router(billing.router, prefix="/billing", tags=["Billing"])
 api_router.include_router(operations_billing.router, prefix="/ops", tags=["Operations billing"])
 api_router.include_router(operations_tasks.router, prefix="/ops", tags=["Operations tasks"])

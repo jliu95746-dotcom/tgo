@@ -1569,10 +1569,15 @@ async def sync_visitor_channel_messages(
             "Visitor messages sync success",
             extra={"platform_id": str(platform.id), "channel_id": req.channel_id, "channel_type": req.channel_type, "messages": msg_count},
         )
-        return await reconcile_reply_history(
+        result = await reconcile_reply_history(
             result, project_id=str(platform.project_id),
             channel_id=req.channel_id, channel_type=req.channel_type,
         )
+        if platform.type == PlatformType.WECHAT_LOCAL.value:
+            from app.services.wechat_staff_delivery import mask_bridge_history
+
+            result = mask_bridge_history(result)
+        return result
     except HTTPException:
         raise
     except Exception as e:

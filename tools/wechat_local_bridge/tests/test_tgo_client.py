@@ -41,6 +41,11 @@ class TgoClientTests(unittest.TestCase):
                     )
                 elif self.path.endswith("sync"):
                     status, result = 200, {"messages": []}
+                elif self.path.endswith("wechat-local-deliveries/ready"):
+                    status, result = 200, {"replies": []}
+                elif "/wechat-local-deliveries/" in self.path:
+                    status, result = 200, ({"claim_id": "00000000-0000-0000-0000-000000000072"}
+                        if self.path.endswith("claim") else {"accepted": True})
                 elif self.path.endswith("/heartbeat"):
                     heartbeat_headers.append(self.headers.get("X-Platform-API-Key"))
                     status, result = 200, {"connected": True}
@@ -94,6 +99,25 @@ class TgoClientTests(unittest.TestCase):
         self.assertEqual(self.calls[-1], self.calls[-2])
         self.assertEqual(self.calls[-1][2]["source_message_id"], "wxlocal:wechat-22")
         self.assertEqual(self.calls[-1][2]["channel_id"], "visitor-vtr")
+
+    def test_staff_delivery_uses_bound_cloud_channel_and_idempotent_attempt(self):
+        self.client.connect()
+        self.client.scoped = True
+        self.assertEqual(self.client.staff_replies(), [])
+        identity, attempt = str(uuid4()), str(uuid4())
+        self.client.staff_action(identity, "claim", attempt_id=attempt)
+        first = self.calls[-1]
+        self.client.staff_action(identity, "claim", attempt_id=attempt)
+        self.assertEqual(first, self.calls[-1])
+        self.assertEqual(first, (
+            f"/v1/chat/wechat-local-deliveries/{identity}/claim", "Bearer fake-im",
+            {"platform_api_key": "test-channel-key", "channel_id": "visitor-vtr", "channel_type": 251,
+             "attempt_id": attempt},
+        ))
+        self.client.staff_action(identity, "receipt", claim_id="00000000-0000-0000-0000-000000000072",
+                                 result="sent", receipt="a" * 64)
+        with self.assertRaises(ValueError):
+            self.client.staff_action("../other-target", "claim", attempt_id=attempt)
 
     def test_redirect_does_not_forward_visitor_credentials(self):
         self.client.connect()

@@ -5,6 +5,7 @@ import type { StaffDeliveryReceipt, StaffDeliveryRequest, StaffDeliveryRecord } 
 interface DeliveryEntry {
   request: StaffDeliveryRequest;
   receipt: StaffDeliveryReceipt;
+  accessDenied?: boolean;
 }
 
 interface StaffDeliveryState {
@@ -21,6 +22,9 @@ const inFlight = new Map<string, Promise<StaffDeliveryReceipt>>();
 
 export const useStaffDeliveryStore = create<StaffDeliveryState>((set, get) => {
   const save = (key: string, request: StaffDeliveryRequest, receipt: StaffDeliveryReceipt) => {
+    if (receipt.client_msg_no !== request.client_msg_no) throw new Error('STAFF_DELIVERY_RECEIPT_MISMATCH');
+    const previous = get().entries[key]?.receipt;
+    if (previous?.delivery_status === 'sent' && receipt.delivery_status !== 'sent') return previous;
     set(state => ({ entries: { ...state.entries, [key]: { request, receipt } } }));
     return receipt;
   };
@@ -33,10 +37,14 @@ export const useStaffDeliveryStore = create<StaffDeliveryState>((set, get) => {
   const refresh = async (staffId: string, clientMsgNo: string) => {
     const key = deliveryKey(staffId, clientMsgNo);
     const entry = get().entries[key];
-    if (!entry) return undefined;
+    if (!entry || entry.accessDenied) return entry?.receipt;
     try {
       return save(key, entry.request, await chatMessagesApiService.getStaffDelivery(entry.request));
-    } catch {
+    } catch (error) {
+      const status = error && typeof error === 'object' && 'status' in error ? error.status : undefined;
+      if (status === 401 || status === 403 || status === 404) {
+        set(state => ({ entries: { ...state.entries, [key]: { ...state.entries[key], accessDenied: true } } }));
+      }
       // Failure to read a receipt is not evidence of failed delivery.
       return entry.receipt;
     }
@@ -48,9 +56,11 @@ export const useStaffDeliveryStore = create<StaffDeliveryState>((set, get) => {
       let after = '';
       while (true) {
         const page = await chatMessagesApiService.getPendingStaffDeliveries(channelId, after);
+        if (page.some(entry => entry.request.channel_id !== channelId || entry.request.channel_type !== 251
+          || entry.receipt.client_msg_no !== entry.request.client_msg_no)) throw new Error('STAFF_DELIVERY_SCOPE_MISMATCH');
         for (const entry of page) {
           const key = deliveryKey(staffId, entry.request.client_msg_no);
-          if (!get().entries[key]) save(key, entry.request, entry.receipt);
+          save(key, entry.request, entry.receipt);
         }
         restored.push(...page);
         if (page.length < 100) break;
@@ -69,7 +79,9 @@ export const useStaffDeliveryStore = create<StaffDeliveryState>((set, get) => {
       )) throw new Error('STAFF_MESSAGE_IDENTITY_CONFLICT');
       const running = inFlight.get(key);
       if (running) return running;
+      if (previous?.accessDenied) return previous.receipt;
       if (previous?.receipt.delivery_status === 'sent') return previous.receipt;
+      if (previous?.receipt.delivery_transport === 'wechat_local' && previous.receipt.delivery_status === 'failed') return previous.receipt;
       if (previous && previous.receipt.delivery_status !== 'failed') {
         return (await refresh(staffId, request.client_msg_no)) || previous.receipt;
       }

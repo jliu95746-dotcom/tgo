@@ -3350,6 +3350,13 @@
       "historyPending": "渠道已接受，聊天记录正在补同步，请勿重复发送",
       "unknown": "发送结果待确认，请先确认客户是否收到，勿重复发送",
       "processing": "消息处理中，可查询状态，请勿重复发送",
+      "wechatPending": "等待微信发送",
+      "wechatProcessing": "微信发送中",
+      "wechatSent": "微信已发出",
+      "wechatUnknown": "发送结果待核对，请勿重复发送",
+      "wechatFailed": "发送失败，请核对后重新编辑发送",
+      "wechatHistoryPending": "微信已发出，聊天记录正在同步",
+      "accessChanged": "会话已转交或接待权限已变更",
       "failed": "渠道未接受这条消息",
       "retry": "重试发送",
       "check": "查询状态"

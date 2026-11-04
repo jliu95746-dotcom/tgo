@@ -302,6 +302,32 @@ class TgoClient:
             raise TgoError("连续消息回复列表格式无效")
         return [object_map(row) for row in rows]
 
+    def staff_replies(self) -> list[Mapping[str, object]]:
+        if not self.scoped:
+            return []
+        result = self._post("/v1/chat/wechat-local-deliveries/ready", {
+            "platform_api_key": self.api_key, "channel_id": self.channel_id, "channel_type": 251})
+        rows = result.get("replies")
+        if not isinstance(rows, list):
+            raise TgoError("人工回复列表格式无效")
+        return [object_map(row) for row in rows]
+
+    def staff_action(self, delivery_id: str, action: str, **fields: object) -> Mapping[str, object]:
+        if not self.scoped or action not in {"check", "claim", "receipt"}:
+            raise ValueError("人工发送需要当前授权接待模式")
+        identity = str(UUID(delivery_id))
+        result = self._post(f"/v1/chat/wechat-local-deliveries/{identity}/{action}", {
+            "platform_api_key": self.api_key, "channel_id": self.channel_id,
+            "channel_type": 251, **fields})
+        if action == "claim":
+            try:
+                UUID(str(result.get("claim_id")))
+            except ValueError:
+                raise TgoError("人工回复发送许可格式无效") from None
+        if action == "receipt" and result.get("accepted") is not True:
+            raise TgoError("云端未确认人工回复发送回执")
+        return result
+
     def turn_action(self, turn_id: str, version: int, action: str,
                     **fields: object) -> Mapping[str, object]:
         identity = str(UUID(turn_id))

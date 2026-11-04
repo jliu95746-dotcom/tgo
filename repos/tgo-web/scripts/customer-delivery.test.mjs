@@ -8,13 +8,13 @@ const source = readFileSync(new URL('../src/services/customerMessageDelivery.ts'
 const compiled = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText;
-function fixture(status = 'sent') {
+function fixture(status = 'sent', transport) {
   const calls = { server: [], legacy: 0, ws: 0, patches: [] };
   const scope = { exports: {}, require: name => {
     if (name === '@/i18n') return { default: { t: key => key } };
     if (name.endsWith('/chatMessagesApi')) return { chatMessagesApiService: { staffSendPlatformMessage: async () => { calls.legacy++; } } };
     if (name.endsWith('/staffDeliveryStore')) return { useStaffDeliveryStore: { getState: () => ({
-      submit: async (...args) => { calls.server.push(args); return { delivery_status: status, history_status: 'pending' }; },
+      submit: async (...args) => { calls.server.push(args); return { delivery_status: status, history_status: 'pending', delivery_transport: transport }; },
     }) } };
     throw new Error(`Unexpected dependency: ${name}`);
   } };
@@ -43,6 +43,16 @@ test('website delivery uses the same server authority even with disconnected bro
   assert.equal(calls.server.length, 1);
   assert.equal(calls.ws, 0);
 });
+
+for (const status of ['pending', 'processing']) {
+  test(`WeChat ${status} clears accepted input while the message is still visibly unsent`, async () => {
+    const { calls, send } = fixture(status, 'wechat_local');
+    assert.equal(await send({ platformType: 'wechat_local' }), true);
+    assert.equal(calls.patches[0][1].metadata.ws_sent, false);
+    assert.equal(calls.patches[0][1].metadata.delivery_status, status);
+    assert.equal(calls.ws, 0);
+  });
+}
 for (const status of ['pending', 'processing', 'failed', 'unknown']) {
   test(`${status} is not reported as confirmed delivery and never falls back to WS`, async () => {
     const { calls, send } = fixture(status);
