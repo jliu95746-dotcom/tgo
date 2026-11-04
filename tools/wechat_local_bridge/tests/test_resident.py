@@ -18,6 +18,18 @@ from tools.wechat_local_bridge.rpa import RpaNotReady
 
 
 class ResidentBridgeTests(unittest.TestCase):
+    def test_transient_memory_pressure_waits_and_rechecks_the_existing_binding(self):
+        with TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            with (
+                patch.object(resident, "integration_lock"),
+                patch.object(resident, "prepare_scoped", side_effect=[MemoryError(), None]) as prepare,
+                patch.object(resident.time, "sleep") as sleep,
+            ):
+                resident.run_resident(runtime, "https://customer.example/api", uuid4())
+        self.assertEqual(prepare.call_count, 2)
+        sleep.assert_called_once_with(8)
+
     def test_logon_task_runs_without_time_limit_or_another_console(self):
         sid = "S-1-5-21-1-2-3-1000"
         program = Path("tool with spaces") / ".venv" / "Scripts" / "pythonw.exe"

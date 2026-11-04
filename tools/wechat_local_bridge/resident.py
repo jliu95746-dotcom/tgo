@@ -211,7 +211,7 @@ def run_resident(runtime: Path, base: str, channel: UUID) -> None:
             while True:
                 try:
                     bridge = prepare_scoped(runtime, base, channel, None, bound_only=True)
-                except (ValueError, OSError, RpaNotReady, TgoError, subprocess.SubprocessError, sqlite3.Error) as error:
+                except (ValueError, OSError, MemoryError, RpaNotReady, TgoError, subprocess.SubprocessError, sqlite3.Error) as error:
                     reason = type(error).__name__
                     if waiting != reason:
                         logger.info("等待微信或桥接就绪 (%s)", reason)
