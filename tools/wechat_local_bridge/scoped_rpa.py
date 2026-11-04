@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageOps
 
+from .draft_probe import DraftProbe
 from .filehelper_navigation import SearchNavigation
 from .reader import SessionUnread
 from .rpa import RpaNotReady
@@ -90,6 +91,7 @@ class ScopedRpa(NativeRpa):
     ):
         self._configure_desktop(window, runtime, chat_id, authorize, scope_lock)
         self.title, self.draft_matches = title, draft_matches
+        self.probe = DraftProbe(runtime, chat_id)
         self.unread_state = unread_state
         self._observed_unread: SessionUnread | None = None
         self._header_box: tuple[int, int, int, int] | None = None
@@ -108,6 +110,15 @@ class ScopedRpa(NativeRpa):
     def _visible_bounds(self) -> tuple[int, int, int, int]:
         screen = self.gui.size()
         return self.window.display_bounds(screen.width, screen.height)
+
+    def _click_control(self, x: int, y: int, *, popup: bool = False) -> None:
+        self.authorize()
+        self.window.require_point(x, y, search_result=popup)
+        try:
+            self.gui.mouseDown(x, y, button="primary")
+            time.sleep(0.06)
+        finally:
+            self.gui.mouseUp(button="primary")
 
     def check_target(self) -> None:
         self.authorize()
@@ -232,7 +243,7 @@ class ScopedRpa(NativeRpa):
             raise RpaNotReady("微信侧栏发生变化")
         point = bounds[0] + box[0] + row.x, bounds[1] + box[1] + row.y
         self.window.require_point(*point)
-        self.gui.click(*point)
+        self._click_control(*point)
         time.sleep(0.25)
 
     def _search(self, candidate: int | None = None) -> None:
@@ -257,7 +268,7 @@ class ScopedRpa(NativeRpa):
         try:
             point = self.navigation.search_point(frame())
             guard(point)
-            self.gui.click(left + point[0], top + point[1])
+            self._click_control(left + point[0], top + point[1])
             search_opened = True
             time.sleep(0.22)
             self.navigation.focused_search(frame())
@@ -305,7 +316,7 @@ class ScopedRpa(NativeRpa):
                     continue
                 result = (crop[0] + row.x, crop[1] + row.y)
                 guard(result, popup=True)
-                self.gui.click(left + result[0], top + result[1])
+                self._click_control(left + result[0], top + result[1], popup=True)
                 result_clicked = True
                 break
             time.sleep(0.3)
@@ -352,7 +363,7 @@ class ScopedRpa(NativeRpa):
         if self._visible_bounds() != bounds:
             raise RpaNotReady("微信窗口已移动")
         self.window.require_point(*point)
-        self.gui.click(*point)
+        self._click_control(*point)
 
     def ensure_ready(self) -> None:
         self._verified_header = None
@@ -372,18 +383,37 @@ class ScopedRpa(NativeRpa):
                     self.check_target()
                 else:
                     raise RpaNotReady("同名企微会话缺少可核对的未读消息，回复待人工处理")
+            if pending := self.probe.pending():
+                self.ensure_conversation()
+                if self.read_input() == pending and not self.draft_matches(pending):
+                    self._contacts_tab()
+                    self._chat_tab()
+                    self.ensure_conversation()
+                if self.probe.recover(self.read_input, self.draft_matches, self._clear_marker,
+                                      keep_marker=self.unread_state is not None):
+                    if self.unread_state is None:
+                        super().ensure_ready()
+                    else:
+                        self._verified_marker, self._observed_unread = pending, None
+                    self._verified_header = self._header
+                    return
             super().ensure_ready()
             if self.draft_matches(marker):
                 raise RpaNotReady("微信草稿状态无法核对")
+            self.probe.remember(marker)
             marker_started = True
             self._probe_editor(marker)
         except RpaNotReady as exc:
             if marker_started:
-                raise RuntimeError("微信会话未完成草稿核对，请人工处理") from exc
+                raise RpaNotReady(f"本机校验尚未完成，稍后自动恢复：{exc}") from exc
+            raise
+        except RuntimeError as exc:
+            if marker_started:
+                raise RpaNotReady("本机校验草稿等待恢复，稍后重试") from exc
             raise
         except (OSError, sqlite3.Error, StopIteration) as exc:
             if marker_started:
-                raise RuntimeError("微信会话未完成草稿核对，请人工处理") from exc
+                raise RpaNotReady("本机校验草稿等待恢复，稍后重试") from exc
             raise RpaNotReady("微信窗口或草稿库无法核对，回复待人工处理") from exc
         finally:
             self.restore_clipboard(original)
@@ -397,11 +427,12 @@ class ScopedRpa(NativeRpa):
         deadline = time.monotonic() + 5
         while not self.draft_matches(marker):
             if time.monotonic() >= deadline:
-                raise RpaNotReady("微信未确认草稿属于授权会话，回复待人工处理")
+                raise RpaNotReady("微信尚未保存授权会话的校验草稿")
             time.sleep(0.2)
         self.ensure_conversation()
         if self.unread_state is None:
             self._clear_marker(marker)
+            self.probe.complete(marker)
         else:
             if self.read_input() != marker:
                 raise RpaNotReady("当前输入框未保留已核对的会话标记")
@@ -469,6 +500,7 @@ class ScopedRpa(NativeRpa):
             time.sleep(0.3)
             if self.read_input() != text:
                 raise RpaNotReady("客服回复未通过输入框回读")
+            self.probe.complete(self._verified_marker)
             self._verified_context = self._context_digest(self.gui.screenshot(region=self.bounds).convert("RGB"))
             self._verified_marker = None
 

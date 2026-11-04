@@ -6,7 +6,7 @@ from typing import NotRequired, Protocol, TypedDict
 
 
 class RpaNotReady(RuntimeError):
-    """A precondition failed before any input. Waiting is safe."""
+    """Reply input has not started; a tracked local probe may need recovery."""
 
 
 class RpaBackend(Protocol):

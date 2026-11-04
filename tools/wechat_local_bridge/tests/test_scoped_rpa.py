@@ -20,6 +20,7 @@ class ScopedVisualGuardTests(unittest.TestCase):
         backend.authorize = Mock()
         backend.window, backend.gui, backend.navigation = Mock(), Mock(), Mock()
         backend.window.search_popup_at.return_value = False
+        backend._click_control = Mock()
         backend._visible_bounds = Mock(return_value=(10, 20, 800, 700))
         backend.gui.screenshot.return_value = Image.new("RGB", (570, 395), "white")
         backend.navigation.search_point.return_value = (150, 70)
@@ -40,7 +41,7 @@ class ScopedVisualGuardTests(unittest.TestCase):
         ):
             backend._search()
         self.assertEqual(ocr.call_count, 1)
-        self.assertEqual(backend.gui.click.call_args.args, (225, 171))
+        self.assertEqual(backend._click_control.call_args.args, (225, 171))
         self.assertNotIn(("esc",), [call.args for call in backend.gui.press.call_args_list])
         backend.restore_clipboard.assert_called_once_with("原剪贴板")
 
@@ -53,7 +54,7 @@ class ScopedVisualGuardTests(unittest.TestCase):
             patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
         ):
             backend._search()
-        self.assertEqual(backend.gui.click.call_count, 2)
+        self.assertEqual(backend._click_control.call_count, 2)
 
     def test_search_confirms_result_only_while_the_verified_popup_remains(self):
         backend = self.search_backend()
@@ -97,7 +98,7 @@ class ScopedVisualGuardTests(unittest.TestCase):
             patch("tools.wechat_local_bridge.scoped_rpa.time.sleep"),
         ):
             backend._search()
-        self.assertEqual(backend.gui.click.call_args.args, (225, 171))
+        self.assertEqual(backend._click_control.call_args.args, (225, 171))
 
     def test_search_failure_rechecks_the_chat_uncovered_when_popup_closes(self):
         backend = self.search_backend()
@@ -128,7 +129,7 @@ class ScopedVisualGuardTests(unittest.TestCase):
             self.assertRaises(RpaNotReady),
         ):
             backend._search()
-        self.assertEqual(backend.gui.click.call_count, 1)
+        self.assertEqual(backend._click_control.call_count, 1)
         backend.gui.press.assert_any_call("esc")
 
     def test_search_cleanup_does_not_send_keys_after_focus_is_lost(self):
@@ -142,6 +143,17 @@ class ScopedVisualGuardTests(unittest.TestCase):
         backend.gui.hotkey.assert_not_called()
         backend.gui.press.assert_not_called()
         backend.restore_clipboard.assert_called_once_with("原剪贴板")
+
+    def test_navigation_releases_mouse_button_even_if_the_press_is_interrupted(self):
+        backend = ScopedRpa.__new__(ScopedRpa)
+        backend.gui, backend.window, backend.authorize = Mock(), Mock(), Mock()
+        with (
+            patch("tools.wechat_local_bridge.scoped_rpa.time.sleep", side_effect=RuntimeError("interrupted")),
+            self.assertRaises(RuntimeError),
+        ):
+            backend._click_control(100, 200)
+        backend.gui.mouseDown.assert_called_once_with(100, 200, button="primary")
+        backend.gui.mouseUp.assert_called_once_with(button="primary")
 
     def test_group_title_matches_only_exact_name_or_member_count(self):
         self.assertTrue(matches_header([TextLine("测 试 群 （ 12 ）", 20, 10)], "测试群", group=True))
@@ -216,6 +228,8 @@ class ScopedVisualGuardTests(unittest.TestCase):
 
     def test_marker_is_cleared_only_after_scoped_database_verifies_it(self):
         backend = ScopedRpa.__new__(ScopedRpa)
+        backend.probe = Mock()
+        backend.probe.pending.return_value = None
         backend.unread_state = None
         backend.scope_lock = RLock()
         backend._header, backend._verified_header = b"target", None
@@ -241,6 +255,8 @@ class ScopedVisualGuardTests(unittest.TestCase):
 
     def test_missing_scoped_draft_proof_never_unlocks_reply_paste(self):
         backend = ScopedRpa.__new__(ScopedRpa)
+        backend.probe = Mock()
+        backend.probe.pending.return_value = None
         backend.unread_state = None
         backend._header, backend._verified_header = b"target", None
         backend.get_clipboard = Mock(return_value="original")
@@ -257,15 +273,18 @@ class ScopedVisualGuardTests(unittest.TestCase):
             patch("tools.wechat_local_bridge.scoped_rpa.uuid.uuid4", return_value=Mock(hex="marker")),
             patch("tools.wechat_local_bridge.scoped_rpa.time.monotonic", side_effect=[0, 6]),
         ):
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(RpaNotReady):
                 backend.ensure_ready()
             with self.assertRaises(RpaNotReady):
                 backend.paste("客户回复")
         paste.assert_called_once_with("桥接自检-marker")
         backend._clear_marker.assert_not_called()
+        backend.probe.remember.assert_called_once()
+        backend.probe.complete.assert_not_called()
 
     def test_duplicate_chat_replaces_only_the_verified_marker(self):
         backend = ScopedRpa.__new__(ScopedRpa)
+        backend.probe = Mock()
         backend._header = backend._verified_header = b"target"
         backend._verified_marker = "local marker"
         backend.scope_lock = RLock()
@@ -311,6 +330,41 @@ class ScopedVisualGuardTests(unittest.TestCase):
             paste.assert_not_called()
         backend.draft_matches.assert_not_called()
         self.assertIsNone(backend._verified_header)
+
+    def test_verified_saved_probe_can_finish_readiness_without_creating_another_probe(self):
+        backend = ScopedRpa.__new__(ScopedRpa)
+        backend.unread_state = None
+        backend._header, backend.runtime = b"verified header", Path("unused")
+        backend.probe = Mock()
+        backend.probe.pending.return_value = "桥接自检-" + "a" * 32
+        backend.probe.recover.return_value = True
+        backend.get_clipboard = Mock(return_value="original")
+        backend.restore_clipboard = Mock()
+        backend.ensure_conversation, backend.read_input, backend.draft_matches = Mock(), Mock(), Mock()
+        backend._clear_marker, backend._probe_editor = Mock(), Mock()
+        with patch.object(NativeRpa, "ensure_ready"):
+            backend.ensure_ready()
+        backend._probe_editor.assert_not_called()
+        backend.probe.remember.assert_not_called()
+        self.assertEqual(backend._verified_header, b"verified header")
+
+    def test_recovery_flushes_an_owned_marker_before_verifying_its_database(self):
+        backend = ScopedRpa.__new__(ScopedRpa)
+        backend.unread_state, backend._header = None, b"verified header"
+        marker = "桥接自检-" + "b" * 32
+        backend.probe = Mock()
+        backend.probe.pending.return_value = marker
+        backend.probe.recover.return_value = True
+        backend.get_clipboard, backend.restore_clipboard = Mock(return_value="original"), Mock()
+        backend.ensure_conversation, backend._contacts_tab, backend._chat_tab = Mock(), Mock(), Mock()
+        backend.read_input, backend.draft_matches = Mock(return_value=marker), Mock(return_value=False)
+        backend._clear_marker, backend._probe_editor = Mock(), Mock()
+        with patch.object(NativeRpa, "ensure_ready"):
+            backend.ensure_ready()
+        backend._contacts_tab.assert_called_once()
+        backend._chat_tab.assert_called_once()
+        backend._probe_editor.assert_not_called()
+        backend.probe.remember.assert_not_called()
 
     def test_duplicate_enterprise_chat_accepts_matching_read_transition(self):
         backend = ScopedRpa.__new__(ScopedRpa)
