@@ -254,6 +254,10 @@ async def test_stream_and_nonstream_prepare_same_knowledge_but_expression_skips_
         session_factory=Mock(), tools_runtime_service=Mock(_settings=None)
     )
     monkeypatch.setattr(runtime, "_agent_service_context", service_context)
+    # This test isolates knowledge preparation from the fake database.
+    # Authorization and execution references have separate real guard tests.
+    runtime._authorize_execution = AsyncMock(return_value=agent)
+    runtime._reference_for_execution = AsyncMock(return_value=None)
     seen = []
 
     async def build(context):
@@ -286,6 +290,8 @@ async def test_stream_and_nonstream_prepare_same_knowledge_but_expression_skips_
         response = await runtime.run(request, UUID(agent.project_id))
         assert response.success is False
     assert len(seen) == 1
+    runtime._authorize_execution.assert_awaited_once()
+    runtime._reference_for_execution.assert_awaited_once()
     if skip:
         lookup.assert_not_awaited()
         assert seen[0].agent.collections == []

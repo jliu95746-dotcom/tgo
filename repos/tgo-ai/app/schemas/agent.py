@@ -267,6 +267,8 @@ class AgentUpdate(BaseSchema):
 class AgentResponse(AgentBase, IDMixin, TimestampMixin):
     """Schema for agent API responses."""
 
+    project_id: uuid.UUID = Field(description="Project that owns this agent")
+
     llm_provider_id: Optional[uuid.UUID] = Field(
         default=None,
         description="Associated LLM provider (credentials) ID",
