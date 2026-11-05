@@ -1,12 +1,12 @@
 """Transfer to human service for visitor assignment."""
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import List, Optional
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException
+from pydantic import JsonValue
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -42,6 +42,11 @@ from app.services.queue_lifecycle import (
     lock_waiting_entry,
 )
 from app.services.queue_events import schedule_queue_update
+from app.services.staff_assignment_response import (
+    LLMStaffAssignmentResult,
+    assignment_response_content,
+    assignment_selection,
+)
 from app.services.visitor_notifications import notify_visitor_profile_updated
 from app.utils.encoding import build_visitor_channel_id
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_STAFF
@@ -84,7 +89,7 @@ class StaffAssignmentResult:
     candidate_staff_ids: List[UUID]
     llm_response: Optional[str] = None
     llm_reasoning: Optional[str] = None
-    candidate_scores: Optional[dict] = None
+    candidate_scores: Optional[dict[str, JsonValue]] = None
     model_used: Optional[str] = None
     prompt_used: Optional[str] = None
 
@@ -179,7 +184,7 @@ async def transfer_to_staff(
     llm_response = None
     llm_reasoning = None
     candidate_staff_ids: List[UUID] = []
-    candidate_scores: Optional[dict] = None
+    candidate_scores: Optional[dict[str, JsonValue]] = None
     model_used: Optional[str] = None
     prompt_used: Optional[str] = None
     waiting_queue_entry: Optional[VisitorWaitingQueue] = None
@@ -459,7 +464,13 @@ async def transfer_to_staff(
                 raise
             logger.error("Manual visitor transfer failed", extra={"visitor_id": str(visitor_id), "error_type": type(e).__name__})
             raise TGOAPIException("接入失败，请刷新客户状态后重试", "TRANSFER_FAILED", status_code=502) from e
-        logger.error(f"Error transferring visitor {visitor_id} to human: {e}")
+        logger.error(
+            "Visitor transfer failed",
+            extra={
+                "visitor_id": str(visitor_id),
+                "error_type": type(e).__name__,
+            },
+        )
         return TransferResult(
             success=False,
             session=None,
@@ -468,7 +479,7 @@ async def transfer_to_staff(
             candidate_staff_ids=None,
             waiting_queue=None,
             queue_position=None,
-            message=f"Transfer failed: {str(e)}",
+            message="接入失败，请刷新客户状态后重试",
         )
 
 
@@ -508,7 +519,7 @@ async def assign_staff(
     candidate_staff_ids: List[UUID] = []
     llm_response: Optional[str] = None
     llm_reasoning: Optional[str] = None
-    candidate_scores: Optional[dict] = None
+    candidate_scores: Optional[dict[str, JsonValue]] = None
     model_used: Optional[str] = None
     prompt_used: Optional[str] = None
     
@@ -872,7 +883,7 @@ def _create_assignment_history(
     llm_response: Optional[str],
     llm_reasoning: Optional[str],
     candidate_staff_ids: List[UUID],
-    candidate_scores: Optional[dict],
+    candidate_scores: Optional[dict[str, JsonValue]],
 ) -> VisitorAssignmentHistory:
     """
     Create assignment history record.
@@ -1096,14 +1107,9 @@ async def _llm_assign_staff(
     visitor_message: Optional[str],
     candidates: List[StaffCandidate],
     assignment_rule: VisitorAssignmentRule,
-) -> dict:
-    """
-    Use LLM to select the best staff for the visitor.
-    
-    Returns:
-        Dict with selected_staff_id, llm_response, reasoning, scores, model_used, prompt_used
-    """
-    result = {
+) -> LLMStaffAssignmentResult:
+    """Select a listed staff member or use a safe load-balancing fallback."""
+    result: LLMStaffAssignmentResult = {
         "selected_staff_id": None,
         "llm_response": None,
         "reasoning": None,
@@ -1111,32 +1117,35 @@ async def _llm_assign_staff(
         "model_used": None,
         "prompt_used": None,
     }
-    
-    # Validate assignment rule has LLM config
     if not assignment_rule.ai_provider_id:
-        logger.warning("LLM assignment enabled but no ai_provider_id configured, falling back to load balancing")
         result["selected_staff_id"] = await _load_balance_assign(candidates)
-        result["reasoning"] = "Fallback to load balancing: no AI provider configured"
+        result["reasoning"] = (
+            "Fallback to load balancing: no AI provider configured"
+        )
         return result
-    
+
     # Build staff info for prompt
     staff_info_list = []
     for i, c in enumerate(candidates, 1):
         name = c.name or c.nickname or f"Staff_{c.id}"
         desc = c.description or "No description available"
-        staff_info_list.append(f"{i}. ID: {c.id}\n   Name: {name}\n   Description: {desc}\n   Current chats: {c.current_chat_count}")
-    
+        staff_info_list.append(
+            f"{i}. ID: {c.id}\n   Name: {name}\n"
+            f"   Description: {desc}\n"
+            f"   Current chats: {c.current_chat_count}"
+        )
+
     staff_info = "\n".join(staff_info_list)
-    
+
     # Build visitor info
     visitor_name = visitor.name or visitor.nickname or "Unknown"
     visitor_info = f"Name: {visitor_name}"
     if visitor_message:
         visitor_info += f"\nMessage: {visitor_message}"
-    
+
     # Get the prompt
     system_prompt = assignment_rule.effective_prompt
-    
+
     # Build the user message
     user_message = f"""请根据以下信息，选择最合适的客服人员来处理此访客。
 
@@ -1156,65 +1165,49 @@ async def _llm_assign_staff(
 
     result["prompt_used"] = f"System: {system_prompt}\n\nUser: {user_message}"
     result["model_used"] = assignment_rule.model
-    
+
     try:
         from app.services.ai_client import ai_client
-        
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ]
-        
+
         response = await ai_client.chat_completions(
             project_id=str(project_id),
             provider_id=str(assignment_rule.ai_provider_id),
             model=assignment_rule.model or "gpt-4",
-            messages=messages,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
             temperature=0.3,
             max_tokens=500,
         )
-        
-        # Parse response
-        if response and "choices" in response and len(response["choices"]) > 0:
-            content = response["choices"][0].get("message", {}).get("content", "")
-            result["llm_response"] = content
-            
-            # Try to parse JSON from response
-            try:
-                # Handle markdown code blocks
-                if "```json" in content:
-                    content = content.split("```json")[1].split("```")[0].strip()
-                elif "```" in content:
-                    content = content.split("```")[1].split("```")[0].strip()
-                
-                parsed = json.loads(content)
-                selected_id = parsed.get("selected_staff_id")
-                result["reasoning"] = parsed.get("reasoning")
-                
-                # Validate selected_id is in candidates
-                candidate_ids = [str(c.id) for c in candidates]
-                if selected_id and str(selected_id) in candidate_ids:
-                    result["selected_staff_id"] = UUID(str(selected_id))
-                    logger.info(f"LLM selected staff {selected_id}: {result['reasoning']}")
-                else:
-                    logger.warning(f"LLM returned invalid staff_id {selected_id}, falling back to load balancing")
-                    result["selected_staff_id"] = await _load_balance_assign(candidates)
-                    result["reasoning"] = f"LLM returned invalid ID, fallback to load balancing. Original: {result['reasoning']}"
-                    
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Failed to parse LLM response: {e}, falling back to load balancing")
-                result["selected_staff_id"] = await _load_balance_assign(candidates)
-                result["reasoning"] = f"Failed to parse LLM response, fallback to load balancing"
-        else:
-            logger.warning("Empty LLM response, falling back to load balancing")
-            result["selected_staff_id"] = await _load_balance_assign(candidates)
-            result["reasoning"] = "Empty LLM response, fallback to load balancing"
-            
-    except Exception as e:
-        logger.error(f"LLM assignment failed: {e}, falling back to load balancing")
+    except Exception as error:
+        logger.warning(
+            "LLM assignment unavailable; using load balancing",
+            extra={"error_type": type(error).__name__},
+        )
         result["selected_staff_id"] = await _load_balance_assign(candidates)
-        result["reasoning"] = f"LLM assignment failed: {str(e)}, fallback to load balancing"
-    
+        result["reasoning"] = (
+            "LLM assignment failed; fallback to load balancing"
+        )
+        return result
+
+    try:
+        content = assignment_response_content(response)
+        result["llm_response"] = content
+        selected_id, reasoning = assignment_selection(
+            content, {candidate.id for candidate in candidates}
+        )
+    except ValueError:
+        logger.warning("Invalid LLM assignment; using load balancing")
+        result["selected_staff_id"] = await _load_balance_assign(candidates)
+        result["reasoning"] = (
+            "Invalid LLM response; fallback to load balancing"
+        )
+        return result
+
+    result["selected_staff_id"] = selected_id
+    result["reasoning"] = reasoning
+    logger.info("LLM selected staff", extra={"staff_id": str(selected_id)})
     return result
 
 

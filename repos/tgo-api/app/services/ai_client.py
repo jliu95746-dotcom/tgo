@@ -141,12 +141,10 @@ class AIServiceClient:
             headers.update(extra_headers)
 
         logger.info(
-            f"AI service request: {method} {url}",
+            "AI service request",
             extra={
                 "request_id": request_id,
                 "method": method,
-                "url": url,
-                "params": params,
             },
         )
 
@@ -188,14 +186,17 @@ class AIServiceClient:
 
         except httpx.TimeoutException:
             logger.error(
-                f"AI service timeout: {url}",
+                "AI service timeout",
                 extra={"request_id": request_id, "timeout": timeout if timeout is not None else self.timeout},
             )
             raise HTTPException(status_code=504, detail="AI service request timed out")
         except httpx.RequestError as e:
             logger.error(
-                f"AI service request error: {e}",
-                extra={"request_id": request_id, "error": str(e)},
+                "AI service request failed",
+                extra={
+                    "request_id": request_id,
+                    "error_type": type(e).__name__,
+                },
             )
             raise HTTPException(
                 status_code=502, detail="Failed to connect to AI service"
@@ -221,7 +222,6 @@ class AIServiceClient:
             f"AI service error response: {response.status_code}",
             extra={
                 "status_code": response.status_code,
-                "error_data": error_data,
             },
         )
 
