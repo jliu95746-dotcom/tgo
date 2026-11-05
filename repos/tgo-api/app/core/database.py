@@ -2,8 +2,12 @@
 
 from typing import AsyncGenerator, Generator
 
-from sqlalchemy import create_engine, event
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
@@ -14,6 +18,7 @@ logger = get_logger("database")
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
+
     pass
 
 
@@ -25,6 +30,7 @@ sync_engine = create_engine(
     pool_timeout=settings.DATABASE_POOL_TIMEOUT,
     pool_recycle=settings.DATABASE_POOL_RECYCLE,
     echo=False,
+    hide_parameters=True,
 )
 
 SessionLocal = sessionmaker(
@@ -41,6 +47,7 @@ async_engine = create_async_engine(
     pool_timeout=settings.DATABASE_POOL_TIMEOUT,
     pool_recycle=settings.DATABASE_POOL_RECYCLE,
     echo=False,
+    hide_parameters=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -52,20 +59,31 @@ AsyncSessionLocal = async_sessionmaker(
 
 # Database event listeners for logging
 @event.listens_for(sync_engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
+def set_sqlite_pragma(
+    dbapi_connection: object,
+    connection_record: object,
+) -> None:
     """Set database connection parameters."""
     from app.core.logging import startup_log
+
     startup_log("✅ Database connected")
 
 
 @event.listens_for(sync_engine, "checkout")
-def receive_checkout(dbapi_connection, connection_record, connection_proxy):
+def receive_checkout(
+    dbapi_connection: object,
+    connection_record: object,
+    connection_proxy: object,
+) -> None:
     """Log database connection checkout."""
     logger.debug("Database connection checked out from pool")
 
 
 @event.listens_for(sync_engine, "checkin")
-def receive_checkin(dbapi_connection, connection_record):
+def receive_checkin(
+    dbapi_connection: object,
+    connection_record: object,
+) -> None:
     """Log database connection checkin."""
     logger.debug("Database connection returned to pool")
 
@@ -73,7 +91,7 @@ def receive_checkin(dbapi_connection, connection_record):
 def get_db() -> Generator[Session, None, None]:
     """
     Dependency to get synchronous database session.
-    
+
     Yields:
         Session: SQLAlchemy database session
     """
@@ -82,7 +100,7 @@ def get_db() -> Generator[Session, None, None]:
         logger.debug("Creating database session")
         yield db
     except Exception as e:
-        logger.error(f"Database session error: {e}")
+        logger.error("Database session error: %s", type(e).__name__)
         db.rollback()
         raise
     finally:
@@ -93,7 +111,7 @@ def get_db() -> Generator[Session, None, None]:
 async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency to get asynchronous database session.
-    
+
     Yields:
         AsyncSession: SQLAlchemy async database session
     """
@@ -102,7 +120,7 @@ async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
             logger.debug("Creating async database session")
             yield session
         except Exception as e:
-            logger.error(f"Async database session error: {e}")
+            logger.error("Async database session error: %s", type(e).__name__)
             await session.rollback()
             raise
         finally:
@@ -115,24 +133,11 @@ async def init_db() -> None:
     logger.info("Initializing database tables")
     async with async_engine.begin() as conn:
         # Import all models to ensure they are registered
-        from app.models import (  # noqa: F401
-            assignment,
-            platform,
-            project,
-            staff,
-            tag,
-            visitor,
-            visitor_tag,
-            ai_provider,
-            ai_model,
-            ai_provider_default_model,
-            project_ai_config,
-            system_setup,
-        )
+        from app import models  # noqa: F401
 
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)
-    
+
     logger.info("Database tables initialized successfully")
 
 
@@ -148,15 +153,15 @@ async def close_db() -> None:
 async def check_db_health() -> bool:
     """
     Check database connectivity.
-    
+
     Returns:
         bool: True if database is healthy, False otherwise
     """
     try:
         async with AsyncSessionLocal() as session:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
             logger.debug("Database health check passed")
             return True
     except Exception as e:
-        logger.error(f"Database health check failed: {e}")
+        logger.error("Database health check failed: %s", type(e).__name__)
         return False
