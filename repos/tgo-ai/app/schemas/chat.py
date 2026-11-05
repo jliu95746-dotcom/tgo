@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field
 
 from app.schemas.knowledge import KnowledgeChannel
+from app.schemas.chat_provider_state import ProviderStateCarrier
 
 
 # =============================================================================
@@ -36,7 +37,7 @@ class ToolCall(BaseModel):
     function: Optional[FunctionCall] = Field(default=None, description="The function call details")
 
 
-class ChatMessage(BaseModel):
+class ChatMessage(ProviderStateCarrier):
     """A message in the chat conversation."""
 
     role: Literal["system", "user", "assistant", "tool"] = Field(
@@ -215,7 +216,7 @@ class Usage(BaseModel):
     total_tokens: int = Field(..., description="Total number of tokens used")
 
 
-class ChoiceMessage(BaseModel):
+class ChoiceMessage(ProviderStateCarrier):
     """Message in a completion choice."""
 
     role: Literal["assistant"] = Field(default="assistant", description="The role of the author")
@@ -263,7 +264,7 @@ class ChatCompletionResponse(BaseModel):
 # =============================================================================
 
 
-class DeltaMessage(BaseModel):
+class DeltaMessage(ProviderStateCarrier):
     """Delta message in a streaming chunk."""
 
     role: Optional[Literal["assistant"]] = Field(
@@ -316,8 +317,10 @@ def create_chunk(
     model: str,
     created: int,
     content: Optional[str] = None,
-    role: Optional[str] = None,
-    finish_reason: Optional[str] = None,
+    role: Optional[Literal["assistant"]] = None,
+    finish_reason: Optional[
+        Literal["stop", "length", "tool_calls", "content_filter"]
+    ] = None,
     tool_calls: Optional[List[ToolCall]] = None,
 ) -> ChatCompletionChunk:
     """Create a streaming chunk."""

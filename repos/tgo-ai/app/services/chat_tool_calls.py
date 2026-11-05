@@ -9,10 +9,9 @@ from dataclasses import dataclass
 from typing import NoReturn
 
 from app.schemas.chat import FunctionCall, ToolCall
+from app.schemas.chat_provider_state import ProviderMessageState
 
-INVALID_TOOL_CALL_MESSAGE = (
-    "模型输出未完成或工具调用格式错误，本轮工具未执行，请重试或转人工处理"
-)
+INVALID_TOOL_CALL_MESSAGE = "模型输出未完成或工具调用格式错误，本轮工具未执行，请重试或转人工处理"
 
 
 class InvalidToolCallError(ValueError):
@@ -43,8 +42,10 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 def _json_object(text: str) -> dict[str, object]:
     try:
         value: object = json.loads(
-            text, object_pairs_hook=_unique_object,
-            parse_constant=_reject_constant, parse_float=_finite_float,
+            text,
+            object_pairs_hook=_unique_object,
+            parse_constant=_reject_constant,
+            parse_float=_finite_float,
         )
         return _object(value)
     except (ValueError, TypeError, RecursionError):
@@ -70,13 +71,15 @@ class PreparedToolCall:
 
     def protocol_call(self) -> ToolCall:
         return ToolCall(
-            id=self.identifier, type="function",
+            id=self.identifier,
+            type="function",
             function=FunctionCall(name=self.name, arguments=self.arguments),
         )
 
 
 def validate_tool_calls(
-    calls: Sequence[ToolCall], finish_reason: str | None,
+    calls: Sequence[ToolCall],
+    finish_reason: str | None,
 ) -> tuple[PreparedToolCall, ...]:
     """Check every call before any coroutine or history entry is created."""
     if calls and finish_reason != "tool_calls":
@@ -86,17 +89,24 @@ def validate_tool_calls(
     for call in calls:
         identifier, function = call.id, call.function
         if (
-            identifier is None or not identifier.strip()
-            or identifier in identifiers or function is None
-            or function.name is None or not function.name.strip()
+            identifier is None
+            or not identifier.strip()
+            or identifier in identifiers
+            or function is None
+            or function.name is None
+            or not function.name.strip()
             or function.arguments is None
         ):
             raise InvalidToolCallError()
         _json_object(function.arguments)
         identifiers.add(identifier)
-        prepared.append(PreparedToolCall(
-            identifier, function.name, function.arguments,
-        ))
+        prepared.append(
+            PreparedToolCall(
+                identifier,
+                function.name,
+                function.arguments,
+            )
+        )
     return tuple(prepared)
 
 
@@ -112,6 +122,7 @@ class ToolCallStream:
 
     def __init__(self) -> None:
         self.content = ""
+        self.provider_state: ProviderMessageState | None = None
         self._calls: dict[int, _PartialToolCall] = {}
         self._finish_reason: str | None = None
         self._done = False
@@ -168,10 +179,21 @@ class ToolCallStream:
                 raise InvalidToolCallError()
             for call in calls:
                 self._append_call(_object(call))
+        state = delta.get("provider_state")
+        if state is not None:
+            if (
+                self.provider_state is not None
+                or self._finish_reason is not None
+            ):
+                raise InvalidToolCallError()
+            self.provider_state = ProviderMessageState.model_validate(state)
         reason = choice.get("finish_reason")
         if reason is not None:
             if not isinstance(reason, str) or reason not in {
-                "stop", "length", "tool_calls", "content_filter",
+                "stop",
+                "length",
+                "tool_calls",
+                "content_filter",
             }:
                 raise InvalidToolCallError()
             if self._finish_reason is not None and (
@@ -210,17 +232,27 @@ class ToolCallStream:
                 partial.arguments += value
 
     def finish(self) -> tuple[PreparedToolCall, ...]:
-        if not self._done:
+        if not self._done or self._finish_reason is None:
             raise InvalidToolCallError()
         if not self._calls:
             if self._finish_reason == "tool_calls":
                 raise InvalidToolCallError()
             return ()
-        calls = [ToolCall(
-            id=self._calls[index].identifier,
-            function=FunctionCall(
-                name=self._calls[index].name,
-                arguments=self._calls[index].arguments,
-            ),
-        ) for index in sorted(self._calls)]
-        return validate_tool_calls(calls, self._finish_reason)
+        calls = [
+            ToolCall(
+                id=self._calls[index].identifier,
+                function=FunctionCall(
+                    name=self._calls[index].name,
+                    arguments=self._calls[index].arguments,
+                ),
+            )
+            for index in sorted(self._calls)
+        ]
+        prepared = validate_tool_calls(calls, self._finish_reason)
+        if (
+            self.provider_state is not None
+            and self.provider_state.call_ids
+            != tuple(call.identifier for call in prepared)
+        ):
+            raise InvalidToolCallError()
+        return prepared

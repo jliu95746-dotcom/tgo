@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 import uuid
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-import google.generativeai as genai
+from google import genai
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 from sqlalchemy import and_, select
@@ -36,12 +35,15 @@ from app.schemas.chat import (
     ToolCall,
     ToolDefinition,
     Usage,
-    create_completion_id,
 )
+from app.services import chat_anthropic, chat_google
+from app.services.chat_provider_protocol import enforce_tool_policy
 from app.services.llm_provider_service import LLMProviderService
 from app.services.rag_service import rag_service_client
 from app.services.tool_executor import ToolExecutor
-from app.services.chat_accounting import account_completion, account_stream
+from app.services.chat_accounting import (
+    account_completion, account_stream, close_provider_stream,
+)
 from app.services.commercial_ai_limits import constrain_chat
 from app.services.chat_tool_calls import (
     INVALID_TOOL_CALL_MESSAGE, InvalidToolCallError, PreparedToolCall,
@@ -175,6 +177,7 @@ class ChatService:
         await executor.register_tools(request.tool_ids, request.collection_ids)
 
         total_usage = Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        usage_known = True
         
         for round_idx in range(max_rounds):
             self._logger.debug(f"Starting tool round {round_idx + 1}/{max_rounds}")
@@ -193,19 +196,22 @@ class ChatService:
                 total_usage.prompt_tokens += response.usage.prompt_tokens
                 total_usage.completion_tokens += response.usage.completion_tokens
                 total_usage.total_tokens += response.usage.total_tokens
+            else:
+                usage_known = False
 
             # Check if there are tool calls in the first choice
             choice = next(
                 (item for item in response.choices if item.index == 0), None,
             )
             if choice is None or not choice.message.tool_calls:
-                response.usage = total_usage
+                response.usage = total_usage if usage_known else None
                 return response
 
             try:
                 prepared = validate_tool_calls(
                     choice.message.tool_calls, choice.finish_reason,
                 )
+                enforce_tool_policy(request, prepared)
             except InvalidToolCallError:
                 raise ChatCompletionError(INVALID_TOOL_CALL_MESSAGE) from None
             assistant_msg_content = choice.message.content
@@ -215,7 +221,8 @@ class ChatService:
             request.messages.append(ChatMessage(
                 role="assistant",
                 content=assistant_msg_content,
-                tool_calls=tool_calls
+                tool_calls=tool_calls,
+                provider_state=choice.message.provider_state,
             ))
 
             # Execute tool calls in parallel
@@ -241,6 +248,7 @@ class ChatService:
         # If max rounds reached, do one final call without tools
         self._logger.warning(f"Reached max tool rounds ({max_rounds}), finishing without tools")
         request.tools = None
+        request.tool_choice = None
         if provider_kind in self.OPENAI_PROVIDERS:
             response = await self._openai_completion(request, provider)
         elif provider_kind == self.ANTHROPIC_PROVIDER:
@@ -254,8 +262,12 @@ class ChatService:
             total_usage.prompt_tokens += response.usage.prompt_tokens
             total_usage.completion_tokens += response.usage.completion_tokens
             total_usage.total_tokens += response.usage.total_tokens
-        response.usage = total_usage
-        
+        else:
+            usage_known = False
+        if any(choice.message.tool_calls for choice in response.choices):
+            raise ChatCompletionError(INVALID_TOOL_CALL_MESSAGE)
+        response.usage = total_usage if usage_known else None
+
         return response
 
     async def create_completion_stream(
@@ -296,8 +308,11 @@ class ChatService:
             else:
                 raise UnsupportedProviderError(provider_kind)
 
-            async for raw_chunk in stream_gen:
-                yield raw_chunk
+            try:
+                async for raw_chunk in stream_gen:
+                    yield raw_chunk
+            finally:
+                await close_provider_stream(stream_gen)
             return
 
         # auto_execute_tools=True: run agentic loop with internal tool execution
@@ -332,6 +347,7 @@ class ChatService:
                     if tool_stream.observe(raw_chunk):
                         yield raw_chunk
                 prepared = tool_stream.finish()
+                enforce_tool_policy(request, prepared)
             except Exception as exc:
                 self._logger.error(
                     "Chat tool stream rejected before execution",
@@ -343,6 +359,8 @@ class ChatService:
                 }}, ensure_ascii=False) + "\n\n"
                 yield "data: [DONE]\n\n"
                 return
+            finally:
+                await close_provider_stream(stream_gen)
 
             if not prepared:
                 yield "data: [DONE]\n\n"
@@ -353,7 +371,8 @@ class ChatService:
             request.messages.append(ChatMessage(
                 role="assistant",
                 content=tool_stream.content,
-                tool_calls=final_tool_calls
+                tool_calls=final_tool_calls,
+                provider_state=tool_stream.provider_state,
             ))
 
             for tc in final_tool_calls:
@@ -384,6 +403,7 @@ class ChatService:
         # Final call without tools if we broke out of the loop with tool calls
         if prepared and round_idx == max_rounds - 1:
             request.tools = None
+            request.tool_choice = None
             if provider_kind in self.OPENAI_PROVIDERS:
                 stream_gen = self._openai_stream(request, provider)
             elif provider_kind == self.ANTHROPIC_PROVIDER:
@@ -393,8 +413,24 @@ class ChatService:
             else:
                 raise UnsupportedProviderError(provider_kind)
             
-            async for raw_chunk in stream_gen:
-                yield raw_chunk
+            final_stream = ToolCallStream()
+            try:
+                async for raw_chunk in stream_gen:
+                    if final_stream.observe(raw_chunk):
+                        yield raw_chunk
+                if final_stream.finish():
+                    raise InvalidToolCallError()
+            except Exception as exc:
+                self._logger.error(
+                    "Final chat stream rejected",
+                    error_type=type(exc).__name__,
+                )
+                yield "data: " + json.dumps({"error": {
+                    "message": INVALID_TOOL_CALL_MESSAGE, "type": "api_error",
+                }}, ensure_ascii=False) + "\n\n"
+            finally:
+                await close_provider_stream(stream_gen)
+            yield "data: [DONE]\n\n"
         else:
             yield "data: [DONE]\n\n"
 
@@ -755,11 +791,27 @@ class ChatService:
     # Anthropic Implementation
     # -------------------------------------------------------------------------
 
-    def _create_anthropic_client(self, provider: LLMProvider) -> AsyncAnthropic:
-        """Create an Anthropic client from provider credentials."""
+    def _create_anthropic_client(
+        self, provider: LLMProvider
+    ) -> AsyncAnthropic:
+        if not provider.api_key or not provider.api_key.strip():
+            raise ChatCompletionError("供应商未配置 API 密钥")
         return AsyncAnthropic(
             api_key=provider.api_key,
+            base_url=provider.api_base_url,
             timeout=provider.timeout or 60.0,
+        )
+
+    def _create_google_client(self, provider: LLMProvider) -> genai.Client:
+        if not provider.api_key or not provider.api_key.strip():
+            raise ChatCompletionError("供应商未配置 API 密钥")
+        return genai.Client(
+            api_key=provider.api_key,
+            vertexai=False,
+            http_options=genai.types.HttpOptions(
+                base_url=provider.api_base_url,
+                timeout=int((provider.timeout or 60.0) * 1000),
+            ),
         )
 
     @account_completion
@@ -768,43 +820,15 @@ class ChatService:
         request: ChatCompletionRequest,
         provider: LLMProvider,
     ) -> ChatCompletionResponse:
-        """Handle Anthropic chat completion."""
         try:
-            client = self._create_anthropic_client(provider)
-            system_prompt, messages = self._convert_to_anthropic_messages(request.messages)
-            params = self._build_anthropic_params(request, system_prompt, messages)
-
-            response = await client.messages.create(**params)
-
-            content = "".join(block.text for block in response.content if hasattr(block, "text"))
-            finish_reason = "stop" if response.stop_reason == "end_turn" else response.stop_reason
-
-            return ChatCompletionResponse(
-                id=create_completion_id(),
-                created=int(time.time()),
-                model=response.model,
-                choices=[
-                    Choice(
-                        index=0,
-                        message=ChoiceMessage(role="assistant", content=content),
-                        finish_reason=finish_reason,
-                    )
-                ],
-                usage=Usage(
-                    prompt_tokens=response.usage.input_tokens,
-                    completion_tokens=response.usage.output_tokens,
-                    total_tokens=response.usage.input_tokens + response.usage.output_tokens,
-                ),
+            return await chat_anthropic.complete(
+                request, self._create_anthropic_client(provider)
             )
         except Exception as exc:
             self._logger.error(
-                "Anthropic completion failed",
-                error_type=type(exc).__name__,
+                "Anthropic completion failed", error_type=type(exc).__name__
             )
-            raise ChatCompletionError(
-                "Anthropic completion failed",
-                details={"provider_kind": "anthropic", "model": request.model},
-            ) from exc
+            raise ChatCompletionError("Anthropic completion failed") from None
 
     @account_stream
     async def _anthropic_stream(
@@ -812,99 +836,25 @@ class ChatService:
         request: ChatCompletionRequest,
         provider: LLMProvider,
     ) -> AsyncIterator[str]:
-        """Handle Anthropic streaming chat completion."""
+        chunks: AsyncIterator[str] | None = None
         try:
-            client = self._create_anthropic_client(provider)
-            system_prompt, messages = self._convert_to_anthropic_messages(request.messages)
-            params = self._build_anthropic_params(request, system_prompt, messages)
-
-            completion_id = create_completion_id()
-            created = int(time.time())
-            first_chunk = True
-
-            async with client.messages.stream(**params) as stream:
-                async for text in stream.text_stream:
-                    chunk = self._create_stream_chunk(
-                        completion_id, created, request.model,
-                        content=text, role="assistant" if first_chunk else None,
-                    )
-                    yield f"data: {chunk.model_dump_json()}\n\n"
-                    first_chunk = False
-
-            # Final chunk with finish_reason
-            final_chunk = self._create_stream_chunk(
-                completion_id, created, request.model, finish_reason="stop"
+            chunks = chat_anthropic.stream(
+                request,
+                self._create_anthropic_client(provider),
             )
-            yield f"data: {final_chunk.model_dump_json()}\n\n"
-            yield "data: [DONE]\n\n"
+            async for chunk in chunks:
+                yield chunk
         except Exception as exc:
             self._logger.error(
-                "Anthropic streaming failed",
-                error_type=type(exc).__name__,
+                "Anthropic streaming failed", error_type=type(exc).__name__
             )
-            yield f"data: {json.dumps({'error': {'message': 'Anthropic streaming failed', 'type': 'api_error'}})}\n\n"
-
-    def _build_anthropic_params(
-        self,
-        request: ChatCompletionRequest,
-        system_prompt: Optional[str],
-        messages: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        """Build Anthropic API parameters."""
-        params: Dict[str, Any] = {
-            "model": request.model,
-            "messages": messages,
-            "max_tokens": request.max_tokens or 4096,
-        }
-
-        if system_prompt:
-            params["system"] = system_prompt
-        if request.temperature is not None:
-            params["temperature"] = request.temperature
-        if request.top_p is not None:
-            params["top_p"] = request.top_p
-        if request.stop:
-            params["stop_sequences"] = request.stop if isinstance(request.stop, list) else [request.stop]
-
-        # Handle tools for Anthropic
-        if request.tools:
-            anthropic_tools = []
-            for tool in request.tools:
-                if tool.type == "function":
-                    anthropic_tools.append({
-                        "name": tool.function.name,
-                        "description": tool.function.description or "",
-                        "input_schema": tool.function.parameters or {"type": "object", "properties": {}},
-                    })
-            if anthropic_tools:
-                params["tools"] = anthropic_tools
-
-        return params
-
-    @staticmethod
-    def _convert_to_anthropic_messages(
-        messages: List[ChatMessage],
-    ) -> tuple[Optional[str], List[Dict[str, Any]]]:
-        """Convert OpenAI messages to Anthropic format."""
-        system_prompt = None
-        anthropic_messages = []
-
-        for msg in messages:
-            if msg.role == "system":
-                system_prompt = msg.content
-            elif msg.role in ("user", "assistant"):
-                anthropic_messages.append({"role": msg.role, "content": msg.content or ""})
-
-        return system_prompt, anthropic_messages
-
-    # -------------------------------------------------------------------------
-    # Google Gemini Implementation
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    def _configure_gemini(api_key: str) -> None:
-        """Configure Gemini API with credentials."""
-        genai.configure(api_key=api_key)
+            yield (
+                'data: {"error":{"message":"Anthropic streaming failed",'
+                '"type":"api_error"}}\n\n'
+            )
+        finally:
+            if chunks is not None:
+                await close_provider_stream(chunks)
 
     @account_completion
     async def _google_completion(
@@ -912,67 +862,15 @@ class ChatService:
         request: ChatCompletionRequest,
         provider: LLMProvider,
     ) -> ChatCompletionResponse:
-        """Handle Google Gemini chat completion."""
         try:
-            self._configure_gemini(provider.api_key)
-            
-            # Build tools for Gemini
-            tools = None
-            if request.tools:
-                gemini_functions = []
-                for tool in request.tools:
-                    if tool.type == "function":
-                        gemini_functions.append({
-                            "name": tool.function.name,
-                            "description": tool.function.description or "",
-                            "parameters": tool.function.parameters or {"type": "object", "properties": {}},
-                        })
-                if gemini_functions:
-                    tools = [{"function_declarations": gemini_functions}]
-
-            model = genai.GenerativeModel(request.model, tools=tools)
-            history, last_message = self._convert_to_gemini_messages(request.messages)
-            generation_config = self._build_gemini_config(request)
-
-            chat = model.start_chat(history=history)
-            response = await chat.send_message_async(
-                last_message,
-                generation_config=generation_config or None,
-            )
-
-            content = response.text
-            metadata = getattr(response, "usage_metadata", None)
-            prompt_tokens = getattr(metadata, "prompt_token_count", None)
-            completion_tokens = getattr(metadata, "candidates_token_count", None)
-            measured_usage = (
-                Usage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
-                      total_tokens=prompt_tokens + completion_tokens)
-                if type(prompt_tokens) is int and type(completion_tokens) is int
-                else None
-            )
-
-            return ChatCompletionResponse(
-                id=create_completion_id(),
-                created=int(time.time()),
-                model=request.model,
-                choices=[
-                    Choice(
-                        index=0,
-                        message=ChoiceMessage(role="assistant", content=content),
-                        finish_reason="stop",
-                    )
-                ],
-                usage=measured_usage,
+            return await chat_google.complete(
+                request, self._create_google_client(provider)
             )
         except Exception as exc:
             self._logger.error(
-                "Google completion failed",
-                error_type=type(exc).__name__,
+                "Google completion failed", error_type=type(exc).__name__
             )
-            raise ChatCompletionError(
-                "Google completion failed",
-                details={"provider_kind": "google", "model": request.model},
-            ) from exc
+            raise ChatCompletionError("Google completion failed") from None
 
     @account_stream
     async def _google_stream(
@@ -980,124 +878,22 @@ class ChatService:
         request: ChatCompletionRequest,
         provider: LLMProvider,
     ) -> AsyncIterator[str]:
-        """Handle Google Gemini streaming chat completion."""
+        chunks: AsyncIterator[str] | None = None
         try:
-            self._configure_gemini(provider.api_key)
-            
-            # Build tools for Gemini
-            tools = None
-            if request.tools:
-                gemini_functions = []
-                for tool in request.tools:
-                    if tool.type == "function":
-                        gemini_functions.append({
-                            "name": tool.function.name,
-                            "description": tool.function.description or "",
-                            "parameters": tool.function.parameters or {"type": "object", "properties": {}},
-                        })
-                if gemini_functions:
-                    tools = [{"function_declarations": gemini_functions}]
-
-            model = genai.GenerativeModel(request.model, tools=tools)
-            history, last_message = self._convert_to_gemini_messages(request.messages)
-            generation_config = self._build_gemini_config(request)
-
-            chat = model.start_chat(history=history)
-            completion_id = create_completion_id()
-            created = int(time.time())
-            first_chunk = True
-
-            response = await chat.send_message_async(
-                last_message,
-                generation_config=generation_config or None,
-                stream=True,
+            chunks = chat_google.stream(
+                request,
+                self._create_google_client(provider),
             )
-
-            async for chunk in response:
-                if chunk.text:
-                    stream_chunk = self._create_stream_chunk(
-                        completion_id, created, request.model,
-                        content=chunk.text, role="assistant" if first_chunk else None,
-                    )
-                    yield f"data: {stream_chunk.model_dump_json()}\n\n"
-                    first_chunk = False
-
-            # Final chunk
-            final_chunk = self._create_stream_chunk(
-                completion_id, created, request.model, finish_reason="stop"
-            )
-            yield f"data: {final_chunk.model_dump_json()}\n\n"
-            yield "data: [DONE]\n\n"
+            async for chunk in chunks:
+                yield chunk
         except Exception as exc:
             self._logger.error(
-                "Google streaming failed",
-                error_type=type(exc).__name__,
+                "Google streaming failed", error_type=type(exc).__name__
             )
-            yield f"data: {json.dumps({'error': {'message': 'Google streaming failed', 'type': 'api_error'}})}\n\n"
-
-    @staticmethod
-    def _build_gemini_config(request: ChatCompletionRequest) -> Dict[str, Any]:
-        """Build Gemini generation config."""
-        config: Dict[str, Any] = {}
-        if request.temperature is not None:
-            config["temperature"] = request.temperature
-        if request.top_p is not None:
-            config["top_p"] = request.top_p
-        if request.max_tokens is not None:
-            config["max_output_tokens"] = request.max_tokens
-        if request.stop:
-            config["stop_sequences"] = request.stop if isinstance(request.stop, list) else [request.stop]
-        return config
-
-    @staticmethod
-    def _convert_to_gemini_messages(
-        messages: List[ChatMessage],
-    ) -> tuple[List[Dict[str, Any]], str]:
-        """Convert OpenAI messages to Gemini format."""
-        history: List[Dict[str, Any]] = []
-        last_message = ""
-        system_instruction = None
-
-        for i, msg in enumerate(messages):
-            if msg.role == "system":
-                system_instruction = msg.content
-            elif msg.role == "user":
-                if i == len(messages) - 1:
-                    last_message = msg.content or ""
-                else:
-                    history.append({"role": "user", "parts": [msg.content or ""]})
-            elif msg.role == "assistant":
-                history.append({"role": "model", "parts": [msg.content or ""]})
-
-        # Prepend system instruction to last message if present
-        if system_instruction:
-            last_message = f"{system_instruction}\n\n{last_message}" if last_message else system_instruction
-
-        return history, last_message
-
-    # -------------------------------------------------------------------------
-    # Helper Methods
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    def _create_stream_chunk(
-        completion_id: str,
-        created: int,
-        model: str,
-        content: Optional[str] = None,
-        role: Optional[str] = None,
-        finish_reason: Optional[str] = None,
-    ) -> ChatCompletionChunk:
-        """Create a streaming chunk response."""
-        return ChatCompletionChunk(
-            id=completion_id,
-            created=created,
-            model=model,
-            choices=[
-                StreamChoice(
-                    index=0,
-                    delta=DeltaMessage(role=role, content=content),
-                    finish_reason=finish_reason,
-                )
-            ],
-        )
+            yield (
+                'data: {"error":{"message":"Google streaming failed",'
+                '"type":"api_error"}}\n\n'
+            )
+        finally:
+            if chunks is not None:
+                await close_provider_stream(chunks)

@@ -78,3 +78,42 @@ async def test_stream_bytes_unchanged_and_no_fake_usage(inventory, complete):
     assert [chunk async for chunk in stream(None, request, provider)] == chunks
     assert inventory[0].status == ("succeeded" if complete else "failed")
     assert inventory[0].input_tokens is None
+
+
+@pytest.mark.asyncio
+async def test_stream_usage_is_scoped_and_nested_generator_closes(inventory):
+    import asyncio
+
+    closed = []
+
+    @chat_accounting.account_stream
+    async def stream(service, request, provider):
+        try:
+            await asyncio.sleep(0)
+            chat_accounting.observe_stream_usage(Usage(
+                prompt_tokens=request.max_tokens, completion_tokens=3,
+                total_tokens=request.max_tokens + 3,
+            ))
+            yield 'data: {}\n\n'
+            yield 'data: [DONE]\n\n'
+        finally:
+            closed.append(request.max_tokens)
+
+    async def run(amount):
+        request, provider = inputs()
+        request.max_tokens = amount
+        return [part async for part in stream(None, request, provider)]
+
+    await asyncio.gather(run(13), run(29))
+    assert {entry.input_tokens for entry in inventory} == {13, 29}
+    assert all(entry.output_tokens == 3 for entry in inventory)
+    assert sorted(closed) == [13, 29]
+    assert chat_accounting._stream_usage.get() is None
+
+    request, provider = inputs()
+    request.max_tokens = 41
+    output = stream(None, request, provider)
+    await anext(output)
+    await output.aclose()
+    assert closed[-1] == 41
+    assert chat_accounting._stream_usage.get() is None

@@ -398,3 +398,114 @@ async def test_nonstream_selects_primary_choice_without_executing_other_choice(
     ))
     assert await service.create_completion(request(), uuid4()) is output
     executor.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("selection", ["none", "named"])
+async def test_selection_cannot_execute_a_different_function(
+    service_and_executor: tuple[ChatService, SimpleNamespace],
+    monkeypatch: pytest.MonkeyPatch,
+    stream: bool,
+    selection: str,
+) -> None:
+    from app.schemas.chat import FunctionDefinition, ToolDefinition
+
+    service, executor = service_and_executor
+    source = request()
+    source.tools = [
+        ToolDefinition(function=FunctionDefinition(name="allowed"))
+    ]
+    monkeypatch.setattr(
+        service, "_merge_tools", AsyncMock(return_value=source.tools)
+    )
+    source.tool_choice = (
+        "none"
+        if selection == "none"
+        else {
+            "type": "function",
+            "function": {"name": "allowed"},
+        }
+    )
+    if stream:
+
+        async def model_stream(*args: object) -> AsyncIterator[str]:
+            yield chunk({"tool_calls": [call().model_dump() | {"index": 0}]})
+            yield chunk(finish="tool_calls")
+            yield "data: [DONE]\n\n"
+
+        monkeypatch.setattr(service, "_openai_stream", model_stream)
+        output = [
+            item
+            async for item in service.create_completion_stream(source, uuid4())
+        ]
+        assert any('"error"' in item for item in output)
+    else:
+        monkeypatch.setattr(
+            service,
+            "_openai_completion",
+            AsyncMock(return_value=completion([call()])),
+        )
+        with pytest.raises(ChatCompletionError):
+            await service.create_completion(source, uuid4())
+    executor.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_round_limit_clears_tool_choice_and_rejects_more_calls(
+    service_and_executor: tuple[ChatService, SimpleNamespace],
+    monkeypatch: pytest.MonkeyPatch,
+    stream: bool,
+) -> None:
+    service, executor = service_and_executor
+    source = request()
+    source.max_tool_rounds = 1
+    source.tool_choice = "required"
+    rounds = 0
+
+    def next_output() -> ChatCompletionResponse:
+        nonlocal rounds
+        rounds += 1
+        if rounds == 2:
+            assert source.tools is None and source.tool_choice is None
+        return completion([call()])
+
+    if stream:
+
+        async def model_stream(*args: object) -> AsyncIterator[str]:
+            next_output()
+            yield chunk({"tool_calls": [call().model_dump() | {"index": 0}]})
+            yield chunk(finish="tool_calls")
+            yield "data: [DONE]\n\n"
+
+        monkeypatch.setattr(service, "_openai_stream", model_stream)
+        output = [
+            item
+            async for item in service.create_completion_stream(source, uuid4())
+        ]
+        assert sum('"error"' in item for item in output) == 1
+        assert output.count("data: [DONE]\n\n") == 1
+    else:
+        monkeypatch.setattr(
+            service,
+            "_openai_completion",
+            AsyncMock(side_effect=lambda *args: next_output()),
+        )
+        with pytest.raises(ChatCompletionError):
+            await service.create_completion(source, uuid4())
+    assert rounds == 2
+    executor.execute.assert_awaited_once()
+
+
+def test_text_stream_requires_a_terminal_reason() -> None:
+    from app.services.chat_tool_calls import (
+        InvalidToolCallError,
+        ToolCallStream,
+    )
+
+    observed = ToolCallStream()
+    observed.observe(chunk({"content": "partial"}))
+    observed.observe("data: [DONE]\n\n")
+    with pytest.raises(InvalidToolCallError):
+        observed.finish()
