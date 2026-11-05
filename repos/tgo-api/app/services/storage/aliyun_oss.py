@@ -1,7 +1,7 @@
 """Aliyun OSS storage backend."""
 
 import asyncio
-from typing import BinaryIO, Any
+from typing import BinaryIO
 from urllib.parse import urlparse
 
 try:
@@ -23,8 +23,8 @@ class AliyunOSSBackend(StorageBackend):
         bucket_name: str,
         access_key_id: str,
         access_key_secret: str,
-        bucket_url: str = None,
-    ):
+        bucket_url: str | None = None,
+    ) -> None:
         """
         Initialize Aliyun OSS backend.
 
