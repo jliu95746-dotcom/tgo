@@ -1,10 +1,11 @@
-"""Private coordinates shared with API billing; no bearer secrets are persisted."""
+"""Private API billing coordinates; bearer secrets are never persisted."""
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from app.schemas.agent_runtime import AgentRuntimeRequest
+from app.schemas.agent_execution import AgentExecutionReference
 
 
 class WorkflowUsageOwner(BaseModel):
@@ -50,3 +51,60 @@ class WorkflowAICommand(BaseModel):
     execution_id: UUID
     node_id: str = Field(min_length=1, max_length=128)
     payload: AgentRuntimeRequest
+
+
+class WorkflowAIResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    success: StrictBool
+    content: str = Field(min_length=1, max_length=100000)
+    execution_id: UUID
+    execution_reference: AgentExecutionReference | None = None
+
+    @model_validator(mode="after")
+    def require_completed_answer(self) -> "WorkflowAIResult":
+        if self.success is not True or not self.content.strip():
+            raise ValueError("A saved AI result must be a successful answer")
+        return self
+
+
+class WorkflowAICacheCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    command: WorkflowAICommand
+    reservation_id: UUID | None = None
+    lease_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def require_complete_permit(self) -> "WorkflowAICacheCommand":
+        if (self.reservation_id is None) != (self.lease_id is None):
+            raise ValueError("A saved result requires a complete quota permit")
+        return self
+
+
+class WorkflowAICacheWrite(WorkflowAICacheCommand):
+    claim_id: UUID
+    result: WorkflowAIResult
+
+    @model_validator(mode="after")
+    def require_original_producer(self) -> "WorkflowAICacheWrite":
+        ref = self.result.execution_reference
+        if (
+            ref is None
+            or ref.project_id != self.command.project_id
+            or ref.agent_id != self.command.payload.agent_id
+            or ref.channel != "internal"
+        ):
+            raise ValueError("Saved answers require their exact producer")
+        return self
+
+
+class WorkflowAICacheReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    state: Literal["claimed", "pending", "completed"]
+    claim_id: UUID
+    result: WorkflowAIResult | None = None
+
+    @model_validator(mode="after")
+    def require_completed_result(self) -> "WorkflowAICacheReceipt":
+        if (self.state == "completed") != (self.result is not None):
+            raise ValueError("Only completed calls can return a saved answer")
+        return self

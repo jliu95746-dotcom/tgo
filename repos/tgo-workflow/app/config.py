@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     WORKFLOW_WEBHOOK_ACTIVE_KEY_ID: str | None = None
     WORKFLOW_APPROVAL_KEYS: SecretStr | None = None
     WORKFLOW_APPROVAL_ACTIVE_KEY_ID: str | None = None
+    WORKFLOW_AI_RESULT_KEYS: SecretStr | None = None
+    WORKFLOW_AI_RESULT_ACTIVE_KEY_ID: str | None = None
+    WORKFLOW_AI_RESULT_TTL_SECONDS: int = Field(default=900, ge=60, le=86400)
     WORKFLOW_EVENT_INPUT_KEYS: SecretStr | None = None
     WORKFLOW_EVENT_INPUT_ACTIVE_KEY_ID: str | None = None
     

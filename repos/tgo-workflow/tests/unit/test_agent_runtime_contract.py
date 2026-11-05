@@ -8,7 +8,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from app.engine.executor import WorkflowExecutor
+from app.engine.executor import WorkflowExecutor, WorkflowNodeFailure
 from app.integrations import ai_client
 from app.integrations.http_client import HttpClient
 
@@ -129,17 +129,20 @@ async def test_agent_node_records_child_execution_without_copying_answer(transpo
 async def test_agent_success_without_valid_execution_id_stops_workflow(
     transport, execution_id,
 ):
-    client, _, state = transport
+    client, requests, state = transport
     state["body"]["execution_id"] = execution_id
     completed = AsyncMock()
     try:
-        with pytest.raises(RuntimeError, match="agent"):
+        with pytest.raises(WorkflowNodeFailure, match="AI 调用结果暂无法确认"):
             await make_executor(
                 graph(str(uuid4())), project_id=str(uuid4()),
             ).run({"question": "材质是什么？"}, on_node_complete=completed)
         assert [(row.kwargs["node_id"], row.kwargs["status"])
                 for row in completed.await_args_list] == [
             ("input", "completed"), ("agent", "failed"),
+        ]
+        assert [r.url.path for r in requests] == [
+            '/internal/workflow-ai/run', '/internal/workflow-ai/recover',
         ]
     finally:
         await client.aclose()

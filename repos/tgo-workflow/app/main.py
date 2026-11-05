@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from contextlib import suppress
+import asyncio
 from app.config import settings
 from app.api import (
     approvals, customer_service_routing, events, executions, schedules, workflows,
@@ -9,13 +11,18 @@ from app.api import (
 )
 from app.integrations.http_client import HttpClient
 from app.api import ai_runtime
+from app.services.workflow_ai_result_retention import reap_forever
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    yield
-    # Shutdown
-    await HttpClient.close_client()
+    cleanup = asyncio.create_task(reap_forever())
+    try:
+        yield
+    finally:
+        cleanup.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup
+        await HttpClient.close_client()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

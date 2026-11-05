@@ -63,6 +63,10 @@ async def test_private_context_authentication_and_history_redaction(
             )
             assert row.ai_usage_owner["staff_id"] == str(actor)
             assert row.definition_digest == definition_digest(definition)
+            row.ai_result_receipts = {
+                "private": "synthetic-encrypted-result-body"
+            }
+            await db.commit()
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
@@ -98,6 +102,46 @@ async def test_private_context_authentication_and_history_redaction(
             assert (
                 "ai_usage_owner" not in public.text
                 and str(actor) not in public.text
+                and "ai_result_receipts" not in public.text
+                and "ai_result_expires_at" not in public.text
+                and "synthetic-encrypted-result-body" not in public.text
             )
+            cache_command = {
+                "command": {
+                    "project_id": str(project),
+                    "execution_id": str(execution),
+                    "node_id": "agent",
+                    "payload": {
+                        "agent_id": str(agent),
+                        "message": "synthetic",
+                    },
+                },
+            }
+            for operation in ["prepare", "read", "store"]:
+                body = cache_command
+                if operation == "store":
+                    body = {
+                        **body,
+                        "claim_id": str(uuid4()),
+                        "result": {
+                            "success": True,
+                            "content": "synthetic",
+                            "execution_id": str(uuid4()),
+                            "execution_reference": {
+                                "project_id": str(project),
+                                "agent_id": str(agent),
+                                "channel": "internal",
+                                "configuration_fingerprint": "a" * 64,
+                                "policy_revision": "b" * 64,
+                            },
+                        },
+                    }
+                private_url = "/v1/workflows/ai-runtime/results/" + operation
+                for headers in [{}, {"X-Internal-API-Key": "wrong"}]:
+                    assert (
+                        await client.post(
+                            private_url, json=body, headers=headers
+                        )
+                    ).status_code == 403
     finally:
         await engine.dispose()

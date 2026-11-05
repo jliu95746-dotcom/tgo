@@ -6,7 +6,7 @@ from app.api.internal.endpoints.workflow_approvals import (
     require_workflow_service,
 )
 from app.schemas.workflow_ai_usage import WorkflowAICommand, WorkflowAIResult
-from app.services.workflow_ai_dispatch import run
+from app.services.workflow_ai_dispatch import run, recover
 
 router = APIRouter(dependencies=[Depends(require_workflow_service)])
 
@@ -14,3 +14,10 @@ router = APIRouter(dependencies=[Depends(require_workflow_service)])
 @router.post("/run", response_model=WorkflowAIResult)
 async def run_workflow_agent(command: WorkflowAICommand) -> WorkflowAIResult:
     return await run(command)
+
+
+@router.post("/recover", response_model=WorkflowAIResult)
+async def recover_workflow_agent(
+    command: WorkflowAICommand,
+) -> WorkflowAIResult:
+    return await recover(command)

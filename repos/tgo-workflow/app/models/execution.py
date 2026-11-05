@@ -41,6 +41,12 @@ class WorkflowExecution(Base):
     ai_usage_owner: Mapped[dict[str, JsonValue] | None] = mapped_column(
         JSON(none_as_null=True), nullable=True,
     )
+    ai_result_receipts: Mapped[dict[str, JsonValue] | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True,
+    )
+    ai_result_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True,
+    )
     active_approval_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     active_segment_started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,

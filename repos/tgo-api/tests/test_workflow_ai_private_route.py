@@ -10,7 +10,10 @@ from app.main import app
 
 
 @pytest.mark.asyncio
-async def test_workflow_bridge_requires_internal_identity(monkeypatch):
+@pytest.mark.parametrize("operation", ["run", "recover"])
+async def test_workflow_bridge_requires_internal_identity(
+    monkeypatch, operation
+):
     monkeypatch.setattr(settings, "SECRET_KEY", "synthetic-workflow-bridge")
     command = {
         "project_id": str(uuid4()),
@@ -22,18 +25,20 @@ async def test_workflow_bridge_requires_internal_identity(monkeypatch):
         transport=ASGITransport(app=internal_app), base_url="http://test"
     ) as client:
         assert (
-            await client.post("/internal/workflow-ai/run", json=command)
+            await client.post(
+                f"/internal/workflow-ai/{operation}", json=command
+            )
         ).status_code == 403
         assert (
             await client.post(
-                "/internal/workflow-ai/run",
+                f"/internal/workflow-ai/{operation}",
                 json=command,
                 headers={"X-Internal-API-Key": "wrong"},
             )
         ).status_code == 403
         altered = {**command, "owner": {"unmetered": True}}
         response = await client.post(
-            "/internal/workflow-ai/run",
+            f"/internal/workflow-ai/{operation}",
             json=altered,
             headers={"X-Internal-API-Key": "synthetic-workflow-bridge"},
         )

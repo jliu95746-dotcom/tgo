@@ -12,6 +12,8 @@ from pydantic import (
     model_validator,
 )
 
+from app.schemas.agent_execution import AgentExecutionReference
+
 
 class WorkflowUsageOwner(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -95,6 +97,7 @@ class WorkflowAIResult(BaseModel):
     success: Literal[True]
     content: str = Field(min_length=1, max_length=100000)
     execution_id: UUID
+    execution_reference: AgentExecutionReference | None = None
 
     @field_validator("success", mode="before")
     @classmethod
@@ -155,3 +158,46 @@ class WorkflowUsageOutcome(BaseModel):
     ]
     output: JsonValue | None = None
     answer_available: bool = False
+
+
+class WorkflowAICacheCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    command: WorkflowAICommand
+    reservation_id: UUID | None = None
+    lease_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def require_complete_permit(self) -> "WorkflowAICacheCommand":
+        if (self.reservation_id is None) != (self.lease_id is None):
+            raise ValueError("Saved results require a complete quota permit")
+        return self
+
+
+class WorkflowAICacheWrite(WorkflowAICacheCommand):
+    claim_id: UUID
+    result: WorkflowAIResult
+
+    @model_validator(mode="after")
+    def require_original_producer(self) -> "WorkflowAICacheWrite":
+        ref = self.result.execution_reference
+        if (
+            ref is None
+            or ref.project_id != self.command.project_id
+            or ref.agent_id != self.command.payload.agent_id
+            or ref.channel != "internal"
+        ):
+            raise ValueError("Saved answers require their exact producer")
+        return self
+
+
+class WorkflowAICacheReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    state: Literal["claimed", "pending", "completed"]
+    claim_id: UUID
+    result: WorkflowAIResult | None = None
+
+    @model_validator(mode="after")
+    def require_completed_result(self) -> "WorkflowAICacheReceipt":
+        if (self.state == "completed") != (self.result is not None):
+            raise ValueError("Only completed calls can return an answer")
+        return self

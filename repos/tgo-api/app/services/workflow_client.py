@@ -13,6 +13,7 @@ from app.core.logging import get_logger
 from app.schemas.workflow_capabilities import WorkflowCapabilities
 from app.schemas.workflow_ai_usage import (
     WorkflowAICommand, WorkflowAIContext, WorkflowUsageOutcome,
+    WorkflowAICacheCommand, WorkflowAICacheWrite, WorkflowAICacheReceipt,
 )
 from app.schemas.ai_workflows import WorkflowExecution, WorkflowInDB
 from app.schemas.workflow_approval import (
@@ -442,6 +443,7 @@ class WorkflowServiceClient:
         params: Optional[Dict[str, Any]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
         raw_body: bytes | None = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         """Make HTTP request to Workflow service."""
         if raw_body is not None and json_data is not None:
@@ -467,7 +469,7 @@ class WorkflowServiceClient:
 
         try:
             async with httpx.AsyncClient(
-                timeout=self.timeout,
+                timeout=self.timeout if timeout is None else timeout,
                 trust_env=False,
             ) as client:
                 response = await client.request(
@@ -732,6 +734,25 @@ class WorkflowServiceClient:
         )
         data = await self._handle_response(response)
         return WorkflowAIContext.model_validate(data)
+
+    async def workflow_ai_result(
+        self,
+        operation: Literal["prepare", "read", "store"],
+        request: WorkflowAICacheCommand | WorkflowAICacheWrite,
+    ) -> WorkflowAICacheReceipt:
+        response = await self._make_request(
+            "POST",
+            "/v1/workflows/ai-runtime/results/" + operation,
+            json_data=request.model_dump(mode="json"),
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+            timeout=15.0,
+        )
+        if response.status_code != 200:
+            raise HTTPException(response.status_code, "原 AI 回答暂时无法核验。")
+        try:
+            return WorkflowAICacheReceipt.model_validate_json(response.content)
+        except ValueError:
+            raise HTTPException(502, "原 AI 回答回执无效。") from None
 
     async def workflow_usage_outcome(
         self, project_id: UUID, execution_id: UUID,

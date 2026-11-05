@@ -217,13 +217,8 @@ def _reservation(
     return row
 
 
-def claim(
-    command: WorkflowAICommand, context: WorkflowAIContext
-) -> WorkflowAIClaim:
-    """Claim before dispatch and serialize retries with the company lock."""
-    _require_context(command, context)
-    key = _call_key(command.execution_id, command.node_id)
-    digest = hmac.new(
+def _request_digest(command: WorkflowAICommand) -> str:
+    return hmac.new(
         settings.SECRET_KEY.encode(),
         json.dumps(
             command.model_dump(mode="json"),
@@ -233,6 +228,91 @@ def claim(
         ).encode(),
         hashlib.sha256,
     ).hexdigest()
+
+
+def recovery_claim(
+    command: WorkflowAICommand,
+    context: WorkflowAIContext,
+) -> WorkflowAIClaim:
+    """Read the original permit without reserving or refreshing its lease."""
+    _require_context(command, context)
+    key = _call_key(command.execution_id, command.node_id)
+    digest = _request_digest(command)
+    with SessionLocal() as db:
+        _require_staff(db, context.project_id, context.owner)
+        if not settings.SAAS_ENABLED or not settings.SAAS_BILLING_ENABLED:
+            return WorkflowAIClaim(None, key, digest)
+        account = lock_company(db, context.project_id)
+        ai_usage.require_service(account, datetime.now(timezone.utc))
+        owner = context.owner
+        if account is None:
+            db.commit()
+            return WorkflowAIClaim(None, key, digest)
+        if owner.unmetered:
+            raise _error("当前企业必须使用原额度归属", forbidden=True)
+        if owner.reservation_id is not None:
+            assert owner.lease_id is not None
+            row = ai_usage.owned(
+                db, context.project_id, owner.reservation_id, owner.lease_id
+            )
+        else:
+            assert (
+                owner.staff_id is not None
+                and owner.staff_token_version is not None
+            )
+            found = db.scalar(
+                select(AIUsageReservation)
+                .where(
+                    AIUsageReservation.project_id == context.project_id,
+                    AIUsageReservation.round_key
+                    == f"workflow:{context.execution_id}",
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if found is None:
+                raise _error("没有原额度预约，恢复不会另建 AI 调用")
+            row = found
+            expected = WorkflowUsageReceipt(
+                execution_id=context.execution_id,
+                staff_id=owner.staff_id,
+                staff_token_version=owner.staff_token_version,
+            )
+            try:
+                receipt = WorkflowUsageReceipt.model_validate(
+                    {
+                        k: v
+                        for k, v in (row.receipt or {}).items()
+                        if k != "workflow_ai_calls"
+                    }
+                )
+            except ValidationError:
+                raise _error("原额度归属无法核验") from None
+            if receipt != expected:
+                raise _error("原工作流额度归属已变更", forbidden=True)
+        if row.status not in {"reserved", "review"}:
+            raise _error("原额度已结束，不再恢复执行")
+        previous = _calls(row).get(key)
+        if (
+            previous is None
+            or previous.state == "rejected"
+            or previous.request_digest != digest
+        ):
+            raise _error("没有与本次请求一致的原 AI 调用")
+        permit = ReplyPermit(context.project_id, row.id, row.lease_id, False)
+        db.commit()
+        return WorkflowAIClaim(
+            permit, key, digest, previous.agent_execution_id
+        )
+
+
+def claim(
+    command: WorkflowAICommand, context: WorkflowAIContext
+) -> WorkflowAIClaim:
+    """Claim before dispatch and serialize retries with the company lock."""
+    _require_context(command, context)
+    key = _call_key(command.execution_id, command.node_id)
+    digest = _request_digest(command)
     with SessionLocal() as db:
         if not settings.SAAS_ENABLED or not settings.SAAS_BILLING_ENABLED:
             _require_staff(db, context.project_id, context.owner)

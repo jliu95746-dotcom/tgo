@@ -8,6 +8,7 @@ from app.integrations.http_client import HttpClient
 from app.schemas.agent_runtime import AgentRuntimeRequest, AgentRuntimeResult
 from app.schemas.ai_usage import WorkflowAICommand
 from app.integrations.ai_errors import WorkflowAIError
+from app.integrations.workflow_ai_recovery import run_with_recovery
 from app.schemas.tool import ToolAvailability, ToolExecuteRequest, ToolExecuteResponse
 from app.schemas.employee_workflow import (
     EmployeeWorkflowBindingReceipt,
@@ -180,28 +181,15 @@ class AIClient:
             raise WorkflowAIError(403) from None
         try:
             client = await HttpClient.get_client()
-            headers = {
-                "X-Internal-API-Key": key.get_secret_value(),
-                "X-Project-Id": project_id, "X-Execution-Channel": "internal",
-            }
-            response = await client.post(
-                (f"{settings.API_INTERNAL_SERVICE_URL}"
-                 "/internal/workflow-ai/run"),
-                json=command.model_dump(mode="json", exclude_none=True),
-                headers=headers,
-                timeout=120.0,
-            )
         except (httpx.HTTPError, OSError, TimeoutError):
             raise WorkflowAIError(503) from None
-        if response.status_code != 200:
-            raise WorkflowAIError(response.status_code)
-        try:
-            result = AgentRuntimeResult.model_validate(response.json())
-        except ValueError:
-            raise RuntimeError("AI 员工执行回执无法确认，请重试或转人工") from None
-        if not result.success:
-            raise RuntimeError("AI 员工执行失败，请检查当前能力配置或转人工")
-        return result
+        return await run_with_recovery(
+            client, settings.API_INTERNAL_SERVICE_URL,
+            {
+                "X-Internal-API-Key": key.get_secret_value(),
+                "X-Project-Id": project_id, "X-Execution-Channel": "internal",
+            }, command,
+        )
 
     @staticmethod
     async def cancel_agent_run(
