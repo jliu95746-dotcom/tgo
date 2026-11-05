@@ -1,14 +1,24 @@
 """Custom exceptions and error handling."""
 
-from typing import Any, Dict, Optional
+from collections.abc import Mapping
+from typing import Optional, TypedDict, get_args
 from uuid import uuid4
 
 from fastapi import HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import (
+    http_exception_handler as default_http_exception_handler,
+)
+from fastapi.routing import APIRoute
+from pydantic import BaseModel
+from pydantic_core.core_schema import ErrorType
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
+from starlette.routing import Route
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.core.logging import get_logger
+from app.core.logging import bind_error_request_id, get_logger
 from app.schemas.base import ErrorDetail, ErrorResponse
 from pydantic import ValidationError as PydanticValidationError
 
@@ -17,30 +27,30 @@ logger = get_logger("exceptions")
 
 class TGOAPIException(Exception):
     """Base exception for TGO API."""
-    
+
     def __init__(
         self,
         message: str,
         code: str = "INTERNAL_ERROR",
-        details: Optional[Dict[str, Any]] = None,
+        details: Optional[Mapping[str, object]] = None,
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
-    ):
+    ) -> None:
         self.message = message
         self.code = code
-        self.details = details or {}
+        self.details = dict(details or {})
         self.status_code = status_code
         super().__init__(self.message)
 
 
 class ValidationError(TGOAPIException):
     """Validation error exception."""
-    
+
     def __init__(
         self,
         message: str,
         field: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-    ):
+        details: Optional[Mapping[str, object]] = None,
+    ) -> None:
         super().__init__(
             message=message,
             code="VALIDATION_ERROR",
@@ -51,34 +61,38 @@ class ValidationError(TGOAPIException):
 
 class NotFoundError(TGOAPIException):
     """Resource not found exception."""
-    
+
     def __init__(
         self,
         resource: str,
         identifier: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-    ):
+        details: Optional[Mapping[str, object]] = None,
+    ) -> None:
         message = f"{resource} not found"
         if identifier:
             message += f" with identifier: {identifier}"
-        
+
         super().__init__(
             message=message,
             code="NOT_FOUND",
-            details={"resource": resource, "identifier": identifier, **(details or {})},
+            details={
+                "resource": resource,
+                "identifier": identifier,
+                **(details or {}),
+            },
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
 
 class ConflictError(TGOAPIException):
     """Resource conflict exception."""
-    
+
     def __init__(
         self,
         message: str,
         resource: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-    ):
+        details: Optional[Mapping[str, object]] = None,
+    ) -> None:
         super().__init__(
             message=message,
             code="CONFLICT",
@@ -89,12 +103,12 @@ class ConflictError(TGOAPIException):
 
 class AuthenticationError(TGOAPIException):
     """Authentication error exception."""
-    
+
     def __init__(
         self,
         message: str = "Authentication failed",
-        details: Optional[Dict[str, Any]] = None,
-    ):
+        details: Optional[Mapping[str, object]] = None,
+    ) -> None:
         super().__init__(
             message=message,
             code="AUTHENTICATION_ERROR",
@@ -105,13 +119,13 @@ class AuthenticationError(TGOAPIException):
 
 class AuthorizationError(TGOAPIException):
     """Authorization error exception."""
-    
+
     def __init__(
         self,
         message: str = "Access denied",
         resource: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-    ):
+        details: Optional[Mapping[str, object]] = None,
+    ) -> None:
         super().__init__(
             message=message,
             code="AUTHORIZATION_ERROR",
@@ -122,13 +136,13 @@ class AuthorizationError(TGOAPIException):
 
 class RateLimitError(TGOAPIException):
     """Rate limit exceeded exception."""
-    
+
     def __init__(
         self,
         message: str = "Rate limit exceeded",
         retry_after: Optional[int] = None,
-        details: Optional[Dict[str, Any]] = None,
-    ):
+        details: Optional[Mapping[str, object]] = None,
+    ) -> None:
         super().__init__(
             message=message,
             code="RATE_LIMIT_EXCEEDED",
@@ -139,13 +153,13 @@ class RateLimitError(TGOAPIException):
 
 class ExternalServiceError(TGOAPIException):
     """External service error exception."""
-    
+
     def __init__(
         self,
         service: str,
         message: str = "External service error",
-        details: Optional[Dict[str, Any]] = None,
-    ):
+        details: Optional[Mapping[str, object]] = None,
+    ) -> None:
         super().__init__(
             message=f"{service}: {message}",
             code="EXTERNAL_SERVICE_ERROR",
@@ -154,195 +168,238 @@ class ExternalServiceError(TGOAPIException):
         )
 
 
-async def tgo_api_exception_handler(request: Request, exc: TGOAPIException) -> JSONResponse:
-    """Handle TGO API exceptions."""
-    request_id = str(uuid4())
-    
-    logger.error(
-        f"TGO API Exception: {exc.code} - {exc.message}",
-        extra={
-            "request_id": request_id,
-            "path": request.url.path,
-            "method": request.method,
-            "code": exc.code,
-            "details": exc.details,
-        }
+class _ValidationIssue(TypedDict):
+    type: str
+    loc: list[str]
+    msg: str
+
+
+_VALIDATION_TYPES: frozenset[str] = frozenset(get_args(ErrorType))
+_GENERIC_SERVER_MESSAGE = "An internal error occurred"
+
+
+def _error_context(
+    request: Request, exc: Exception, request_id: str, status_code: int
+) -> dict[str, object]:
+    bind_error_request_id(request_id)
+    route = request.scope.get("route")
+    method = request.method
+    if method not in {
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "HEAD",
+        "OPTIONS",
+        "TRACE",
+        "CONNECT",
+    }:
+        method = "OTHER"
+    return {
+        "request_id": request_id,
+        "path": route.path if isinstance(route, Route) else "unmatched",
+        "method": method,
+        "status_code": status_code,
+        "error_type": type(exc).__name__,
+    }
+
+
+def _log_http_error(
+    request: Request, exc: StarletteHTTPException, request_id: str
+) -> None:
+    if exc.status_code >= 500:
+        log = logger.error
+    elif exc.status_code == 401:
+        path = request.scope.get("path", "")
+        log = (
+            logger.debug
+            if isinstance(path, str)
+            and path.startswith("/v1/integrations/wukongim/webhook")
+            else logger.info
+        )
+    else:
+        log = logger.warning
+    log(
+        "HTTP Exception",
+        extra=_error_context(request, exc, request_id, exc.status_code),
     )
-    
-    error_response = ErrorResponse(
+
+
+def _declared_validation_fields(request: Request) -> dict[str, set[str]]:
+    route = request.scope.get("route")
+    if not isinstance(route, APIRoute):
+        return {}
+    dependant = route.dependant
+    fields = {
+        "body": {field.alias for field in dependant.body_params},
+        "path": {field.alias for field in dependant.path_params},
+        "query": {field.alias for field in dependant.query_params},
+        "header": {field.alias for field in dependant.header_params},
+        "cookie": {field.alias for field in dependant.cookie_params},
+    }
+    for field in dependant.body_params:
+        model = field.type_
+        if isinstance(model, type) and issubclass(model, BaseModel):
+            fields["body"].update(
+                item.alias if isinstance(item.alias, str) else name
+                for name, item in model.model_fields.items()
+            )
+    return fields
+
+
+def _safe_validation_issues(
+    request: Request, exc: Exception
+) -> list[_ValidationIssue]:
+    if not isinstance(exc, (RequestValidationError, PydanticValidationError)):
+        return [
+            {
+                "type": "value_error",
+                "loc": ["body"],
+                "msg": "Invalid field value",
+            }
+        ]
+    fields = _declared_validation_fields(request)
+    issues: list[_ValidationIssue] = []
+    for raw in exc.errors():
+        item: Mapping[str, object] = raw
+        kind = item.get("type")
+        if not isinstance(kind, str) or kind not in _VALIDATION_TYPES:
+            kind = "value_error"
+        location = item.get("loc")
+        safe_location = ["body"]
+        if isinstance(location, (tuple, list)) and location:
+            section = location[0]
+            if isinstance(section, str) and section in {
+                "body",
+                "path",
+                "query",
+                "header",
+                "cookie",
+            }:
+                safe_location = [section]
+                if (
+                    len(location) > 1
+                    and isinstance(location[1], str)
+                    and location[1] in fields.get(section, set())
+                ):
+                    safe_location.append(location[1])
+        issues.append(
+            {
+                "type": kind,
+                "loc": safe_location,
+                "msg": "Field required"
+                if kind == "missing"
+                else "Invalid field value",
+            }
+        )
+    return issues
+
+
+async def tgo_api_exception_handler(
+    request: Request, exc: TGOAPIException
+) -> JSONResponse:
+    """Return controlled domain errors without logging their payloads."""
+    request_id = str(uuid4())
+    logger.error(
+        "TGO API Exception",
+        extra=_error_context(request, exc, request_id, exc.status_code),
+    )
+    server_error = exc.status_code >= 500
+    response = ErrorResponse(
         error=ErrorDetail(
             code=exc.code,
-            message=exc.message,
-            details=exc.details,
+            message=_GENERIC_SERVER_MESSAGE if server_error else exc.message,
+            details=None if server_error else exc.details,
         ),
         request_id=request_id,
     )
-    
     return JSONResponse(
         status_code=exc.status_code,
-        content=error_response.model_dump(),
+        content=jsonable_encoder(response.model_dump()),
     )
 
 
-async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    """Handle FastAPI HTTP exceptions."""
+async def http_exception_handler(
+    request: Request, exc: HTTPException
+) -> JSONResponse:
+    """Keep public error envelopes and HTTP control headers."""
     request_id = str(uuid4())
-    
-    # Reduce noise for expected 401s, especially on public webhook endpoints
-    if exc.status_code == 401:
-        if str(request.url.path).startswith("/v1/integrations/wukongim/webhook"):
-            log_fn = logger.debug
-        else:
-            log_fn = logger.info
-    else:
-        log_fn = logger.warning
-
-    log_fn(
-        f"HTTP Exception: {exc.status_code} - {exc.detail}",
-        extra={
-            "request_id": request_id,
-            "path": request.url.path,
-            "method": request.method,
-            "status_code": exc.status_code,
-        }
-    )
-
-    error_response = ErrorResponse(
+    _log_http_error(request, exc, request_id)
+    response = ErrorResponse(
         error=ErrorDetail(
             code="HTTP_ERROR",
-            message=str(exc.detail),
+            message=_GENERIC_SERVER_MESSAGE
+            if exc.status_code >= 500
+            else str(exc.detail),
             details={"status_code": exc.status_code},
         ),
         request_id=request_id,
     )
-    
     return JSONResponse(
         status_code=exc.status_code,
-        content=error_response.model_dump(),
+        content=response.model_dump(),
+        headers=exc.headers,
     )
 
+
+async def internal_http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+) -> Response:
+    """Preserve private detail envelopes while hiding server exception text."""
+    request_id = str(uuid4())
+    _log_http_error(request, exc, request_id)
+    safe = (
+        exc
+        if exc.status_code < 500
+        else StarletteHTTPException(
+            exc.status_code, _GENERIC_SERVER_MESSAGE, headers=exc.headers
+        )
+    )
+    response = await default_http_exception_handler(request, safe)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 async def validation_exception_handler(
-    request: Request,
-    exc: Exception,
+    request: Request, exc: Exception
 ) -> JSONResponse:
-    """Handle request validation exceptions uniformly."""
+    """Report declared field locations without inputs or validator context."""
     request_id = str(uuid4())
-
-    if isinstance(exc, RequestValidationError):
-        error_list = jsonable_encoder(exc.errors())
-    elif isinstance(exc, PydanticValidationError):
-        error_list = jsonable_encoder(exc.errors())
-    else:
-        error_list = jsonable_encoder(
-            [{"type": exc.__class__.__name__, "msg": str(exc)}]
-        )
-
-    # Credential validation may contain the raw body, including unparsed secrets.
-    # Keep field locations and error types, but never log or echo those inputs.
-    if request.url.path.rstrip("/") in {
-        "/v1/ops/login", "/v1/staff/login", "/v1/staff/register",
-        "/v1/visitors/register",
-        "/v1/visitors/access/end",
-        "/internal/channel-visitors/register",
-        "/v1/ops/model-policy",
-    } or request.url.path.startswith(("/v1/business-scenarios/", "/internal/ai/activation/", "/v1/business-connections", "/internal/business-connections")) or (
-        request.url.path.startswith("/v1/ai/agents/")
-        and any(
-            part in request.url.path
-            for part in (
-                "/trials", "/activation-policies", "/activation-requests",
-                "/device-script-binding", "/device-script-trials",
-                "/device-script-cases", "/device-script-runs",
-                "/device-script-selection",
-            )
-        )
-    ) or (
-        request.url.path.startswith("/v1/ai/workflows/")
-        and request.url.path.rstrip("/").endswith("/event-tests")
-    ) or (
-        "/device-control/devices/" in request.url.path
-        and request.url.path.rstrip("/").endswith((
-            "/script-policy", "/script-policy/revoke",
-        ))
-    ):
-        error_list = [
-            {"type": item.get("type"), "loc": item.get("loc", []),
-             "msg": "Invalid field value"}
-            for item in error_list
-        ]
-
-    if (
-        request.url.path.startswith("/v1/ai/agents/")
-        and any(part in request.url.path for part in (
-            "/device-script-trials", "/device-script-cases", "/device-script-runs",
-            "/device-script-selection",
-        ))
-    ):
-        # User-controlled map keys and extra-field names are private too.
-        known_fields = {
-            "request_id", "binding_id", "binding_revision",
-            "parameters", "expected_fields", "agent_id", "report_id",
-            "case_id", "expected_revision", "title", "version_id",
-        }
-        for item in error_list:
-            location = item.get("loc", [])
-            item["loc"] = (
-                location[:2]
-                if len(location) > 1 and location[1] in known_fields
-                else ["body"]
-            )
-
-    logger.warning(
-        "Validation Exception",
-        extra={
-            "request_id": request_id,
-            "path": request.url.path,
-            "method": request.method,
-            "errors": error_list,
-        }
-    )
-
-    error_response = ErrorResponse(
+    issues = _safe_validation_issues(request, exc)
+    context = _error_context(request, exc, request_id, 422)
+    context["error_count"] = len(issues)
+    logger.warning("Validation Exception", extra=context)
+    response = ErrorResponse(
         error=ErrorDetail(
             code="VALIDATION_ERROR",
             message="Request validation failed",
-            details={"errors": error_list},
+            details={"errors": issues},
         ),
         request_id=request_id,
     )
-
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=jsonable_encoder(error_response.model_dump()),
+        content=response.model_dump(),
     )
 
 
-async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Handle general exceptions."""
+async def general_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """Return a correlation ID without serializing arbitrary exceptions."""
     request_id = str(uuid4())
-    
     logger.error(
-        f"Unhandled Exception: {type(exc).__name__} - {str(exc)}",
-        extra={
-            "request_id": request_id,
-            "path": request.url.path,
-            "method": request.method,
-        },
-        exc_info=True,
+        "Unhandled Exception",
+        extra=_error_context(request, exc, request_id, 500),
     )
-    
-    error_response = ErrorResponse(
+    response = ErrorResponse(
         error=ErrorDetail(
-            code="INTERNAL_ERROR",
-            message="An internal error occurred",
-            details={"type": type(exc).__name__, "message": str(exc)},
+            code="INTERNAL_ERROR", message=_GENERIC_SERVER_MESSAGE
         ),
         request_id=request_id,
     )
-    
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=error_response.model_dump(),
+        content=response.model_dump(),
     )

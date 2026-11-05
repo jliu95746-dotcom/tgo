@@ -124,7 +124,8 @@ class ExceptionHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         body = json.loads(response.body)
         self.assertEqual(response.status_code, 422)
-        self.assertEqual(
-            body["error"]["details"]["errors"][0]["input"],
-            str(invalid_user_id),
-        )
+        self.assertEqual(body["error"]["code"], "VALIDATION_ERROR")
+        self.assertNotIn(str(invalid_user_id), response.body.decode())
+        error = body["error"]["details"]["errors"][0]
+        self.assertEqual(set(error), {"type", "loc", "msg"})
+        self.assertEqual(error["type"], "string_type")

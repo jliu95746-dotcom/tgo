@@ -12,12 +12,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
 from app.core.exceptions import (
     TGOAPIException,
     general_exception_handler,
-    http_exception_handler,
+    internal_http_exception_handler,
     tgo_api_exception_handler,
     validation_exception_handler,
 )
@@ -35,7 +36,10 @@ logging.getLogger("uvicorn").setLevel(logging.WARNING)
 # Create internal app
 internal_app = FastAPI(
     title=f"{settings.PROJECT_NAME} - Internal Services",
-    description="Internal services for inter-service communication; route-level authentication varies",
+    description=(
+        "Internal services for inter-service communication; "
+        "route-level authentication varies"
+    ),
     version=settings.PROJECT_VERSION,
     openapi_url="/internal/openapi.json",
     docs_url="/internal/docs",
@@ -53,9 +57,15 @@ internal_app.add_middleware(
 
 # Add exception handlers
 internal_app.add_exception_handler(TGOAPIException, tgo_api_exception_handler)
-internal_app.add_exception_handler(Exception, http_exception_handler)
-internal_app.add_exception_handler(RequestValidationError, validation_exception_handler)
-internal_app.add_exception_handler(ValidationError, validation_exception_handler)
+internal_app.add_exception_handler(
+    StarletteHTTPException, internal_http_exception_handler
+)
+internal_app.add_exception_handler(
+    RequestValidationError, validation_exception_handler
+)
+internal_app.add_exception_handler(
+    ValidationError, validation_exception_handler
+)
 internal_app.add_exception_handler(Exception, general_exception_handler)
 
 # Include internal router
@@ -68,7 +78,10 @@ async def internal_root() -> dict[str, str]:
     return {
         "message": "TGO-Tech Internal Services",
         "version": settings.PROJECT_VERSION,
-        "note": "Internal use only; consult each route's authentication requirements.",
+        "note": (
+            "Internal use only; consult each route's authentication "
+            "requirements."
+        ),
     }
 
 
@@ -79,16 +92,25 @@ async def internal_health_check() -> dict[str, str]:
 
 
 @internal_app.on_event("startup")
-async def internal_startup_event():
+async def internal_startup_event() -> None:
     """Internal application startup event."""
     from app.core.logging import startup_log
 
     startup_log("═" * 64)
     startup_log("🔧 TGO-Tech Internal Services Starting...")
     startup_log("═" * 64)
-    startup_log(f"   📍 Listening on: {settings.INTERNAL_SERVICE_HOST}:{settings.INTERNAL_SERVICE_PORT}")
-    startup_log(f"   📚 API Docs: http://localhost:{settings.INTERNAL_SERVICE_PORT}/internal/docs")
-    startup_log(f"   🏥 Health Check: http://localhost:{settings.INTERNAL_SERVICE_PORT}/health")
+    startup_log(
+        f"   📍 Listening on: {settings.INTERNAL_SERVICE_HOST}:"
+        f"{settings.INTERNAL_SERVICE_PORT}"
+    )
+    startup_log(
+        "   📚 API Docs: http://localhost:"
+        f"{settings.INTERNAL_SERVICE_PORT}/internal/docs"
+    )
+    startup_log(
+        "   🏥 Health Check: http://localhost:"
+        f"{settings.INTERNAL_SERVICE_PORT}/health"
+    )
     startup_log("")
     startup_log("⚠️  WARNING: Some internal routes have no authentication")
     startup_log("   Keep this service on a trusted internal network!")
@@ -98,7 +120,7 @@ async def internal_startup_event():
 
 
 @internal_app.on_event("shutdown")
-async def internal_shutdown_event():
+async def internal_shutdown_event() -> None:
     """Internal application shutdown event."""
     logger.info("Internal services shutting down...")
 
