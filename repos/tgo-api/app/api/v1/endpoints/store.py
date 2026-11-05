@@ -319,12 +319,16 @@ async def list_installed_models(
         return []
 
 
-@router.api_route("/proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+@router.get("/proxy/{path:path}")
+@router.post("/proxy/{path:path}")
+@router.put("/proxy/{path:path}")
+@router.delete("/proxy/{path:path}")
+@router.patch("/proxy/{path:path}")
 async def proxy_store_request(
     path: str,
     request: Request,
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> Response:
     """
     透明代理 Store API 请求，不解析参数，直接转发。
     支持 GET, POST, PUT, DELETE, PATCH 等方法。
