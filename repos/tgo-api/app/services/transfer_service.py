@@ -42,6 +42,7 @@ from app.services.queue_lifecycle import (
     lock_waiting_entry,
 )
 from app.services.queue_events import schedule_queue_update
+from app.services.staff_assignment_capacity import reserve_staff_seat
 from app.services.staff_assignment_guard import (
     assignment_configuration_is_current,
     capture_assignment_configuration,
@@ -286,7 +287,7 @@ async def transfer_to_staff(
             assignment_rule=assignment_rule,
             strict_target=mutation_scope is not None or session_scope is not None,
         )
-        
+
         if mutation_scope is not None:
             visitor = mutation_scope.check(db, lock=True)
             if queue_scope is not None:
@@ -302,6 +303,12 @@ async def transfer_to_staff(
             session = session_scope.check(db, lock=True, target_staff_id=target_staff_id)
             if assignment_result.assigned_staff_id != target_staff_id:
                 raise changed()
+
+        current_rule = read_assignment_rule(db, project_id, lock=True)
+        await _reserve_assignment(
+            db, project_id, session.id, assignment_result,
+            current_rule, target_staff_id,
+        )
 
         previous_staff_id = session.staff_id
 
@@ -662,6 +669,46 @@ async def assign_staff(
         model_used=model_used,
         prompt_used=prompt_used,
     )
+
+
+async def _reserve_assignment(
+    db: Session,
+    project_id: UUID,
+    session_id: UUID | None,
+    result: StaffAssignmentResult,
+    rule: VisitorAssignmentRule | None,
+    target_staff_id: UUID | None,
+) -> None:
+    """Refresh after model selection and reserve without another model call."""
+    capacity = rule.max_concurrent_chats if rule is not None else None
+    if target_staff_id is not None:
+        if result.assigned_staff_id != target_staff_id or not reserve_staff_seat(
+            db, project_id, target_staff_id, session_id, capacity
+        ):
+            raise changed()
+        return
+
+    candidates = await _get_available_staff_candidates(db, project_id, rule)
+    preferred = result.assigned_staff_id
+    selected: UUID | None = None
+    while candidates:
+        identifiers = [item.id for item in candidates]
+        choice = preferred if preferred in identifiers else (
+            await _load_balance_assign(candidates)
+        )
+        assert choice is not None
+        if reserve_staff_seat(db, project_id, choice, session_id, capacity):
+            selected = choice
+            break
+        candidates = [item for item in candidates if item.id != choice]
+    result.assigned_staff_id = selected
+    result.candidate_staff_ids = [item.id for item in candidates]
+    if selected != preferred:
+        result.llm_response = None
+        result.candidate_scores = None
+        result.llm_reasoning = (
+            "Selected staff unavailable; fallback to current staff capacity"
+        )
 
 
 async def _add_to_waiting_queue(
@@ -1075,7 +1122,7 @@ async def _get_available_staff_candidates(
         Staff.service_paused == False,  # noqa: E712 - SQLAlchemy requires == for boolean
     )
     
-    available_staff = staff_query.all()
+    available_staff = staff_query.populate_existing().all()
     
     if not available_staff:
         return []
