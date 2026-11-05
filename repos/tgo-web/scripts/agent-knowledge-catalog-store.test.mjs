@@ -46,7 +46,7 @@ const catalog = (changes = {}) => ({ agent_id: 'agent-a', id: null, revision: 0,
 async function load(f) { const promise = f.store.getState().load('agent-a'); f.resolve('catalog', catalog()); await promise; f.store.getState().open(); }
 function receipt(f) {
   const request = f.calls.filter(row => row.name === 'saveCatalog').at(-1).args[1];
-  return catalog({ id: 'version-one', request_key: request.request_key, revision: 1,
+  return catalog({ id: 'version-one', request_key: request.request_key, revision: 1, configured_by: 'admin-a',
     cases: cases.map((row, index) => ({ ...row, id: `version-one-${index}`, question: request.questions[index] })) });
 }
 
@@ -92,4 +92,128 @@ test('foreign employee catalogs and modified evaluation rules fail closed', asyn
     const f = harness(); const loading = f.store.getState().load('agent-a'); f.resolve('catalog', bad); await loading;
     assert.equal(f.store.getState().catalog, null); assert.equal(f.store.getState().error, 'invalidResponse');
   }
+});
+
+async function failUnknown(f) {
+  f.store.getState().change(0, 'A private configuration draft');
+  const saving = f.store.getState().save();
+  const request = f.calls.filter(row => row.name === 'saveCatalog').at(-1).args[1];
+  const accepted = receipt(f);
+  f.reject('saveCatalog', 0); await saving;
+  return { request, accepted };
+}
+async function reread(f, value = catalog(), agent = 'agent-a') {
+  const reading = f.store.getState().load(agent);
+  f.resolve('catalog', value); return await reading;
+}
+
+test('reopening an unresolved save retains the frozen draft and retries the original request', async () => {
+  const f = harness(); await load(f); const { request } = await failUnknown(f);
+  await reread(f);
+  assert.equal(f.store.getState().pending, request);
+  assert.equal(f.store.getState().editing, true);
+  assert.equal(f.store.getState().questions[0], request.questions[0]);
+  assert.equal(f.calls.filter(row => row.name === 'saveCatalog').length, 1, 'Reading must not submit again');
+  f.store.getState().change(0, 'Cannot replace unknown content');
+  assert.equal(f.store.getState().questions[0], request.questions[0]);
+  const retry = f.store.getState().save();
+  assert.equal(f.calls.filter(row => row.name === 'saveCatalog').at(-1).args[1], request);
+  f.resolve('saveCatalog', receipt(f)); assert.equal(await retry, true);
+});
+
+test('a matching committed owner receipt recovers without sending another write', async () => {
+  const f = harness(); await load(f); const { accepted } = await failUnknown(f);
+  assert.equal(await reread(f, accepted), true);
+  assert.equal(f.store.getState().pending, null);
+  assert.equal(f.store.getState().saved, true);
+  assert.equal(f.store.getState().editing, false);
+  assert.equal(f.calls.filter(row => row.name === 'saveCatalog').length, 1);
+});
+
+test('concurrent mounts share the same recovery result without making a second catalog read', async () => {
+  const f = harness(); await load(f); const { accepted } = await failUnknown(f);
+  const first = f.store.getState().load('agent-a');
+  const second = f.store.getState().load('agent-a');
+  f.resolve('catalog', accepted);
+  assert.equal(await first, true);
+  assert.equal(await second, true);
+  assert.equal(f.calls.filter(row => row.name === 'catalog').length, 2);
+});
+
+test('changing employee preserves each unresolved request without exposing the draft to the other employee', async () => {
+  const f = harness(); await load(f); const { request } = await failUnknown(f);
+  await reread(f, catalog({ agent_id: 'agent-b' }), 'agent-b');
+  assert.equal(f.store.getState().pending, null);
+  assert.equal(f.store.getState().questions[0], cases[0].question);
+  await reread(f);
+  assert.equal(f.store.getState().pending, request);
+  assert.equal(f.store.getState().questions[0], request.questions[0]);
+});
+
+test('an in-flight save abandoned by an employee switch stays recoverable and its late callback is ignored', async () => {
+  const f = harness(); await load(f);
+  const saving = f.store.getState().save(); const accepted = receipt(f);
+  await reread(f, catalog({ agent_id: 'agent-b' }), 'agent-b');
+  f.resolve('saveCatalog', accepted); assert.equal(await saving, false);
+  assert.equal(f.store.getState().agentId, 'agent-b');
+  assert.equal(f.store.getState().saved, false);
+  await reread(f, accepted);
+  assert.equal(f.store.getState().saved, true);
+  assert.equal(f.store.getState().pending, null);
+});
+
+test('a failed reread preserves the original draft and retry rather than clearing the operation', async () => {
+  const f = harness(); await load(f); const { request } = await failUnknown(f);
+  const reading = f.store.getState().load('agent-a'); f.reject('catalog', 0); await reading;
+  assert.equal(f.store.getState().pending, request);
+  assert.equal(f.store.getState().questions[0], request.questions[0]);
+  const retry = f.store.getState().save();
+  assert.equal(f.calls.filter(row => row.name === 'saveCatalog').at(-1).args[1], request);
+  f.resolve('saveCatalog', receipt(f)); assert.equal(await retry, true);
+});
+
+test('a newer catalog does not erase an unknown save or automatically replay it', async () => {
+  const f = harness(); await load(f); const { request, accepted } = await failUnknown(f);
+  const newer = catalog({ id: 'newer', revision: 2, request_key: 'different', configured_by: 'admin-a' });
+  await reread(f, newer);
+  assert.equal(f.store.getState().pending, request);
+  assert.equal(f.store.getState().saved, false);
+  assert.equal(f.calls.filter(row => row.name === 'saveCatalog').length, 1);
+  const retry = f.store.getState().save();
+  f.resolve('saveCatalog', { ...accepted, current: false });
+  assert.equal(await retry, false);
+  assert.equal(f.store.getState().pending, null);
+  assert.equal(f.store.getState().error, 'conflict');
+  await reread(f, newer);
+  assert.equal(f.store.getState().pending, null, 'A resolved older receipt must not reappear');
+});
+
+for (const kind of ['foreign_employee', 'wrong_questions', 'wrong_revision']) {
+  test(`an invalid reread cannot acknowledge or erase the original save: ${kind}`, async () => {
+    const f = harness(); await load(f); const { request, accepted } = await failUnknown(f);
+    const invalid = kind === 'foreign_employee' ? { ...accepted, agent_id: 'foreign' }
+      : kind === 'wrong_revision' ? { ...accepted, revision: 3 }
+      : { ...accepted, cases: accepted.cases.map((row, index) => index === 0 ? { ...row, question: 'Different content' } : row) };
+    await reread(f, invalid);
+    assert.equal(f.store.getState().saved, false);
+    assert.equal(f.store.getState().pending, request);
+    assert.equal(f.store.getState().questions[0], request.questions[0]);
+    assert.equal(f.store.getState().error, 'invalidResponse');
+  });
+}
+
+test('another administrator using the same request key cannot acknowledge this administrator save', async () => {
+  const f = harness(); await load(f); const { request, accepted } = await failUnknown(f);
+  await reread(f, { ...accepted, configured_by: 'different-admin' });
+  assert.equal(f.store.getState().pending, request);
+  assert.equal(f.store.getState().saved, false);
+});
+
+test('changing login identity erases recovery for previously visited employees', async () => {
+  const f = harness(); await load(f); await failUnknown(f);
+  await reread(f, catalog({ agent_id: 'agent-b' }), 'agent-b');
+  f.changeUser({ id: 'admin-b', project_id: 'project-b', role: 'admin' });
+  await reread(f);
+  assert.equal(f.store.getState().pending, null);
+  assert.equal(f.store.getState().questions[0], cases[0].question);
 });

@@ -11,7 +11,13 @@ export default function AgentKnowledgeCatalogEditor({ agentId, disabled }: { age
   const user = useAuthStore(state => state.user);
   const prefix = useId();
   const load = store.load;
-  useEffect(() => { void load(agentId); }, [agentId, user?.id, user?.project_id, user?.role, load]);
+  useEffect(() => {
+    let mounted = true;
+    void load(agentId).then(recovered => {
+      if (mounted && recovered) void useAgentTrialReviewStore.getState().refresh();
+    });
+    return () => { mounted = false; };
+  }, [agentId, user?.id, user?.project_id, user?.role, load]);
   if (store.agentId !== agentId || store.identity !== `${user?.project_id}:${user?.id}`) return null;
   const busy = store.saving || store.loading || disabled;
   return <section className="space-y-3 rounded-xl border border-gray-200 p-3 dark:border-gray-700">
