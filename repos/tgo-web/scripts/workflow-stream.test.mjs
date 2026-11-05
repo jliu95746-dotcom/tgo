@@ -33,6 +33,7 @@ function loadStore(api) {
     '@/types/workflow': { DEFAULT_NODE_DATA: {} },
     '@/utils/workflowTransforms': {}, '@/i18n': i18n,
     './workflowExecutionActions': actions,
+    './workflowSaveActions': { createWorkflowSaveAction: () => async () => {} },
     'zustand/middleware': { devtools: value => value, persist: value => value },
     reactflow: {},
   });

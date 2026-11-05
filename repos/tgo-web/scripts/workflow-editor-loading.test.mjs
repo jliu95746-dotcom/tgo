@@ -35,6 +35,7 @@ function storeFixture() {
     '@/types/workflow': { DEFAULT_NODE_DATA: {} },
     '@/utils/workflowTransforms': { migrateNodes: nodes => nodes },
     '@/i18n': { t: key => key }, './workflowExecutionActions': { createWorkflowExecutionActions: () => ({}) },
+    './workflowSaveActions': { createWorkflowSaveAction: () => async () => {} },
     'zustand/middleware': { devtools: value => value, persist: value => value }, reactflow: {},
   });
   return { store, requests };

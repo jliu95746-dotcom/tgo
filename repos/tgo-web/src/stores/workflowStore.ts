@@ -23,6 +23,7 @@ import { WorkflowApiService } from '@/services/workflowApi';
 import { migrateNodes, migrateNodeData } from '@/utils/workflowTransforms';
 import i18n from '@/i18n';
 import { createWorkflowExecutionActions } from './workflowExecutionActions';
+import { createWorkflowSaveAction } from './workflowSaveActions';
 
 interface WorkflowState {
   // Workflow list
@@ -238,31 +239,9 @@ export const useWorkflowStore = create<WorkflowState>()(
       },
 
       // Save current workflow
-      saveWorkflow: async () => {
-        const { currentWorkflow } = get();
-        if (!currentWorkflow) return;
-        
-        try {
-          const updated = await WorkflowApiService.updateWorkflow(currentWorkflow.id, {
-            name: currentWorkflow.name,
-            description: currentWorkflow.description,
-            nodes: currentWorkflow.definition.nodes,
-            edges: currentWorkflow.definition.edges,
-            expected_version: currentWorkflow.version,
-            tags: currentWorkflow.tags,
-          });
-          
-          set({
-            currentWorkflow: updated,
-            isDirty: false,
-          }, false, 'saveWorkflow');
-          
-          await get().refreshWorkflows();
-        } catch (error) {
-          console.error('Failed to save workflow:', error);
-          throw error;
-        }
-      },
+      saveWorkflow: createWorkflowSaveAction(
+        get, state => set(state, false, 'saveWorkflow'), () => workflowLoadRevision,
+      ),
 
       // Delete workflow
       deleteWorkflow: async (id) => {

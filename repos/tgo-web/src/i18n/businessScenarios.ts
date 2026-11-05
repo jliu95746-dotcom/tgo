@@ -163,6 +163,7 @@ export const businessScenariosZh = {
   },
   agentGuide: { title: '岗位配置指南', text: '模型默认沿用系统设置。填写岗位职责，选择对应知识库，再按业务需要添加工具、工作流或设备。', check: '配置检查', knowledge: '知识库', tools: '业务工具', workflow: '工作流', device: '业务设备', selected: '已选择 {{count}} 项', missing: '尚未选择', optional: '按岗位需要配置', test: '创建后先与 AI 员工对话测试，再决定是否启用。已选择资源不代表已测试成功。' },
   workflow: {
+    invalidSaveReceipt: '保存结果与当前草稿版本无法核对，请重新读取工作流确认结果后再继续。',
     aftersalesMode: '售后流程用途', aftersalesPolicyOnly: '只解释售后政策', aftersalesInternalReview: '创建人工核对待办', reviewName: '售后人工核对',
     reviewScope: '客户售后诉求交给指定员工审批；批准后创建内部售后核对待办，并生成已转交人工的流程结果。政策答复请使用“只解释售后政策”模式。此流程不会提交退货、退款或其他外部业务操作。',
     reviewAssignee: '指定审批员工', reviewChooseAssignee: '选择本企业员工', reviewAssigneeRequired: '请先选择有效的审批员工',
