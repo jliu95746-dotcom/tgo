@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-import time
 import traceback
 import types
 from math import ceil
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
 import httpx
@@ -20,11 +17,7 @@ from agno.models.google import Gemini
 from agno.models.openai import OpenAIChat
 from agno.models.base import Model
 from google.genai.types import HttpOptions
-from agno.models.response import ToolExecution
-from agno.run.agent import RunOutput, RunOutputEvent
-from agno.tools import Toolkit
 from agno.tools.function import Function
-from agno.tools.mcp import MCPTools
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from pydantic import SecretStr
@@ -50,6 +43,9 @@ from app.runtime.tools.models import (
     RagConfig,
     WorkflowConfig,
 )
+from app.runtime.tools.store_remote_agent import (
+    StoreRemoteAgent as StoreRemoteAgent,
+)
 from app.runtime.tools.token import get_mcp_access_token
 from app.runtime.tools.utils import (
     create_agno_mcp_tool,
@@ -68,499 +64,6 @@ from app.runtime.tools.mcp_bindings import group_mcp_bindings
 from app.runtime.tools.saved_mcp import SavedMCPTools
 
 _logger = get_logger(__name__)
-
-
-class StoreRemoteAgent(RemoteAgent):
-    """
-    Custom RemoteAgent that allows overriding id and name for direct agent runs.
-
-    支持本地工具绑定：
-    - tools: 与本地 Agent 一致的工具属性
-    - 内部透明执行：arun 内部自动处理工具执行循环，对调用者无感知
-    """
-
-    def __init__(self, *args, **kwargs):
-        self._override_id = kwargs.pop("override_id", None)
-        self._override_name = kwargs.pop("override_name", None)
-        self._override_metadata = kwargs.pop("override_metadata", None)
-        # Use pop to avoid TypeError in base class, but store it for our use
-        self._api_key = kwargs.pop("api_key", None)
-        # Some agno versions expect knowledge_filters on RemoteAgent
-        self.knowledge_filters = kwargs.pop("knowledge_filters", None)
-
-        # 新增：与本地 Agent 一致的工具属性，重命名为 local_tools 以避免与 RemoteAgent.tools 冲突
-        self.local_tools: List[Union[Function, Callable]] = kwargs.pop("tools", [])
-        self._tool_map: Dict[str, Function] = {}
-        self._build_tool_map()
-
-        super().__init__(*args, **kwargs)
-
-    def _build_tool_map(self) -> None:
-        """构建工具名称到工具对象的映射，支持 Toolkit 和普通 Function"""
-        self._tool_map = {}
-        for tool in self.local_tools:
-            if isinstance(tool, Function):
-                self._tool_map[tool.name] = tool
-            elif isinstance(tool, Toolkit):
-                # 如果是 Toolkit (如 MCPTools)，获取其内部所有工具
-                # get_async_functions 返回合并了同步和异步工具的字典
-                toolkit_tools = tool.get_async_functions()
-                for name, func in toolkit_tools.items():
-                    self._tool_map[name] = func
-            elif callable(tool):
-                # 如果是普通函数，包装成 Function
-                name = getattr(tool, "__name__", str(tool))
-                self._tool_map[name] = tool
-        _logger.debug(
-            f"Built tool map with {len(self._tool_map)} tools: {list(self._tool_map.keys())}"
-        )
-
-    def _build_tools_schema(self) -> List[Dict[str, Any]]:
-        """将本地工具转换为 JSON Schema 格式，发送给远程 Agent"""
-        schemas = []
-        for tool in self.local_tools:
-            if isinstance(tool, Function):
-                schemas.append(
-                    {
-                        "name": tool.name,
-                        "description": tool.description or "",
-                        "parameters": tool.parameters
-                        or {"type": "object", "properties": {}},
-                    }
-                )
-            elif callable(tool):
-                # 简单处理普通函数
-                name = getattr(tool, "__name__", str(tool))
-                doc = getattr(tool, "__doc__", "") or ""
-                schemas.append(
-                    {
-                        "name": name,
-                        "description": doc,
-                        "parameters": {"type": "object", "properties": {}},
-                    }
-                )
-        return schemas
-
-    def _has_pending_tool_calls(self, result: Any) -> bool:
-        """检查结果中是否有需要外部执行的工具调用"""
-        _logger.debug(f"Checking for pending tool calls in: {type(result)}")
-
-        # 兼容字典格式
-        tools = []
-        if isinstance(result, dict):
-            tools = result.get("tools", [])
-        elif hasattr(result, "tools"):
-            tools = result.tools or []
-
-        if not tools:
-            _logger.debug("No tools attribute or empty tools list")
-            return False
-
-        for tool_exec in tools:
-            # 兼容对象和字典
-            if isinstance(tool_exec, dict):
-                is_ext = tool_exec.get("external_execution_required", False)
-                tool_name = tool_exec.get("tool_name", "unknown")
-            else:
-                is_ext = (
-                    hasattr(tool_exec, "external_execution_required")
-                    and tool_exec.external_execution_required
-                )
-                tool_name = getattr(tool_exec, "tool_name", "unknown")
-
-            _logger.debug(f"Tool {tool_name}: external_execution_required={is_ext}")
-            if is_ext:
-                print(f"has_pending_tool_calls--> True (tool: {tool_name})")
-                return True
-        return False
-
-    async def _execute_tools_locally(
-        self, tool_calls: List[Union[ToolExecution, Dict[str, Any]]]
-    ) -> List[ToolExecution]:
-        """
-        本地执行工具，与本地 Agent 行为一致。
-        执行后填充结果并清除 external_execution_required 标志。
-        """
-        updated_tool_calls: List[ToolExecution] = []
-
-        print("_execute_tools_locally--->", tool_calls)
-
-        for tc_raw in tool_calls:
-            # 统一转换为 ToolExecution 对象进行处理
-            if isinstance(tc_raw, dict):
-                tc = ToolExecution(**tc_raw)
-            else:
-                tc = tc_raw
-
-            if not (
-                hasattr(tc, "external_execution_required")
-                and tc.external_execution_required
-            ):
-                # 跳过已处理的工具，不添加到返回列表
-                # 这是修复 400 错误的关键：避免将已处理的工具重复发送给 store-api
-                _logger.debug(
-                    f"Skipping already processed tool: {getattr(tc, 'tool_name', 'unknown')}"
-                )
-                continue
-
-            tool_name = tc.tool_name
-            tool_args = tc.tool_args or {}
-
-            _logger.debug(f"Executing local tool: {tool_name} with args: {tool_args}")
-
-            tool = self._tool_map.get(tool_name)
-            if not tool:
-                _logger.warning(f"Tool {tool_name} not found in local tools")
-                tc.result = f"Error: Tool '{tool_name}' not found"
-                tc.tool_call_error = True
-                tc.external_execution_required = False
-                updated_tool_calls.append(tc)
-                continue
-            print("tool--->", tool)
-            try:
-                if isinstance(tool, Function):
-                    # Function 对象
-                    if tool.entrypoint:
-                        if asyncio.iscoroutinefunction(tool.entrypoint):
-                            result = await tool.entrypoint(**tool_args)
-                        else:
-                            result = tool.entrypoint(**tool_args)
-                    else:
-                        raise ValueError(f"Tool {tool_name} has no entrypoint")
-                elif callable(tool):
-                    # 普通函数
-                    if asyncio.iscoroutinefunction(tool):
-                        result = await tool(**tool_args)
-                    else:
-                        result = tool(**tool_args)
-                else:
-                    raise ValueError(f"Tool {tool_name} is not callable")
-                print("tool-result--->", result)
-                # 将结果转换为字符串
-                if not isinstance(result, str):
-                    try:
-                        result = json.dumps(result, ensure_ascii=False, default=str)
-                    except Exception:
-                        result = str(result)
-
-                tc.result = result
-                tc.tool_call_error = result.startswith("<error>")
-                _logger.debug(
-                    "Local tool execution completed",
-                    tool_name=tool_name,
-                    tool_call_error=tc.tool_call_error,
-                )
-
-            except Exception as e:
-                error_detail = traceback.format_exc()
-                _logger.error(f"Error executing tool {tool_name}: {e}\n{error_detail}")
-
-                # 特殊处理 ExceptionGroup (Python 3.11+) 以获取更详细的子错误
-                error_msg = f"Error executing tool: {str(e)}"
-                try:
-                    # 检查是否是 ExceptionGroup
-                    if hasattr(e, "exceptions"):
-                        sub_errors = [
-                            f"{type(ex).__name__}: {str(ex)}" for ex in e.exceptions
-                        ]
-                        error_msg += f" (Sub-errors: {', '.join(sub_errors)})"
-                except Exception:
-                    pass
-
-                tc.result = error_msg
-                tc.tool_call_error = True
-
-            tc.external_execution_required = False
-            updated_tool_calls.append(tc)
-
-        return updated_tool_calls
-
-    @property
-    def id(self) -> str:
-        return self._override_id or self.agent_id
-
-    @property
-    def agentos_client(self):
-        """Override to ensure headers are injected into the client."""
-        # Use a private attribute to avoid recursion and handle the base class assignment
-        client = getattr(self, "_store_agentos_client", None)
-        if client is None:
-            return None
-
-        api_key = self._api_key
-        if not api_key:
-            api_key = settings.store_api_key
-
-        if api_key:
-            # Ensure headers are present in the client
-            # Agno uses httpx internally, so client.headers should work
-            if hasattr(client, "headers"):
-                if client.headers is None:
-                    client.headers = {}
-                # Inject directly into client state
-                client.headers["X-API-Key"] = api_key
-                client.headers["Authorization"] = f"Bearer {api_key}"
-
-            # For some agno versions, we might need to set it on the base client as well
-            if hasattr(client, "client") and hasattr(client.client, "headers"):
-                if client.client.headers is None:
-                    client.client.headers = {}
-                client.client.headers["X-API-Key"] = api_key
-                client.client.headers["Authorization"] = f"Bearer {api_key}"
-        return client
-
-    @agentos_client.setter
-    def agentos_client(self, value):
-        self._store_agentos_client = value
-
-    @property
-    def name(self) -> Optional[str]:
-        return self._override_name or super().name
-
-    @property
-    def metadata(self) -> Dict[str, Any]:
-        return self._override_metadata or {}
-
-    def get_auth_headers(
-        self, auth_token: Optional[str] = None
-    ) -> Optional[Dict[str, str]]:
-        """Public version of get_auth_headers used by some agno versions."""
-        return self._get_auth_headers(auth_token)
-
-    def _get_auth_headers(
-        self, auth_token: Optional[str] = None
-    ) -> Optional[Dict[str, str]]:
-        # Call super to get existing headers if any
-        headers = {}
-        # RemoteAgent usually has _get_auth_headers or get_auth_headers
-        try:
-            # Try private first as it's more common in agno internal
-            if hasattr(super(), "_get_auth_headers"):
-                headers = super()._get_auth_headers(auth_token) or {}
-            elif hasattr(super(), "get_auth_headers"):
-                headers = super().get_auth_headers(auth_token) or {}
-        except Exception:
-            pass
-
-        api_key = self._api_key or settings.store_api_key
-
-        if api_key:
-            headers["X-API-Key"] = api_key
-            # Also set Bearer token if not already set, using the API key
-            if "Authorization" not in headers:
-                headers["Authorization"] = f"Bearer {api_key}"
-
-        return headers if headers else None
-
-    @property
-    def _agent_config(self) -> Optional[Any]:
-        """Override to pass headers to the remote call."""
-        current_time = time.time()
-
-        # Check if cache is valid
-        if self._cached_agent_config is not None:
-            config, cached_at = self._cached_agent_config
-            if current_time - cached_at < self.config_ttl:
-                return config
-
-        # Fetch fresh config with headers
-        headers = self._get_auth_headers()
-        try:
-            config = self.agentos_client.get_agent(self.agent_id, headers=headers)
-            self._cached_agent_config = (config, current_time)
-            return config
-        except Exception:
-            return None
-
-    @property
-    def _config(self) -> Optional[Any]:
-        """Override to pass headers to the remote call."""
-        current_time = time.time()
-
-        # Check if cache is valid
-        if self._cached_config is not None:
-            config, cached_at = self._cached_config
-            if current_time - cached_at < self.config_ttl:
-                return config
-
-        # Fetch fresh config with headers
-        headers = self._get_auth_headers()
-        try:
-            config = self.agentos_client.get_config(headers=headers)
-            self._cached_config = (config, current_time)
-            return config
-        except Exception:
-            return None
-
-    async def get_agent_config(self) -> Any:
-        """Override to pass headers."""
-        headers = self._get_auth_headers()
-        return await self.agentos_client.aget_agent(self.agent_id, headers=headers)
-
-    async def refresh_config(self) -> Optional[Any]:
-        """Override to pass headers."""
-        headers = self._get_auth_headers()
-        config = await self.agentos_client.aget_agent(self.agent_id, headers=headers)
-        self._cached_agent_config = (config, time.time())
-        return config
-
-    def arun(
-        self, input: Any, *, stream: Optional[bool] = None, **kwargs
-    ) -> Union[RunOutput, AsyncIterator[RunOutputEvent]]:
-        """
-        运行远程 Agent，支持本地工具透明执行。
-
-        如果绑定了本地工具：
-        1. 将工具 schema 发送给远程 Agent
-        2. 检查返回结果中是否有需要外部执行的工具
-        3. 本地执行这些工具，然后调用 continue_run 继续
-        4. 循环直到完成
-        """
-        _logger.info(f"StoreRemoteAgent.arun called with stream={stream}")
-        # 如果有本地工具，注入工具 schema 到请求中
-        if self.local_tools:
-            tools_schema = self._build_tools_schema()
-            # 显式序列化为 JSON 字符串数组，确保跨语言/跨服务调用格式标准
-            kwargs["tools"] = json.dumps(tools_schema)
-            _logger.debug(
-                f"Injecting {len(tools_schema)} local tools to remote agent call"
-            )
-
-        # 调用父类的 arun
-        result = super().arun(input, stream=stream, **kwargs)
-
-        # 处理流式和非流式情况
-        if stream:
-            # 流式输出 - 需要包装以处理工具执行
-            return self._wrap_stream_with_tool_execution(result, **kwargs)
-        else:
-            # 非流式输出 - 包装协程以处理工具执行循环
-            if asyncio.iscoroutine(result):
-                return self._wrap_coro_with_tool_execution(result, **kwargs)
-            return result
-
-    async def _wrap_coro_with_tool_execution(self, coro, **kwargs) -> RunOutput:
-        """包装协程，添加工具执行循环"""
-        run_output = await coro
-
-        # 映射 ID
-        self._map_ids(run_output)
-
-        # 如果没有本地工具，直接返回
-        if not self.local_tools:
-            return run_output
-
-        # 工具执行循环
-        max_iterations = 10  # 防止无限循环
-        iteration = 0
-
-        while self._has_pending_tool_calls(run_output) and iteration < max_iterations:
-            iteration += 1
-            _logger.debug(f"Tool execution loop iteration {iteration}")
-
-            # 本地执行工具
-            if hasattr(run_output, "tools") and run_output.tools:
-                updated_tools = await self._execute_tools_locally(run_output.tools)
-
-                # 调用 continue_run 继续远程 Agent
-                run_id = getattr(run_output, "run_id", None)
-                session_id = kwargs.get("session_id")
-
-                if run_id:
-                    _logger.debug(f"Calling acontinue_run with run_id={run_id}")
-                    run_output = await self.acontinue_run(
-                        run_id=run_id,
-                        updated_tools=updated_tools,
-                        session_id=session_id,
-                        stream=False,
-                    )
-                    self._map_ids(run_output)
-                else:
-                    _logger.warning("No run_id in response, cannot continue run")
-                    break
-
-        if iteration >= max_iterations:
-            _logger.warning(
-                f"Tool execution loop reached max iterations ({max_iterations})"
-            )
-
-        return run_output
-
-    async def _wrap_stream_with_tool_execution(
-        self, stream_result, **kwargs
-    ) -> AsyncIterator[RunOutputEvent]:
-        """包装流式结果，添加工具执行支持"""
-        collected_output = None
-        print("_wrap_stream_with_tool_execution-->")
-        async for event in stream_result:
-            # 映射 ID
-            if hasattr(event, "agent_id") and self._override_id:
-                event.agent_id = self._override_id
-            if hasattr(event, "agent_name") and self._override_name:
-                event.agent_name = self._override_name
-
-            # 收集最终输出用于工具执行检查
-            if hasattr(event, "run_id"):
-                collected_output = event
-
-            yield event
-
-        _logger.debug(
-            f"Stream finished. collected_output type: {type(collected_output)}"
-        )
-
-        # 流式输出完成后，检查是否需要工具执行
-        print("collected_output-->", collected_output)
-        if (
-            self.local_tools
-            and collected_output
-            and self._has_pending_tool_calls(collected_output)
-        ):
-            _logger.debug(
-                "Stream completed with pending tool calls, entering tool execution loop"
-            )
-
-            max_iterations = 10
-            iteration = 0
-
-            while (
-                self._has_pending_tool_calls(collected_output)
-                and iteration < max_iterations
-            ):
-                iteration += 1
-
-                # 本地执行工具
-                if hasattr(collected_output, "tools") and collected_output.tools:
-                    updated_tools = await self._execute_tools_locally(
-                        collected_output.tools
-                    )
-
-                    run_id = getattr(collected_output, "run_id", None)
-                    session_id = kwargs.get("session_id")
-
-                    if run_id:
-                        # 以流式方式继续
-                        async for event in self.acontinue_run(
-                            run_id=run_id,
-                            updated_tools=updated_tools,
-                            session_id=session_id,
-                            stream=True,
-                        ):
-                            if hasattr(event, "agent_id") and self._override_id:
-                                event.agent_id = self._override_id
-                            if hasattr(event, "run_id"):
-                                collected_output = event
-                            yield event
-                    else:
-                        break
-
-    def _map_ids(self, result: Any) -> None:
-        """映射 ID 到覆盖值"""
-        if self._override_id:
-            if hasattr(result, "agent_id"):
-                result.agent_id = self._override_id
-            if hasattr(result, "agent_name"):
-                result.agent_name = self.name
 
 
 UNEDITABLE_SYSTEM_PROMPT = (
@@ -632,6 +135,10 @@ class AgentBuilder:
         internal_agent: "InternalAgent",
     ) -> StoreRemoteAgent:
         """Helper to construct a StoreRemoteAgent."""
+        remote_url = internal_agent.remote_agent_url
+        remote_identifier = internal_agent.store_agent_id
+        if not remote_url or not remote_identifier:
+            raise InvalidConfigurationError("远程员工缺少服务地址或员工编号")
         # 获取商店 API Key
         api_key = None
         if request.project_id:
@@ -668,8 +175,8 @@ class AgentBuilder:
             base_url=internal_agent.remote_agent_url,
         )
         return StoreRemoteAgent(
-            base_url=internal_agent.remote_agent_url,
-            agent_id=internal_agent.store_agent_id,
+            base_url=remote_url,
+            agent_id=remote_identifier,
             timeout=60.0,
             override_id=str(internal_agent.id),
             override_name=internal_agent.name,

@@ -11,6 +11,7 @@ from app.config import settings
 from app.core.logging import get_logger
 from app.models.internal import AgentExecutionContext
 from app.runtime.tools.builder.agent_builder import AgentBuilder
+from app.runtime.tools.store_remote_agent import StoreRemoteAgent
 from app.runtime.tools.config import ToolsRuntimeSettings
 from app.runtime.tools.models import AgentConfig, AgentRunRequest, MCPConfig, RagConfig, WorkflowConfig
 from app.services.current_knowledge import (
@@ -89,21 +90,25 @@ class AgnoAgentBuilder:
             # Do not put documents or business receipts in debug logs.
             agno_agent.debug_mode = False
 
-        # Keep runtime ids stable so downstream events and cancellations use the persisted agent id.
-        agno_agent.id = str(context.agent.id)
-        agno_agent.name = context.agent.name or getattr(agno_agent, "name", "Agent")
-        try:
-            metadata = dict(context.agent.config or {})
-            metadata.update(
-                {
-                    "agent_id": str(context.agent.id),
-                    "project_id": context.project_id,
-                    "request_id": context.request_id,
-                }
+        # The SDK RemoteAgent exposes read-only identity properties. Keep the
+        # remote endpoint identity intact and bind local event identity.
+        identity: dict[str, object] = {
+            "agent_id": str(context.agent.id),
+            "project_id": context.project_id,
+            "request_id": context.request_id,
+        }
+        if isinstance(agno_agent, RemoteAgent):
+            if not isinstance(agno_agent, StoreRemoteAgent):
+                raise ValueError("远程员工不支持本地身份绑定")
+            agno_agent.bind_runtime_identity(
+                str(context.agent.id), context.agent.name, identity
             )
-            agno_agent.metadata = metadata
-        except Exception:  # pragma: no cover - best effort metadata enrichment
-            self._logger.debug("Skipping runtime agent metadata update", agent_id=str(context.agent.id))
+        else:
+            agno_agent.id = str(context.agent.id)
+            agno_agent.name = context.agent.name or getattr(
+                agno_agent, "name", "Agent"
+            )
+            agno_agent.metadata = {**(context.agent.config or {}), **identity}
 
         return BuiltAgent(agent=agno_agent)
 

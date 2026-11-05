@@ -205,7 +205,10 @@ async def test_remote_tool_replay_preserves_failure_status(kind: str) -> None:
     elif kind == "not_callable":
         registered["query"] = object()
     agent = cast(StoreRemoteAgent, SimpleNamespace(_tool_map=registered))
-    call = ToolExecution(tool_name="query", tool_args={}, external_execution_required=True)
+    call = ToolExecution(
+        tool_call_id="call-query", tool_name="query", tool_args={},
+        external_execution_required=True,
+    )
     results = await StoreRemoteAgent._execute_tools_locally(agent, [call])
     assert len(results) == 1
     assert results[0].tool_call_error is (kind != "success")
