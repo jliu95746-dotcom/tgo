@@ -12,6 +12,7 @@ from app.models.workflow import AgentWorkflow
 from app.models.agent_draft_binding import AgentDraftBinding
 from app.schemas.agent import AgentBase, AgentCreate, AgentToolCreate, AgentUpdate
 from app.schemas.agent_drafts import AgentDraftReceipt, AgentDraftRequest
+from app.schemas.agent_activation import AgentActivationSelection
 from app.services.agent_activation import lock_account_agents
 from app.services.agent_service import AgentService
 from app.services.agent_trial_fingerprint import private_digest, json_object
@@ -32,9 +33,19 @@ class AgentDraftService:
         row = await self._binding(project, draft)
         if row is None or row.created_by != staff:
             raise NotFoundError("配置员工")
-        return await self._receipt(row)
+        try:
+            selection = await self.policies.draft_selection(
+                row.project_id, row.agent_id, row.draft_id, row.revision
+            )
+        except ConflictError:
+            # Independent policies keep their own state and ownership.
+            selection = None
+        return await self._receipt(row, selection)
 
-    async def _receipt(self, row: AgentDraftBinding) -> AgentDraftReceipt:
+    async def _receipt(
+        self, row: AgentDraftBinding,
+        selection: AgentActivationSelection | None = None,
+    ) -> AgentDraftReceipt:
         # Keep tombstones: deleting the saved employee must not create another.
         agent = await self.db.scalar(select(Agent).where(
             Agent.id == row.agent_id, Agent.project_id == row.project_id,
@@ -45,8 +56,7 @@ class AgentDraftService:
         return AgentDraftReceipt(
             project_id=row.project_id, created_by=row.created_by, draft_id=row.draft_id,
             revision=row.revision, agent_id=agent.id, is_active=agent.is_active,
-            activation_selection=await self.policies.draft_selection(
-                row.project_id, row.agent_id, row.draft_id, row.revision),
+            activation_selection=selection,
         )
 
     @staticmethod
@@ -60,7 +70,10 @@ class AgentDraftService:
         omitted = {"activation_selection"} if snapshot.activation_selection is None else set()
         return private_digest(json_object.validate_python(snapshot.model_dump(mode="json", exclude=omitted)))
 
-    async def _configuration_matches(self, row: AgentDraftBinding) -> bool:
+    async def _configuration_matches(
+        self, row: AgentDraftBinding,
+        selection: AgentActivationSelection | None,
+    ) -> bool:
         agent = await self.db.get(Agent, row.agent_id, populate_existing=True)
         if agent is None:
             return False
@@ -78,10 +91,12 @@ class AgentDraftService:
         fields["workflows"] = list((await self.db.scalars(select(AgentWorkflow.workflow_id).where(
             AgentWorkflow.agent_id == agent.id, AgentWorkflow.deleted_at.is_(None),
         ))).all())
-        return self._digest(AgentDraftRequest(revision=row.revision,
+        snapshot = AgentDraftRequest(
+            revision=row.revision,
             agent=AgentCreate.model_validate(fields),
-            activation_selection=await self.policies.draft_selection(
-                row.project_id, row.agent_id, row.draft_id, row.revision))) == row.request_digest
+            activation_selection=selection,
+        )
+        return self._digest(snapshot) == row.request_digest
 
     async def save(self, project: UUID, staff: UUID, draft: UUID,
                    request: AgentDraftRequest) -> AgentDraftReceipt:
@@ -96,9 +111,15 @@ class AgentDraftService:
             if request.revision == row.revision:
                 if digest != row.request_digest:
                     raise ConflictError("同一草稿版本的配置不一致")
-                if not await self._configuration_matches(row):
+                if not await self._configuration_matches(
+                    row, request.activation_selection
+                ):
                     raise ConflictError("员工已在其他页面修改，请重新读取并保存配置草稿")
-                return await self._receipt(row)
+                # Echo the original selection without writing live policies.
+                return await self._receipt(row, request.activation_selection)
+            # New revisions still require policies owned by this draft.
+            await self.policies.draft_selection(
+                row.project_id, row.agent_id, row.draft_id, row.revision)
             receipt = await self._receipt(row)
             if receipt.is_active:
                 raise ConflictError("员工已经启用，请先停用再修改配置草稿")
