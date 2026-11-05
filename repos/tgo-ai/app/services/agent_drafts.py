@@ -103,6 +103,7 @@ class AgentDraftService:
         digest = self._digest(request)
         await lock_account_agents(self.db, project)
         row = await self._binding(project, draft)
+        preserve_policies = False
         if row is not None:
             if row.created_by != staff:
                 raise NotFoundError("配置员工")
@@ -117,9 +118,17 @@ class AgentDraftService:
                     raise ConflictError("员工已在其他页面修改，请重新读取并保存配置草稿")
                 # Echo the original selection without writing live policies.
                 return await self._receipt(row, request.activation_selection)
-            # New revisions still require policies owned by this draft.
-            await self.policies.draft_selection(
-                row.project_id, row.agent_id, row.draft_id, row.revision)
+            try:
+                await self.policies.draft_selection(
+                    row.project_id, row.agent_id, row.draft_id, row.revision)
+            except ConflictError:
+                # Keep independent policies only if the saved employee and
+                # original selection still match.
+                if not await self._configuration_matches(
+                    row, request.activation_selection,
+                ):
+                    raise ConflictError("员工或草稿岗位已变化，请核对当前员工配置")
+                preserve_policies = True
             receipt = await self._receipt(row)
             if receipt.is_active:
                 raise ConflictError("员工已经启用，请先停用再修改配置草稿")
@@ -142,10 +151,14 @@ class AgentDraftService:
                 await service.update_agent(project, row.agent_id, AgentUpdate.model_validate(fields),
                                            commit=False, enrich_resources=False)
                 row.revision, row.request_digest = request.revision, digest
-            await self.policies.save_for_draft(project, staff, row.agent_id, draft,
-                                                request.revision, request.activation_selection)
+            if not preserve_policies:
+                await self.policies.save_for_draft(
+                    project, staff, row.agent_id, draft,
+                    request.revision, request.activation_selection,
+                )
             await self.db.commit()
         except BaseException:
             await self.db.rollback()
             raise
-        return await self.get(project, staff, draft)
+        # This confirms the saved snapshot, not ownership of live policies.
+        return await self._receipt(row, request.activation_selection)

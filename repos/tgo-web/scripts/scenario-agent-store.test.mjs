@@ -4,6 +4,10 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 
+class APIError extends Error {
+  constructor(status) { super(`HTTP ${status}`); this.status = status; }
+}
+
 function harness() {
   let user = { id: 'staff-a', project_id: 'project-a', role: 'admin' };
   const listeners = [], calls = [], pending = [];
@@ -22,11 +26,12 @@ function harness() {
     if (name === './authStore') return { useAuthStore: auth };
     if (name === './scenarioDraftStore') return { useScenarioDraftStore: drafts };
     if (name === '@/services/businessScenariosApi') return { BusinessScenariosApi: api };
+    if (name === '@/services/api') return { APIError };
     throw new Error(name);
   } });
   return { store: exports.useScenarioAgentStore, input, calls, saves: () => saves,
     receipt: () => ({ draft_id: current.id, project_id: user.project_id, created_by: user.id, revision: current.revision, agent_id: 'agent-a', is_active: false, can_enable: false }),
-    resolve: value => pending.shift().resolve(value), reject: () => pending.shift().reject(new Error('network')),
+    resolve: value => pending.shift().resolve(value), reject: (error = new Error('network')) => pending.shift().reject(error),
     changeDraft: changes => { current = { ...current, ...changes }; },
     changeUser: next => { const previous = { user }; user = next; listeners.forEach(fn => fn({ user }, previous)); },
   };
@@ -40,6 +45,20 @@ test('double submission saves one employee snapshot, with no duplicate draft rev
   h.resolve(h.receipt());
   assert.equal((await first).agent_id, 'agent-a');
   assert.equal(h.calls.length, 1);
+});
+
+test('a configuration conflict is distinct from an unknown network outcome and clears on retry', async () => {
+  const h = harness();
+  const first = h.store.getState().prepare(h.input);
+  h.reject(new APIError(409));
+  assert.equal(await first, null);
+  assert.equal(h.store.getState().conflict, true);
+  const next = h.store.getState().prepare(h.input);
+  assert.equal(h.store.getState().conflict, false);
+  h.reject();
+  await next;
+  assert.equal(h.store.getState().failed, true);
+  assert.equal(h.store.getState().conflict, false);
 });
 
 test('unknown outcome retries the same durable draft and revision', async () => {

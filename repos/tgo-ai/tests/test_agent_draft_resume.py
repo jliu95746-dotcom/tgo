@@ -95,6 +95,20 @@ async def test_resume_preserves_independent_policy_and_original_employee(saved, 
     assert await db.scalar(select(func.count()).select_from(Agent)) == 1
     row = await db.scalar(select(AgentActivationPolicy))
     assert row.revision == before.policies[0].revision
+    changed = request.model_copy(deep=True)
+    changed.revision = 2
+    changed.agent.config = {"profession": "续办资料咨询"}
+    updated = await service.save(project, actor, draft, changed)
+    repeated = await service.save(project, actor, draft, changed)
+    assert updated == repeated
+    assert updated.agent_id == receipt.agent_id and updated.revision == 2
+    assert updated.activation_selection == request.activation_selection
+    assert updated.is_active is False and updated.can_enable is False
+    assert (await db.get(Agent, receipt.agent_id)).config == changed.agent.config
+    assert await policies.list(project, receipt.agent_id) == before
+    assert await db.scalar(select(func.count()).select_from(Agent)) == 1
+    with pytest.raises(ConflictError):
+        await service.save(project, actor, draft, request)
 
 
 @pytest.mark.asyncio
@@ -131,11 +145,11 @@ async def test_postgres_fresh_sessions_resume_without_rewriting_independent_poli
         }
     )
 
-    async def save():
+    async def save(request=None):
         async with sessions() as db:
             service = AgentDraftService(db)
             service.policies.owner = owner()
-            return await service.save(project, actor, draft, payload)
+            return await service.save(project, actor, draft, request or payload)
 
     try:
         async with admin.begin() as connection:
@@ -180,16 +194,22 @@ async def test_postgres_fresh_sessions_resume_without_rewriting_independent_poli
             )
             fresh = payload.model_copy(deep=True)
             fresh.revision = 2
-            fresh.agent.name = "不可覆盖新岗位"
-            with pytest.raises(ConflictError):
-                await service.save(project, actor, draft, fresh)
+            fresh.agent.name = "保留独立岗位的续办员工"
+        updated = await asyncio.wait_for(asyncio.gather(save(fresh), save(fresh)), 20)
+        assert all(
+            row.agent_id == original.agent_id
+            and row.revision == 2
+            and row.activation_selection == payload.activation_selection
+            and row.is_active is False and row.can_enable is False
+            for row in updated
+        )
         async with sessions() as db:
             assert await db.scalar(select(func.count()).select_from(Agent)) == 1
             assert (
                 await db.scalar(select(func.count()).select_from(AgentDraftBinding))
                 == 1
             )
-            assert (await db.get(Agent, original.agent_id)).name == payload.agent.name
+            assert (await db.get(Agent, original.agent_id)).name == fresh.agent.name
             policy = await db.scalar(select(AgentActivationPolicy))
             assert policy.revision == changed.revision == 2
             assert policy.template_id == "aftersales" and policy.updated_by == editor
@@ -221,14 +241,67 @@ async def test_resuming_cannot_change_original_selection_or_overwrite_independen
     collision.activation_selection.template_id = "aftersales"
     with pytest.raises(ConflictError):
         await service.save(project, actor, draft, collision)
-    changed = request.model_copy(deep=True)
+    changed = collision.model_copy(deep=True)
     changed.revision = 2
-    changed.agent.name = "不可覆盖"
     with pytest.raises(ConflictError):
         await service.save(project, actor, draft, changed)
     assert (
         await db.get(Agent, receipt.agent_id, populate_existing=True)
     ).name == request.agent.name
+    assert await service.policies.list(project, receipt.agent_id) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["instruction", "config", "skills_enabled"])
+async def test_independent_policy_does_not_allow_overwriting_external_employee_edits(
+    saved, field,
+):
+    db, service, project, actor, draft, request, receipt = saved
+    await service.policies.save(
+        project, actor, receipt.agent_id,
+        AgentActivationPolicyChange(
+            expected_revision=1, selection=request.activation_selection,
+        ),
+    )
+    before = await service.policies.list(project, receipt.agent_id)
+    agent = await db.get(Agent, receipt.agent_id)
+    replacement = {
+        "instruction": "其他页面的新职责",
+        "config": {"profession": "已修改"},
+        "skills_enabled": not request.agent.skills_enabled,
+    }[field]
+    setattr(agent, field, replacement)
+    await db.commit()
+    changed = request.model_copy(deep=True)
+    changed.revision = 2
+    changed.agent.name = "不得覆盖外部配置"
+    with pytest.raises(ConflictError):
+        await service.save(project, actor, draft, changed)
+    assert getattr(await db.get(Agent, receipt.agent_id), field) == replacement
+    assert await service.policies.list(project, receipt.agent_id) == before
+    assert (await service._binding(project, draft)).revision == 1
+
+
+@pytest.mark.asyncio
+async def test_active_employee_cannot_be_updated_after_independent_policy_edit(saved):
+    db, service, project, actor, draft, request, receipt = saved
+    await service.policies.save(
+        project, actor, receipt.agent_id,
+        AgentActivationPolicyChange(
+            expected_revision=1, selection=request.activation_selection,
+        ),
+    )
+    before = await service.policies.list(project, receipt.agent_id)
+    agent = await db.get(Agent, receipt.agent_id)
+    agent.is_active = True
+    await db.commit()
+    changed = request.model_copy(deep=True)
+    changed.revision = 2
+    changed.agent.name = "不得修改已启用员工"
+    with pytest.raises(ConflictError):
+        await service.save(project, actor, draft, changed)
+    assert (await db.get(Agent, receipt.agent_id)).is_active is True
+    assert (await db.get(Agent, receipt.agent_id)).name == request.agent.name
     assert await service.policies.list(project, receipt.agent_id) == before
 
 

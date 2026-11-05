@@ -33,7 +33,7 @@ export default function AgentSetupReview({ form, testing, onActivated, onTrial }
         <p className="text-sm text-gray-600 dark:text-gray-300">{t('businessScenarios.wizard.saveBeforeTrial')}</p>
         <button type="button" disabled={setup.busy || !template} onClick={() => void prepare()} className="mt-3 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{t(`businessScenarios.wizard.${setup.busy ? 'savingEmployee' : 'saveAndTrial'}`)}</button>
       </>}
-      {setup.failed && <p role="alert" className="mt-3 text-sm text-red-600">{t('businessScenarios.wizard.saveEmployeeFailed')}</p>}
+      {setup.failed && <p role="alert" className="mt-3 text-sm text-red-600">{t(`businessScenarios.wizard.${setup.conflict ? 'configurationConflict' : 'saveEmployeeFailed'}`)}</p>}
     </div>}
     {!testing && <dl className="grid gap-4 rounded-3xl border border-gray-100 bg-white p-5 text-sm dark:border-gray-800 dark:bg-gray-900 sm:grid-cols-2">
       <div><dt className="text-gray-500">{t('agents.form.name')}</dt><dd className="mt-1 font-medium text-gray-800 dark:text-gray-100">{form.name}</dd></div>

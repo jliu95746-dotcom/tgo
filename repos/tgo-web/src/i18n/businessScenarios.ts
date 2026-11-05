@@ -106,6 +106,8 @@ export const businessScenariosZh = {
     saveBeforeTrial: '先保存企业信息和资源配置，再使用这个待启用员工进行独立试聊。恢复草稿或重新保存会沿用同一个员工。',
     saveAndTrial: '保存员工并试聊', savingEmployee: '正在保存员工…', finishSetup: '完成配置，保持待启用',
     saveEmployeeFailed: '员工保存尚未确认。请先恢复此草稿并核对最新配置，再重试保存；已保存的员工会继续沿用。',
+    configurationConflict: '员工或草稿岗位已在其他页面修改。当前草稿已保留，请先核对员工的最新配置，再决定如何修改。',
+    savedTitle: '配置已保存', savedDescription: 'AI员工“{{name}}”的配置已保存，保持待启用。',
     progress: '岗位配置步骤', steps: { scenario: '选择岗位', business: '企业信息', resources: '资料和能力', testing: '试聊', activation: '核对与启用' },
     roleTitle: '先选择这个员工负责的岗位', roleHint: '模板带入职责和测试问题；你已填写的企业资料、资源和自定义职责会保留。',
     company: '企业与业务介绍', companyHint: '说明企业经营什么、服务哪些客户，以及这个岗位负责的范围。',

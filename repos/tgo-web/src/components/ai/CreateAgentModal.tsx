@@ -221,7 +221,7 @@ const CreateAgentModal: React.FC = () => {
     if (step === 'testing') { setStep('activation'); return; }
     const employeeName = createAgentFormData.name;
     discardAndClose();
-    showToast('success', t('agents.messages.createSuccess'), t('agents.messages.createSuccessDesc', { name: employeeName }));
+    showToast('success', t('businessScenarios.wizard.savedTitle'), t('businessScenarios.wizard.savedDescription', { name: employeeName }));
     // A refresh failure must not cause a second creation of the saved employee.
     try { await refreshAgents(); } catch { /* Existing list error state provides retry. */ }
   };
@@ -339,7 +339,7 @@ const CreateAgentModal: React.FC = () => {
           </div>
 
           {/* Footer */}
-          {setup.failed && step !== 'testing' && <p role="alert" className="px-4 py-3 text-sm text-red-600 sm:px-8">{t('businessScenarios.wizard.saveEmployeeFailed')}</p>}
+          {setup.failed && step !== 'testing' && <p role="alert" className="px-4 py-3 text-sm text-red-600 sm:px-8">{t(`businessScenarios.wizard.${setup.conflict ? 'configurationConflict' : 'saveEmployeeFailed'}`)}</p>}
           <div className="px-4 sm:px-8 py-4 border-t border-gray-100 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 backdrop-blur-md flex flex-wrap items-center justify-end gap-2 rounded-b-[2rem]">
             <button
               type="button"

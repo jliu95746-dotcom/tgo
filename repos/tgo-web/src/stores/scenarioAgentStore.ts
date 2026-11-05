@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { BusinessScenariosApi } from '@/services/businessScenariosApi';
+import { APIError } from '@/services/api';
 import type { ScenarioAgentReceipt, ScenarioDraft, ScenarioDraftInput } from '@/types/scenarioDrafts';
 import { useAuthStore } from './authStore';
 import { useScenarioDraftStore } from './scenarioDraftStore';
@@ -8,6 +9,7 @@ interface ScenarioAgentState {
   receipt: ScenarioAgentReceipt | null;
   busy: boolean;
   failed: boolean;
+  conflict: boolean;
   prepare: (input: ScenarioDraftInput) => Promise<ScenarioAgentReceipt | null>;
   cancel: () => void;
 }
@@ -29,7 +31,7 @@ export function matchesSavedAgent(input: ScenarioDraftInput, draft: ScenarioDraf
 
 let generation = 0;
 let controller: AbortController | null = null;
-const empty = { receipt: null, busy: false, failed: false };
+const empty = { receipt: null, busy: false, failed: false, conflict: false };
 export const useScenarioAgentStore = create<ScenarioAgentState>((set, get) => ({
   ...empty,
   cancel: () => { generation++; controller?.abort(); controller = null; set({ busy: false }); },
@@ -48,7 +50,7 @@ export const useScenarioAgentStore = create<ScenarioAgentState>((set, get) => ({
     controller?.abort();
     const requestController = new AbortController();
     controller = requestController;
-    set({ busy: true, failed: false, receipt: null });
+    set({ busy: true, failed: false, conflict: false, receipt: null });
     try {
       let current = useScenarioDraftStore.getState().current;
       if (!matchesSavedAgent(input, current)) {
@@ -66,7 +68,10 @@ export const useScenarioAgentStore = create<ScenarioAgentState>((set, get) => ({
         || useScenarioDraftStore.getState().current?.revision !== current.revision) throw new Error('Invalid setup receipt');
       set({ receipt });
       return receipt;
-    } catch { if (version === generation) set({ failed: true }); return null; }
+    } catch (error) {
+      if (version === generation) set({ failed: true, conflict: error instanceof APIError && error.status === 409 });
+      return null;
+    }
     finally { if (version === generation) { controller = null; set({ busy: false }); } }
   },
 }));
