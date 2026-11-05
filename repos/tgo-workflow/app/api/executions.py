@@ -57,6 +57,8 @@ from app.config import settings
 from app.core.logging import logger
 from app.integrations.ai_client import AIClient
 from app.schemas.business_query import BusinessExecutionContext
+from app.schemas.ai_usage import WorkflowUsageOwner
+from app.services.workflow_ai_context import request_owner
 from app.services.business_query_context import (
     business_query_record_inputs, require_business_query_context,
 )
@@ -85,6 +87,7 @@ async def _create_execution_record(
     workflow_lineage: tuple[str, ...] = (),
     execution_id: str | None = None,
     invocation_input_hmac: str | None = None,
+    usage_owner: WorkflowUsageOwner | None = None,
 ) -> WorkflowExecution:
     if (origin is not None and origin.business_project_id is not None
             and str(origin.business_project_id) != project_id):
@@ -97,6 +100,9 @@ async def _create_execution_record(
         status=status,
         input=copy_json_object(inputs),
         invocation_input_hmac=invocation_input_hmac,
+        ai_usage_owner=(
+            usage_owner.model_dump(mode="json") if usage_owner else None
+        ),
         definition_snapshot=(copy_json_object(workflow_definition) if workflow_definition is not None else None),
         workflow_version=workflow_version,
         execution_mode=execution_mode,
@@ -125,6 +131,7 @@ def _same_approval_invocation(
     inputs: dict[str, JsonValue], release_id: str | None,
     workflow_version: int, definition: dict[str, JsonValue],
     origin: WorkflowExecutionOrigin, workflow_lineage: tuple[str, ...],
+    usage_owner: WorkflowUsageOwner | None = None,
 ) -> bool:
     """A reused invocation key may only refer to the identical approved request."""
     if saved.input is None:
@@ -154,6 +161,9 @@ def _same_approval_invocation(
         and saved.source_channel == origin.source_channel
         and saved.parent_execution_id == (str(origin.parent_execution_id) if origin.parent_execution_id else None)
         and saved.workflow_lineage == list(workflow_lineage)
+        and saved.ai_usage_owner == (
+            usage_owner.model_dump(mode="json") if usage_owner else None
+        )
     )
 
 
@@ -587,7 +597,22 @@ async def execute_workflow(
     x_business_visitor_id: str | None = Header(default=None),
     x_business_request_fingerprint: str | None = Header(default=None),
     x_execution_channel: str | None = Header(default=None),
+    x_workflow_staff_id: str | None = Header(default=None),
+    x_workflow_staff_version: str | None = Header(default=None),
+    x_ai_reservation: str | None = Header(default=None),
+    x_ai_lease: str | None = Header(default=None),
 ):
+    usage_owner = request_owner(
+        x_internal_api_key, x_workflow_staff_id, x_workflow_staff_version,
+        x_ai_reservation, x_ai_lease,
+    )
+    if usage_owner is not None and (
+        (usage_owner.staff_id is not None
+         and request.employee_agent_id is not None)
+        or (usage_owner.reservation_id is not None
+            and request.employee_agent_id is None)
+    ):
+        raise HTTPException(403, "工作流调用方与额度来源不一致")
     # 1. Verify workflow exists and belongs to project
     workflow = await WorkflowService.get_by_id(db, workflow_id, project_id)
     if not workflow:
@@ -667,7 +692,8 @@ async def execute_workflow(
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
 
-    if isinstance(x_internal_api_key, str) and x_internal_api_key and request.employee_agent_id is None:
+    if (isinstance(x_internal_api_key, str) and x_internal_api_key
+            and request.employee_agent_id is None and usage_owner is None):
         raise HTTPException(422, "内部员工工作流调用必须指定员工身份")
 
     workflow_lineage = (workflow_id,)
@@ -765,6 +791,7 @@ async def execute_workflow(
             employee_agent_id=employee_agent_id,
             origin=execution_origin,
             workflow_lineage=workflow_lineage,
+            usage_owner=usage_owner,
         )
         return StreamingResponse(
             _stream_with_owned_session(
@@ -797,6 +824,7 @@ async def execute_workflow(
                     inputs=validated_inputs, release_id=release_id,
                     workflow_version=selected_version, definition=selected_definition,
                     origin=execution_origin, workflow_lineage=workflow_lineage,
+                    usage_owner=usage_owner,
                 ):
                     raise HTTPException(409, "防重复调用标识已用于不同的工作流请求")
                 return existing
@@ -809,6 +837,7 @@ async def execute_workflow(
                 origin=execution_origin, workflow_lineage=workflow_lineage,
                 execution_id=approval_invocation_id,
                 invocation_input_hmac=invocation_input_hmac,
+                usage_owner=usage_owner,
             )
         except IntegrityError:
             if approval_invocation_id is None:
@@ -820,6 +849,7 @@ async def execute_workflow(
                 inputs=validated_inputs, release_id=release_id,
                 workflow_version=selected_version, definition=selected_definition,
                 origin=execution_origin, workflow_lineage=workflow_lineage,
+                usage_owner=usage_owner,
             ):
                 raise HTTPException(409, "防重复调用标识已用于不同的工作流请求") from None
             return existing
@@ -849,6 +879,7 @@ async def execute_workflow(
             employee_agent_id=employee_agent_id,
             origin=execution_origin,
             workflow_lineage=workflow_lineage,
+            usage_owner=usage_owner,
         )
         return await _run_sync_execution(
             workflow_id, project_id, db_execution.id,

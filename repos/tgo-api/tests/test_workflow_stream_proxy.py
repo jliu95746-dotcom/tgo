@@ -18,7 +18,9 @@ from app.services import workflow_stream
 def client_app():
     app = FastAPI()
     app.include_router(router, prefix="/v1/ai/workflows")
-    app.dependency_overrides[get_current_active_user] = lambda: SimpleNamespace(id=uuid4(), project_id=uuid4(), role="admin")
+    actor = SimpleNamespace(id=uuid4(), project_id=uuid4(), role="admin", token_version=3)
+    app.state.actor = actor
+    app.dependency_overrides[get_current_active_user] = lambda: actor
     return app
 
 
@@ -127,3 +129,32 @@ async def test_successful_stream_preserves_all_frames_and_closes_upstream(monkey
     assert response.status_code == 200
     assert response.text == "".join(frames)
     assert closed == [True]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["sync", "async", "stream"])
+async def test_execution_identity_comes_from_authenticated_staff(monkeypatch, mode):
+    application = client_app()
+    stamp = "2026-11-05T00:00:00Z"
+    if mode == "stream":
+        async def frames():
+            yield 'data: {"event":"workflow_started"}\n\n'
+        receipt = frames()
+    elif mode == "async":
+        receipt = {"id": str(uuid4()), "workflow_id": "owned-flow", "status": "pending", "started_at": stamp}
+    else:
+        receipt = {"success": True, "output": "answer", "metadata": {"duration": 0.1, "startTime": stamp, "endTime": stamp}}
+    dispatch = AsyncMock(return_value=receipt)
+    monkeypatch.setattr(workflow_client, "execute_workflow", dispatch)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=application), base_url="http://test") as client:
+        response = await client.post("/v1/ai/workflows/owned-flow/execute", json={
+            "stream": mode == "stream", "async": mode == "async",
+            "staff_id": str(uuid4()), "staff_token_version": 999,
+            "owner": {"unmetered": True},
+        })
+    assert response.status_code == 200
+    assert dispatch.await_args.kwargs == {
+        "staff_id": application.state.actor.id,
+        "staff_token_version": application.state.actor.token_version,
+    }
+    assert "owner" not in dispatch.await_args.args[2]

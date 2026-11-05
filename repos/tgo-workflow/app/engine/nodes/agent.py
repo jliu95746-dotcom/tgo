@@ -35,6 +35,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                 context.project_id, payload,
                 parent_execution_id=context.execution_id,
                 workflow_lineage=context.workflow_lineage,
+                workflow_node_id=self.node_id,
             )
             if data.execution_id is None:
                 raise RuntimeError("AI 员工执行回执缺少运行编号")

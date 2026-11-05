@@ -16,6 +16,7 @@ from app.services.workflow_inputs import validate_inputs
 from app.services.execution_receipts import node_receipt_output
 from app.services.validation_service import ValidationService
 from app.services.parallel_topology import ParallelPlan, parallel_plan_for
+from app.integrations.ai_errors import WorkflowAIError
 from app.services.execution_snapshot import copy_json_object, definition_digest
 from app.engine.checkpoint import ExecutionCheckpoint, WorkflowPaused
 from app.engine.parallel_control import await_parallel_branches
@@ -254,6 +255,8 @@ class WorkflowExecutor:
                     label = node.get("data", {}).get("label") or node_id
                     if executor_cls is None:
                         error = f"节点「{label}」的类型 {node['type']} 暂不支持执行。"
+                    elif isinstance(e, WorkflowAIError):
+                        error = f"节点「{label}」：{e.public_message}"
                     else:
                         error = (
                             f"节点「{label}」（{node['type']}）执行失败"
@@ -380,6 +383,8 @@ class WorkflowExecutor:
                 except Exception as exc:
                     status = "failed"
                     error = (
+                        f"节点「{branch_id}」：{exc.public_message}"
+                        if isinstance(exc, WorkflowAIError) else
                         f"节点「{branch_id}」（{node['type']}）执行失败"
                         f"（{type(exc).__name__}），请检查节点配置。"
                     )

@@ -8,6 +8,7 @@ from app.api import (
     webhook_deliveries,
 )
 from app.integrations.http_client import HttpClient
+from app.api import ai_runtime
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,6 +33,10 @@ app.add_middleware(
 )
 
 app.include_router(approvals.router, prefix=f"{settings.API_V1_STR}/workflows", tags=["approvals"])
+app.include_router(
+    ai_runtime.router, prefix=f"{settings.API_V1_STR}/workflows",
+    tags=["private-ai-runtime"],
+)
 app.include_router(workflows.router, prefix=f"{settings.API_V1_STR}/workflows", tags=["workflows"])
 app.include_router(
     schedules.router, prefix=f"{settings.API_V1_STR}/workflows", tags=["schedules"],

@@ -602,7 +602,11 @@ async def execute_workflow(
 ) -> Union[WorkflowSyncResponse, WorkflowExecution, StreamingResponse]:
     """Execute workflow in Workflow service."""
     res = await workflow_client.execute_workflow(
-        workflow_id, str(current_user.project_id), request.model_dump(by_alias=True)
+        workflow_id,
+        str(current_user.project_id),
+        request.model_dump(by_alias=True),
+        staff_id=current_user.id,
+        staff_token_version=current_user.token_version,
     )
 
     if request.stream:

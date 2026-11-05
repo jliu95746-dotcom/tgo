@@ -11,6 +11,9 @@ from fastapi import HTTPException
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas.workflow_capabilities import WorkflowCapabilities
+from app.schemas.workflow_ai_usage import (
+    WorkflowAICommand, WorkflowAIContext, WorkflowUsageOutcome,
+)
 from app.schemas.ai_workflows import WorkflowExecution, WorkflowInDB
 from app.schemas.workflow_approval import (
     WorkflowAfterSalesReviewDecision, WorkflowAfterSalesReviewSummary,
@@ -658,13 +661,23 @@ class WorkflowServiceClient:
         return await self._handle_response(response)
 
     async def execute_workflow(
-        self, workflow_id: str, project_id: str, request: Dict[str, Any]
+        self, workflow_id: str, project_id: str, request: Dict[str, Any],
+        *, staff_id: UUID | None = None,
+        staff_token_version: int | None = None,
     ) -> Union[Dict[str, Any], Any]:
         """Execute workflow. Supports sync, async, and streaming modes."""
         url = f"{self.base_url}/v1/workflows/{workflow_id}/execute"
         params = {"project_id": project_id}
         headers = self._get_headers()
         headers["X-Request-ID"] = str(uuid4())
+        authority: dict[str, str] = {}
+        if staff_id is not None and staff_token_version is not None:
+            authority = {
+                "X-Internal-API-Key": settings.SECRET_KEY,
+                "X-Workflow-Staff-ID": str(staff_id),
+                "X-Workflow-Staff-Version": str(staff_token_version),
+            }
+        headers.update(authority)
 
         # Check if streaming is requested
         if request.get("stream"):
@@ -701,8 +714,46 @@ class WorkflowServiceClient:
             f"/v1/workflows/{workflow_id}/execute",
             json_data=request,
             params=params,
+            extra_headers=authority,
         )
         return await self._handle_response(response)
+
+    async def workflow_ai_context(
+        self, command: WorkflowAICommand,
+    ) -> WorkflowAIContext:
+        response = await self._make_request(
+            "GET",
+            f"/v1/workflows/executions/{command.execution_id}/ai-context",
+            params={
+                "project_id": str(command.project_id),
+                "node_id": command.node_id,
+            },
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        data = await self._handle_response(response)
+        return WorkflowAIContext.model_validate(data)
+
+    async def workflow_usage_outcome(
+        self, project_id: UUID, execution_id: UUID,
+    ) -> WorkflowUsageOutcome:
+        data = await self.get_execution(str(execution_id), str(project_id))
+        from app.services.workflow_ai_usage import _has_output
+
+        execution = WorkflowExecution.model_validate(data)
+        outcome = WorkflowUsageOutcome(
+            project_id=data["project_id"], execution_id=data["id"],
+            status=data["status"], output=data.get("output"),
+            answer_available=any(
+                node.node_type == "answer"
+                and node.status == "completed"
+                and _has_output(node.output)
+                for node in execution.node_executions
+            ),
+        )
+        if (outcome.project_id != project_id
+                or outcome.execution_id != execution_id):
+            raise HTTPException(502, "工作流用量核验范围不一致")
+        return outcome
 
     async def get_execution(self, execution_id: str, project_id: str) -> Dict[str, Any]:
         params = {"project_id": project_id}

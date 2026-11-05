@@ -536,6 +536,20 @@ async def create_workflow_tools(
                         release_id, release_digest,
                     )
                     headers = {"X-Internal-API-Key": settings.secret_key}
+                    from app.services.quota_authorization import (
+                        current_authorization,
+                    )
+                    usage = current_authorization.get()
+                    if usage is not None:
+                        if str(usage.project_id) != str(project_id):
+                            raise PermissionError("工作流额度与员工企业不一致")
+                        if (usage.reservation_id is None
+                                or usage.lease_id is None):
+                            raise PermissionError("工作流额度来源不完整")
+                        headers.update({
+                            "X-AI-Reservation": str(usage.reservation_id),
+                            "X-AI-Lease": str(usage.lease_id),
+                        })
                     if business_principal is not None and business_context_token is not None:
                         headers.update({
                             "X-Business-Request-Context": business_context_token.get_secret_value(),

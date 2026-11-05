@@ -17,6 +17,7 @@ from app.services.company_email import utc
 from app.schemas.company_resources import CompanyResources
 from app.services.company_resources import resources
 from app.services.platform_models import runtime_model
+from app.services.workflow_ai_usage import require_current_owner
 
 
 def require_quota_service(x_saas_service_token: str | None = Header(None)) -> None:
@@ -59,6 +60,7 @@ def authorize(
         or utc(row.expires_at) <= now
     ):
         raise HTTPException(403, "AI 任务缺少有效额度授权")
+    require_current_owner(db, row)
     return UsageAuthorizationResult(
         authorized=True, metered=True, platform_model=runtime_model(db)
     )

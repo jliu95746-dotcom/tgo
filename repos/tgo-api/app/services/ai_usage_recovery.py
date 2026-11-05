@@ -11,6 +11,7 @@ from app.core.logging import get_logger
 from app.models.ai_usage import AIUsageReservation
 from app.services import ai_usage
 from app.services.agent_trial_usage import recover_trials
+from app.services.workflow_ai_recovery import reconcile_workflows
 from app.services.company_email import utc
 from app.services.platform_message_client import get_ai_delivery_receipt
 from app.services.wukongim_client import wukongim_client
@@ -27,7 +28,9 @@ def release_abandoned() -> None:
                 .where(
                     AIUsageReservation.status == "reserved",
                     AIUsageReservation.expires_at <= now,
-                    func.coalesce(AIUsageReservation.receipt["kind"].as_string(), "") != "agent_trial",
+                    func.coalesce(
+                        AIUsageReservation.receipt["kind"].as_string(), "",
+                    ).notin_(["agent_trial", "workflow"]),
                 )
                 .limit(100)
             )
@@ -45,6 +48,7 @@ def release_abandoned() -> None:
 async def reconcile_deliveries() -> None:
     await asyncio.to_thread(release_abandoned)
     await recover_trials()
+    await reconcile_workflows()
     now = datetime.now(timezone.utc)
     with SessionLocal() as db:
         rows = list(
@@ -53,7 +57,9 @@ async def reconcile_deliveries() -> None:
                 .where(
                     AIUsageReservation.status.in_(["publishing", "review"]),
                     AIUsageReservation.expires_at <= now,
-                    func.coalesce(AIUsageReservation.receipt["kind"].as_string(), "") != "agent_trial",
+                    func.coalesce(
+                        AIUsageReservation.receipt["kind"].as_string(), "",
+                    ).notin_(["agent_trial", "workflow"]),
                 )
                 .order_by(AIUsageReservation.expires_at)
                 .limit(100)

@@ -1,5 +1,4 @@
 import httpx
-import json
 from pydantic import JsonValue
 from typing import Optional, Dict, Any
 from uuid import UUID
@@ -7,6 +6,8 @@ from app.config import settings
 from app.core.logging import logger
 from app.integrations.http_client import HttpClient
 from app.schemas.agent_runtime import AgentRuntimeRequest, AgentRuntimeResult
+from app.schemas.ai_usage import WorkflowAICommand
+from app.integrations.ai_errors import WorkflowAIError
 from app.schemas.tool import ToolAvailability, ToolExecuteRequest, ToolExecuteResponse
 from app.schemas.employee_workflow import (
     EmployeeWorkflowBindingReceipt,
@@ -162,6 +163,7 @@ class AIClient:
         payload: AgentRuntimeRequest,
         *, parent_execution_id: str | None = None,
         workflow_lineage: tuple[str, ...] = (),
+        workflow_node_id: str | None = None,
     ) -> AgentRuntimeResult:
         """
         Call AI service agents run endpoint.
@@ -170,25 +172,29 @@ class AIClient:
         if key is None or not key.get_secret_value():
             raise RuntimeError("工作流调用 AI 员工的内部身份尚未配置")
         try:
+            command = WorkflowAICommand.model_validate({
+                "project_id": project_id, "execution_id": parent_execution_id,
+                "node_id": workflow_node_id, "payload": payload,
+            })
+        except ValueError:
+            raise WorkflowAIError(403) from None
+        try:
             client = await HttpClient.get_client()
             headers = {
                 "X-Internal-API-Key": key.get_secret_value(),
                 "X-Project-Id": project_id, "X-Execution-Channel": "internal",
             }
-            if parent_execution_id and workflow_lineage:
-                headers["X-Workflow-Parent-Execution-ID"] = parent_execution_id
-                headers["X-Workflow-Lineage"] = json.dumps(workflow_lineage)
             response = await client.post(
-                f"{settings.AI_SERVICE_URL}/api/v1/agents/run",
-                json=payload.model_dump(mode="json", exclude_none=True),
-                params={"project_id": project_id},
+                (f"{settings.API_INTERNAL_SERVICE_URL}"
+                 "/internal/workflow-ai/run"),
+                json=command.model_dump(mode="json", exclude_none=True),
                 headers=headers,
                 timeout=120.0,
             )
         except (httpx.HTTPError, OSError, TimeoutError):
-            raise RuntimeError("AI 员工连接失败，请稍后重试或转人工") from None
+            raise WorkflowAIError(503) from None
         if response.status_code != 200:
-            raise RuntimeError(f"AI 员工调用失败 (HTTP {response.status_code})，请检查配置或转人工")
+            raise WorkflowAIError(response.status_code)
         try:
             result = AgentRuntimeResult.model_validate(response.json())
         except ValueError:

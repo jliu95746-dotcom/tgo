@@ -38,6 +38,9 @@ class WorkflowExecution(Base):
     source_channel: Mapped[str | None] = mapped_column(String(32), nullable=True)
     parent_execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     workflow_lineage: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    ai_usage_owner: Mapped[dict[str, JsonValue] | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True,
+    )
     active_approval_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     active_segment_started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,

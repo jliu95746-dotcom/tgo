@@ -12,6 +12,7 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas.reply_phase import ReplyPhaseIdentity
+from app.schemas.workflow_ai_usage import WorkflowAgentInput, WorkflowAIResult
 from app.schemas.assist_trace import AssistTracePhase
 from app.services.assist_run_trace import record_assist_run_trace
 from app.schemas.knowledge_availability import AgentKnowledgeAvailability
@@ -72,6 +73,13 @@ class AIServiceClient:
         self.base_url = str(settings.AI_SERVICE_URL).rstrip("/")
         self.timeout = settings.AI_SERVICE_TIMEOUT
         self.api_key = settings.AI_SERVICE_API_KEY
+
+    async def run_workflow_agent(
+        self, payload: WorkflowAgentInput, project_id: UUID,
+        execution_id: UUID, lineage: tuple[str, ...],
+    ) -> WorkflowAIResult:
+        from app.services.workflow_ai_client import run
+        return await run(self, payload, project_id, execution_id, lineage)
 
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for AI service requests (no auth required by downstream)."""
