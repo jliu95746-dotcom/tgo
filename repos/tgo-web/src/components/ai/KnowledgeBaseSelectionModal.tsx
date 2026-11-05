@@ -9,6 +9,7 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useKnowledgeStore } from '@/stores';
 import { useToast } from '@/hooks/useToast';
 import type { KnowledgeBaseItem } from '@/types';
+import { knowledgeBasePreview } from '@/utils/knowledgePreview';
 
 interface KnowledgeBaseSelectionModalProps {
   isOpen: boolean;
@@ -246,21 +247,21 @@ const KnowledgeBaseSelectionModal: React.FC<KnowledgeBaseSelectionModalProps> = 
                         : 'bg-white border-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-700 dark:hover:bg-gray-700'
                     }`}
                   >
-                    <div className="flex items-start space-x-3">
+                    <div className="flex min-w-0 flex-1 items-start space-x-3">
                       <KBIcon kb={knowledgeBase} selected={isSelected} />
-                      <div>
-                        <div className={`text-sm font-medium ${isSelected ? 'text-blue-900 dark:text-blue-300' : 'text-gray-800 dark:text-gray-100'}`}>
+                      <div className="min-w-0 flex-1">
+                        <div className={`truncate text-sm font-medium ${isSelected ? 'text-blue-900 dark:text-blue-300' : 'text-gray-800 dark:text-gray-100'}`}>
                           {knowledgeBase.title}
                         </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug">
-                          {knowledgeBase.content}
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug line-clamp-2 break-words">
+                          {knowledgeBasePreview(knowledgeBase.content)}
                         </div>
                         <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                           {t('knowledge.filesCount', { count: knowledgeBase.fileCount ?? 0, defaultValue: `${knowledgeBase.fileCount ?? 0} 文件` })}
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center">
+                    <div className="ml-3 flex shrink-0 items-center">
                       <input
                         type="checkbox"
                         aria-label={knowledgeBase.title}

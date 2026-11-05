@@ -3,6 +3,7 @@ import { XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getIconComponent, getIconColor } from '@/components/knowledge/IconPicker';
 import type { KnowledgeBaseItem } from '@/types';
+import { knowledgeBasePreview } from '@/utils/knowledgePreview';
 
 interface AgentKnowledgeBaseRowProps {
   kb: KnowledgeBaseItem;
@@ -24,7 +25,7 @@ const AgentKnowledgeBaseRow: React.FC<AgentKnowledgeBaseRowProps> = ({ kb, onRem
         <IconComponent className={`w-5 h-5 flex-shrink-0 mt-0.5 transition-colors duration-200 ${iconColor} hover:opacity-80`} />
         <div className="min-w-0">
           <div className={`text-sm font-medium ${enabled ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'} truncate`}>{kb.title}</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug line-clamp-2">{kb.content}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-snug line-clamp-2 break-words">{knowledgeBasePreview(kb.content)}</div>
           <div className="text-xs text-gray-400 dark:text-gray-500 mt-1 truncate">
             {t('knowledge.filesCount', { count: kb.fileCount ?? 0, defaultValue: `${kb.fileCount ?? 0} 文件` })} • {kb.author}
           </div>
