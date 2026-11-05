@@ -100,11 +100,11 @@ async def login_staff(
     Authenticate staff member and return JWT access token.
     Also registers/synchronizes user with WuKongIM for instant messaging.
     """
-    logger.info(f"Staff login attempt for username: {form_data.username}")
+    logger.info("Staff login attempt")
 
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
-        logger.warning(f"Failed login attempt for username: {form_data.username}")
+        logger.warning("Staff login failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -135,21 +135,20 @@ async def login_staff(
             token=access_token,  # Use the JWT token as WuKongIM token
         )
         await ensure_project_staff_channel(db, user)
-        logger.info(f"Successfully synchronized staff {user.username} (UID: {staff_uid}) with WuKongIM")
+        logger.info("Staff IM synchronization completed")
     except Exception as e:
         # Log the error but don't fail the login process
         logger.error(
-            f"Failed to synchronize user {user.username} with WuKongIM: {e}",
+            "Staff IM synchronization failed",
             extra={
-                "username": user.username,
-                "error": str(e),
+                "error_type": type(e).__name__,
                 "wukongim_enabled": settings.WUKONGIM_ENABLED,
             }
         )
         # WuKongIM sync failure should not prevent login
         # The user can still use the main application features
 
-    logger.info(f"Successful login for user: {user.username}")
+    logger.info("Staff login succeeded")
 
     return StaffLoginResponse(
         access_token=access_token,

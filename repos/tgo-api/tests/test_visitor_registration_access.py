@@ -129,12 +129,17 @@ async def test_personal_wechat_rejects_invalid_identity_and_requires_bound_heart
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stage", ["channel", "notify", "im"])
-async def test_registration_rechecks_original_platform_after_await(register_api, monkeypatch, stage):
+@pytest.mark.parametrize(
+    "replacement_key", [None, "replacement-public-key", "synthetic-非ASCII-key"]
+)
+async def test_registration_rechecks_original_platform_after_await(
+    register_api, monkeypatch, stage, replacement_key
+):
     app, _, db, visitor, _, _, secret, channel, im = register_api
     original_key = visitor.platform.api_key
 
     async def rotate(*_args, **_kwargs):
-        visitor.platform.api_key = "replacement-public-key"
+        visitor.platform.api_key = replacement_key
         db.commit()
 
     if stage == "channel":

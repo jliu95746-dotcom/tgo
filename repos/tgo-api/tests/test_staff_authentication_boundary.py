@@ -163,3 +163,73 @@ async def test_company_admin_cannot_create_another_company(boundary_app):
         )
     assert response.status_code == 403, response.text
     assert db.query(Project).count() == before
+
+
+@pytest.mark.asyncio
+async def test_permission_denial_does_not_log_username(boundary_app, caplog):
+    from app.models import Permission, ProjectRolePermission, RolePermission
+
+    app, db, staff, own, _ = boundary_app
+    for model in [Permission, RolePermission, ProjectRolePermission]:
+        model.__table__.create(db.bind)
+    staff.role = "user"
+    db.commit()
+    token = security.create_access_token(staff.username, own.id)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/permission-check", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert response.status_code == 403
+    assert staff.username not in caplog.text
+    assert "Permission denied" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["failed", "success", "im_failure"])
+async def test_login_logs_do_not_include_private_data(
+    boundary_app, monkeypatch, caplog, mode
+):
+    import logging
+    from unittest.mock import AsyncMock
+
+    from app.api.v1.endpoints import staff as staff_endpoints
+
+    app, db, staff, own, _ = boundary_app
+    app.include_router(staff_endpoints.router, prefix="/staff")
+    private_error = "synthetic-private-im-error"
+    if mode != "failed":
+        staff.password_hash = security.get_password_hash("synthetic-input")
+        db.commit()
+    synchronize = AsyncMock()
+    if mode == "im_failure":
+        synchronize.side_effect = RuntimeError(private_error)
+    monkeypatch.setattr(
+        staff_endpoints.wukongim_client, "register_or_login_user", synchronize
+    )
+    monkeypatch.setattr(
+        staff_endpoints, "ensure_project_staff_channel", AsyncMock()
+    )
+    with caplog.at_level(logging.INFO):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/staff/login",
+                data={
+                    "username": staff.username, "password": "synthetic-input"
+                },
+            )
+    if mode == "failed":
+        assert response.status_code == 401
+        synchronize.assert_not_awaited()
+    else:
+        assert response.status_code == 200
+        claims = security.verify_token(response.json()["access_token"])
+        assert claims is not None and claims["project_id"] == str(own.id)
+    assert staff.username not in caplog.text
+    assert private_error not in caplog.text
+    for record in caplog.records:
+        assert staff.username != getattr(record, "username", None)
+        assert private_error != getattr(record, "error", None)
