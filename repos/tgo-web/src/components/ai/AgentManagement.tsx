@@ -540,9 +540,9 @@ const AgentManagement: React.FC = () => {
         onClose={() => setSelectedTool(null)}
       />
       <CreateAgentModal />
-      {trialAgent && trialAgent.identity === trialIdentity && <AgentTrialDialog key={trialIdentity} agent={trialAgent.agent} onClose={() => setTrialAgent(null)} />}
-      {activationAgent && activationAgent.identity === trialIdentity && <AgentActivationDialog key={`${trialIdentity}:${activationAgent.agent.id}`} agent={activationAgent.agent} onClose={() => setActivationAgent(null)} onTrial={() => { setTrialAgent(activationAgent); setActivationAgent(null); }} />}
-      <EditAgentModal key={trialIdentity ?? 'unavailable'} agentId={auditAgentId ?? selectedAgent?.id ?? null} isOpen={showEditAgent} onClose={() => { setShowEditAgent(false); setAuditAgentId(null); setAuditRevision(value => value + 1); }} />
+      {trialAgent && trialAgent.identity === trialIdentity && <AgentTrialDialog key={`trial:${trialIdentity}`} agent={trialAgent.agent} onClose={() => setTrialAgent(null)} />}
+      {activationAgent && activationAgent.identity === trialIdentity && <AgentActivationDialog key={`activation:${trialIdentity}:${activationAgent.agent.id}`} agent={activationAgent.agent} onClose={() => setActivationAgent(null)} onTrial={() => { setTrialAgent(activationAgent); setActivationAgent(null); }} />}
+      <EditAgentModal key={`edit:${trialIdentity ?? 'unavailable'}`} agentId={auditAgentId ?? selectedAgent?.id ?? null} isOpen={showEditAgent} onClose={() => { setShowEditAgent(false); setAuditAgentId(null); setAuditRevision(value => value + 1); }} />
       
 
       <ConfirmDialog
