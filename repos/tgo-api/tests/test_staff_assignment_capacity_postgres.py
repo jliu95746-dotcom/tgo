@@ -87,13 +87,14 @@ async def test_committed_staff_change_before_model_return(
     else:
         assert history.llm_response is None
         assert PRIVATE not in history.reasoning
-        assert str(state.staff.id) not in history.candidate_staff_ids
         if case == "all_paused":
+            assert not history.candidate_staff_ids
             assert history.assigned_staff_id is None
             assert state.entry.status == "waiting"
             assert state.visitor.service_status == "queued"
             assert state.session.staff_id is None
         else:
+            assert str(state.staff.id) not in history.candidate_staff_ids
             assert history.assigned_staff_id == state.colleague.id
     assert PRIVATE not in repr([vars(record) for record in caplog.records])
 
