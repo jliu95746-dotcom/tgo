@@ -31,6 +31,7 @@ def dispatcher(monkeypatch):
         ),
     ]
     rule = VisitorAssignmentRule(
+        id=uuid4(),
         project_id=project,
         ai_provider_id=uuid4(),
         model="fixture-dispatcher",
@@ -50,8 +51,13 @@ def dispatcher(monkeypatch):
         default_model="fixture-dispatcher",
         is_active=True,
     )
-    query = db.query.return_value.filter.return_value
-    query.populate_existing.return_value.first.return_value = provider
+    queries = {AIProvider: MagicMock(), VisitorAssignmentRule: MagicMock()}
+    for model, query in queries.items():
+        query.filter.return_value = query
+        query.populate_existing.return_value = query
+        query.with_for_update.return_value = query
+        query.first.return_value = provider if model is AIProvider else rule
+    db.query.side_effect = lambda model: queries[model]
 
     async def run():
         return await transfer_service._llm_assign_staff(

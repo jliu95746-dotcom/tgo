@@ -1,6 +1,7 @@
 """Resolve the dispatch model from the current project's active provider."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.models import AIProvider, VisitorAssignmentRule
 class AssignmentModel:
     provider_id: UUID
     model: str
+    provider_version: datetime | None = None
 
 
 def resolve_assignment_model(
@@ -40,4 +42,8 @@ def resolve_assignment_model(
     ).strip()
     if not model:
         return None
-    return AssignmentModel(provider_id=provider.id, model=model)
+    return AssignmentModel(
+        provider_id=provider.id,
+        model=model,
+        provider_version=provider.updated_at,
+    )

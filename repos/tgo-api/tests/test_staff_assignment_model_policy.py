@@ -56,9 +56,16 @@ def model_case(monkeypatch):
     )
     monkeypatch.setattr(ai_client, "chat_completions", complete)
     db = MagicMock(spec=Session)
-    query = db.query.return_value
-    rows = query.filter.return_value.populate_existing.return_value
-    rows.first.return_value = provider
+    query = MagicMock()
+    rule_query = MagicMock()
+    for target, row in [(query, provider), (rule_query, rule)]:
+        target.filter.return_value = target
+        target.populate_existing.return_value = target
+        target.with_for_update.return_value = target
+        target.first.return_value = row
+    db.query.side_effect = lambda model: (
+        query if model is AIProvider else rule_query
+    )
 
     async def run():
         return await transfer_service._llm_assign_staff(
@@ -126,7 +133,9 @@ async def test_provider_query_enforces_current_project_and_lifecycle(
 ):
     run, _complete, rule, provider, query, db, _candidates = model_case
     await run()
-    db.query.assert_called_once_with(AIProvider)
+    assert [call.args[0] for call in db.query.call_args_list].count(
+        AIProvider
+    ) == 2
     clauses = query.filter.call_args.args
     expected = (
         AIProvider.id == rule.ai_provider_id,
@@ -138,7 +147,7 @@ async def test_provider_query_enforces_current_project_and_lifecycle(
     assert all(
         actual.compare(wanted) for actual, wanted in zip(clauses, expected)
     )
-    query.filter.return_value.populate_existing.assert_called_once_with()
+    assert query.populate_existing.call_count == 2
     assert provider.project_id == rule.project_id
 
 

@@ -42,7 +42,11 @@ from app.services.queue_lifecycle import (
     lock_waiting_entry,
 )
 from app.services.queue_events import schedule_queue_update
-from app.services.staff_assignment_model import resolve_assignment_model
+from app.services.staff_assignment_guard import (
+    assignment_configuration_is_current,
+    capture_assignment_configuration,
+    read_assignment_rule,
+)
 from app.services.staff_assignment_response import (
     LLMStaffAssignmentResult,
     assignment_response_content,
@@ -343,6 +347,13 @@ async def transfer_to_staff(
             session.staff_id = assigned_staff_id
         session.updated_at = datetime.utcnow()
         
+        # Keep a deleted rule out of the new history FK; hold a surviving rule
+        # only during the final write, never during the external model wait.
+        if assignment_rule is not None:
+            assignment_rule = read_assignment_rule(
+                db, project_id, rule_id=assignment_rule.id, lock=True
+            )
+
         # 8. Create assignment history record
         assignment_history = _create_assignment_history(
             db=db,
@@ -619,7 +630,19 @@ async def assign_staff(
                         candidates=candidates,
                         assignment_rule=assignment_rule,
                     )
-                    assigned_staff_id = result.get("selected_staff_id")
+                    if result["refresh_candidates"]:
+                        current_rule = read_assignment_rule(
+                            db, project_id, lock=True
+                        )
+                        candidates = await _get_available_staff_candidates(
+                            db, project_id, current_rule
+                        )
+                        candidate_staff_ids = [item.id for item in candidates]
+                        assigned_staff_id = await _load_balance_assign(
+                            candidates
+                        )
+                    else:
+                        assigned_staff_id = result.get("selected_staff_id")
                     llm_response = result.get("llm_response")
                     llm_reasoning = result.get("reasoning")
                     candidate_scores = result.get("scores")
@@ -1111,6 +1134,7 @@ async def _llm_assign_staff(
 ) -> LLMStaffAssignmentResult:
     """Select a listed staff member or use a safe load-balancing fallback."""
     result: LLMStaffAssignmentResult = {
+        "refresh_candidates": False,
         "selected_staff_id": None,
         "llm_response": None,
         "reasoning": None,
@@ -1118,15 +1142,11 @@ async def _llm_assign_staff(
         "model_used": None,
         "prompt_used": None,
     }
-    if not assignment_rule.ai_provider_id:
-        result["selected_staff_id"] = await _load_balance_assign(candidates)
-        result["reasoning"] = (
-            "Fallback to load balancing: no AI provider configured"
-        )
-        return result
-
-    resolved_model = resolve_assignment_model(db, project_id, assignment_rule)
-    if resolved_model is None:
+    configuration = capture_assignment_configuration(
+        db, project_id, assignment_rule
+    )
+    if configuration is None:
+        result["refresh_candidates"] = True
         result["selected_staff_id"] = await _load_balance_assign(candidates)
         result["reasoning"] = (
             "AI provider or model unavailable; fallback to load balancing"
@@ -1153,7 +1173,7 @@ async def _llm_assign_staff(
         visitor_info += f"\nMessage: {visitor_message}"
 
     # Get the prompt
-    system_prompt = assignment_rule.effective_prompt
+    system_prompt = configuration.system_prompt
 
     # Build the user message
     user_message = f"""请根据以下信息，选择最合适的客服人员来处理此访客。
@@ -1173,15 +1193,17 @@ async def _llm_assign_staff(
 只返回JSON，不要其他内容。"""
 
     result["prompt_used"] = f"System: {system_prompt}\n\nUser: {user_message}"
-    result["model_used"] = resolved_model.model
+    result["model_used"] = configuration.selection.model
 
+    had_error = False
+    response: object = None
     try:
         from app.services.ai_client import ai_client
 
         response = await ai_client.chat_completions(
             project_id=str(project_id),
-            provider_id=str(resolved_model.provider_id),
-            model=resolved_model.model,
+            provider_id=str(configuration.selection.provider_id),
+            model=configuration.selection.model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
@@ -1194,6 +1216,18 @@ async def _llm_assign_staff(
             "LLM assignment unavailable; using load balancing",
             extra={"error_type": type(error).__name__},
         )
+        had_error = True
+
+    if not assignment_configuration_is_current(db, configuration):
+        result["refresh_candidates"] = True
+        result["selected_staff_id"] = await _load_balance_assign(candidates)
+        result["reasoning"] = (
+            "Configuration changed during assignment; "
+            "fallback to load balancing"
+        )
+        return result
+
+    if had_error:
         result["selected_staff_id"] = await _load_balance_assign(candidates)
         result["reasoning"] = (
             "LLM assignment failed; fallback to load balancing"

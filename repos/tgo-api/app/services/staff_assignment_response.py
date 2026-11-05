@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, JsonValue, field_validator
 
 
 class LLMStaffAssignmentResult(TypedDict):
+    refresh_candidates: bool
     selected_staff_id: UUID | None
     llm_response: str | None
     reasoning: str | None
