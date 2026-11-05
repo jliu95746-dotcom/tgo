@@ -42,6 +42,7 @@ from app.services.queue_lifecycle import (
     lock_waiting_entry,
 )
 from app.services.queue_events import schedule_queue_update
+from app.services.staff_assignment_model import resolve_assignment_model
 from app.services.staff_assignment_response import (
     LLMStaffAssignmentResult,
     assignment_response_content,
@@ -1124,6 +1125,14 @@ async def _llm_assign_staff(
         )
         return result
 
+    resolved_model = resolve_assignment_model(db, project_id, assignment_rule)
+    if resolved_model is None:
+        result["selected_staff_id"] = await _load_balance_assign(candidates)
+        result["reasoning"] = (
+            "AI provider or model unavailable; fallback to load balancing"
+        )
+        return result
+
     # Build staff info for prompt
     staff_info_list = []
     for i, c in enumerate(candidates, 1):
@@ -1164,15 +1173,15 @@ async def _llm_assign_staff(
 只返回JSON，不要其他内容。"""
 
     result["prompt_used"] = f"System: {system_prompt}\n\nUser: {user_message}"
-    result["model_used"] = assignment_rule.model
+    result["model_used"] = resolved_model.model
 
     try:
         from app.services.ai_client import ai_client
 
         response = await ai_client.chat_completions(
             project_id=str(project_id),
-            provider_id=str(assignment_rule.ai_provider_id),
-            model=assignment_rule.model or "gpt-4",
+            provider_id=str(resolved_model.provider_id),
+            model=resolved_model.model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},

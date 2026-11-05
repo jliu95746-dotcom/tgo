@@ -11,7 +11,7 @@ import httpx
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models import Visitor, VisitorAssignmentRule
+from app.models import AIProvider, Visitor, VisitorAssignmentRule
 from app.services import transfer_service
 from app.services.ai_client import AIServiceClient, ai_client
 
@@ -40,10 +40,22 @@ def dispatcher(monkeypatch):
     visitor = Visitor(id=uuid4(), project_id=project, name="synthetic visitor")
     complete = AsyncMock()
     monkeypatch.setattr(ai_client, "chat_completions", complete)
+    db = MagicMock(spec=Session)
+    provider = AIProvider(
+        id=rule.ai_provider_id,
+        project_id=project,
+        provider="openai",
+        name="Synthetic dispatcher",
+        api_key="synthetic-unused-key",
+        default_model="fixture-dispatcher",
+        is_active=True,
+    )
+    query = db.query.return_value.filter.return_value
+    query.populate_existing.return_value.first.return_value = provider
 
     async def run():
         return await transfer_service._llm_assign_staff(
-            MagicMock(spec=Session),
+            db,
             project,
             visitor,
             "Need assistance",

@@ -9,7 +9,12 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
-from app.models import Staff, VisitorAssignmentHistory, VisitorAssignmentRule
+from app.models import (
+    AIProvider,
+    Staff,
+    VisitorAssignmentHistory,
+    VisitorAssignmentRule,
+)
 from app.services import transfer_service
 from app.services.ai_client import ai_client
 from tests import test_queue_assignment as queue_checks
@@ -24,7 +29,12 @@ async def test_invalid_reason_does_not_lose_waiting_customer(
     queue_db, monkeypatch, reason
 ):
     monkeypatch.setattr(settings, "SAAS_BILLING_ENABLED", False)
-    for model in (Staff, VisitorAssignmentRule, VisitorAssignmentHistory):
+    for model in (
+        Staff,
+        AIProvider,
+        VisitorAssignmentRule,
+        VisitorAssignmentHistory,
+    ):
         model.__table__.create(queue_db.get_bind())
     visitor, session, entry = seed_queue(
         queue_db, expired_at=datetime.utcnow() + timedelta(minutes=5)
@@ -40,14 +50,23 @@ async def test_invalid_reason_does_not_lose_waiting_customer(
         )
         for _ in range(2)
     ]
+    provider = AIProvider(
+        id=uuid4(),
+        project_id=visitor.project_id,
+        provider="openai",
+        name="Synthetic dispatcher",
+        api_key="synthetic-unused-key",
+        default_model="fixture-model",
+        is_active=True,
+    )
     rule = VisitorAssignmentRule(
         id=uuid4(),
         project_id=visitor.project_id,
-        ai_provider_id=uuid4(),
+        ai_provider_id=provider.id,
         llm_assignment_enabled=True,
         model="fixture-model",
     )
-    queue_db.add_all([*staff, rule])
+    queue_db.add_all([*staff, provider, rule])
     queue_db.commit()
     complete = AsyncMock(
         return_value={
