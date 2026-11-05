@@ -682,8 +682,11 @@ async def _reserve_assignment(
     """Refresh after model selection and reserve without another model call."""
     capacity = rule.max_concurrent_chats if rule is not None else None
     if target_staff_id is not None:
-        if result.assigned_staff_id != target_staff_id or not reserve_staff_seat(
-            db, project_id, target_staff_id, session_id, capacity
+        if (
+            result.assigned_staff_id != target_staff_id
+            or not reserve_staff_seat(
+                db, project_id, target_staff_id, session_id, capacity
+            )
         ):
             raise changed()
         return
