@@ -27,6 +27,7 @@ function harness() {
   return { store: exports.useScenarioAgentStore, input, calls, saves: () => saves,
     receipt: () => ({ draft_id: current.id, project_id: user.project_id, created_by: user.id, revision: current.revision, agent_id: 'agent-a', is_active: false, can_enable: false }),
     resolve: value => pending.shift().resolve(value), reject: () => pending.shift().reject(new Error('network')),
+    changeDraft: changes => { current = { ...current, ...changes }; },
     changeUser: next => { const previous = { user }; user = next; listeners.forEach(fn => fn({ user }, previous)); },
   };
 }
@@ -81,5 +82,68 @@ test('foreign, active or enabling receipts are rejected', async () => {
     h.resolve({ ...h.receipt(), ...change });
     assert.equal(await first, null);
     assert.equal(h.store.getState().receipt, null);
+  }
+});
+
+test('moving between saved trial and review steps reuses the confirmed employee without rewriting independent policies', async () => {
+  const h = harness();
+  const first = h.store.getState().prepare(h.input);
+  h.resolve(h.receipt());
+  const receipt = await first;
+  for (const step of ['activation', 'testing', 'activation']) {
+    const pending = h.store.getState().prepare({ ...h.input, step });
+    if (h.calls.length > 1) h.reject(); // The server rejects rematerializing an independently updated policy.
+    assert.equal(await pending, receipt);
+    assert.equal(h.store.getState().receipt, receipt);
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.saves(), 0);
+  }
+});
+
+test('editing after a confirmed save still persists the new employee configuration', async () => {
+  const h = harness();
+  const first = h.store.getState().prepare(h.input);
+  h.resolve(h.receipt()); await first;
+  const next = h.store.getState().prepare({ ...h.input, business: { name: '修改后的客服' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.saves(), 1);
+  h.resolve(h.receipt());
+  assert.equal((await next).revision, 3);
+});
+
+test('changing the service channel requires a new saved configuration', async () => {
+  const h = harness();
+  h.store.setState({ receipt: h.receipt() });
+  const request = h.store.getState().prepare({ ...h.input, channel: 'internal' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.saves(), 1);
+  assert.equal(h.calls[0][1], 3);
+  h.resolve(h.receipt());
+  assert.equal((await request).revision, 3);
+});
+
+test('a confirmed receipt is scoped to the current draft, revision, owner and paused save', async () => {
+  for (const change of [{ project_id: 'other' }, { created_by: 'other' }, { draft_id: 'other' }, { revision: 999 }, { is_active: true }, { can_enable: true }, { agent_id: '' }]) {
+    const h = harness();
+    h.store.setState({ receipt: { ...h.receipt(), ...change } });
+    const request = h.store.getState().prepare(h.input);
+    assert.equal(h.calls.length, 1);
+    h.resolve(h.receipt());
+    assert.equal((await request).agent_id, 'agent-a');
+  }
+  const h = harness();
+  h.store.setState({ receipt: h.receipt() });
+  h.changeDraft({ revision: 3 });
+  const request = h.store.getState().prepare(h.input);
+  assert.equal(h.calls[0][1], 3);
+  h.resolve(h.receipt());
+  assert.equal((await request).revision, 3);
+  for (const change of [{ project_id: 'other' }, { created_by: 'other' }]) {
+    const scoped = harness();
+    scoped.store.setState({ receipt: scoped.receipt() });
+    scoped.changeDraft(change);
+    assert.equal(await scoped.store.getState().prepare(scoped.input), null);
+    assert.equal(scoped.calls.length, 0);
   }
 });

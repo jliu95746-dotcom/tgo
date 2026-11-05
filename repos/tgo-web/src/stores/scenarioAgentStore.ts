@@ -36,6 +36,14 @@ export const useScenarioAgentStore = create<ScenarioAgentState>((set, get) => ({
   prepare: async input => {
     const user = useAuthStore.getState().user;
     if (get().busy || user?.role !== 'admin' || !user.project_id) return null;
+    const saved = useScenarioDraftStore.getState().current;
+    const receipt = get().receipt;
+    // Navigation confirms an already saved snapshot; activation independently checks live policies.
+    if (saved?.project_id === user.project_id && saved.created_by === user.id
+      && matchesSavedAgent(input, saved) && receipt?.project_id === user.project_id
+      && receipt.created_by === user.id && receipt.draft_id === saved.id
+      && receipt.revision === saved.revision && receipt.agent_id
+      && receipt.is_active === false && receipt.can_enable === false) return receipt;
     const version = ++generation;
     controller?.abort();
     const requestController = new AbortController();
