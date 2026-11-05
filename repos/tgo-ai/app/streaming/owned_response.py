@@ -42,12 +42,19 @@ class _OwnedExecutionResponse(StreamingResponse):
             background=response.background,
         )
         self.raw_headers = response.raw_headers
+        self._source_response = response
         self._task = task
         self._on_finished = on_finished
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         try:
-            await super().__call__(scope, receive, send)
+            # Preserve source-specific cleanup and ASGI behavior. Rebuilding a
+            # StreamingResponse loses these even though the iterator is shared.
+            self._source_response.status_code = self.status_code
+            self._source_response.raw_headers = self.raw_headers
+            self._source_response.body_iterator = self.body_iterator
+            self._source_response.background = self.background
+            await self._source_response(scope, receive, send)
         finally:
             # Starlette cancels its stream scope on disconnect; shield cleanup
             # so the tool task cannot continue after the HTTP request finishes.

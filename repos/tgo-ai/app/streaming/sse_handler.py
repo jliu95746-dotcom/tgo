@@ -1,14 +1,17 @@
-"""
-Server-Sent Events (SSE) handler for streaming coordination events.
-"""
+"""SSE delivery with idle keepalives and deterministic response cleanup."""
+
+from __future__ import annotations
 
 import asyncio
 import json
-from typing import AsyncGenerator, Optional
+from collections.abc import AsyncGenerator, Callable, Mapping
+from time import monotonic
 
+from anyio import CancelScope
 from fastapi import Request
-from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
+from starlette.responses import ContentStream, StreamingResponse
+from starlette.types import Receive, Scope, Send
 
 from app.core.logging import get_logger
 from app.models.streaming import EventType, StreamingEvent
@@ -16,29 +19,65 @@ from app.models.streaming import EventType, StreamingEvent
 from .event_emitter import StreamingEventEmitter, cleanup_event_emitter
 
 logger = get_logger(__name__)
+STREAM_ERROR = "消息流暂时不可用，请重试或转人工处理"
+TERMINAL_EVENTS = {
+    EventType.WORKFLOW_COMPLETED,
+    EventType.WORKFLOW_FAILED,
+}
 
 
 class SSEResponse(StreamingResponse):
-    """Custom StreamingResponse for Server-Sent Events."""
+    """Retain cleanup even when sending headers fails before iteration."""
 
-    def __init__(self, generator, **kwargs):
+    def __init__(
+        self,
+        generator: ContentStream,
+        *,
+        status_code: int = 200,
+        headers: Mapping[str, str] | None = None,
+        background: BackgroundTask | None = None,
+        cleanup: Callable[[], None] | None = None,
+    ) -> None:
+        self._cleanup = cleanup
+        response_headers = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Cache-Control",
+        }
+        response_headers.update(headers or {})
         super().__init__(
             generator,
+            status_code=status_code,
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Cache-Control",
-            },
-            **kwargs,
+            headers=response_headers,
+            background=background,
         )
+
+    async def aclose(self) -> None:
+        with CancelScope(shield=True):
+            try:
+                if isinstance(self.body_iterator, AsyncGenerator):
+                    await self.body_iterator.aclose()
+            finally:
+                if self._cleanup is not None:
+                    self._cleanup()
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            await self.aclose()
 
 
 class SSEHandler:
-    """Handler for Server-Sent Events streaming."""
+    """Deliver the existing event protocol without owning the producer task."""
 
-    def __init__(self, event_emitter: StreamingEventEmitter, request: Request):
+    def __init__(
+        self, event_emitter: StreamingEventEmitter, request: Request
+    ) -> None:
         self.event_emitter = event_emitter
         self.request = request
         self.logger = logger.bind(
@@ -46,15 +85,13 @@ class SSEHandler:
             correlation_id=event_emitter.correlation_id,
         )
         self._connected = False
-        self._heartbeat_interval = 30  # seconds
+        self._heartbeat_interval = 30.0
 
     async def stream_events(self) -> AsyncGenerator[str, None]:
-        """Generate SSE formatted events."""
         self._connected = True
         self.logger.info("SSE stream started")
-
+        source = self._domain_events()
         try:
-            # Send initial connection event
             yield self._format_sse_event(
                 "connected",
                 {
@@ -63,145 +100,82 @@ class SSEHandler:
                     "correlation_id": self.event_emitter.correlation_id,
                 },
             )
-
-            # Send any buffered events first
-            buffered_events = self.event_emitter.get_events()
-            # StreamingEventEmitter also enqueues these same objects. Skip
-            # their queued copies, without skipping events emitted meanwhile.
-            buffered_event_ids = {id(event) for event in buffered_events}
-            for buffered_event in buffered_events:
-                if await self._is_client_connected():
-                    yield self._format_sse_event(
-                        "event", self._event_to_payload(buffered_event)
-                    )
-                    if buffered_event.event_type in (
-                        EventType.WORKFLOW_COMPLETED,
-                        EventType.WORKFLOW_FAILED,
-                    ):
-                        return
-                else:
-                    return
-
-            # Stream new events
-            heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-
-            try:
-                while self._connected and await self._is_client_connected():
-                    try:
-                        # Wait for next event with timeout
-                        event = await self.event_emitter.get_next_event(timeout=1.0)
-
-                        if event:
-                            if id(event) in buffered_event_ids:
-                                buffered_event_ids.remove(id(event))
-                                continue
-                            # Send the domain event
-                            yield self._format_sse_event(
-                                "event", self._event_to_payload(event)
-                            )
-                            # If we see terminal workflow events, we can end the stream
-                            try:
-                                if getattr(event, "event_type", None) in (
-                                    EventType.WORKFLOW_COMPLETED,
-                                    EventType.WORKFLOW_FAILED,
-                                ):
-                                    break
-                            except Exception:
-                                # Be resilient if enum import/types change
-                                pass
-                        else:
-                            # End after streaming is disabled and events drain.
-                            if (
-                                hasattr(self.event_emitter, "is_streaming_enabled")
-                                and not self.event_emitter.is_streaming_enabled()
-                            ):
-                                break
-
-                    except asyncio.TimeoutError:
-                        # Continue loop on timeout
-                        continue
-                    except Exception as e:
-                        self.logger.error("Error streaming event", error=str(e))
-                        yield self._format_sse_event(
-                            "error",
-                            {"message": "Stream error occurred", "error": str(e)},
-                        )
-                        break
-
-            finally:
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
-
-        except Exception as e:
-            self.logger.error("SSE stream error", error=str(e))
-            yield self._format_sse_event(
-                "error", {"message": "Stream terminated due to error", "error": str(e)}
+            async for frame in source:
+                yield frame
+        except Exception as exc:
+            self.logger.error(
+                "SSE stream error", error_type=type(exc).__name__
             )
-
+            yield self._format_sse_event(
+                "error", {"message": STREAM_ERROR, "error": STREAM_ERROR}
+            )
         finally:
             self._connected = False
+            await source.aclose()
             self.logger.info("SSE stream ended")
-            yield self._format_sse_event(
-                "disconnected", {"message": "Stream disconnected"}
-            )
+        # Cancellation and GeneratorExit skip the normal closing frame.
+        yield self._format_sse_event(
+            "disconnected", {"message": "Stream disconnected"}
+        )
 
-    async def _heartbeat_loop(self) -> None:
-        """Send periodic heartbeat messages."""
-        while self._connected:
-            try:
-                await asyncio.sleep(self._heartbeat_interval)
-                if self._connected:
-                    # Heartbeat will be sent by the main loop
-                    pass
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("Heartbeat error", error=str(e))
-                break
+    async def _domain_events(self) -> AsyncGenerator[str, None]:
+        buffered = self.event_emitter.get_events()
+        buffered_ids = {id(event) for event in buffered}
+        for buffered_event in buffered:
+            if not self._connected or not await self._is_client_connected():
+                return
+            yield self._format_sse_event(
+                "event", self._event_to_payload(buffered_event)
+            )
+            if buffered_event.event_type in TERMINAL_EVENTS:
+                return
+
+        heartbeat_at = monotonic() + self._heartbeat_interval
+        while self._connected and await self._is_client_connected():
+            timeout = min(1.0, max(0.001, heartbeat_at - monotonic()))
+            event = await self.event_emitter.get_next_event(timeout=timeout)
+            if event is not None:
+                if id(event) in buffered_ids:
+                    buffered_ids.remove(id(event))
+                    continue
+                yield self._format_sse_event(
+                    "event", self._event_to_payload(event)
+                )
+                if event.event_type in TERMINAL_EVENTS:
+                    return
+                heartbeat_at = monotonic() + self._heartbeat_interval
+            elif not self.event_emitter.is_streaming_enabled():
+                return
+            elif monotonic() >= heartbeat_at:
+                # SSE comments keep HTTP intermediaries alive without changing
+                # the domain protocol. The API relay ignores comment frames.
+                yield ": heartbeat\n\n"
+                heartbeat_at = monotonic() + self._heartbeat_interval
 
     async def _is_client_connected(self) -> bool:
-        """Check if the client is still connected."""
         try:
-            # Check if the request is still active
-            if hasattr(self.request, "is_disconnected"):
-                return not await self.request.is_disconnected()
-            return True
+            return not await self.request.is_disconnected()
         except Exception:
             return False
 
-    def _event_to_payload(self, event: StreamingEvent) -> dict:
-        """Convert StreamingEvent to a serializable dict (Pydantic v1/v2 compatible)."""
-        try:
-            # Pydantic v2
-            return event.model_dump()  # type: ignore[attr-defined]
-        except Exception:
-            # Fallback (Pydantic v1)
-            return event.dict()
+    def _event_to_payload(self, event: StreamingEvent) -> dict[str, object]:
+        # Preserve the existing timestamp/UUID encoding with json default=str.
+        return event.model_dump()
 
     def _format_sse_event(
-        self, event_type: str, data: dict, event_id: Optional[str] = None
+        self,
+        event_type: str,
+        data: Mapping[str, object],
+        event_id: str | None = None,
     ) -> str:
-        """Format data as SSE event."""
-        lines = []
-
-        if event_id:
-            lines.append(f"id: {event_id}")
-
+        lines = [f"id: {event_id}"] if event_id else []
         lines.append(f"event: {event_type}")
-
-        # Format data as JSON
-        json_data = json.dumps(data, default=str, ensure_ascii=False)
-        for line in json_data.split("\n"):
-            lines.append(f"data: {line}")
-
-        lines.append("")  # Empty line to end the event
+        content = json.dumps(data, default=str, ensure_ascii=False)
+        lines.extend(f"data: {line}" for line in content.split("\n"))
+        lines.append("")
         return "\n".join(lines) + "\n"
 
     def disconnect(self) -> None:
-        """Disconnect the SSE stream."""
         self._connected = False
         self.logger.info("SSE stream disconnected by handler")
 
@@ -209,46 +183,59 @@ class SSEHandler:
 def create_sse_response(
     event_emitter: StreamingEventEmitter, request: Request
 ) -> SSEResponse:
-    """Create an SSE response for streaming events."""
     handler = SSEHandler(event_emitter, request)
+    cleaned = False
 
-    # Add cleanup task
-    def cleanup():
+    def cleanup() -> None:
+        nonlocal cleaned
+        if cleaned:
+            return
+        cleaned = True
         handler.disconnect()
         event_emitter.remove_stream(handler)
         cleanup_event_emitter(
-            event_emitter.request_id,
-            event_emitter.correlation_id,
+            event_emitter.request_id, event_emitter.correlation_id
         )
 
-    # Add the handler as a stream
-    event_emitter.add_stream(handler)
+    async def content() -> AsyncGenerator[str, None]:
+        source = handler.stream_events()
+        try:
+            async for frame in source:
+                yield frame
+        finally:
+            with CancelScope(shield=True):
+                try:
+                    await source.aclose()
+                finally:
+                    cleanup()
 
-    return SSEResponse(handler.stream_events(), background=BackgroundTask(cleanup))
+    event_emitter.add_stream(handler)
+    return SSEResponse(
+        content(), background=BackgroundTask(cleanup), cleanup=cleanup
+    )
 
 
 class SSEEventSender:
-    """Helper class for sending events to SSE streams."""
+    """Helper class for sending typed events to SSE streams."""
 
-    def __init__(self, handler: SSEHandler):
+    def __init__(self, handler: SSEHandler) -> None:
         self.handler = handler
-        self._queue: asyncio.Queue = asyncio.Queue()
+        self._queue: asyncio.Queue[StreamingEvent] = asyncio.Queue()
 
     def send_event(self, event: StreamingEvent) -> None:
-        """Send an event to the SSE stream."""
         try:
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
             logger.warning("SSE event queue is full, dropping event")
 
     async def get_next_event(
-        self, timeout: Optional[float] = None
-    ) -> Optional[StreamingEvent]:
-        """Get the next event from the queue."""
+        self, timeout: float | None = None
+    ) -> StreamingEvent | None:
         try:
-            if timeout:
-                return await asyncio.wait_for(self._queue.get(), timeout=timeout)
-            else:
-                return await self._queue.get()
+            if timeout is not None:
+                return await asyncio.wait_for(
+                    self._queue.get(), timeout=timeout
+                )
+            return await self._queue.get()
         except asyncio.TimeoutError:
             return None
