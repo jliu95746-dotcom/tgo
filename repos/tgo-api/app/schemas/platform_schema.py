@@ -4,10 +4,21 @@ from collections.abc import Mapping
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from pydantic import ConfigDict, Field, computed_field, model_validator, field_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    computed_field,
+    model_validator,
+    field_validator,
+)
 
 from app.models.platform import PlatformType, PlatformAIMode
-from app.schemas.base import BaseSchema, PaginatedResponse, SoftDeleteMixin, TimestampMixin
+from app.schemas.base import (
+    BaseSchema,
+    PaginatedResponse,
+    SoftDeleteMixin,
+    TimestampMixin,
+)
 from app.core.config import settings
 
 
@@ -35,33 +46,34 @@ class PlatformBase(BaseSchema):
     model_config = ConfigDict(extra="forbid")
 
     name: Optional[str] = Field(
-        None,
-        description="Platform name (e.g., WeChat, WhatsApp)"
+        default=None, description="Platform name (e.g., WeChat, WhatsApp)"
     )
     type: PlatformType = Field(
-        ...,
-        description="Platform type from predefined enum"
+        ..., description="Platform type from predefined enum"
     )
     config: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Platform-specific configuration"
+        default=None, description="Platform-specific configuration"
     )
     is_active: bool = Field(
-        default=True,
-        description="Whether the platform is active"
+        default=True, description="Whether the platform is active"
     )
     agent_id: Optional[UUID] = Field(
-        None,
-        description="AI Agent ID assigned to this platform"
+        default=None, description="AI Agent ID assigned to this platform"
     )
     ai_mode: Optional[PlatformAIMode] = Field(
         default=PlatformAIMode.AUTO,
-        description="AI mode: auto (AI handles all), assist (human first, AI fallback), off (AI disabled)"
+        description=(
+            'AI mode: auto (AI handles all), assist (human first, AI '
+            'fallback), off (AI disabled)'
+        ),
     )
     fallback_to_ai_timeout: Optional[int] = Field(
         default=0,
         ge=0,
-        description="Timeout in seconds before AI takes over when ai_mode=assist. 0 means AI never takes over."
+        description=(
+            'Timeout in seconds before AI takes over when ai_mode=assist. 0 '
+            'means AI never takes over.'
+        ),
     )
 
     @model_validator(mode="before")
@@ -75,16 +87,26 @@ class PlatformAISettings(BaseSchema):
 
     model_config = ConfigDict(extra="forbid")
 
-    ai_mode: Optional[PlatformAIMode] = Field(None, description="AI mode: auto, assist, or off")
-    agent_id: Optional[UUID] = Field(None, description="AI Agent ID assigned to this platform")
-    fallback_to_ai_timeout: Optional[int] = Field(None, description="Timeout in seconds before AI takes over when ai_mode=assist")
+    ai_mode: Optional[PlatformAIMode] = Field(
+        default=None, description="AI mode: auto, assist, or off"
+    )
+    agent_id: Optional[UUID] = Field(
+        default=None, description="AI Agent ID assigned to this platform"
+    )
+    fallback_to_ai_timeout: Optional[int] = Field(
+        default=None,
+        description=(
+            'Timeout in seconds before AI takes over when ai_mode=assist'
+        ),
+    )
 
 
 class PlatformCreate(PlatformBase):
     """Schema for creating a platform."""
+
     name: str = Field(..., min_length=1, max_length=100)
 
-    @field_validator('name', mode='before')
+    @field_validator("name", mode="before")
     @classmethod
     def trim_channel_name(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
@@ -96,35 +118,37 @@ class PlatformUpdate(BaseSchema):
     model_config = ConfigDict(extra="forbid")
 
     name: Optional[str] = Field(
-        None,
+        default=None,
         min_length=1,
         max_length=100,
-        description="Updated platform name"
+        description="Updated platform name",
     )
     type: Optional[PlatformType] = Field(
-        None,
-        description="Updated platform type"
+        default=None, description="Updated platform type"
     )
     config: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Updated platform configuration"
+        default=None, description="Updated platform configuration"
     )
     is_active: Optional[bool] = Field(
-        None,
-        description="Updated platform active status"
+        default=None, description="Updated platform active status"
     )
     agent_id: Optional[UUID] = Field(
-        None,
-        description="AI Agent ID assigned to this platform"
+        default=None, description="AI Agent ID assigned to this platform"
     )
     ai_mode: Optional[PlatformAIMode] = Field(
-        None,
-        description="AI mode: auto (AI handles all), assist (human first, AI fallback), off (AI disabled)"
+        default=None,
+        description=(
+            'AI mode: auto (AI handles all), assist (human first, AI '
+            'fallback), off (AI disabled)'
+        ),
     )
     fallback_to_ai_timeout: Optional[int] = Field(
-        None,
+        default=None,
         ge=0,
-        description="Timeout in seconds before AI takes over when ai_mode=assist. 0 means AI never takes over."
+        description=(
+            'Timeout in seconds before AI takes over when ai_mode=assist. 0 '
+            'means AI never takes over.'
+        ),
     )
 
     @model_validator(mode="before")
@@ -138,32 +162,63 @@ class PlatformInDB(PlatformBase, TimestampMixin, SoftDeleteMixin):
 
     id: UUID = Field(..., description="Platform ID")
     project_id: UUID = Field(..., description="Associated project ID")
-    api_key: Optional[str] = Field(None, description="Platform-specific API key for integrations")
+    api_key: Optional[str] = Field(
+        default=None, description="Platform-specific API key for integrations"
+    )
 
     logo_path: Optional[str] = Field(
-        None,
+        default=None,
         exclude=True,
-        description="Internal relative path to logo file under PLATFORM_LOGO_UPLOAD_DIR",
+        description=(
+            'Internal relative path to logo file under '
+            'PLATFORM_LOGO_UPLOAD_DIR'
+        ),
     )
 
 
 class PlatformListItemResponse(BaseSchema, TimestampMixin, SoftDeleteMixin):
     """Schema for platform list item response (without sensitive fields)."""
 
-    is_configured: bool = Field(False, description="Required configuration present; not a connection verification")
+    is_configured: bool = Field(
+        default=False,
+        description=(
+            'Required configuration present; not a connection verification'
+        ),
+    )
 
     id: UUID = Field(..., description="Platform ID")
     project_id: UUID = Field(..., description="Associated project ID")
-    name: Optional[str] = Field(None, description="Platform name (may be null)")
-    display_name: str = Field("", description="Display name with fallback to platform type name")
+    name: Optional[str] = Field(
+        default=None, description="Platform name (may be null)"
+    )
+    display_name: str = Field(
+        default="",
+        description="Display name with fallback to platform type name",
+    )
     type: PlatformType = Field(..., description="Platform type")
     is_active: bool = Field(..., description="Whether the platform is active")
-    icon: Optional[str] = Field(None, description="SVG icon markup for the platform type")
-    is_supported: Optional[bool] = Field(None, description="Whether this platform type is currently supported")
-    name_en: Optional[str] = Field(None, description="English name of the platform type")
-    agent_id: Optional[UUID] = Field(None, description="AI Agent ID assigned to this platform")
-    ai_mode: Optional[PlatformAIMode] = Field(None, description="AI mode: auto, assist, or off")
-    fallback_to_ai_timeout: Optional[int] = Field(None, description="Timeout in seconds before AI takes over when ai_mode=assist")
+    icon: Optional[str] = Field(
+        default=None, description="SVG icon markup for the platform type"
+    )
+    is_supported: Optional[bool] = Field(
+        default=None,
+        description="Whether this platform type is currently supported",
+    )
+    name_en: Optional[str] = Field(
+        default=None, description="English name of the platform type"
+    )
+    agent_id: Optional[UUID] = Field(
+        default=None, description="AI Agent ID assigned to this platform"
+    )
+    ai_mode: Optional[PlatformAIMode] = Field(
+        default=None, description="AI mode: auto, assist, or off"
+    )
+    fallback_to_ai_timeout: Optional[int] = Field(
+        default=None,
+        description=(
+            'Timeout in seconds before AI takes over when ai_mode=assist'
+        ),
+    )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -195,13 +250,31 @@ class PlatformListItemResponse(BaseSchema, TimestampMixin, SoftDeleteMixin):
 
 
 class PlatformResponse(PlatformInDB):
-    """Schema for platform detail response (with all fields including sensitive data)."""
-    is_configured: bool = Field(False, description="Required configuration present; not a connection verification")
-    icon: Optional[str] = Field(None, description="SVG icon markup for the platform type")
-    is_supported: Optional[bool] = Field(None, description="Whether this platform type is currently supported")
-    name_en: Optional[str] = Field(None, description="English name of the platform type")
-    display_name: str = Field("", description="Display name with fallback to platform type name")
+    """
+    Schema for platform detail response (with all fields including sensitive
+    data).
+    """
 
+    is_configured: bool = Field(
+        default=False,
+        description=(
+            'Required configuration present; not a connection verification'
+        ),
+    )
+    icon: Optional[str] = Field(
+        default=None, description="SVG icon markup for the platform type"
+    )
+    is_supported: Optional[bool] = Field(
+        default=None,
+        description="Whether this platform type is currently supported",
+    )
+    name_en: Optional[str] = Field(
+        default=None, description="English name of the platform type"
+    )
+    display_name: str = Field(
+        default="",
+        description="Display name with fallback to platform type name",
+    )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -248,42 +321,50 @@ class PlatformListParams(BaseSchema):
     """Parameters for listing platforms."""
 
     type: Optional[PlatformType] = Field(
-        None,
-        description="Filter platforms by type"
+        default=None, description="Filter platforms by type"
     )
     is_active: Optional[bool] = Field(
-        None,
-        description="Filter platforms by active status"
+        default=None, description="Filter platforms by active status"
     )
     limit: int = Field(
-        default=20,
-        ge=1,
-        le=100,
-        description="Number of platforms to return"
+        default=20, ge=1, le=100, description="Number of platforms to return"
     )
     offset: int = Field(
-        default=0,
-        ge=0,
-        description="Number of platforms to skip"
+        default=0, ge=0, description="Number of platforms to skip"
     )
 
 
 class PlatformListResponse(PaginatedResponse):
     """Schema for platform list response."""
 
-    data: list[PlatformListItemResponse] = Field(..., description="List of platforms")
+    data: list[PlatformListItemResponse] = Field(
+        ..., description="List of platforms"
+    )
 
 
 class PlatformTypeDefinitionResponse(BaseSchema, TimestampMixin):
     """Schema describing platform type metadata."""
 
     id: UUID = Field(..., description="Platform type definition ID")
-    type: str = Field(..., description="Stable identifier (e.g., wechat, website, email)")
-    name: str = Field(..., description="Human-readable platform name (Chinese)")
-    name_en: Optional[str] = Field(None, description="English name of the platform type")
-    is_supported: bool = Field(..., description="Whether this platform type is currently supported")
-    icon: Optional[str] = Field(None, description="SVG icon markup for display")
-    display_name: str = Field("", description="Localized display name based on request language")
+    type: str = Field(
+        ..., description="Stable identifier (e.g., wechat, website, email)"
+    )
+    name: str = Field(
+        ..., description="Human-readable platform name (Chinese)"
+    )
+    name_en: Optional[str] = Field(
+        default=None, description="English name of the platform type"
+    )
+    is_supported: bool = Field(
+        ..., description="Whether this platform type is currently supported"
+    )
+    icon: Optional[str] = Field(
+        default=None, description="SVG icon markup for display"
+    )
+    display_name: str = Field(
+        default="",
+        description="Localized display name based on request language",
+    )
 
 
 class PlatformAPIKeyResponse(BaseSchema):

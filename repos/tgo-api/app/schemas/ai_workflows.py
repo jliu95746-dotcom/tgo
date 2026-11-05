@@ -1,7 +1,10 @@
-"""AI Workflows (Workflow Engine proxy) schemas.
+"""
+AI Workflows (Workflow Engine proxy) schemas.
 
-These schemas are aligned with `docs/api_workflow.json` (Workflow Engine OpenAPI).
-They are intentionally strict in typing (no Any/Dict in request/response signatures),
+These schemas are aligned with `docs/api_workflow.json` (Workflow Engine
+OpenAPI).
+They are intentionally strict in typing (no Any/Dict in request/response
+signatures),
 while still being forward-compatible via BaseSchema(extra="ignore").
 """
 
@@ -12,8 +15,14 @@ from typing import Annotated, Literal, Optional, Union
 from uuid import UUID
 
 from pydantic import (
-    ConfigDict, Field, FiniteFloat, JsonValue, StrictBool,
-    field_serializer, field_validator, model_validator,
+    ConfigDict,
+    Field,
+    FiniteFloat,
+    JsonValue,
+    StrictBool,
+    field_serializer,
+    field_validator,
+    model_validator,
 )
 
 from app.schemas.base import BaseSchema
@@ -28,7 +37,9 @@ class KeyValue(BaseSchema):
 class FormField(BaseSchema):
     key: str = Field(..., description="Field name")
     value: str = Field(..., description="Field value")
-    type: Literal["text", "file"] = Field("text", description="Field type")
+    type: Literal["text", "file"] = Field(
+        default="text", description="Field type"
+    )
 
 
 class Category(BaseSchema):
@@ -47,21 +58,30 @@ class InputVariable(BaseSchema):
     type: Literal["string", "number", "boolean"] = Field(
         ..., description="The type of the variable"
     )
-    description: Optional[str] = Field(None, description="The description of the variable")
-    required: StrictBool = Field(False, description="Whether the workflow input is required")
+    description: Optional[str] = Field(
+        default=None, description="The description of the variable"
+    )
+    required: StrictBool = Field(
+        default=False, description="Whether the workflow input is required"
+    )
     min_length: int | None = Field(default=None, ge=0, le=65535, strict=True)
     max_length: int | None = Field(default=None, ge=0, le=65535, strict=True)
     minimum: FiniteFloat | None = None
     maximum: FiniteFloat | None = None
-    allowed_values: list[str] | None = Field(default=None, min_length=1, max_length=30)
+    allowed_values: list[str] | None = Field(
+        default=None, min_length=1, max_length=30
+    )
 
     @field_validator("allowed_values", mode="before")
     @classmethod
     def reject_spaced_choices(cls, value: object) -> object:
         if isinstance(value, list) and any(
-            isinstance(choice, str) and choice != choice.strip() for choice in value
+            isinstance(choice, str) and choice != choice.strip()
+            for choice in value
         ):
-            raise ValueError("Allowed text values cannot have surrounding whitespace")
+            raise ValueError(
+                "Allowed text values cannot have surrounding whitespace"
+            )
         return value
 
     @model_validator(mode="after")
@@ -69,36 +89,52 @@ class InputVariable(BaseSchema):
         has_length = self.min_length is not None or self.max_length is not None
         has_range = self.minimum is not None or self.maximum is not None
         if (
-            ((has_length or self.allowed_values is not None) and self.type != "string")
-            or (has_range and self.type != "number")
-        ):
+            (has_length or self.allowed_values is not None)
+            and self.type != "string"
+        ) or (has_range and self.type != "number"):
             raise ValueError("Input constraints do not match variable type")
         if (
-            self.min_length is not None and self.max_length is not None
+            self.min_length is not None
+            and self.max_length is not None
             and self.min_length > self.max_length
         ):
             raise ValueError("Minimum text length exceeds maximum")
         if (
-            self.minimum is not None and self.maximum is not None
+            self.minimum is not None
+            and self.maximum is not None
             and self.minimum > self.maximum
         ):
             raise ValueError("Minimum number exceeds maximum")
         if self.allowed_values is not None and (
             len(set(self.allowed_values)) != len(self.allowed_values)
             or any(
-                not value or len(value) > 100
-                or (self.min_length is not None and len(value) < self.min_length)
-                or (self.max_length is not None and len(value) > self.max_length)
+                not value
+                or len(value) > 100
+                or (
+                    self.min_length is not None
+                    and len(value) < self.min_length
+                )
+                or (
+                    self.max_length is not None
+                    and len(value) > self.max_length
+                )
                 for value in self.allowed_values
             )
         ):
-            raise ValueError("Allowed text values must be unique, nonblank, and meet length limits")
+            raise ValueError(
+                (
+                    'Allowed text values must be unique, nonblank, and meet '
+                    'length limits'
+                )
+            )
         return self
 
 
 class OutputField(BaseSchema):
     key: str = Field(..., description="Key name of the output field")
-    value: str = Field(..., description="Value or variable reference of the output field")
+    value: str = Field(
+        ..., description="Value or variable reference of the output field"
+    )
 
 
 class PaginationInfo(BaseSchema):
@@ -111,94 +147,161 @@ class PaginationInfo(BaseSchema):
 
 # ---- Enums ----
 ExecutionStatus = Literal[
-    "pending", "running", "waiting_approval", "pending_resume",
-    "completed", "failed", "rejected", "expired", "cancelled",
+    "pending",
+    "running",
+    "waiting_approval",
+    "pending_resume",
+    "completed",
+    "failed",
+    "rejected",
+    "expired",
+    "cancelled",
 ]
 WorkflowStatus = Literal["draft", "active", "archived"]
 
 
 # ---- Node data (discriminated union on `type`) ----
 
+
 class InputNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["input"] = Field("input", description="Node type: input")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
+    type: Literal["input"] = Field(
+        default="input", description="Node type: input"
+    )
     input_variables: list[InputVariable] = Field(
-        default_factory=list, description="Input variables defined for the conversation"
+        default_factory=list,
+        description="Input variables defined for the conversation",
     )
 
 
 class AnswerNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["answer"] = Field("answer", description="Node type: answer")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
+    type: Literal["answer"] = Field(
+        default="answer", description="Node type: answer"
+    )
     output_type: Literal["variable", "template", "structured"] = Field(
         ..., description="Output configuration type"
     )
     output_variable: Optional[str] = Field(
-        None, description="Selected output variable path when type is 'variable'"
+        default=None,
+        description="Selected output variable path when type is 'variable'",
     )
     output_template: Optional[str] = Field(
-        None, description="Jinja2 template content when type is 'template'"
+        default=None,
+        description="Jinja2 template content when type is 'template'",
     )
     output_structure: Optional[list[OutputField]] = Field(
-        None, description="Structured output fields when type is 'structured'"
+        default=None,
+        description="Structured output fields when type is 'structured'",
     )
 
 
 class TimerNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["timer"] = Field("timer", description="Node type: timer")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
+    type: Literal["timer"] = Field(
+        default="timer", description="Node type: timer"
+    )
     cron_expression: str = Field(
-        ..., min_length=1, max_length=512, strict=True,
+        ...,
+        min_length=1,
+        max_length=512,
+        strict=True,
         description="Numeric five-field schedule expression",
     )
     timezone: str = Field(
-        "UTC", min_length=1, max_length=100, strict=True,
+        default="UTC",
+        min_length=1,
+        max_length=100,
+        strict=True,
         description="IANA timezone; legacy definitions use UTC",
     )
 
 
 class WebhookNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["webhook"] = Field("webhook", description="Node type: webhook")
-    path: Optional[str] = Field(None, description="Optional custom endpoint path suffix")
-    method: Literal["GET", "POST"] = Field("POST", description="HTTP method for the webhook")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
+    type: Literal["webhook"] = Field(
+        default="webhook", description="Node type: webhook"
+    )
+    path: Optional[str] = Field(
+        default=None, description="Optional custom endpoint path suffix"
+    )
+    method: Literal["GET", "POST"] = Field(
+        default="POST", description="HTTP method for the webhook"
+    )
 
 
 class EventNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["event"] = Field("event", description="Node type: event")
-    event_type: str = Field(..., description="Internal system event type identifier")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
+    type: Literal["event"] = Field(
+        default="event", description="Node type: event"
+    )
+    event_type: str = Field(
+        ..., description="Internal system event type identifier"
+    )
 
 
 class LLMNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["llm"] = Field("llm", description="Node type: llm")
-    provider_id: Optional[str] = Field(None, description="LLM provider ID")
-    model_id: Optional[str] = Field(None, description="Model ID")
-    model_name: Optional[str] = Field(None, description="Model display name")
-    system_prompt: Optional[str] = Field(None, description="System prompt")
-    user_prompt: str = Field(
-        ..., description="User prompt, supports {{node_key.var}} variable references"
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
     )
-    temperature: float = Field(0.7, description="Sampling temperature")
-    max_tokens: int = Field(2000, description="Maximum generation tokens")
-    tool_ids: list[str] = Field(default_factory=list, description="List of tool IDs")
-    collection_ids: list[str] = Field(default_factory=list, description="Knowledge base IDs")
+    type: Literal["llm"] = Field(default="llm", description="Node type: llm")
+    provider_id: Optional[str] = Field(
+        default=None, description="LLM provider ID"
+    )
+    model_id: Optional[str] = Field(default=None, description="Model ID")
+    model_name: Optional[str] = Field(
+        default=None, description="Model display name"
+    )
+    system_prompt: Optional[str] = Field(
+        default=None, description="System prompt"
+    )
+    user_prompt: str = Field(
+        ...,
+        description=(
+            'User prompt, supports {{node_key.var}} variable references'
+        ),
+    )
+    temperature: float = Field(default=0.7, description="Sampling temperature")
+    max_tokens: int = Field(
+        default=2000, description="Maximum generation tokens"
+    )
+    tool_ids: list[str] = Field(
+        default_factory=list, description="List of tool IDs"
+    )
+    collection_ids: list[str] = Field(
+        default_factory=list, description="Knowledge base IDs"
+    )
 
 
 class AgentNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["agent"] = Field("agent", description="Node type: agent")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
+    type: Literal["agent"] = Field(
+        default="agent", description="Node type: agent"
+    )
     agent_id: str = Field(..., description="Agent ID")
-    agent_name: Optional[str] = Field(None, description="Agent name")
-    input_mapping: Optional[dict[str, str]] = Field(None, description="Input parameters mapping")
+    agent_name: Optional[str] = Field(default=None, description="Agent name")
+    input_mapping: Optional[dict[str, str]] = Field(
+        default=None, description="Input parameters mapping"
+    )
 
 
 class ApprovalNodeData(BaseSchema):
@@ -209,9 +312,13 @@ class ApprovalNodeData(BaseSchema):
     summary: str = Field(min_length=1, max_length=500)
     expires_in_minutes: int = Field(default=1440, ge=1, le=10080)
     after_approval_action: Optional[Literal["create_aftersales_review"]] = None
-    case_category: Optional[Literal[
-        "return_request", "exchange_request", "quality_issue",
-    ]] = None
+    case_category: Optional[
+        Literal[
+            "return_request",
+            "exchange_request",
+            "quality_issue",
+        ]
+    ] = None
 
     @field_validator("approver_staff_id")
     @classmethod
@@ -229,17 +336,27 @@ class ApprovalNodeData(BaseSchema):
 
 class ToolNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["tool"] = Field("tool", description="Node type: tool")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
+    type: Literal["tool"] = Field(
+        default="tool", description="Node type: tool"
+    )
     tool_id: str = Field(..., description="Tool ID")
-    tool_name: Optional[str] = Field(None, description="Tool name")
-    config: Optional[dict[str, JsonValue]] = Field(None, description="Tool configuration parameters")
-    input_mapping: Optional[dict[str, str]] = Field(None, description="Input parameters mapping")
+    tool_name: Optional[str] = Field(default=None, description="Tool name")
+    config: Optional[dict[str, JsonValue]] = Field(
+        default=None, description="Tool configuration parameters"
+    )
+    input_mapping: Optional[dict[str, str]] = Field(
+        default=None, description="Input parameters mapping"
+    )
 
 
 class BusinessQueryNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
     type: Literal["business_query"] = "business_query"
     connection_id: UUID = Field(..., description="Owned business connection")
     operation: Literal["order_query", "logistics_query"]
@@ -248,32 +365,54 @@ class BusinessQueryNodeData(BaseSchema):
 
 class APINodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["api"] = Field("api", description="Node type: api")
-    method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"] = Field(..., description="HTTP method")
-    url: str = Field(..., description="Request URL")
-    headers: list[KeyValue] = Field(default_factory=list, description="HTTP headers")
-    params: list[KeyValue] = Field(default_factory=list, description="Query parameters")
-    body_type: Literal["none", "json", "form-data", "x-www-form-urlencoded", "raw"] = Field(
-        ..., description="Request body type"
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
     )
-    body: Optional[str] = Field(None, description="Request body content")
-    form_data: list[FormField] = Field(default_factory=list, description="Form data")
-    form_url_encoded: list[KeyValue] = Field(default_factory=list, description="URL-encoded form data")
+    type: Literal["api"] = Field(default="api", description="Node type: api")
+    method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"] = Field(
+        ..., description="HTTP method"
+    )
+    url: str = Field(..., description="Request URL")
+    headers: list[KeyValue] = Field(
+        default_factory=list, description="HTTP headers"
+    )
+    params: list[KeyValue] = Field(
+        default_factory=list, description="Query parameters"
+    )
+    body_type: Literal[
+        "none", "json", "form-data", "x-www-form-urlencoded", "raw"
+    ] = Field(..., description="Request body type")
+    body: Optional[str] = Field(
+        default=None, description="Request body content"
+    )
+    form_data: list[FormField] = Field(
+        default_factory=list, description="Form data"
+    )
+    form_url_encoded: list[KeyValue] = Field(
+        default_factory=list, description="URL-encoded form data"
+    )
     raw_type: Optional[Literal["text", "html", "xml", "javascript"]] = Field(
-        None, description="Raw text type"
+        default=None, description="Raw text type"
     )
 
 
 class ConditionNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["condition"] = Field("condition", description="Node type: condition")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
+    type: Literal["condition"] = Field(
+        default="condition", description="Node type: condition"
+    )
     condition_type: Literal["expression", "variable", "llm"] = Field(
         ..., description="Condition evaluation type"
     )
-    expression: Optional[str] = Field(None, description="Python expression")
-    variable: Optional[str] = Field(None, description="Referenced variable path")
+    expression: Optional[str] = Field(
+        default=None, description="Python expression"
+    )
+    variable: Optional[str] = Field(
+        default=None, description="Referenced variable path"
+    )
     operator: Optional[
         Literal[
             "equals",
@@ -284,30 +423,55 @@ class ConditionNodeData(BaseSchema):
             "isEmpty",
             "isNotEmpty",
         ]
-    ] = Field(None, description="Comparison operator")
-    compare_value: Optional[str] = Field(None, description="Comparison value")
-    llm_prompt: Optional[str] = Field(None, description="LLM evaluation prompt")
-    provider_id: Optional[str] = Field(None, description="LLM provider ID")
-    model_id: Optional[str] = Field(None, description="Model ID")
+    ] = Field(default=None, description="Comparison operator")
+    compare_value: Optional[str] = Field(
+        default=None, description="Comparison value"
+    )
+    llm_prompt: Optional[str] = Field(
+        default=None, description="LLM evaluation prompt"
+    )
+    provider_id: Optional[str] = Field(
+        default=None, description="LLM provider ID"
+    )
+    model_id: Optional[str] = Field(default=None, description="Model ID")
 
 
 class ClassifierNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["classifier"] = Field("classifier", description="Node type: classifier")
-    input_variable: str = Field(..., description="Input variable path to classify")
-    provider_id: Optional[str] = Field(None, description="LLM provider ID")
-    model_id: Optional[str] = Field(None, description="Model ID")
-    categories: list[Category] = Field(..., description="Defined classification rules")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
+    type: Literal["classifier"] = Field(
+        default="classifier", description="Node type: classifier"
+    )
+    input_variable: str = Field(
+        ..., description="Input variable path to classify"
+    )
+    provider_id: Optional[str] = Field(
+        default=None, description="LLM provider ID"
+    )
+    model_id: Optional[str] = Field(default=None, description="Model ID")
+    categories: list[Category] = Field(
+        ..., description="Defined classification rules"
+    )
 
 
 class ParallelNodeData(BaseSchema):
     label: str = Field(..., description="The display name of the node")
-    reference_key: str = Field(..., description="The unique reference key of the node")
-    type: Literal["parallel"] = Field("parallel", description="Node type: parallel")
+    reference_key: str = Field(
+        ..., description="The unique reference key of the node"
+    )
+    type: Literal["parallel"] = Field(
+        default="parallel", description="Node type: parallel"
+    )
     branches: int = Field(..., description="Number of branches")
-    wait_for_all: bool = Field(True, description="Whether to wait for all branches to complete")
-    timeout: Optional[int] = Field(None, description="Execution timeout in seconds")
+    wait_for_all: bool = Field(
+        default=True,
+        description="Whether to wait for all branches to complete",
+    )
+    timeout: Optional[int] = Field(
+        default=None, description="Execution timeout in seconds"
+    )
 
 
 NodeData = Annotated[
@@ -335,10 +499,18 @@ class WorkflowEdge(BaseSchema):
     id: str = Field(..., description="The unique identifier of the edge")
     source: str = Field(..., description="The source node ID")
     target: str = Field(..., description="The target node ID")
-    source_handle: Optional[str] = Field(None, alias="sourceHandle", description="The source handle ID")
-    target_handle: Optional[str] = Field(None, alias="targetHandle", description="The target handle ID")
-    type: Optional[str] = Field("smoothstep", description="The type of the edge")
-    data: Optional[dict[str, JsonValue]] = Field(None, description="Additional data for the edge")
+    source_handle: Optional[str] = Field(
+        default=None, alias="sourceHandle", description="The source handle ID"
+    )
+    target_handle: Optional[str] = Field(
+        default=None, alias="targetHandle", description="The target handle ID"
+    )
+    type: Optional[str] = Field(
+        default="smoothstep", description="The type of the edge"
+    )
+    data: Optional[dict[str, JsonValue]] = Field(
+        default=None, description="Additional data for the edge"
+    )
 
 
 class WorkflowNodeInput(BaseSchema):
@@ -356,47 +528,83 @@ class WorkflowNodeOutput(BaseSchema):
 
 
 class WorkflowDefinition(BaseSchema):
-    nodes: list[WorkflowNodeOutput] = Field(..., description="List of workflow nodes")
-    edges: list[WorkflowEdge] = Field(..., description="List of workflow edges")
+    nodes: list[WorkflowNodeOutput] = Field(
+        ..., description="List of workflow nodes"
+    )
+    edges: list[WorkflowEdge] = Field(
+        ..., description="List of workflow edges"
+    )
 
 
 # ---- Workflow models ----
 class WorkflowCreate(BaseSchema):
     name: str = Field(..., description="Workflow name")
-    description: Optional[str] = Field(None, description="Detailed description of the workflow")
-    tags: list[str] = Field(default_factory=list, description="List of workflow tags")
-    nodes: list[WorkflowNodeInput] = Field(..., description="List of workflow nodes")
-    edges: list[WorkflowEdge] = Field(..., description="List of workflow edges")
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the workflow"
+    )
+    tags: list[str] = Field(
+        default_factory=list, description="List of workflow tags"
+    )
+    nodes: list[WorkflowNodeInput] = Field(
+        ..., description="List of workflow nodes"
+    )
+    edges: list[WorkflowEdge] = Field(
+        ..., description="List of workflow edges"
+    )
 
 
 class WorkflowUpdate(BaseSchema):
     expected_version: int | None = Field(default=None, ge=1)
-    name: Optional[str] = Field(None, description="Workflow name")
-    description: Optional[str] = Field(None, description="Detailed description of the workflow")
-    nodes: Optional[list[WorkflowNodeInput]] = Field(None, description="List of workflow nodes")
-    edges: Optional[list[WorkflowEdge]] = Field(None, description="List of workflow edges")
-    status: Optional[WorkflowStatus] = Field(None, description="Workflow status")
-    tags: Optional[list[str]] = Field(None, description="List of workflow tags")
+    name: Optional[str] = Field(default=None, description="Workflow name")
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the workflow"
+    )
+    nodes: Optional[list[WorkflowNodeInput]] = Field(
+        default=None, description="List of workflow nodes"
+    )
+    edges: Optional[list[WorkflowEdge]] = Field(
+        default=None, description="List of workflow edges"
+    )
+    status: Optional[WorkflowStatus] = Field(
+        default=None, description="Workflow status"
+    )
+    tags: Optional[list[str]] = Field(
+        default=None, description="List of workflow tags"
+    )
 
 
 class WorkflowDuplicateRequest(BaseSchema):
-    name: Optional[str] = Field(None, description="New name for the duplicated workflow")
+    name: Optional[str] = Field(
+        default=None, description="New name for the duplicated workflow"
+    )
 
 
 class WorkflowValidateRequest(BaseSchema):
-    nodes: list[WorkflowNodeInput] = Field(..., description="List of workflow nodes to validate")
-    edges: list[WorkflowEdge] = Field(..., description="List of workflow edges to validate")
+    nodes: list[WorkflowNodeInput] = Field(
+        ..., description="List of workflow nodes to validate"
+    )
+    edges: list[WorkflowEdge] = Field(
+        ..., description="List of workflow edges to validate"
+    )
 
 
 class WorkflowValidationResponse(BaseSchema):
-    valid: bool = Field(..., description="Whether the workflow passed validation")
-    errors: list[str] = Field(..., description="List of validation error messages")
+    valid: bool = Field(
+        ..., description="Whether the workflow passed validation"
+    )
+    errors: list[str] = Field(
+        ..., description="List of validation error messages"
+    )
 
 
 class WorkflowVariable(BaseSchema):
     name: str = Field(..., description="Variable name")
-    type: str = Field(..., description="Variable type (string, number, boolean, object)")
-    description: Optional[str] = Field(None, description="Variable description")
+    type: str = Field(
+        ..., description="Variable type (string, number, boolean, object)"
+    )
+    description: Optional[str] = Field(
+        default=None, description="Variable description"
+    )
 
 
 class NodeVariables(BaseSchema):
@@ -404,19 +612,27 @@ class NodeVariables(BaseSchema):
     reference_key: str = Field(..., description="Node reference key")
     node_type: str = Field(..., description="Node type")
     node_label: str = Field(..., description="Node label")
-    outputs: list[WorkflowVariable] = Field(..., description="Output variables of the node")
+    outputs: list[WorkflowVariable] = Field(
+        ..., description="Output variables of the node"
+    )
 
 
 class WorkflowVariablesResponse(BaseSchema):
-    variables: list[NodeVariables] = Field(..., description="List of available variables per node")
+    variables: list[NodeVariables] = Field(
+        ..., description="List of available variables per node"
+    )
 
 
 class WorkflowSummary(BaseSchema):
     published_version: int | None = None
     publication_revision: int = 0
     name: str = Field(..., description="Workflow name")
-    description: Optional[str] = Field(None, description="Detailed description of the workflow")
-    tags: list[str] = Field(default_factory=list, description="List of workflow tags")
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the workflow"
+    )
+    tags: list[str] = Field(
+        default_factory=list, description="List of workflow tags"
+    )
     id: str = Field(..., description="Unique identifier of the workflow")
     status: WorkflowStatus = Field(..., description="Current status")
     version: int = Field(..., description="Version number")
@@ -424,7 +640,9 @@ class WorkflowSummary(BaseSchema):
 
 
 class PaginatedWorkflowSummaryResponse(BaseSchema):
-    data: list[WorkflowSummary] = Field(..., description="List of items for current page")
+    data: list[WorkflowSummary] = Field(
+        ..., description="List of items for current page"
+    )
     pagination: PaginationInfo = Field(..., description="Pagination metadata")
 
 
@@ -432,13 +650,19 @@ class WorkflowInDB(BaseSchema):
     published_version: int | None = None
     publication_revision: int = 0
     name: str = Field(..., description="Workflow name")
-    description: Optional[str] = Field(None, description="Detailed description of the workflow")
-    tags: list[str] = Field(default_factory=list, description="List of workflow tags")
+    description: Optional[str] = Field(
+        default=None, description="Detailed description of the workflow"
+    )
+    tags: list[str] = Field(
+        default_factory=list, description="List of workflow tags"
+    )
     id: str = Field(..., description="Unique identifier of the workflow")
-    definition: WorkflowDefinition = Field(..., description="Workflow graph definition")
+    definition: WorkflowDefinition = Field(
+        ..., description="Workflow graph definition"
+    )
     status: WorkflowStatus = Field(..., description="Current status")
     version: int = Field(..., description="Version number")
-    created_by: Optional[str] = Field(None, description="Creator ID")
+    created_by: Optional[str] = Field(default=None, description="Creator ID")
     created_at: datetime = Field(..., description="Creation time")
     updated_at: datetime = Field(..., description="Last update time")
 
@@ -471,10 +695,20 @@ class WorkflowExecuteRequest(BaseSchema):
     execution_mode: Literal["draft_test", "production"] = "draft_test"
     inputs: dict[str, JsonValue] = Field(
         default_factory=dict,
-        description="Input variables passed to the start node, where Key is the variable name",
+        description=(
+            'Input variables passed to the start node, where Key is the '
+            'variable name'
+        ),
     )
-    stream: bool = Field(False, description="Whether to stream the execution events using SSE")
-    async_mode: bool = Field(False, alias="async", description="Whether to execute asynchronously via Celery")
+    stream: bool = Field(
+        default=False,
+        description="Whether to stream the execution events using SSE",
+    )
+    async_mode: bool = Field(
+        default=False,
+        alias="async",
+        description="Whether to execute asynchronously via Celery",
+    )
 
 
 class WorkflowSyncResponseMetadata(BaseSchema):
@@ -502,7 +736,8 @@ def public_workflow_input_evidence(
 
 
 def public_workflow_node_output(
-    node_type: str, output: JsonValue,
+    node_type: str,
+    output: JsonValue,
 ) -> JsonValue:
     if output is None or node_type == "answer":
         return output
@@ -513,7 +748,8 @@ def public_workflow_node_output(
         connection_id = output.get("connection_id")
         operation = output.get("operation")
         if (
-            isinstance(query_id, str) and isinstance(connection_id, str)
+            isinstance(query_id, str)
+            and isinstance(connection_id, str)
             and isinstance(operation, str)
             and operation in {"order_query", "logistics_query"}
         ):
@@ -548,20 +784,39 @@ class NodeExecution(BaseSchema):
     node_id: str = Field(..., description="The node ID in the workflow")
     node_type: str = Field(..., description="Node type")
     status: ExecutionStatus = Field(..., description="Execution status")
-    input: Optional[dict[str, JsonValue]] = Field(None, description="Input data for the node")
-    output: JsonValue = Field(None, description="Output results for the node")
-    error: Optional[str] = Field(None, description="Execution error message")
+    input: Optional[dict[str, JsonValue]] = Field(
+        default=None, description="Input data for the node"
+    )
+    output: JsonValue = Field(
+        default=None, description="Output results for the node"
+    )
+    error: Optional[str] = Field(
+        default=None, description="Execution error message"
+    )
     started_at: datetime = Field(..., description="Node execution start time")
-    completed_at: Optional[datetime] = Field(None, description="Node execution completion time")
-    duration: Optional[int] = Field(None, description="Execution duration in milliseconds")
-    id: str = Field(..., description="Unique identifier for the node execution record")
-    execution_id: str = Field(..., description="The ID of the parent workflow execution record")
+    completed_at: Optional[datetime] = Field(
+        default=None, description="Node execution completion time"
+    )
+    duration: Optional[int] = Field(
+        default=None, description="Execution duration in milliseconds"
+    )
+    id: str = Field(
+        ..., description="Unique identifier for the node execution record"
+    )
+    execution_id: str = Field(
+        ..., description="The ID of the parent workflow execution record"
+    )
 
     @field_serializer("input")
     def serialize_input(
-        self, inputs: dict[str, JsonValue] | None,
+        self,
+        inputs: dict[str, JsonValue] | None,
     ) -> dict[str, JsonValue] | None:
-        return public_workflow_input_evidence(inputs) if inputs is not None else None
+        return (
+            public_workflow_input_evidence(inputs)
+            if inputs is not None
+            else None
+        )
 
     @field_serializer("output")
     def serialize_output(self, output: JsonValue) -> JsonValue:
@@ -582,23 +837,44 @@ class WorkflowExecution(BaseSchema):
     execution_mode: Literal["draft_test", "production"] | None = None
     workflow_version: int | None = None
     workflow_id: str = Field(..., description="Workflow ID")
-    status: ExecutionStatus = Field(..., description="Overall execution status")
-    input: Optional[dict[str, JsonValue]] = Field(None, description="Workflow startup input data")
-    output: JsonValue = Field(None, description="Final workflow output result")
-    error: Optional[str] = Field(None, description="Execution error message")
-    started_at: datetime = Field(..., description="Workflow execution start time")
-    completed_at: Optional[datetime] = Field(None, description="Workflow execution completion time")
-    duration: Optional[int] = Field(None, description="Execution duration in milliseconds")
-    id: str = Field(..., description="Unique identifier for the workflow execution record")
+    status: ExecutionStatus = Field(
+        ..., description="Overall execution status"
+    )
+    input: Optional[dict[str, JsonValue]] = Field(
+        default=None, description="Workflow startup input data"
+    )
+    output: JsonValue = Field(
+        default=None, description="Final workflow output result"
+    )
+    error: Optional[str] = Field(
+        default=None, description="Execution error message"
+    )
+    started_at: datetime = Field(
+        ..., description="Workflow execution start time"
+    )
+    completed_at: Optional[datetime] = Field(
+        default=None, description="Workflow execution completion time"
+    )
+    duration: Optional[int] = Field(
+        default=None, description="Execution duration in milliseconds"
+    )
+    id: str = Field(
+        ..., description="Unique identifier for the workflow execution record"
+    )
     node_executions: list[NodeExecution] = Field(
         default_factory=list, description="List of detailed node executions"
     )
 
     @field_serializer("input")
     def serialize_input(
-        self, inputs: dict[str, JsonValue] | None,
+        self,
+        inputs: dict[str, JsonValue] | None,
     ) -> dict[str, JsonValue] | None:
-        return public_workflow_input_evidence(inputs) if inputs is not None else None
+        return (
+            public_workflow_input_evidence(inputs)
+            if inputs is not None
+            else None
+        )
 
 
 class WorkflowExecutionCancelResponse(BaseSchema):

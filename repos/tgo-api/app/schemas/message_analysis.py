@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Literal, Self
+from typing import Literal, Self
 from uuid import UUID
 
 from pydantic import (
@@ -89,15 +89,21 @@ class AnalysisStageResult(AnalysisSchema):
 
     capability: AnalysisCapability
     status: AnalysisStageStatus
-    provider_name: str | None = Field(default=None, min_length=1, max_length=128)
+    provider_name: str | None = Field(
+        default=None, min_length=1, max_length=128
+    )
     text: str | None = Field(default=None, min_length=1, max_length=65535)
-    confidence: float | None = Field(default=None, ge=0.0, le=1.0, allow_inf_nan=False)
-    model_version: str | None = Field(default=None, min_length=1, max_length=128)
+    confidence: float | None = Field(
+        default=None, ge=0.0, le=1.0, allow_inf_nan=False
+    )
+    model_version: str | None = Field(
+        default=None, min_length=1, max_length=128
+    )
     error: AnalysisStageError | None = None
     text_is_untrusted: bool = False
     sensitive_data_categories: tuple[SensitiveDataCategory, ...] = ()
 
-    @model_validator(mode="after")  # type: ignore[misc]
+    @model_validator(mode="after")
     def validate_terminal_state(self) -> Self:
         """Prevent a successful stage from also carrying an error."""
         if self.status is AnalysisStageStatus.COMPLETED:
@@ -109,7 +115,10 @@ class AnalysisStageResult(AnalysisSchema):
                 or not self.text_is_untrusted
             ):
                 raise ValueError(
-                    "completed stage requires provider, text, and model version"
+                    (
+                        'completed stage requires provider, text, and model '
+                        'version'
+                    )
                 )
         elif self.error is None or self.text is not None:
             raise ValueError("failed stage requires an error without text")
@@ -125,30 +134,42 @@ class MediaResultUpsertRequest(AnalysisSchema):
     media_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     mime_type: str = Field(min_length=3, max_length=128)
     status: MediaAnalysisStatus
-    normalized_text: str | None = Field(default=None, min_length=1, max_length=131072)
+    normalized_text: str | None = Field(
+        default=None, min_length=1, max_length=131072
+    )
     normalized_text_is_untrusted: bool
     sensitive_data_categories: tuple[SensitiveDataCategory, ...] = ()
-    transcript: str | None = Field(default=None, min_length=1, max_length=65535)
+    transcript: str | None = Field(
+        default=None, min_length=1, max_length=65535
+    )
     ocr_text: str | None = Field(default=None, min_length=1, max_length=65535)
-    vision_summary: str | None = Field(default=None, min_length=1, max_length=65535)
+    vision_summary: str | None = Field(
+        default=None, min_length=1, max_length=65535
+    )
     stages: tuple[AnalysisStageResult, ...] = Field(min_length=1, max_length=3)
     can_continue: bool
     requires_handoff: bool
-    fallback_message: str | None = Field(default=None, min_length=1, max_length=512)
+    fallback_message: str | None = Field(
+        default=None, min_length=1, max_length=512
+    )
     pipeline_version: str = Field(min_length=1, max_length=128)
     request_id: str | None = Field(default=None, min_length=1, max_length=128)
 
-    @model_validator(mode="after")  # type: ignore[misc]
+    @model_validator(mode="after")
     def validate_media_result(self) -> Self:
         """Keep status, stages, and fail-closed routing consistent."""
-        expected_prefix = "audio/" if self.media_type is MediaType.VOICE else "image/"
+        expected_prefix = (
+            "audio/" if self.media_type is MediaType.VOICE else "image/"
+        )
         if not self.mime_type.lower().startswith(expected_prefix):
             raise ValueError(
-                f"{self.media_type.value} requires a {expected_prefix} MIME type"
+                f"{self.media_type.value} requires a "
+                f"{expected_prefix} MIME type"
             )
 
         completed_count = sum(
-            stage.status is AnalysisStageStatus.COMPLETED for stage in self.stages
+            stage.status is AnalysisStageStatus.COMPLETED
+            for stage in self.stages
         )
         if completed_count == len(self.stages):
             derived_status = MediaAnalysisStatus.COMPLETED
@@ -168,7 +189,9 @@ class MediaResultUpsertRequest(AnalysisSchema):
         if capabilities != required_capabilities:
             raise ValueError("analysis stages do not match the media type")
 
-        if (self.normalized_text is not None) is not self.normalized_text_is_untrusted:
+        if (
+            self.normalized_text is not None
+        ) is not self.normalized_text_is_untrusted:
             raise ValueError(
                 "normalized text must be marked as untrusted customer content"
             )
@@ -182,7 +205,9 @@ class MediaResultUpsertRequest(AnalysisSchema):
             ):
                 raise ValueError("completed analysis must be safe to continue")
             if self.media_type is MediaType.VOICE and self.transcript is None:
-                raise ValueError("completed voice analysis requires transcript")
+                raise ValueError(
+                    "completed voice analysis requires transcript"
+                )
             if self.media_type is MediaType.IMAGE and (
                 self.ocr_text is None or self.vision_summary is None
             ):
@@ -269,7 +294,9 @@ class IntentEntities(AnalysisSchema):
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
     )
-    product_name: str | None = Field(default=None, min_length=1, max_length=256)
+    product_name: str | None = Field(
+        default=None, min_length=1, max_length=256
+    )
     sku: str | None = Field(
         default=None,
         min_length=1,
@@ -288,13 +315,16 @@ class IntentEntities(AnalysisSchema):
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
     )
-    issue_summary: str | None = Field(default=None, min_length=1, max_length=500)
+    issue_summary: str | None = Field(
+        default=None, min_length=1, max_length=500
+    )
 
-    @field_validator("product_name", "issue_summary")  # type: ignore[misc]
+    @field_validator("product_name", "issue_summary")
     @classmethod
     def reject_control_characters(cls, value: str | None) -> str | None:
         if value is not None and any(
-            unicodedata.category(character) in {"Cc", "Cf"} for character in value
+            unicodedata.category(character) in {"Cc", "Cf"}
+            for character in value
         ):
             raise ValueError("entity text cannot contain control characters")
         return value
@@ -318,7 +348,7 @@ class IntentResultUpsertRequest(AnalysisSchema):
     policy_version: str = Field(min_length=1, max_length=128)
     request_id: str | None = Field(default=None, min_length=1, max_length=128)
 
-    @model_validator(mode="after")  # type: ignore[misc]
+    @model_validator(mode="after")
     def validate_handoff_state(self) -> Self:
         """A handoff flag and handoff route must always agree."""
         is_handoff = self.recommended_route is IntentRoute.HUMAN_HANDOFF

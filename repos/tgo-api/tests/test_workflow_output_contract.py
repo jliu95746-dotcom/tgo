@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 
@@ -103,7 +104,9 @@ def test_proxy_keeps_only_valid_business_query_trace_coordinates():
 @pytest.mark.asyncio
 async def test_public_endpoints_keep_text_outputs(monkeypatch):
     answer = "这款有红色的。"
-    user = SimpleNamespace(project_id="project-owned")
+    user = SimpleNamespace(
+        project_id="project-owned", id=uuid4(), token_version=1
+    )
     execute = AsyncMock(return_value=sync_response(answer))
     get = AsyncMock(return_value=record(answer))
     history = AsyncMock(return_value=[record(answer)])
@@ -118,5 +121,8 @@ async def test_public_endpoints_keep_text_outputs(monkeypatch):
     results = await list_workflow_executions("workflow-owned", 0, 20, user)
     assert results[0].output == answer
     assert execute.await_args.args[1] == "project-owned"
+    assert execute.await_args.kwargs == {
+        "staff_id": user.id, "staff_token_version": user.token_version,
+    }
     assert get.await_args.args[1] == "project-owned"
     assert history.await_args.args[1] == "project-owned"

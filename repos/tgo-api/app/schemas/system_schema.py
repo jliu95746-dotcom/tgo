@@ -15,11 +15,10 @@ class SystemInfoResponse(BaseSchema):
     api_version: str = Field(..., description="API version (e.g., v1)")
     python_version: str = Field(..., description="Python runtime version")
     build_time: Optional[str] = Field(
-        None,
+        default=None,
         description="Build time in ISO8601 format or similar, if available",
     )
     git_commit: Optional[str] = Field(
-        None,
+        default=None,
         description="Git commit hash for the running build, if available",
     )
-
