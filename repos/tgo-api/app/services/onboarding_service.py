@@ -73,12 +73,18 @@ async def check_step_3_rag_collection(project_id: UUID) -> bool:
             limit=1,
             offset=0,
         )
-        total = result.get("pagination", {}).get("total", 0)
-        return total > 0
+        pagination = result.get("pagination")
+        if not isinstance(pagination, dict):
+            return False
+        total = pagination.get("total", 0)
+        return isinstance(total, (int, float)) and total > 0
     except Exception as e:
         logger.warning(
             "Failed to check RAG collections for onboarding",
-            extra={"project_id": str(project_id), "error": str(e)},
+            extra={
+                "project_id": str(project_id),
+                "error_type": type(e).__name__,
+            },
         )
         return False
 
