@@ -226,13 +226,22 @@ def render_review_approval_preview(
 
 async def create_approved_review(
     db: AsyncSession, project_id: str, execution_id: str, approval_id: str,
+    *, expected_segment_started_at: datetime | None = None,
 ) -> WorkflowAfterSalesReview:
     """Submit at most one internal task; never call an external business system."""
+    conditions = [
+        WorkflowExecution.id == execution_id,
+        WorkflowExecution.project_id == project_id,
+    ]
+    if expected_segment_started_at is not None:
+        conditions.extend([
+            WorkflowExecution.status == "running",
+            WorkflowExecution.active_approval_id == approval_id,
+            WorkflowExecution.active_segment_started_at == expected_segment_started_at,
+        ])
     run = await db.scalar(
-        select(WorkflowExecution).where(
-            WorkflowExecution.id == execution_id,
-            WorkflowExecution.project_id == project_id,
-        ).with_for_update().execution_options(populate_existing=True)
+        select(WorkflowExecution).where(*conditions)
+        .with_for_update().execution_options(populate_existing=True)
     )
     request = await db.scalar(
         select(WorkflowApprovalRequest).where(

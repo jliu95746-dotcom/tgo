@@ -59,6 +59,7 @@ async def expire_internal_event(
             ),
             WorkflowExecution.execution_mode == "production",
             WorkflowExecution.status == "running",
+            WorkflowExecution.active_approval_id.is_(None),
             running_segment_started_at() <= cutoff,
         )
         .values(

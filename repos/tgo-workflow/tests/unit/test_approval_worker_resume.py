@@ -306,7 +306,14 @@ async def test_worker_rechecks_approver_after_claim(
                 NodeExecution.execution_id == execution_id,
             ))).all()
             assert run.status == "failed"
-            assert [node.node_id for node in nodes] == ["start", "approval"]
+            assert run.output is None
+            assert [node.node_id for node in nodes] == (
+                ["start", "approval", "answer"] if revoke_call == 3
+                else ["start", "approval"]
+            )
+            if revoke_call == 3:
+                assert nodes[-1].status == "running"
+                assert nodes[-1].input is None and nodes[-1].output is None
         assert verify_staff.await_count == revoke_call
     finally:
         await engine.dispose()

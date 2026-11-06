@@ -138,7 +138,19 @@ async def reserve_initial_dispatch(
 
 async def require_running(
     db: AsyncSession, execution_id: str, project_id: str,
+    *, expected_segment_started_at: datetime | None = None,
 ) -> None:
+    if expected_segment_started_at is not None:
+        owned = await db.scalar(select(WorkflowExecution.id).where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.project_id == project_id,
+            WorkflowExecution.status == "running",
+            WorkflowExecution.active_segment_started_at == expected_segment_started_at,
+        ))
+        await db.commit()
+        if owned is None:
+            raise ExecutionStopped("工作流执行归属已变化，不再执行后续节点。")
+        return
     if await read_execution_status(db, execution_id, project_id) != "running":
         raise ExecutionStopped("工作流已停止，不再执行后续节点。")
 
@@ -184,16 +196,23 @@ async def finish_running_execution(
     db: AsyncSession, execution_id: str, project_id: str,
     status: Literal["completed", "failed"], output: JsonValue,
     error: str | None, duration: int,
+    *, expected_segment_started_at: datetime | None = None,
 ) -> bool:
+    conditions = [
+        WorkflowExecution.id == execution_id,
+        WorkflowExecution.project_id == project_id,
+        WorkflowExecution.status == "running",
+    ]
+    if expected_segment_started_at is not None:
+        conditions.append(
+            WorkflowExecution.active_segment_started_at == expected_segment_started_at
+        )
     result = await db.execute(
         update(WorkflowExecution)
-        .where(
-            WorkflowExecution.id == execution_id,
-            WorkflowExecution.project_id == project_id,
-            WorkflowExecution.status == "running",
-        )
+        .where(*conditions)
         .values(
             status=status, input=None, output=output, error=error,
+            active_approval_id=None,
             duration=duration,
             completed_at=datetime.now(timezone.utc),
         )

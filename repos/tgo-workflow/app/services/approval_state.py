@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.engine.checkpoint import ExecutionCheckpoint
 from app.models.approval import WorkflowApprovalRequest
@@ -124,6 +125,7 @@ async def pause_for_approval(
     *,
     expires_at: datetime,
     now: datetime | None = None,
+    expected_segment_started_at: datetime | None = None,
 ) -> WorkflowApprovalRequest:
     """Move a running workflow to a durable wait after its node has completed."""
     current = _as_utc(now or datetime.now(UTC))
@@ -197,6 +199,19 @@ async def pause_for_approval(
     )
     request.checkpoint = seal_checkpoint(run, request, checkpoint)
     db.add(request)
+    previous_approval: ColumnElement[bool]
+    if expected_segment_started_at is None:
+        previous_approval = WorkflowExecution.active_approval_id.is_(None)
+    else:
+        previous_approval = and_(
+            WorkflowExecution.active_segment_started_at == expected_segment_started_at,
+            select(WorkflowApprovalRequest.id).where(
+                WorkflowApprovalRequest.id == WorkflowExecution.active_approval_id,
+                WorkflowApprovalRequest.project_id == project_id,
+                WorkflowApprovalRequest.execution_id == execution_id,
+                WorkflowApprovalRequest.status == "approved",
+            ).exists(),
+        )
     try:
         await db.flush()
         changed = await db.scalar(
@@ -205,7 +220,7 @@ async def pause_for_approval(
                 WorkflowExecution.id == execution_id,
                 WorkflowExecution.project_id == project_id,
                 WorkflowExecution.status == "running",
-                WorkflowExecution.active_approval_id.is_(None),
+                previous_approval,
             )
             .values(status="waiting_approval", active_approval_id=request.id)
             .returning(WorkflowExecution.id)
@@ -355,6 +370,7 @@ async def claim_approved_resume(
     execution_id: str,
     workflow_id: str,
     *, expected_approval_id: str, expected_approver_id: str,
+    segment_started_at: datetime | None = None,
 ) -> ExecutionCheckpoint | None:
     """Claim one approved continuation without replaying an earlier node."""
     run = await db.get(WorkflowExecution, execution_id)
@@ -424,8 +440,8 @@ async def claim_approved_resume(
             WorkflowExecution.active_approval_id == request.id,
         )
         .values(
-            status="running", active_approval_id=None,
-            active_segment_started_at=datetime.now(UTC),
+            status="running",
+            active_segment_started_at=segment_started_at or datetime.now(UTC),
             error=None,
         )
         .returning(WorkflowExecution.id)

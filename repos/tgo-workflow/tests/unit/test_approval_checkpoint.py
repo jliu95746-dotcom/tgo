@@ -10,7 +10,7 @@ import pytest
 from app.config import settings
 from app.engine.checkpoint import ExecutionCheckpoint
 from app.models.approval import WorkflowApprovalRequest
-from app.models.execution import WorkflowExecution
+from app.models.execution import NodeExecution, WorkflowExecution
 from app.services.approval_checkpoint import (
     CheckpointCryptoError,
     open_checkpoint,
@@ -19,6 +19,8 @@ from app.services.approval_checkpoint import (
 from app.services.approval_state import pause_for_approval
 from app.services.execution_snapshot import definition_digest
 from app.services.approval_state import claim_approved_resume, decide_approval
+from app.services.approval_state import fail_revoked_approved_resume
+from app.services.approval_resume_recovery import recover_interrupted_approval
 from app.services.approval_preview import approval_preview_digest
 from app.services.event_execution_expiry import expire_internal_event
 from tests.unit.test_approval_state import prepared_run
@@ -253,7 +255,7 @@ def test_nonfinite_or_excessive_context_is_rejected(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_execution_timeout_scrubs_an_approved_encrypted_checkpoint():
+async def test_approved_checkpoint_survives_claim_recovery_and_scrubs_on_terminal():
     (
         engine,
         sessions,
@@ -263,6 +265,8 @@ async def test_execution_timeout_scrubs_an_approved_encrypted_checkpoint():
         checkpoint,
     ) = await prepared_run()
     try:
+        async with engine.begin() as connection:
+            await connection.run_sync(NodeExecution.__table__.create)
         async with sessions() as db:
             run = await db.get(WorkflowExecution, execution)
             run.source_channel = "scheduled_timer"
@@ -298,9 +302,15 @@ async def test_execution_timeout_scrubs_an_approved_encrypted_checkpoint():
                 expected_approver_id=approver,
             )
             now = datetime.now(UTC) + timedelta(hours=1)
-            assert await expire_internal_event(
+            assert not await expire_internal_event(
                 db, project, execution, now - timedelta(minutes=10), now
             )
+            assert await recover_interrupted_approval(
+                db, project, execution, cutoff=now - timedelta(minutes=10),
+            ) == "requeued"
+            await db.refresh(request)
+            assert request.checkpoint["capture_status"] != "redacted"
+            assert await fail_revoked_approved_resume(db, project, execution, request.id)
             await db.refresh(request)
             assert request.checkpoint["capture_status"] == "redacted"
     finally:

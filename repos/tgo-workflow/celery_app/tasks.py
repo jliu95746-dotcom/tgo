@@ -22,6 +22,9 @@ from app.services.workflow_dispatch import (
     enqueue_pending_initial, enqueue_approved_resume,
 )
 from app.services.approval_preview import render_approval_preview
+from app.services.approval_resume_recovery import (
+    begin_resume_node, finish_resume_node,
+)
 from app.services.aftersales_review import (
     ACTION_NAME, create_approved_review, render_review_approval_preview,
 )
@@ -206,6 +209,7 @@ async def sweep_expired_internal_events(*, now: datetime | None = None) -> int:
                 WorkflowExecution.source_channel.in_(("internal_event", "scheduled_timer", "external_webhook")),
                 WorkflowExecution.execution_mode == "production",
                 WorkflowExecution.status == "running",
+                WorkflowExecution.active_approval_id.is_(None),
                 running_segment_started_at() <= cutoff,
             )
             .order_by(running_segment_started_at(), WorkflowExecution.id)
@@ -327,6 +331,8 @@ async def _run_workflow(
         checkpoint: ExecutionCheckpoint | None = None
         approved_resume_assignee_id: str | None = None
         approved_resume_approval_id: str | None = None
+        resume_segment: datetime | None = None
+        resume_node_receipts: dict[str, str] = {}
         if not await claim_execution(db, execution_id, workflow_id, project_id):
             if await read_execution_status(db, execution_id, project_id) != "pending_resume":
                 logger.info("Skipping unclaimable workflow run %s", execution_id)
@@ -344,10 +350,12 @@ async def _run_workflow(
                 await fail_revoked_approved_resume(db, project_id, execution_id, approval_id)
                 logger.info("Approval assignee revoked before resume: %s", execution_id)
                 return
+            resume_segment = datetime.now(timezone.utc)
             checkpoint = await claim_approved_resume(
                 db, project_id, execution_id, workflow_id,
                 expected_approval_id=approval_id,
                 expected_approver_id=approver_id,
+                segment_started_at=resume_segment,
             )
             if checkpoint is None:
                 logger.info("Skipping already-claimed approval resume %s", execution_id)
@@ -363,7 +371,10 @@ async def _run_workflow(
         external_webhook = current_run is not None and current_run.source_channel == "external_webhook"
 
         async def check_active() -> None:
-            await require_running(db, execution_id, project_id)
+            await require_running(
+                db, execution_id, project_id,
+                expected_segment_started_at=resume_segment,
+            )
             if internal_event:
                 await require_active_internal_event(db, project_id, workflow_id, execution_id)
             if scheduled_timer:
@@ -375,12 +386,21 @@ async def _run_workflow(
                 await verify_approval_assignees(
                     project_id, {approved_resume_assignee_id},
                 )
+                await require_running(
+                    db, execution_id, project_id,
+                    expected_segment_started_at=resume_segment,
+                )
 
         async def on_node_start(
             node_id: str, node_type: str, node_data: dict[str, JsonValue],
             index: int,
         ) -> None:
             await check_active()
+            if resume_segment is not None:
+                resume_node_receipts[node_id] = await begin_resume_node(
+                    db, project_id, execution_id, node_id, node_type,
+                    resume_segment,
+                )
 
         async def on_node_complete(
             node_id: str, node_type: str, status: str,
@@ -389,13 +409,26 @@ async def _run_workflow(
             started_at: datetime | None = None,
             completed_at: datetime | None = None,
         ) -> None:
+            receipt_id = resume_node_receipts.get(node_id)
+            if status == "cancelled" and receipt_id is not None:
+                await finish_resume_node(
+                    db, project_id, execution_id, receipt_id, resume_segment,
+                    status=status, inputs={"capture_status": "redacted"},
+                    output=None, error=None, duration=duration,
+                    completed_at=completed_at,
+                )
+                resume_node_receipts.pop(node_id, None)
+                return
             if status == "cancelled" and await preserve_cancelled_parallel_node(
                 db, project_id=project_id, execution_id=execution_id,
                 node_id=node_id, node_type=node_type,
                 started_at=started_at, completed_at=completed_at, duration=duration,
             ):
                 return
-            await require_running(db, execution_id, project_id)
+            await require_running(
+                db, execution_id, project_id,
+                expected_segment_started_at=resume_segment,
+            )
             if internal_event:
                 await require_active_internal_event(db, project_id, workflow_id, execution_id)
             if scheduled_timer:
@@ -411,6 +444,15 @@ async def _run_workflow(
                 "Node complete: %s (%s) status=%s duration=%sms",
                 node_id, node_type, status, duration,
             )
+            if receipt_id is not None:
+                await finish_resume_node(
+                    db, project_id, execution_id, receipt_id, resume_segment,
+                    status=status, inputs=input, output=output,
+                    error=error, duration=duration, completed_at=completed_at,
+                    commit=not (node_type == "approval" and status == "completed"),
+                )
+                resume_node_receipts.pop(node_id, None)
+                return
             node_exec = NodeExecution(
                 execution_id=execution_id,
                 project_id=project_id,
@@ -482,6 +524,7 @@ async def _run_workflow(
                     preview, saved,
                     expires_at=datetime.now(timezone.utc)
                     + timedelta(minutes=config.expires_in_minutes),
+                    expected_segment_started_at=resume_segment,
                 )
                 return True
 
@@ -501,11 +544,15 @@ async def _run_workflow(
                     raise RuntimeError("原审批记录已不存在，不能恢复售后核对任务。")
                 action_config = approval_nodes.get(request.node_id)
                 if action_config is not None and action_config.after_approval_action == ACTION_NAME:
-                    await require_running(db, execution_id, project_id)
+                    await require_running(
+                        db, execution_id, project_id,
+                        expected_segment_started_at=resume_segment,
+                    )
                     await check_employee_binding(employee_binding, db)
                     await verify_approval_assignees(project_id, {request.approver_staff_id})
                     await create_approved_review(
                         db, project_id, execution_id, approved_resume_approval_id,
+                        expected_segment_started_at=resume_segment,
                     )
             if approval_nodes or checkpoint is not None:
                 final_output = await executor.run(
@@ -531,6 +578,7 @@ async def _run_workflow(
             changed = await finish_running_execution(
                 db, execution_id, project_id, "completed",
                 {"result": final_output}, None, duration,
+                expected_segment_started_at=resume_segment,
             )
             if changed:
                 logger.info(
@@ -550,6 +598,7 @@ async def _run_workflow(
             await db.rollback()
             await finish_running_execution(
                 db, execution_id, project_id, "failed", None, error, duration,
+                expected_segment_started_at=resume_segment,
             )
 
         await db.commit()

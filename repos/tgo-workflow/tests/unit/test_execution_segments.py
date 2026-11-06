@@ -111,9 +111,10 @@ async def test_long_human_wait_does_not_expire_a_newly_resumed_timer():
             )
             await db.refresh(run)
             assert run.active_segment_started_at == segment_start
-            # A worker killed after resumption still expires and is redacted.
+            # Approved claims belong to the claim recovery path; the generic
+            # source timeout must not destroy their resumable checkpoint.
             later = now + timedelta(minutes=9)
-            assert await expire_internal_event(
+            assert not await expire_internal_event(
                 db,
                 project,
                 execution,
@@ -121,7 +122,7 @@ async def test_long_human_wait_does_not_expire_a_newly_resumed_timer():
                 later,
             )
             await db.refresh(request)
-            assert request.checkpoint["capture_status"] == "redacted"
+            assert request.checkpoint["capture_status"] != "redacted"
     finally:
         await engine.dispose()
 

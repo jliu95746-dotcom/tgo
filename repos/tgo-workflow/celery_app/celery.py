@@ -9,6 +9,7 @@ celery_app = Celery(
         "celery_app.tasks", "celery_app.timer_tasks", "celery_app.timer_probe_tasks",
         "celery_app.webhook_tasks",
         "celery_app.event_source_tasks",
+        "celery_app.approval_recovery_tasks",
     ]
 )
 
@@ -27,6 +28,10 @@ celery_app.conf.update(
         "celery_app.tasks.*": {"queue": settings.WORKFLOW_QUEUE_NAME},
     },
     beat_schedule={
+        "recover-interrupted-approval-resumes": {
+            "task": "recover_interrupted_approval_resumes", "schedule": 60.0,
+            "options": {"queue": settings.WORKFLOW_QUEUE_NAME},
+        },
         "audit-waiting-event-sources": {
             "task": "audit_waiting_event_sources", "schedule": 60.0,
             "options": {"queue": settings.WORKFLOW_QUEUE_NAME},
