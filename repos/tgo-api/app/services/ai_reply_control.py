@@ -17,6 +17,13 @@ from app.core.logging import get_logger
 from app.schemas.ai_runs import ReplyFailure, ReplyRun
 from app.schemas.reply_phase import ReplyPhaseIdentity
 from app.services.visitor_chat_access import check_current_chat_access
+from app.services.fallback_reply_attempt import (
+    has_fallback_attempt,
+    observe_control_end,
+    observe_control_outcome,
+    observe_control_start,
+    observe_publication_start,
+)
 from app.services.run_registry import (
     RegistryConflict,
     RegistryUnavailable,
@@ -119,6 +126,7 @@ async def begin_reply_publication() -> None:
     control = _current.get()
     if control is None:
         raise RegistryUnavailable("Reply has no publication owner")
+    observe_publication_start(control.identity)
     item = await run_registry.begin_publication(control.identity)
     check_current_chat_access()
     if item is None:
@@ -186,6 +194,7 @@ async def controlled_reply(
 
     check_current_chat_access()
 
+    observe_control_start(identity)
     control = ReplyControl(identity)
     queue: asyncio.Queue[ReplyEvent | None] = asyncio.Queue()
     producer_started = False
@@ -249,8 +258,20 @@ async def controlled_reply(
                     elif control.control_failed:
                         message = "回复控制连接中断，已拦截本次回复，请重试。"
                     try:
-                        saved = await run_registry.finish(
-                            identity, outcome, failure_reason
+                        if has_fallback_attempt():
+                            saved = await run_registry.finish(
+                                identity, outcome, failure_reason,
+                                preserve_cancel=True,
+                            )
+                        else:
+                            saved = await run_registry.finish(
+                                identity, outcome, failure_reason
+                            )
+                        observe_control_outcome(
+                            identity, saved,
+                            upstream_closed=upstream_confirmed,
+                            cancelled=control.cancel_requested,
+                            control_failed=control.control_failed,
                         )
                         if (
                             control.cancel_requested
@@ -314,7 +335,13 @@ async def controlled_reply(
             await asyncio.gather(watcher, return_exceptions=True)
             if not producer.done() and not producer.cancelling():
                 producer.cancel()
-            await asyncio.gather(producer, return_exceptions=True)
+            cleanup = await asyncio.gather(producer, return_exceptions=True)
+            observe_control_end(
+                identity, clean=producer_started
+                and not any(
+                    isinstance(item, BaseException) for item in cleanup
+                ),
+            )
             if not producer_started:
                 try:
                     await run_registry.finish(identity, "failed", "generation_failed")

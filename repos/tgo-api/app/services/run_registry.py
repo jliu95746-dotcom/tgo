@@ -120,6 +120,8 @@ class RunRegistry:
         item: ReplyRun,
         status: Literal["cancelled", "completed", "failed"],
         failure_reason: ReplyFailure | None = None,
+        *,
+        preserve_cancel: bool = False,
     ) -> ReplyRun | None:
         def change(previous: ReplyRun | None) -> ReplyRun | None:
             if previous is None or previous.status in TERMINAL:
@@ -128,6 +130,18 @@ class RunRegistry:
                 return previous
             if status == "cancelled" and previous.status != "cancel_requested":
                 return previous
+            if (
+                preserve_cancel and status == "failed"
+                and previous.status == "cancel_requested"
+            ):
+                if previous.phase is not None and not previous.phase_ended:
+                    return previous.model_copy(update={
+                        "status": "failed",
+                        "failure_reason": "upstream_stop_unconfirmed",
+                    })
+                return previous.model_copy(
+                    update={"status": "cancelled", "failure_reason": None}
+                )
             if (
                 status == "failed"
                 and failure_reason == "upstream_stop_unconfirmed"

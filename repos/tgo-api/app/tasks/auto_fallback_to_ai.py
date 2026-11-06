@@ -6,11 +6,12 @@ from datetime import datetime, timedelta, timezone
 import logging
 from uuid import uuid4
 
-from sqlalchemy import or_, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.models import Platform, Visitor
+from app.models.ai_interaction_run import AIInteractionRun
 from app.services.ai_interaction_run_service import (
     AIInteractionIdentity,
     build_request_fingerprint,
@@ -18,7 +19,14 @@ from app.services.ai_interaction_run_service import (
     mark_ai_interaction_finished,
 )
 from app.services.ai_reply_control import ReplyStopped
-from app.services.chat_service import handle_ai_response_non_stream
+from app.services.chat_service import (
+    forward_ai_event_to_wukongim,
+    handle_ai_response_non_stream,
+)
+from app.services.fallback_reply_attempt import (
+    FallbackReplyAttempt,
+    attempt_scope,
+)
 from app.services.employee_style import resolve_employee_style
 from app.services.knowledge_channel import resolve_platform_knowledge_channel
 from app.services.timed_ai_fallback import (
@@ -30,7 +38,10 @@ from app.services.timed_ai_fallback import (
 )
 from app.services.visitor_chat_access import guarded_chat_call
 from app.services.wukongim_client import wukongim_client
-from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
+from app.utils.const import (
+    AI_FALLBACK_RETRYABLE_FAILURE,
+    CHANNEL_TYPE_CUSTOMER_SERVICE,
+)
 from app.utils.encoding import build_visitor_channel_id, get_session_id
 
 logger = logging.getLogger(__name__)
@@ -71,9 +82,9 @@ async def stop_auto_fallback_to_ai_task() -> None:
 def update_source(
     db: Session, source: FallbackSource, *, response: str | None = None,
     exhausted: bool = False,
-) -> None:
+) -> bool:
     if not still_current(db, source):
-        return
+        return False
     statement = update(Visitor).where(
         Visitor.id == source.visitor_id,
         Visitor.project_id == source.project_id,
@@ -97,8 +108,36 @@ def update_source(
             MAX_AI_FALLBACK_RETRIES if exhausted
             else Visitor.ai_fallback_retry_count + 1
         ))
-    db.execute(statement.execution_options(synchronize_session=False))
+    result = db.execute(statement.returning(Visitor.id).execution_options(
+        synchronize_session=False
+    ))
+    changed = result.scalar_one_or_none() is not None
     db.commit()
+    return changed
+
+
+async def finish_failed_attempt(
+    db: Session, source: FallbackSource, attempt: FallbackReplyAttempt
+) -> bool:
+    retry_allowed = attempt.retry_allowed
+    db.expire_all()
+    visitor = db.get(Visitor, source.visitor_id)
+    last_attempt = (
+        visitor is None
+        or visitor.ai_fallback_retry_count >= MAX_AI_FALLBACK_RETRIES - 1
+    )
+    if (not retry_allowed or last_attempt) and attempt.can_notify_failure:
+        attempt.publication_started = True
+        with fallback_scope(attempt.source), attempt_scope(attempt):
+            await guarded_chat_call(lambda: forward_ai_event_to_wukongim(
+                event_type="workflow_failed", event_data={"data": {}},
+                channel_id=build_visitor_channel_id(source.visitor_id),
+                channel_type=CHANNEL_TYPE_CUSTOMER_SERVICE,
+                client_msg_no=attempt.source.response_client_msg_no or "",
+                from_uid=f"{source.staff_id}-staff",
+            ))
+    changed = update_source(db, source, exhausted=not retry_allowed)
+    return retry_allowed and not last_attempt and changed
 
 
 async def fallback_one(
@@ -157,14 +196,27 @@ async def fallback_one(
             )
             return
 
+        identity = AIInteractionIdentity(
+            project_id=source.project_id, platform_id=source.platform_id,
+            visitor_id=source.visitor_id, channel_id=channel_id,
+            channel_type=channel_type,
+            source_message_id=original_id,
+        )
+        previous = db.scalar(select(AIInteractionRun).where(
+            AIInteractionRun.project_id == identity.project_id,
+            AIInteractionRun.platform_id == identity.platform_id,
+            AIInteractionRun.channel_id == identity.channel_id,
+            AIInteractionRun.channel_type == identity.channel_type,
+            AIInteractionRun.source_message_id == identity.source_message_id,
+        ))
+        if (
+            previous is not None and previous.status == "failed"
+            and previous.error_message != AI_FALLBACK_RETRYABLE_FAILURE
+        ):
+            update_source(db, source, exhausted=True)
+            return
         claim = claim_ai_interaction(
-            db,
-            identity=AIInteractionIdentity(
-                project_id=source.project_id, platform_id=source.platform_id,
-                visitor_id=source.visitor_id, channel_id=channel_id,
-                channel_type=channel_type,
-                source_message_id=original_id,
-            ),
+            db, identity=identity,
             request_fingerprint=build_request_fingerprint(
                 visitor_id=source.visitor_id, message=content, message_type=1,
             ),
@@ -175,10 +227,12 @@ async def fallback_one(
         response_id, run_id = claim.run.response_client_msg_no, claim.run.id
         error_code: str | None = "ai_processing_failed"
         outcome_saved = False
+        retryable_fallback = False
+        attempt = FallbackReplyAttempt(replace(
+            source, response_client_msg_no=response_id
+        ))
         try:
-            with fallback_scope(replace(
-                source, response_client_msg_no=response_id
-            )):
+            with fallback_scope(attempt.source), attempt_scope(attempt):
                 result = await handle_ai_response_non_stream(
                     project_id=str(source.project_id),
                     visitor_id=str(source.visitor_id), message=content,
@@ -208,23 +262,32 @@ async def fallback_one(
                 error_code = None
                 update_source(db, source, response=response_id)
             else:
-                update_source(db, source, exhausted=True)
+                retryable_fallback = await finish_failed_attempt(
+                    db, source, attempt
+                )
             outcome_saved = True
         except (ReplyStopped, asyncio.CancelledError):
             update_source(db, source, exhausted=True)
             outcome_saved = True
             raise
         except Exception as error:
-            # Delivery may have started; do not replay an uncertain send.
-            update_source(db, source, exhausted=True)
+            retryable_fallback = await finish_failed_attempt(
+                db, source, attempt
+            )
             outcome_saved = True
             logger.warning("AI fallback interrupted: %s", type(error).__name__)
         finally:
             if outcome_saved:
-                mark_ai_interaction_finished(
-                    run_id, response_client_msg_no=response_id,
-                    error_message=error_code,
-                )
+                if retryable_fallback:
+                    mark_ai_interaction_finished(
+                        run_id, response_client_msg_no=response_id,
+                        error_message=error_code, retryable_fallback=True,
+                    )
+                else:
+                    mark_ai_interaction_finished(
+                        run_id, response_client_msg_no=response_id,
+                        error_message=error_code,
+                    )
 
 
 async def check_and_fallback_to_ai() -> None:

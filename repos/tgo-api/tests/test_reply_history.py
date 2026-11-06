@@ -235,7 +235,7 @@ async def test_both_authorized_history_endpoints_reconcile(monkeypatch, actor):
     else:
         endpoint = visitors
         database.query.return_value.filter.return_value.first.side_effect = [
-            SimpleNamespace(project_id=PROJECT, id=platform_id),
+            SimpleNamespace(project_id=PROJECT, id=platform_id, type="website"),
             SimpleNamespace(id=VISITOR, platform_id=platform_id),
         ]
         # This test covers reconciliation after authorization, whose real HTTP

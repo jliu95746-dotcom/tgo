@@ -259,6 +259,19 @@ async def forward_ai_event_to_wukongim(
       workflow_failed          → send_stream_event (stream.error)
     """
     try:
+        from app.services.fallback_reply_attempt import event_action
+
+        action = event_action(
+            event_type, channel_id, channel_type, client_msg_no, from_uid
+        )
+        if action == "defer":
+            return None
+        if action == "anchor":
+            await forward_ai_event_to_wukongim(
+                event_type="agent_execution_started", event_data={"data": {}},
+                channel_id=channel_id, channel_type=channel_type,
+                client_msg_no=client_msg_no, from_uid=from_uid,
+            )
         data = event_data.get("data") or {}
         logger.info("Forwarding AI event to WuKongIM")
 
@@ -367,7 +380,9 @@ async def forward_ai_event_to_wukongim(
         )
         from app.services.ai_usage_runtime import current_permit
         from app.services.customer_turn_context import current_execution
-        if current_permit() is not None or current_execution.get() is not None:
+        from app.services.fallback_reply_attempt import has_fallback_attempt
+        if (current_permit() is not None or current_execution.get() is not None
+                or has_fallback_attempt()):
             raise
     return None
 

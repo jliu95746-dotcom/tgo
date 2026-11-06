@@ -87,3 +87,31 @@ async def test_missing_or_expired_owner_never_receives_permission_to_publish(
     assert await registry.begin_publication(item) is None
     assert await registry.request_cancel(item) is None
     assert await registry.get("owned", "same") is None
+
+
+@pytest.mark.parametrize("phase_state", ["absent", "open", "ended"])
+async def test_stop_wins_a_race_with_failure_completion(phase_state):
+    from uuid import uuid4
+    from app.schemas.reply_phase import ReplyPhaseIdentity
+
+    registry = InMemoryRunRegistry()
+    item = run()
+    await registry.start(item)
+    if phase_state != "absent":
+        phase = ReplyPhaseIdentity(
+            project_id=item.project_id, client_msg_no=item.client_msg_no,
+            generation=item.generation, phase_id=uuid4(), proof=uuid4(),
+        )
+        await registry.start_phase(item, phase)
+        if phase_state == "ended":
+            await registry.end_phase(phase)
+    await registry.request_cancel(item)
+    saved = await registry.finish(
+        item, "failed", "generation_failed", preserve_cancel=True
+    )
+    if phase_state == "open":
+        assert saved.status == "failed"
+        assert saved.failure_reason == "upstream_stop_unconfirmed"
+    else:
+        assert saved.status == "cancelled" and saved.failure_reason is None
+    assert (await registry.begin_publication(item)).status == saved.status

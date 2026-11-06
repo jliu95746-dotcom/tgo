@@ -18,7 +18,10 @@ from app.core.database import SessionLocal
 from app.models import Visitor, Platform, Project
 from app.services.visitor_access import denied as visitor_access_denied
 from app.core.logging import get_logger
-from app.utils.const import AI_INTERACTION_FAILURE_CODES
+from app.utils.const import (
+    AI_FALLBACK_RETRYABLE_FAILURE,
+    AI_INTERACTION_FAILURE_CODES,
+)
 from app.models.ai_interaction_run import (
     AIInteractionRun,
     AIInteractionRunStatus,
@@ -381,10 +384,15 @@ def mark_ai_interaction_finished(
     *,
     response_client_msg_no: str,
     error_message: str | None = None,
+    retryable_fallback: bool = False,
 ) -> None:
     """Finish a run from async code using an independent session."""
 
     failure_code = safe_ai_interaction_failure_code(error_message)
+    if retryable_fallback:
+        if error_message != "ai_processing_failed":
+            raise ValueError("Retryable fallback requires a failed attempt")
+        failure_code = AI_FALLBACK_RETRYABLE_FAILURE
     db = SessionLocal()
     try:
         run = (
