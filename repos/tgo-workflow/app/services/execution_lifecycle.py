@@ -145,7 +145,8 @@ async def require_running(
             WorkflowExecution.id == execution_id,
             WorkflowExecution.project_id == project_id,
             WorkflowExecution.status == "running",
-            WorkflowExecution.active_segment_started_at == expected_segment_started_at,
+            WorkflowExecution.active_segment_started_at
+            == expected_segment_started_at,
         ))
         await db.commit()
         if owned is None:
@@ -205,7 +206,8 @@ async def finish_running_execution(
     ]
     if expected_segment_started_at is not None:
         conditions.append(
-            WorkflowExecution.active_segment_started_at == expected_segment_started_at
+            WorkflowExecution.active_segment_started_at
+            == expected_segment_started_at
         )
     result = await db.execute(
         update(WorkflowExecution)

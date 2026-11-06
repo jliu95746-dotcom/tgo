@@ -237,7 +237,8 @@ async def create_approved_review(
         conditions.extend([
             WorkflowExecution.status == "running",
             WorkflowExecution.active_approval_id == approval_id,
-            WorkflowExecution.active_segment_started_at == expected_segment_started_at,
+            WorkflowExecution.active_segment_started_at
+            == expected_segment_started_at,
         ])
     run = await db.scalar(
         select(WorkflowExecution).where(*conditions)

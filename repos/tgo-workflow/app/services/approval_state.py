@@ -204,9 +204,11 @@ async def pause_for_approval(
         previous_approval = WorkflowExecution.active_approval_id.is_(None)
     else:
         previous_approval = and_(
-            WorkflowExecution.active_segment_started_at == expected_segment_started_at,
+            WorkflowExecution.active_segment_started_at
+            == expected_segment_started_at,
             select(WorkflowApprovalRequest.id).where(
-                WorkflowApprovalRequest.id == WorkflowExecution.active_approval_id,
+                WorkflowApprovalRequest.id
+                == WorkflowExecution.active_approval_id,
                 WorkflowApprovalRequest.project_id == project_id,
                 WorkflowApprovalRequest.execution_id == execution_id,
                 WorkflowApprovalRequest.status == "approved",
