@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.core.database import SessionLocal
 from app.models import Platform, Visitor
 from app.services.ai_reply_control import ReplyStopped
+from app.services.timed_ai_fallback import allows_timed_reply
 from app.services.wechat_local_bridge import require_scoped_target
 from app.utils.wechat_local import is_scoped_identity
 
@@ -16,6 +17,7 @@ def _require_auto_mode(project_id: str, visitor_id: str) -> tuple[Platform, str]
     from app.services.chat_service import is_ai_disabled
 
     with SessionLocal() as db:
+        timed_reply = allows_timed_reply(db, project_id, visitor_id)
         visitor = db.get(Visitor, UUID(visitor_id))
         if (
             visitor is None
@@ -30,7 +32,10 @@ def _require_auto_mode(project_id: str, visitor_id: str) -> tuple[Platform, str]
             or platform.project_id != visitor.project_id
             or platform.deleted_at is not None
             or not platform.is_active
-            or is_ai_disabled(platform, visitor)
+            or (
+                is_ai_disabled(platform, visitor)
+                and not timed_reply
+            )
         ):
             raise ReplyStopped("会话已切换至人工接待，AI 自动回复已停止。")
         identity = getattr(visitor, "platform_open_id", None)

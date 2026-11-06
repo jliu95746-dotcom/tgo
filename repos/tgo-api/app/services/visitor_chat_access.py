@@ -199,6 +199,9 @@ def authority_database() -> Iterator[Session]:
 
 
 def check_current_chat_access(access: ChatAccess | None = None) -> None:
+    from app.services.timed_ai_fallback import check_current_fallback
+
+    check_current_fallback()
     original = access if access is not None else _current.get()
     if original is not None:
         with authority_database() as db:
