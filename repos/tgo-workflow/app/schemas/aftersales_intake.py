@@ -4,12 +4,24 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 
-ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-ReasonText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=500)]
-PolicyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+ShortText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+]
+ReasonText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=5, max_length=500)
+]
+PolicyText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
+]
 
 
 class AfterSalesIntakeRequest(BaseModel):

@@ -4,7 +4,14 @@ import json
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 
 class WorkflowEventSourceBinding(BaseModel):
@@ -34,8 +41,12 @@ class WorkflowEventRequest(BaseModel):
     project_id: str = Field(min_length=1, max_length=128)
     event_type: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{0,99}$")
     data: dict[str, JsonValue] = Field(default_factory=dict)
-    expected_release_id: str | None = Field(default=None, min_length=1, max_length=128)
-    expected_release_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    expected_release_id: str | None = Field(
+        default=None, min_length=1, max_length=128
+    )
+    expected_release_digest: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     source_binding: WorkflowEventSourceBinding | None = None
 
     @field_validator("data")
@@ -46,10 +57,15 @@ class WorkflowEventRequest(BaseModel):
 
     @model_validator(mode="after")
     def complete_release_binding(self) -> Self:
-        if (self.expected_release_id is None) != (self.expected_release_digest is None):
+        if (self.expected_release_id is None) != (
+            self.expected_release_digest is None
+        ):
             raise ValueError("发布记录 ID 和摘要必须同时提供。")
         if self.source_binding is not None:
-            if self.event_type != "staff.session.closed" or self.expected_release_id is None:
+            if (
+                self.event_type != "staff.session.closed"
+                or self.expected_release_id is None
+            ):
                 raise ValueError("业务来源事件必须绑定会话结束事件与完整发布版本。")
             UUID(self.project_id)
         return self

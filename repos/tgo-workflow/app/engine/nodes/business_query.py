@@ -1,4 +1,6 @@
-"""Read an owned order or logistics connection through the AI authority chain."""
+"""
+Read an owned order or logistics connection through the AI authority chain.
+"""
 
 from uuid import UUID
 
@@ -13,11 +15,15 @@ from app.schemas.business_query import BusinessQueryCommand
 
 @register_node("business_query")
 class BusinessQueryNodeExecutor(BaseNodeExecutor):
-    async def execute(self, context: ExecutionContext) -> tuple[dict[str, JsonValue], None]:
+    async def execute(
+        self, context: ExecutionContext
+    ) -> tuple[dict[str, JsonValue], None]:
         business_context = context.business_context
         if (
-            business_context is None or context.project_id is None
-            or context.execution_id is None or context.employee_agent_id is None
+            business_context is None
+            or context.project_id is None
+            or context.execution_id is None
+            or context.employee_agent_id is None
             or str(business_context.project_id) != context.project_id
         ):
             raise PermissionError("受控业务查询需要有效客户会话与员工身份")
@@ -33,7 +39,8 @@ class BusinessQueryNodeExecutor(BaseNodeExecutor):
             connection_id=UUID(self.config["connection_id"]),
             operation=self.config["operation"],
             visitor_session_id=business_context.visitor_session_id,
-            order_no=SecretStr(order_no), context=business_context,
+            order_no=SecretStr(order_no),
+            context=business_context,
         )
         receipt = await AIClient.query_business(command)
         summary = receipt.summary

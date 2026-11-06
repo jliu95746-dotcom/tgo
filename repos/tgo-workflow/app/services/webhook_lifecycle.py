@@ -11,9 +11,15 @@ from app.services.approval_retention import scrub_terminal_approval_checkpoints
 
 STOP_MESSAGE = "外部通知来源已停用、变更或失去授权，任务已停止。"
 
-TERMINAL = frozenset({
-    "completed", "failed", "cancelled", "rejected", "expired",
-})
+TERMINAL = frozenset(
+    {
+        "completed",
+        "failed",
+        "cancelled",
+        "rejected",
+        "expired",
+    }
+)
 
 
 async def scrub_webhook_inputs(
@@ -62,7 +68,9 @@ async def cancel_superseded(
             )
             if run is not None and run.status in TERMINAL:
                 await scrub_terminal_approval_checkpoints(
-                    db, hook.project_id, run.id,
+                    db,
+                    hook.project_id,
+                    run.id,
                 )
                 await scrub_webhook_inputs(db, hook.project_id, run.id)
                 continue
@@ -72,10 +80,14 @@ async def cancel_superseded(
                     WorkflowExecution.id == row.execution_id,
                     WorkflowExecution.project_id == hook.project_id,
                     WorkflowExecution.source_channel == "external_webhook",
-                    WorkflowExecution.status.in_((
-                        "pending", "running", "waiting_approval",
-                        "pending_resume",
-                    )),
+                    WorkflowExecution.status.in_(
+                        (
+                            "pending",
+                            "running",
+                            "waiting_approval",
+                            "pending_resume",
+                        )
+                    ),
                 )
                 .values(
                     status="cancelled",
@@ -88,7 +100,9 @@ async def cancel_superseded(
             )
             if changed is not None:
                 await scrub_terminal_approval_checkpoints(
-                    db, hook.project_id, changed,
+                    db,
+                    hook.project_id,
+                    changed,
                 )
         row.status, row.error_code = "cancelled", "webhook_revision_changed"
         row.payload_ciphertext, row.updated_at = None, now

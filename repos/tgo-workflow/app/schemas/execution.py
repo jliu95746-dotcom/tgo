@@ -8,6 +8,7 @@ from app.schemas.capabilities import ExecutionMode
 
 # --- Enums ---
 
+
 class ExecutionStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
@@ -18,6 +19,7 @@ class ExecutionStatus(str, Enum):
     REJECTED = "rejected"
     EXPIRED = "expired"
     CANCELLED = "cancelled"
+
 
 class SSEEventType(str, Enum):
     WORKFLOW_STARTED = "workflow_started"
@@ -38,8 +40,13 @@ def public_input_evidence(
     return {"capture_status": "redacted", "field_count": len(inputs)}
 
 
-def public_node_output_evidence(node_type: str, output: JsonValue | None) -> JsonValue | None:
-    """Keep final answers and verified trace coordinates, not legacy node payloads."""
+def public_node_output_evidence(
+    node_type: str, output: JsonValue | None
+) -> JsonValue | None:
+    """
+    Keep final answers and verified trace coordinates, not legacy node
+    payloads.
+    """
     if output is None or node_type == "answer":
         return output
     if not isinstance(output, dict):
@@ -49,7 +56,8 @@ def public_node_output_evidence(node_type: str, output: JsonValue | None) -> Jso
         connection_id = output.get("connection_id")
         operation = output.get("operation")
         if (
-            isinstance(query_id, str) and isinstance(connection_id, str)
+            isinstance(query_id, str)
+            and isinstance(connection_id, str)
             and isinstance(operation, str)
             and operation in {"order_query", "logistics_query"}
         ):
@@ -79,25 +87,34 @@ def public_node_output_evidence(node_type: str, output: JsonValue | None) -> Jso
             evidence["status_code"] = status_code
     return evidence
 
+
 # --- SSE Event Models ---
+
 
 class SSEEventBase(BaseModel):
     workflow_run_id: str = Field(..., description="Workflow execution ID")
     task_id: str = Field(..., description="Celery task ID or placeholder")
 
+
 class WorkflowStartedData(BaseModel):
     id: str = Field(..., description="Execution ID")
     workflow_id: str = Field(..., description="Workflow ID")
-    inputs: Dict[str, JsonValue] = Field(..., description="Workflow startup input data")
+    inputs: Dict[str, JsonValue] = Field(
+        ..., description="Workflow startup input data"
+    )
     created_at: int = Field(..., description="Creation timestamp")
 
     @field_serializer("inputs")
-    def serialize_inputs(self, inputs: Dict[str, JsonValue]) -> Dict[str, JsonValue]:
+    def serialize_inputs(
+        self, inputs: Dict[str, JsonValue]
+    ) -> Dict[str, JsonValue]:
         return public_input_evidence(inputs)
+
 
 class WorkflowStartedEvent(SSEEventBase):
     event: Literal["workflow_started"] = Field("workflow_started")
     data: WorkflowStartedData
+
 
 class NodeStartedData(BaseModel):
     id: str = Field(..., description="Node execution record ID")
@@ -107,24 +124,35 @@ class NodeStartedData(BaseModel):
     index: int = Field(..., description="Execution step index")
     created_at: int = Field(..., description="Creation timestamp")
 
+
 class NodeStartedEvent(SSEEventBase):
     event: Literal["node_started"] = Field("node_started")
     data: NodeStartedData
+
 
 class NodeFinishedData(BaseModel):
     id: str = Field(..., description="Node execution record ID")
     node_id: str = Field(..., description="Node ID in workflow")
     node_type: str = Field(..., description="Node type")
-    inputs: Optional[Dict[str, JsonValue]] = Field(None, description="Input data for the node")
-    outputs: Optional[JsonValue] = Field(None, description="Output results for the node")
-    status: str = Field(..., description="Execution status (succeeded | failed)")
+    inputs: Optional[Dict[str, JsonValue]] = Field(
+        None, description="Input data for the node"
+    )
+    outputs: Optional[JsonValue] = Field(
+        None, description="Output results for the node"
+    )
+    status: str = Field(
+        ..., description="Execution status (succeeded | failed)"
+    )
     error: Optional[str] = Field(None, description="Execution error message")
-    elapsed_time: float = Field(..., description="Execution duration in seconds")
+    elapsed_time: float = Field(
+        ..., description="Execution duration in seconds"
+    )
     finished_at: int = Field(..., description="Completion timestamp")
 
     @field_serializer("inputs")
     def serialize_inputs(
-        self, inputs: Dict[str, JsonValue] | None,
+        self,
+        inputs: Dict[str, JsonValue] | None,
     ) -> Dict[str, JsonValue] | None:
         return public_input_evidence(inputs) if inputs is not None else None
 
@@ -132,41 +160,64 @@ class NodeFinishedData(BaseModel):
     def serialize_outputs(self, outputs: JsonValue | None) -> JsonValue | None:
         return public_node_output_evidence(self.node_type, outputs)
 
+
 class NodeFinishedEvent(SSEEventBase):
     event: Literal["node_finished"] = Field("node_finished")
     data: NodeFinishedData
 
+
 class WorkflowFinishedData(BaseModel):
     id: str = Field(..., description="Workflow execution record ID")
     workflow_id: str = Field(..., description="Workflow ID")
-    status: str = Field(..., description="Overall execution status (succeeded | failed | cancelled)")
-    outputs: Optional[JsonValue] = Field(None, description="Final workflow output result")
+    status: str = Field(
+        ...,
+        description=(
+            "Overall execution status (succeeded | failed | cancelled)"
+        ),
+    )
+    outputs: Optional[JsonValue] = Field(
+        None, description="Final workflow output result"
+    )
     error: Optional[str] = Field(None, description="Execution error message")
-    elapsed_time: float = Field(..., description="Overall execution duration in seconds")
+    elapsed_time: float = Field(
+        ..., description="Overall execution duration in seconds"
+    )
     total_steps: int = Field(..., description="Total nodes executed")
     finished_at: int = Field(..., description="Completion timestamp")
+
 
 class WorkflowFinishedEvent(SSEEventBase):
     event: Literal["workflow_finished"] = Field("workflow_finished")
     data: WorkflowFinishedData
 
+
 # --- Core Database Models ---
+
 
 class NodeExecutionBase(BaseModel):
     project_id: str = Field(..., description="Project ID")
     node_id: str = Field(..., description="The node ID in the workflow")
     node_type: str = Field(..., description="Node type")
     status: ExecutionStatus = Field(..., description="Execution status")
-    input: Optional[Dict[str, JsonValue]] = Field(None, description="Input data for the node")
-    output: Optional[JsonValue] = Field(None, description="Output results for the node")
+    input: Optional[Dict[str, JsonValue]] = Field(
+        None, description="Input data for the node"
+    )
+    output: Optional[JsonValue] = Field(
+        None, description="Output results for the node"
+    )
     error: Optional[str] = Field(None, description="Execution error message")
     started_at: datetime = Field(..., description="Node execution start time")
-    completed_at: Optional[datetime] = Field(None, description="Node execution completion time")
-    duration: Optional[int] = Field(None, description="Execution duration in milliseconds")
+    completed_at: Optional[datetime] = Field(
+        None, description="Node execution completion time"
+    )
+    duration: Optional[int] = Field(
+        None, description="Execution duration in milliseconds"
+    )
 
     @field_serializer("input")
     def serialize_input(
-        self, inputs: Dict[str, JsonValue] | None,
+        self,
+        inputs: Dict[str, JsonValue] | None,
     ) -> Dict[str, JsonValue] | None:
         return public_input_evidence(inputs) if inputs is not None else None
 
@@ -174,31 +225,51 @@ class NodeExecutionBase(BaseModel):
     def serialize_output(self, output: JsonValue | None) -> JsonValue | None:
         return public_node_output_evidence(self.node_type, output)
 
+
 class NodeExecution(NodeExecutionBase):
-    id: str = Field(..., description="Unique identifier for the node execution record")
-    execution_id: str = Field(..., description="The ID of the parent workflow execution record")
+    id: str = Field(
+        ..., description="Unique identifier for the node execution record"
+    )
+    execution_id: str = Field(
+        ..., description="The ID of the parent workflow execution record"
+    )
 
     class Config:
         from_attributes = True
+
 
 class WorkflowExecutionBase(BaseModel):
     execution_mode: ExecutionMode | None = None
     workflow_version: int | None = None
     project_id: str = Field(..., description="Project ID")
     workflow_id: str = Field(..., description="Workflow ID")
-    status: ExecutionStatus = Field(..., description="Overall execution status")
-    input: Optional[Dict[str, JsonValue]] = Field(None, description="Workflow startup input data")
-    output: Optional[JsonValue] = Field(None, description="Final workflow output result")
+    status: ExecutionStatus = Field(
+        ..., description="Overall execution status"
+    )
+    input: Optional[Dict[str, JsonValue]] = Field(
+        None, description="Workflow startup input data"
+    )
+    output: Optional[JsonValue] = Field(
+        None, description="Final workflow output result"
+    )
     error: Optional[str] = Field(None, description="Execution error message")
-    started_at: datetime = Field(..., description="Workflow execution start time")
-    completed_at: Optional[datetime] = Field(None, description="Workflow execution completion time")
-    duration: Optional[int] = Field(None, description="Execution duration in milliseconds")
+    started_at: datetime = Field(
+        ..., description="Workflow execution start time"
+    )
+    completed_at: Optional[datetime] = Field(
+        None, description="Workflow execution completion time"
+    )
+    duration: Optional[int] = Field(
+        None, description="Execution duration in milliseconds"
+    )
 
     @field_serializer("input")
     def serialize_input(
-        self, inputs: Dict[str, JsonValue] | None,
+        self,
+        inputs: Dict[str, JsonValue] | None,
     ) -> Dict[str, JsonValue] | None:
         return public_input_evidence(inputs) if inputs is not None else None
+
 
 class WorkflowExecution(WorkflowExecutionBase):
     release_id: str | None = None
@@ -211,13 +282,19 @@ class WorkflowExecution(WorkflowExecutionBase):
     source_channel: str | None = None
     parent_execution_id: str | None = None
     workflow_lineage: list[str] | None = None
-    id: str = Field(..., description="Unique identifier for the workflow execution record")
-    node_executions: List[NodeExecution] = Field([], description="List of detailed node executions")
+    id: str = Field(
+        ..., description="Unique identifier for the workflow execution record"
+    )
+    node_executions: List[NodeExecution] = Field(
+        [], description="List of detailed node executions"
+    )
 
     class Config:
         from_attributes = True
 
+
 # --- API Request/Response Models ---
+
 
 class WorkflowExecutionOrigin(BaseModel):
     """Trace coordinates supplied by the internal employee runtime."""
@@ -228,15 +305,20 @@ class WorkflowExecutionOrigin(BaseModel):
     business_project_id: UUID | None = None
     business_request_id: UUID | None = None
     visitor_session_id: UUID | None = None
-    source_message_id: str | None = Field(default=None, min_length=1, max_length=255)
-    source_channel: Literal["web", "app", "wecom_kf", "phone", "internal"] | None = None
+    source_message_id: str | None = Field(
+        default=None, min_length=1, max_length=255
+    )
+    source_channel: (
+        Literal["web", "app", "wecom_kf", "phone", "internal"] | None
+    ) = None
     parent_execution_id: UUID | None = None
     workflow_lineage: tuple[str, ...] = Field(default=(), max_length=4)
 
     @model_validator(mode="after")
     def complete_business_origin(self) -> "WorkflowExecutionOrigin":
         business_fields = (
-            self.business_project_id, self.business_request_id,
+            self.business_project_id,
+            self.business_request_id,
             self.visitor_session_id,
         )
         if any(value is not None for value in business_fields) and not all(
@@ -245,12 +327,16 @@ class WorkflowExecutionOrigin(BaseModel):
             raise ValueError("客户业务请求来源必须包含企业、请求和会话身份")
         if (self.source_message_id is None) != (self.source_channel is None):
             raise ValueError("客户原消息编号和渠道必须同时提供")
-        if self.source_message_id is not None and self.business_request_id is None:
+        if (
+            self.source_message_id is not None
+            and self.business_request_id is None
+        ):
             raise ValueError("客户原消息必须关联已核验的业务请求")
         if (self.parent_execution_id is None) != (not self.workflow_lineage):
             raise ValueError("父工作流编号和调用链必须同时提供")
-        if (len(set(self.workflow_lineage)) != len(self.workflow_lineage)
-                or any(not 1 <= len(item) <= 128 for item in self.workflow_lineage)):
+        if len(set(self.workflow_lineage)) != len(
+            self.workflow_lineage
+        ) or any(not 1 <= len(item) <= 128 for item in self.workflow_lineage):
             raise ValueError("父工作流调用链无效")
         return self
 
@@ -265,15 +351,29 @@ class WorkflowExecuteRequest(BaseModel):
     )
     execution_mode: ExecutionMode = "draft_test"
     origin: WorkflowExecutionOrigin | None = None
-    inputs: Dict[str, JsonValue] = Field(default={}, description="Input variables passed to the start node")
-    stream: bool = Field(default=False, description="Whether to stream the execution events using Server-Sent Events (SSE)")
-    async_mode: bool = Field(default=False, alias="async", description="Whether to execute asynchronously via Celery")
+    inputs: Dict[str, JsonValue] = Field(
+        default={}, description="Input variables passed to the start node"
+    )
+    stream: bool = Field(
+        default=False,
+        description=(
+            "Whether to stream the execution events using Server-Sent Events"
+            " (SSE)"
+        ),
+    )
+    async_mode: bool = Field(
+        default=False,
+        alias="async",
+        description="Whether to execute asynchronously via Celery",
+    )
 
     class Config:
         populate_by_name = True
 
     @model_validator(mode="after")
-    def employee_run_requires_fixed_production_release(self) -> "WorkflowExecuteRequest":
+    def employee_run_requires_fixed_production_release(
+        self,
+    ) -> "WorkflowExecuteRequest":
         if self.origin is not None and self.employee_agent_id is None:
             raise ValueError("运行来源仅允许已核验的员工内部调用")
         if self.employee_agent_id is not None and (
@@ -285,15 +385,20 @@ class WorkflowExecuteRequest(BaseModel):
             raise ValueError("员工工作流执行必须指定完整的固定发布版本")
         return self
 
+
 class WorkflowSyncResponseMetadata(BaseModel):
     duration: float = Field(..., description="Execution duration in seconds")
     startTime: str = Field(..., description="ISO format start time")
     endTime: str = Field(..., description="ISO format end time")
 
+
 class WorkflowSyncResponse(BaseModel):
-    success: bool = Field(..., description="Whether the execution was successful")
+    success: bool = Field(
+        ..., description="Whether the execution was successful"
+    )
     output: JsonValue = Field(..., description="Workflow output results")
     metadata: WorkflowSyncResponseMetadata
+
 
 class WorkflowExecutionCancelResponse(BaseModel):
     id: str = Field(..., description="Execution ID")

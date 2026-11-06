@@ -4,11 +4,19 @@ from collections.abc import Mapping
 
 
 _OUTCOMES = frozenset({"passed", "failed"})
-_ERROR_CODES = frozenset({
-    "denied", "timeout", "provider_failed", "audit_unavailable",
-    "authority_changed", "not_found", "not_shipped",
-    "authentication_failed", "business_failed",
-})
+_ERROR_CODES = frozenset(
+    {
+        "denied",
+        "timeout",
+        "provider_failed",
+        "audit_unavailable",
+        "authority_changed",
+        "not_found",
+        "not_shipped",
+        "authentication_failed",
+        "business_failed",
+    }
+)
 _ALLOWED_COMPARISONS = {
     "order.outcome": _OUTCOMES,
     "logistics.outcome": _OUTCOMES,

@@ -32,7 +32,9 @@ class ApprovalCheckpointKeyUnavailable(CheckpointCryptoError):
 
 
 def _keyring() -> EventKeyring:
-    fallback = settings.SECRET_KEY.get_secret_value() if settings.SECRET_KEY else ""
+    fallback = (
+        settings.SECRET_KEY.get_secret_value() if settings.SECRET_KEY else ""
+    )
     try:
         ring = parse_event_keyring(
             settings.WORKFLOW_APPROVAL_KEYS,
@@ -55,7 +57,9 @@ def _cipher(ring: EventKeyring, key_id: str) -> Fernet:
             + b"\x00"
             + secret.encode("utf-8")
         )
-        return Fernet(base64.urlsafe_b64encode(hashlib.sha256(material).digest()))
+        return Fernet(
+            base64.urlsafe_b64encode(hashlib.sha256(material).digest())
+        )
     except (EventKeyringError, UnicodeError):
         raise ApprovalCheckpointKeyUnavailable("审批检查点所需历史保管密钥不可用。") from None
 
@@ -76,7 +80,9 @@ def _scope(
         raise CheckpointCryptoError("审批检查点归属信息不完整。")
     expiry = request.expires_at
     expiry = (
-        expiry.replace(tzinfo=UTC) if expiry.tzinfo is None else expiry.astimezone(UTC)
+        expiry.replace(tzinfo=UTC)
+        if expiry.tzinfo is None
+        else expiry.astimezone(UTC)
     )
     return {
         "project_id": run.project_id,
@@ -156,7 +162,8 @@ def open_checkpoint(
     if not isinstance(saved, dict):
         raise CheckpointCryptoError("审批检查点格式无效。")
     if saved.get("capture_status") not in (
-        "encrypted", VERIFIED_RESUME_CAPTURE,
+        "encrypted",
+        VERIFIED_RESUME_CAPTURE,
     ):
         # These sources had no supported pending approvals before encryption.
         if run.source_channel in EXTERNAL_SOURCES:
@@ -177,7 +184,9 @@ def open_checkpoint(
             or len(encrypted) > 2 * MAX_CHECKPOINT_BYTES
         ):
             raise ValueError()
-        plaintext = _cipher(_keyring(), key_id).decrypt(encrypted.encode("ascii"))
+        plaintext = _cipher(_keyring(), key_id).decrypt(
+            encrypted.encode("ascii")
+        )
         if len(plaintext) > MAX_CHECKPOINT_BYTES:
             raise ValueError()
         payload = json.loads(plaintext)

@@ -12,10 +12,7 @@ from app.models.execution import NodeExecution, WorkflowExecution
 from app.schemas.approval_reconciliation import ReconciliationLedger
 from app.services.execution_lifecycle import ExecutionStopped
 
-RECONCILIATION_REQUIRED = (
-    "审批后执行进程已中断，已开始的步骤结果待核验；"
-    "系统没有自动重复执行，请核对业务执行记录后处理。"
-)
+RECONCILIATION_REQUIRED = "审批后执行进程已中断，已开始的步骤结果待核验；" "系统没有自动重复执行，请核对业务执行记录后处理。"
 
 
 async def _owned_run(

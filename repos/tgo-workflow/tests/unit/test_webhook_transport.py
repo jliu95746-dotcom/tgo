@@ -60,7 +60,7 @@ async def test_real_signed_bytes_survive_http_and_queue_gets_no_body(
         assert "synthetic-private-question" not in first.text
         again = await client.post(path, content=body, headers=headers)
         assert again.status_code == 202 and again.json()["deduplicated"]
-    assert published[0]["args"] == [first.json()["delivery_id"]]
+    assert published[0]["args"] == (first.json()["delivery_id"],)
     assert published[0]["args"] == published[1]["args"]
 
 

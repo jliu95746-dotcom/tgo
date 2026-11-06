@@ -1,4 +1,6 @@
-"""Public and persisted node evidence, separate from private runtime context."""
+"""
+Public and persisted node evidence, separate from private runtime context.
+"""
 
 from uuid import UUID
 
@@ -8,9 +10,15 @@ from app.services.business_query_context import business_query_record_inputs
 
 
 def node_receipt_output(
-    node_type: str, outputs: dict[str, JsonValue], *, governed_query: bool,
+    node_type: str,
+    outputs: dict[str, JsonValue],
+    *,
+    governed_query: bool,
 ) -> JsonValue:
-    """Keep bounded trace evidence without copying arbitrary customer/provider data."""
+    """
+    Keep bounded trace evidence without copying arbitrary customer/provider
+    data.
+    """
     if node_type == "input" and governed_query:
         return business_query_record_inputs(outputs)
     if node_type in {"answer", "business_query"}:
@@ -20,7 +28,8 @@ def node_receipt_output(
     if node_type == "approval" and outputs.get("requested") is True:
         return {"requested": True}
     evidence: dict[str, JsonValue] = {
-        "capture_status": "redacted", "field_count": len(outputs),
+        "capture_status": "redacted",
+        "field_count": len(outputs),
     }
     if node_type == "agent":
         child_execution_id = outputs.get("agent_execution_id")

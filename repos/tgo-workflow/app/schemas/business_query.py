@@ -4,14 +4,27 @@ import re
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    SecretStr,
+    field_validator,
+)
 
 
 BusinessOperation = Literal["order_query", "logistics_query"]
 BusinessChannel = Literal["wecom_kf", "web", "app", "phone", "internal"]
 BusinessErrorCode = Literal[
-    "denied", "timeout", "provider_failed", "audit_unavailable",
-    "authority_changed", "not_found", "not_shipped", "authentication_failed",
+    "denied",
+    "timeout",
+    "provider_failed",
+    "audit_unavailable",
+    "authority_changed",
+    "not_found",
+    "not_shipped",
+    "authentication_failed",
     "business_failed",
 ]
 ORDER_NUMBER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$")
@@ -26,8 +39,9 @@ class BusinessExecutionContext(BaseModel):
     visitor_id: UUID
     request_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     channel: BusinessChannel
-    context_token: SecretStr = Field(min_length=1, max_length=16384,
-                                     exclude=True, repr=False)
+    context_token: SecretStr = Field(
+        min_length=1, max_length=16384, exclude=True, repr=False
+    )
 
 
 class BusinessQuerySummary(BaseModel):
@@ -38,7 +52,8 @@ class BusinessQuerySummary(BaseModel):
     currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     carrier: str | None = Field(default=None, max_length=128)
     tracking_no_masked: str | None = Field(
-        default=None, pattern=r"^[A-Za-z0-9-]{0,16}\*{2,}[A-Za-z0-9*-]{0,16}$",
+        default=None,
+        pattern=r"^[A-Za-z0-9-]{0,16}\*{2,}[A-Za-z0-9*-]{0,16}$",
     )
 
 
@@ -66,8 +81,9 @@ class BusinessQueryCommand(BaseModel):
     connection_id: UUID
     operation: BusinessOperation
     visitor_session_id: UUID
-    order_no: SecretStr = Field(min_length=4, max_length=64, exclude=True,
-                                repr=False)
+    order_no: SecretStr = Field(
+        min_length=4, max_length=64, exclude=True, repr=False
+    )
     context: BusinessExecutionContext
 
     @field_validator("order_no")

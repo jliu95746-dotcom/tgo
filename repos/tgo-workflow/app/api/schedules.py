@@ -19,7 +19,9 @@ from app.schemas.workflow_schedule import (
 from app.services import workflow_schedules
 from app.services import workflow_schedule_views
 from app.schemas.workflow_schedule_views import (
-    SchedulePreviewRequest, SchedulePreview, ScheduleOccurrenceList,
+    SchedulePreviewRequest,
+    SchedulePreview,
+    ScheduleOccurrenceList,
 )
 
 router = APIRouter()
@@ -38,16 +40,23 @@ def require_internal_key(
 
 
 @router.post(
-    "/{workflow_id}/schedule/preview", response_model=SchedulePreview,
+    "/{workflow_id}/schedule/preview",
+    response_model=SchedulePreview,
     dependencies=[Depends(require_internal_key)],
 )
 async def preview_schedule(
-    workflow_id: str, request: SchedulePreviewRequest, response: Response,
-    project_id: UUID = Query(...), db: AsyncSession = Depends(get_db),
+    workflow_id: str,
+    request: SchedulePreviewRequest,
+    response: Response,
+    project_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
 ) -> SchedulePreview:
     response.headers["Cache-Control"] = "no-store"
     return await workflow_schedule_views.preview_schedule(
-        db, workflow_id, project_id, request,
+        db,
+        workflow_id,
+        project_id,
+        request,
     )
 
 
@@ -57,14 +66,20 @@ async def preview_schedule(
     dependencies=[Depends(require_internal_key)],
 )
 async def list_occurrences(
-    workflow_id: str, response: Response, project_id: UUID = Query(...),
+    workflow_id: str,
+    response: Response,
+    project_id: UUID = Query(...),
     limit: int = Query(10, ge=1, le=50),
     offset: int = Query(0, ge=0, le=2_147_483_647),
     db: AsyncSession = Depends(get_db),
 ) -> ScheduleOccurrenceList:
     response.headers["Cache-Control"] = "no-store"
     return await workflow_schedule_views.list_occurrences(
-        db, workflow_id, project_id, limit, offset,
+        db,
+        workflow_id,
+        project_id,
+        limit,
+        offset,
     )
 
 

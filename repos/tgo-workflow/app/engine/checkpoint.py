@@ -4,7 +4,9 @@ from pydantic import BaseModel, Field, JsonValue
 
 
 class ExecutionCheckpoint(BaseModel):
-    """Persist only with the owning run and its immutable definition snapshot."""
+    """
+    Persist only with the owning run and its immutable definition snapshot.
+    """
 
     project_id: str | None
     execution_id: str | None
@@ -20,7 +22,9 @@ class ExecutionCheckpoint(BaseModel):
 
 
 class WorkflowPaused(Exception):
-    """The caller persisted a cursor and deliberately stopped this invocation."""
+    """
+    The caller persisted a cursor and deliberately stopped this invocation.
+    """
 
     def __init__(self, checkpoint: ExecutionCheckpoint):
         super().__init__("工作流已暂停，等待确认后从检查点恢复。")

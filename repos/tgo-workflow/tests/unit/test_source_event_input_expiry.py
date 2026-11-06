@@ -130,5 +130,5 @@ async def test_event_queue_uses_database_snapshot_without_copying_customer_body(
         source_channel=source_channel, input={"data": {"excerpt": "private body"}})
     await enqueue_pending_initial(run)
     sent = publish.call_args.kwargs
-    assert sent["args"][:2] == ["run", "flow"]
+    assert sent["args"][:2] == ("run", "flow")
     assert sent["args"][2] == ({} if source_channel == "internal_event" else run.input)

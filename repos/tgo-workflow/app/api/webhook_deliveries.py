@@ -34,7 +34,7 @@ async def receive_webhook(
             await asyncio.wait_for(
                 asyncio.to_thread(
                     dispatch_webhook_delivery_task.apply_async,
-                    args=[str(receipt.delivery_id)],
+                    args=(str(receipt.delivery_id),),
                     task_id="webhook-source:" + str(receipt.delivery_id),
                     retry=False,
                 ),

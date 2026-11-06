@@ -1,4 +1,6 @@
-"""Validate declared business inputs before creating or running an execution."""
+"""
+Validate declared business inputs before creating or running an execution.
+"""
 
 from copy import deepcopy
 from math import isfinite
@@ -44,7 +46,10 @@ def declared_inputs(definition: dict[str, JsonValue]) -> list[InputVariable]:
                 raise ValueError(
                     "输入参数声明无效，请检查名称、类型、必填设置和约束范围。"
                 ) from None
-            if not variable.name.strip() or variable.name != variable.name.strip():
+            if (
+                not variable.name.strip()
+                or variable.name != variable.name.strip()
+            ):
                 raise ValueError("输入参数名称不能为空或包含首尾空格。")
             if variable.name in names:
                 raise ValueError("输入参数名称重复，请使用不同名称。")
@@ -62,44 +67,86 @@ def input_configuration_errors(definition: dict[str, JsonValue]) -> list[str]:
 
 
 def validate_inputs(
-    definition: dict[str, JsonValue], inputs: dict[str, JsonValue],
+    definition: dict[str, JsonValue],
+    inputs: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
     issues: list[InputIssue] = []
     for variable in declared_inputs(definition):
         value = inputs.get(variable.name)
-        missing = value is None or (isinstance(value, str) and not value.strip())
+        missing = value is None or (
+            isinstance(value, str) and not value.strip()
+        )
         if variable.required and missing:
-            issues.append(InputIssue(field=variable.name, code="required", message="请填写必填参数。"))
+            issues.append(
+                InputIssue(
+                    field=variable.name,
+                    code="required",
+                    message="请填写必填参数。",
+                )
+            )
             continue
         if value is None:
             continue
         valid = {
             "string": isinstance(value, str),
-            "number": (isinstance(value, int) and not isinstance(value, bool))
-            or (isinstance(value, float) and isfinite(value)),
+            "number": (
+                isinstance(value, int) and not isinstance(value, bool)
+            ) or (isinstance(value, float) and isfinite(value)),
             "boolean": isinstance(value, bool),
         }[variable.type]
         if not valid:
-            issues.append(InputIssue(field=variable.name, code="type", message="参数类型不正确。"))
+            issues.append(
+                InputIssue(
+                    field=variable.name,
+                    code="type",
+                    message="参数类型不正确。",
+                )
+            )
             continue
         if isinstance(value, str) and (
-            (variable.min_length is not None and len(value) < variable.min_length)
-            or (variable.max_length is not None and len(value) > variable.max_length)
+            (
+                variable.min_length is not None
+                and len(value) < variable.min_length
+            )
+            or (
+                variable.max_length is not None
+                and len(value) > variable.max_length
+            )
         ):
-            issues.append(InputIssue(
-                field=variable.name, code="length", message="文本长度不符合要求。",
-            ))
-        if isinstance(value, str) and variable.allowed_values is not None and value not in variable.allowed_values:
-            issues.append(InputIssue(
-                field=variable.name, code="choice", message="请选择预设的业务选项。",
-            ))
-        if isinstance(value, (int, float)) and not isinstance(value, bool) and (
-            (variable.minimum is not None and value < variable.minimum)
-            or (variable.maximum is not None and value > variable.maximum)
+            issues.append(
+                InputIssue(
+                    field=variable.name,
+                    code="length",
+                    message="文本长度不符合要求。",
+                )
+            )
+        if (
+            isinstance(value, str)
+            and variable.allowed_values is not None
+            and value not in variable.allowed_values
         ):
-            issues.append(InputIssue(
-                field=variable.name, code="range", message="数字超出允许范围。",
-            ))
+            issues.append(
+                InputIssue(
+                    field=variable.name,
+                    code="choice",
+                    message="请选择预设的业务选项。",
+                )
+            )
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and (
+                (variable.minimum is not None and value < variable.minimum)
+                or (variable.maximum is not None and value > variable.maximum)
+            )
+        ):
+            issues.append(
+                InputIssue(
+                    field=variable.name,
+                    code="range",
+                    message="数字超出允许范围。",
+                )
+            )
     if issues:
         raise WorkflowInputError(issues)
     # Existing additional context keys are preserved for older callers.

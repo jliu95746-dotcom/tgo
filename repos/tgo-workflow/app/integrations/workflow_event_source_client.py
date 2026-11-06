@@ -27,7 +27,9 @@ async def verify_event_source(query: WorkflowEventSourceVerification) -> None:
     if response.status_code != 200:
         raise RuntimeError("工作流业务事件来源暂时无法核验。")
     try:
-        receipt = WorkflowEventSourceVerification.model_validate(response.json())
+        receipt = WorkflowEventSourceVerification.model_validate(
+            response.json()
+        )
     except ValueError:
         raise RuntimeError("工作流业务事件来源核验回执无效。") from None
     if receipt != query:

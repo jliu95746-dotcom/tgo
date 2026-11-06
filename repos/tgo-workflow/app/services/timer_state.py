@@ -189,9 +189,14 @@ async def cancel_superseded(
         WorkflowExecution.project_id == plan.project_id,
         WorkflowExecution.workflow_id == plan.workflow_id,
         WorkflowExecution.source_channel == "scheduled_timer",
-        WorkflowExecution.status.in_((
-            "pending", "running", "waiting_approval", "pending_resume",
-        )),
+        WorkflowExecution.status.in_(
+            (
+                "pending",
+                "running",
+                "waiting_approval",
+                "pending_resume",
+            )
+        ),
     )
     rows = (
         await db.scalars(
@@ -217,9 +222,14 @@ async def cancel_superseded(
                 WorkflowExecution.id.in_(identifiers),
                 WorkflowExecution.project_id == plan.project_id,
                 WorkflowExecution.source_channel == "scheduled_timer",
-                WorkflowExecution.status.in_((
-                    "pending", "running", "waiting_approval", "pending_resume",
-                )),
+                WorkflowExecution.status.in_(
+                    (
+                        "pending",
+                        "running",
+                        "waiting_approval",
+                        "pending_resume",
+                    )
+                ),
             )
             .values(
                 status="cancelled",
@@ -232,7 +242,9 @@ async def cancel_superseded(
         )
         for identifier in changed.all():
             await scrub_terminal_approval_checkpoints(
-                db, plan.project_id, identifier,
+                db,
+                plan.project_id,
+                identifier,
             )
     for row in rows:
         row.status, row.error_code, row.updated_at = (

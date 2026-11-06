@@ -9,8 +9,11 @@ from app.engine.context import ExecutionContext
 from app.integrations.public_http import bounded_api_get
 from app.engine.nodes.registry import register_node
 
+
 def api_node_target_error(value: object) -> str | None:
-    """Reject dynamic origins and literal local targets before a generic GET."""
+    """
+    Reject dynamic origins and literal local targets before a generic GET.
+    """
     invalid = "API 节点需要固定的 HTTPS 地址（443 端口），不能指向本地地址"
     if (
         not isinstance(value, str)
@@ -51,44 +54,57 @@ def api_node_target_error(value: object) -> str | None:
 
 
 def api_node_is_read_only(config: Mapping[str, object]) -> bool:
-    """Only bodyless GET may run until confirmed writes have durable receipts."""
-    return (
-        config.get("method", "GET") == "GET"
-        and config.get("body_type", "none") in (None, "none")
-    )
+    """
+    Only bodyless GET may run until confirmed writes have durable receipts.
+    """
+    return config.get("method", "GET") == "GET" and config.get(
+        "body_type", "none"
+    ) in (None, "none")
 
 
 @register_node("api")
 class APINodeExecutor(BaseNodeExecutor):
-    async def execute(self, context: ExecutionContext) -> Tuple[Dict[str, Any], Optional[str]]:
+    async def execute(
+        self, context: ExecutionContext
+    ) -> Tuple[Dict[str, Any], Optional[str]]:
         if not api_node_is_read_only(self.config):
-            raise PermissionError("API 节点当前仅支持无请求体的 GET；写入需要人工确认和幂等回执")
+            raise PermissionError(
+                "API 节点当前仅支持无请求体的 GET；写入需要人工确认和幂等回执"
+            )
         configured_url = self.config.get("url", "")
         target_error = api_node_target_error(configured_url)
         if target_error:
             raise PermissionError(target_error)
         url = context.resolve_template(configured_url)
-        if api_node_target_error(url) or urlsplit(url).netloc != urlsplit(configured_url).netloc:
+        if (
+            api_node_target_error(url)
+            or urlsplit(url).netloc != urlsplit(configured_url).netloc
+        ):
             raise PermissionError("API 节点仅允许固定公网 HTTPS 目标")
-        
-        headers = {h["key"]: context.resolve_template(h["value"]) for h in self.config.get("headers", [])}
-        params = {p["key"]: context.resolve_template(p["value"]) for p in self.config.get("params", [])}
-        
+
+        headers = {
+            h["key"]: context.resolve_template(h["value"])
+            for h in self.config.get("headers", [])
+        }
+        params = {
+            p["key"]: context.resolve_template(p["value"])
+            for p in self.config.get("params", [])
+        }
+
         response = await bounded_api_get(url, headers, params)
         if not response.is_success:
             raise RuntimeError(f"API 查询失败 (HTTP {response.status_code})")
-        
+
         try:
             body = response.json()
         except json.JSONDecodeError:
             body = response.text
-            
+
         outputs = {
             "body": body,
             "status_code": response.status_code,
             # Response headers may contain cookies or provider credentials.
-            "headers": {}
+            "headers": {},
         }
-        
-        return outputs, None
 
+        return outputs, None

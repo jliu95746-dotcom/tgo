@@ -6,22 +6,31 @@ from uuid import UUID
 
 from pydantic import JsonValue, SecretStr, ValidationError
 
-from app.schemas.business_query import BusinessChannel, BusinessExecutionContext
+from app.schemas.business_query import (
+    BusinessChannel,
+    BusinessExecutionContext,
+)
 from app.schemas.execution import WorkflowExecutionOrigin
 
 
 def require_business_query_context(
     project_id: str,
     origin: WorkflowExecutionOrigin | None,
-    *, context_token: str | None,
+    *,
+    context_token: str | None,
     visitor_id: str | None,
     request_fingerprint: str | None,
     channel: str | None,
 ) -> BusinessExecutionContext:
     if (
-        origin is None or origin.business_project_id is None
-        or origin.business_request_id is None or origin.visitor_session_id is None
-        or not context_token or not visitor_id or not request_fingerprint or not channel
+        origin is None
+        or origin.business_project_id is None
+        or origin.business_request_id is None
+        or origin.visitor_session_id is None
+        or not context_token
+        or not visitor_id
+        or not request_fingerprint
+        or not channel
     ):
         raise PermissionError("受控业务查询缺少已验证的客户会话")
     try:

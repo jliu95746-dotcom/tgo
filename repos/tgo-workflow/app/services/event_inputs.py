@@ -47,9 +47,7 @@ def _keyring() -> EventKeyring:
             raise EventKeyringError()
         return ring
     except EventKeyringError:
-        raise EventInputKeyUnavailable(
-            "事件正文保管密钥未配置或无效。"
-        ) from None
+        raise EventInputKeyUnavailable("事件正文保管密钥未配置或无效。") from None
 
 
 def _cipher(ring: EventKeyring, key_id: str) -> Fernet:
@@ -65,9 +63,7 @@ def _cipher(ring: EventKeyring, key_id: str) -> Fernet:
             base64.urlsafe_b64encode(hashlib.sha256(material).digest())
         )
     except (EventKeyringError, UnicodeError):
-        raise EventInputKeyUnavailable(
-            "事件正文所需历史保管密钥不可用。"
-        ) from None
+        raise EventInputKeyUnavailable("事件正文所需历史保管密钥不可用。") from None
 
 
 def _source(inputs: dict[str, JsonValue]) -> dict[str, JsonValue] | None:
@@ -201,9 +197,7 @@ def _legacy_inputs(
         ):
             return frozen
     except (EventKeyringError, ValueError):
-        raise EventInputKeyUnavailable(
-            "旧事件输入所需历史回执密钥不可用。"
-        ) from None
+        raise EventInputKeyUnavailable("旧事件输入所需历史回执密钥不可用。") from None
     raise ValueError("旧事件输入与原始调用凭据不一致。")
 
 
@@ -283,8 +277,6 @@ def frozen_event_inputs(run: WorkflowExecution) -> dict[str, JsonValue]:
             raise ValueError()
         return frozen
     except InvalidToken:
-        raise EventInputKeyUnavailable(
-            "事件冻结输入暂时无法解密，请核对历史保管密钥。"
-        ) from None
+        raise EventInputKeyUnavailable("事件冻结输入暂时无法解密，请核对历史保管密钥。") from None
     except (UnicodeError, ValueError):
         raise ValueError("事件冻结输入无法核验。") from None

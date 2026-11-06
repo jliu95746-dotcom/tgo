@@ -15,26 +15,24 @@ from app.schemas.customer_service_routing import (
 
 
 class CustomerServiceRoutingService:
-    """Select a safe workflow destination without calling downstream systems."""
+    """
+    Select a safe workflow destination without calling downstream systems.
+    """
 
     LOW_CONFIDENCE_THRESHOLD = 0.60
     AUTO_ROUTE_CONFIDENCE_THRESHOLD = 0.85
 
-    _AUTO_REPLY_INTENTS = frozenset(
-        {
-            CustomerServiceIntent.PRODUCT_INQUIRY,
-            CustomerServiceIntent.PRICING_PROMOTION,
-            CustomerServiceIntent.AFTER_SALES_ISSUE,
-            CustomerServiceIntent.REFUND_RETURN_INQUIRY,
-            CustomerServiceIntent.SALES_LEAD,
-        }
-    )
-    _READ_ONLY_QUERY_INTENTS = frozenset(
-        {
-            CustomerServiceIntent.ORDER_QUERY,
-            CustomerServiceIntent.LOGISTICS_QUERY,
-        }
-    )
+    _AUTO_REPLY_INTENTS = frozenset({
+        CustomerServiceIntent.PRODUCT_INQUIRY,
+        CustomerServiceIntent.PRICING_PROMOTION,
+        CustomerServiceIntent.AFTER_SALES_ISSUE,
+        CustomerServiceIntent.REFUND_RETURN_INQUIRY,
+        CustomerServiceIntent.SALES_LEAD,
+    })
+    _READ_ONLY_QUERY_INTENTS = frozenset({
+        CustomerServiceIntent.ORDER_QUERY,
+        CustomerServiceIntent.LOGISTICS_QUERY,
+    })
 
     @classmethod
     def route(
@@ -83,7 +81,8 @@ class CustomerServiceRoutingService:
 
         if (
             classification.intent in cls._READ_ONLY_QUERY_INTENTS
-            and classification.recommended_route is RecommendedRoute.READ_ONLY_TOOL
+            and classification.recommended_route
+            is RecommendedRoute.READ_ONLY_TOOL
         ):
             return cls._decision(
                 CustomerServiceRoutingTarget.READ_ONLY_TOOL,
@@ -104,4 +103,6 @@ class CustomerServiceRoutingService:
         cls,
         reason: RoutingReason,
     ) -> CustomerServiceRoutingDecision:
-        return cls._decision(CustomerServiceRoutingTarget.HUMAN_HANDOFF, reason)
+        return cls._decision(
+            CustomerServiceRoutingTarget.HUMAN_HANDOFF, reason
+        )

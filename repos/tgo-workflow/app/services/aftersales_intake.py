@@ -1,4 +1,6 @@
-"""Persist one staff-prepared internal intake without an external business write."""
+"""
+Persist one staff-prepared internal intake without an external business write.
+"""
 
 import hashlib
 import hmac
@@ -10,30 +12,52 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.aftersales_review import WorkflowAfterSalesReview
 from app.models.approval import WorkflowApprovalRequest
-from app.schemas.aftersales_intake import AfterSalesIntakeRequest, AfterSalesIntakeSummary
+from app.schemas.aftersales_intake import (
+    AfterSalesIntakeRequest,
+    AfterSalesIntakeSummary,
+)
 from app.services.aftersales_review import (
-    AfterSalesReviewConflict, get_assigned_review, review_decision_digest,
+    AfterSalesReviewConflict,
+    get_assigned_review,
+    review_decision_digest,
 )
 
 
-def intake_payload_digest(review_id: str, request: AfterSalesIntakeRequest) -> str:
-    """Use one canonical representation for concurrent and repeated submissions."""
-    payload = json.dumps([
-        "aftersales-intake-v1", review_id, request.review_digest,
-        request.order_reference, request.sku, request.request_reason,
-        request.policy_reference,
-        sorted(str(file_id) for file_id in request.evidence_file_ids),
-    ], ensure_ascii=False, separators=(",", ":"))
+def intake_payload_digest(
+    review_id: str, request: AfterSalesIntakeRequest
+) -> str:
+    """
+    Use one canonical representation for concurrent and repeated submissions.
+    """
+    payload = json.dumps(
+        [
+            "aftersales-intake-v1",
+            review_id,
+            request.review_digest,
+            request.order_reference,
+            request.sku,
+            request.request_reason,
+            request.policy_reference,
+            sorted(str(file_id) for file_id in request.evidence_file_ids),
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def intake_summary(review: WorkflowAfterSalesReview) -> AfterSalesIntakeSummary | None:
+def intake_summary(
+    review: WorkflowAfterSalesReview,
+) -> AfterSalesIntakeSummary | None:
     if review.intake_digest is None:
         return None
     if (
-        review.intake_order_reference is None or review.intake_sku is None
-        or review.intake_request_reason is None or review.intake_policy_reference is None
-        or review.intake_evidence_file_ids is None or review.intake_prepared_by is None
+        review.intake_order_reference is None
+        or review.intake_sku is None
+        or review.intake_request_reason is None
+        or review.intake_policy_reference is None
+        or review.intake_evidence_file_ids is None
+        or review.intake_prepared_by is None
         or review.intake_prepared_at is None
     ):
         raise AfterSalesReviewConflict("内部售后登记回执不完整，请人工核查。")
@@ -50,7 +74,10 @@ def intake_summary(review: WorkflowAfterSalesReview) -> AfterSalesIntakeSummary 
 
 
 async def get_assigned_intake(
-    db: AsyncSession, project_id: str, staff_id: str, review_id: str,
+    db: AsyncSession,
+    project_id: str,
+    staff_id: str,
+    review_id: str,
 ) -> AfterSalesIntakeSummary | None:
     review = await get_assigned_review(db, project_id, staff_id, review_id)
     if review is None:
@@ -59,15 +86,21 @@ async def get_assigned_intake(
 
 
 async def prepare_assigned_intake(
-    db: AsyncSession, project_id: str, staff_id: str,
-    review_id: str, request: AfterSalesIntakeRequest,
-    *, now: datetime | None = None,
+    db: AsyncSession,
+    project_id: str,
+    staff_id: str,
+    review_id: str,
+    request: AfterSalesIntakeRequest,
+    *,
+    now: datetime | None = None,
 ) -> AfterSalesIntakeSummary:
     """Store exactly one internal receipt for the reviewed, approved action."""
     review = await db.scalar(
         select(WorkflowAfterSalesReview)
-        .join(WorkflowApprovalRequest,
-              WorkflowApprovalRequest.id == WorkflowAfterSalesReview.approval_id)
+        .join(
+            WorkflowApprovalRequest,
+            WorkflowApprovalRequest.id == WorkflowAfterSalesReview.approval_id,
+        )
         .where(
             WorkflowAfterSalesReview.id == review_id,
             WorkflowAfterSalesReview.project_id == project_id,
@@ -81,21 +114,33 @@ async def prepare_assigned_intake(
         raise AfterSalesReviewConflict("售后核对待办不存在或不属于当前员工。")
     approval = await db.get(WorkflowApprovalRequest, review.approval_id)
     if (
-        approval is None or approval.status != "approved"
-        or approval.decided_by != staff_id or approval.decided_at is None
+        approval is None
+        or approval.status != "approved"
+        or approval.decided_by != staff_id
+        or approval.decided_at is None
         or review.status != "reviewed"
         or review.review_result != "needs_manual_service"
-        or review.reviewed_by != staff_id or review.reviewed_at is None
+        or review.reviewed_by != staff_id
+        or review.reviewed_at is None
     ):
-        raise AfterSalesReviewConflict("原审批或人工核对状态不允许准备售后登记。")
-    if not hmac.compare_digest(review_decision_digest(review), request.review_digest):
-        raise AfterSalesReviewConflict("售后核对内容已变化，请刷新后重新填写。")
+        raise AfterSalesReviewConflict(
+            "原审批或人工核对状态不允许准备售后登记。"
+        )
+    if not hmac.compare_digest(
+        review_decision_digest(review), request.review_digest
+    ):
+        raise AfterSalesReviewConflict(
+            "售后核对内容已变化，请刷新后重新填写。"
+        )
     digest = intake_payload_digest(review_id, request)
     if review.intake_digest is not None:
         if review.intake_prepared_by != staff_id or not hmac.compare_digest(
-            review.intake_digest, digest,
+            review.intake_digest,
+            digest,
         ):
-            raise AfterSalesReviewConflict("内部售后登记已保存其他内容，不能覆盖。")
+            raise AfterSalesReviewConflict(
+                "内部售后登记已保存其他内容，不能覆盖。"
+            )
         existing = intake_summary(review)
         assert existing is not None
         return existing

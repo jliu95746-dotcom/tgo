@@ -28,22 +28,31 @@ return 1
 """
 
 
-async def admit_event(project_id: str, workflow_id: str, event_id: str) -> None:
+async def admit_event(
+    project_id: str, workflow_id: str, event_id: str
+) -> None:
     scope = json.dumps([project_id, workflow_id], separators=(",", ":"))
     scope_digest = hashlib.sha256(scope.encode()).hexdigest()
     redis_key = f"workflow:event-rate:v1:{scope_digest}"
     client = Redis.from_url(
-        settings.REDIS_URL, socket_connect_timeout=1, socket_timeout=1,
+        settings.REDIS_URL,
+        socket_connect_timeout=1,
+        socket_timeout=1,
     )
     try:
         admitted = await client.eval(
-            _ADMIT_SCRIPT, 1, redis_key, WINDOW_MILLISECONDS,
-            EVENTS_PER_MINUTE, event_id,
+            _ADMIT_SCRIPT,
+            1,
+            redis_key,
+            WINDOW_MILLISECONDS,
+            EVENTS_PER_MINUTE,
+            event_id,
         )
     except (RedisError, OSError, TimeoutError):
         raise HTTPException(503, "内部事件限流服务不可用，请稍后重试。") from None
     finally:
         await client.aclose()
     if admitted != 1:
-        raise HTTPException(429, "内部事件发送过于频繁，请稍后重试。",
-                            headers={"Retry-After": "60"})
+        raise HTTPException(
+            429, "内部事件发送过于频繁，请稍后重试。", headers={"Retry-After": "60"}
+        )

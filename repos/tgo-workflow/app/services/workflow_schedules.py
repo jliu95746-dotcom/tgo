@@ -42,7 +42,8 @@ CONFLICT = "定时计划已有变化或请求编号已被使用，请读取原�
 
 
 async def _published_timer_context(
-    db: AsyncSession, workflow: Workflow,
+    db: AsyncSession,
+    workflow: Workflow,
 ) -> ScheduleReleaseContext | None:
     # Imported here to preserve the timer binding service dependency direction.
     from app.services.workflow_schedule_views import published_timer_context
@@ -221,7 +222,9 @@ async def get_schedule(
         execution_available=execution_available() and runtime.ready,
         preview_at=preview,
         suspension_reason=row.suspension_reason if row else None,
-        suspended_at=_utc(row.suspended_at) if row and row.suspended_at else None,
+        suspended_at=_utc(row.suspended_at)
+        if row and row.suspended_at
+        else None,
     )
 
 
@@ -310,6 +313,7 @@ async def _apply(
     row.updated_by, row.updated_at = str(actor_id), now
     await db.flush()
     from app.services.timer_state import cancel_superseded
+
     await cancel_superseded(db, row, now)
     command = WorkflowScheduleCommand(
         project_id=str(project_id),

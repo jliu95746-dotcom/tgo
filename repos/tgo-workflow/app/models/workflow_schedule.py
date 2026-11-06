@@ -53,7 +53,9 @@ class WorkflowSchedule(Base):
     cron_expression: Mapped[str] = mapped_column(String(512), nullable=False)
     timezone: Mapped[str] = mapped_column(String(100), nullable=False)
     suspension_reason: Mapped[str | None] = mapped_column(String(64))
-    suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    suspended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     next_run_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )

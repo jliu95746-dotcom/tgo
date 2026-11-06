@@ -15,7 +15,9 @@ class ApprovalAssigneeReceipt(BaseModel):
     assignee_ids: list[UUID] = Field(min_length=1, max_length=100)
 
 
-async def verify_approval_assignees(project_id: str, assignee_ids: set[str]) -> None:
+async def verify_approval_assignees(
+    project_id: str, assignee_ids: set[str]
+) -> None:
     """Reject a revoked account or an unverified response before action."""
     if not assignee_ids:
         return
@@ -51,12 +53,16 @@ async def verify_approval_assignees(project_id: str, assignee_ids: set[str]) -> 
         receipt = ApprovalAssigneeReceipt.model_validate(response.json())
     except ValueError:
         raise RuntimeError("工作流审批人核验回执无效") from None
-    if receipt.project_id != project_uuid or set(receipt.assignee_ids) != staff_uuids:
+    if (
+        receipt.project_id != project_uuid
+        or set(receipt.assignee_ids) != staff_uuids
+    ):
         raise PermissionError("工作流审批人归属回执与当前流程不一致")
 
 
 async def verify_definition_approval_assignees(
-    definition: Mapping[str, object], project_id: str,
+    definition: Mapping[str, object],
+    project_id: str,
 ) -> None:
     nodes = definition.get("nodes")
     if not isinstance(nodes, list):
@@ -66,7 +72,9 @@ async def verify_definition_approval_assignees(
         if not isinstance(node, dict) or node.get("type") != "approval":
             continue
         data = node.get("data")
-        if not isinstance(data, dict) or not isinstance(data.get("approver_staff_id"), str):
+        if not isinstance(data, dict) or not isinstance(
+            data.get("approver_staff_id"), str
+        ):
             raise PermissionError("工作流审批人配置无效")
         ids.add(data["approver_staff_id"])
     await verify_approval_assignees(project_id, ids)

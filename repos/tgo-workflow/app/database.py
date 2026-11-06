@@ -17,7 +17,8 @@ def create_database_engine(url: str, *, echo: bool = False) -> AsyncEngine:
 
 
 engine = create_database_engine(
-    settings.DATABASE_URL, echo=settings.DATABASE_ECHO,
+    settings.DATABASE_URL,
+    echo=settings.DATABASE_ECHO,
 )
 
 AsyncSessionLocal = async_sessionmaker(

@@ -7,8 +7,14 @@ from pydantic import BaseModel
 
 class TimerRuntimeState(BaseModel):
     status: Literal[
-        "disabled", "key_missing", "unavailable", "invalid_probe",
-        "scheduler_missing", "worker_waiting", "database_unavailable", "ready",
+        "disabled",
+        "key_missing",
+        "unavailable",
+        "invalid_probe",
+        "scheduler_missing",
+        "worker_waiting",
+        "database_unavailable",
+        "ready",
     ]
     checked_at: datetime
     capability_enabled: bool = True

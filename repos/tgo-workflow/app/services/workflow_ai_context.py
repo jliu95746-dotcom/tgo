@@ -1,4 +1,5 @@
 """Read the accepted workflow snapshot and private billing principal."""
+
 import hmac
 from uuid import UUID
 
@@ -24,7 +25,8 @@ def request_owner(
     reservation: str | None,
     lease: str | None,
 ) -> WorkflowUsageOwner | None:
-    # Direct Python endpoint tests use Header defaults rather than wire strings.
+    # Direct Python endpoint tests use Header defaults rather than wire
+    # strings.
     values = [
         value if isinstance(value, str) else None
         for value in (staff, version, reservation, lease)
@@ -40,14 +42,12 @@ def request_owner(
     ):
         raise HTTPException(403, "工作流额度来源只允许内部服务指定")
     try:
-        return WorkflowUsageOwner.model_validate(
-            {
-                "staff_id": values[0],
-                "staff_token_version": values[1],
-                "reservation_id": values[2],
-                "lease_id": values[3],
-            }
-        )
+        return WorkflowUsageOwner.model_validate({
+            "staff_id": values[0],
+            "staff_token_version": values[1],
+            "reservation_id": values[2],
+            "lease_id": values[3],
+        })
     except ValidationError:
         raise HTTPException(403, "工作流额度来源不完整") from None
 
@@ -94,23 +94,21 @@ async def read_context(
         data = matching[0].get("data")
         if not isinstance(data, dict):
             raise ValueError("Missing agent configuration")
-        context = WorkflowAIContext.model_validate(
-            {
-                "project_id": project_id,
-                "execution_id": execution_id,
-                "node_id": node_id,
-                "agent_id": data.get("agent_id"),
-                "owner": row.ai_usage_owner or {"unmetered": True},
-                "status": row.status,
-                "workflow_lineage": tuple(
-                    row.workflow_lineage or (row.workflow_id,)
-                ),
-                "expected_device_id": data.get("expected_device_id"),
-                "expected_device_policy_digest": data.get(
-                    "expected_device_policy_digest"
-                ),
-            }
-        )
+        context = WorkflowAIContext.model_validate({
+            "project_id": project_id,
+            "execution_id": execution_id,
+            "node_id": node_id,
+            "agent_id": data.get("agent_id"),
+            "owner": row.ai_usage_owner or {"unmetered": True},
+            "status": row.status,
+            "workflow_lineage": tuple(
+                row.workflow_lineage or (row.workflow_id,)
+            ),
+            "expected_device_id": data.get("expected_device_id"),
+            "expected_device_policy_digest": data.get(
+                "expected_device_policy_digest"
+            ),
+        })
         binding = saved_employee_binding(
             row.project_id,
             row.employee_agent_id,

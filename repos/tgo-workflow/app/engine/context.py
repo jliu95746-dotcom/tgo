@@ -6,8 +6,10 @@ from app.schemas.business_query import BusinessExecutionContext
 
 class ExecutionContext:
     def __init__(
-        self, initial_inputs: Optional[Dict[str, Any]] = None,
-        project_id: Optional[str] = None, execution_id: str | None = None,
+        self,
+        initial_inputs: Optional[Dict[str, Any]] = None,
+        project_id: Optional[str] = None,
+        execution_id: str | None = None,
         workflow_lineage: tuple[str, ...] = (),
         employee_agent_id: str | None = None,
         business_context: BusinessExecutionContext | None = None,

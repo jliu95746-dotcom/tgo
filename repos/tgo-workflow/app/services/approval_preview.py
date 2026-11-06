@@ -10,7 +10,9 @@ from app.engine.context import ExecutionContext
 _VARIABLE = re.compile(r"\{\{([^{}]+)\}\}")
 
 
-def render_approval_preview(template: str, values: Mapping[str, object]) -> str:
+def render_approval_preview(
+    template: str, values: Mapping[str, object]
+) -> str:
     """Resolve explicit JSON fields to scalars; never render whole objects."""
     if not isinstance(template, str):
         raise ValueError("审批预览模板无效")
@@ -32,7 +34,9 @@ def render_approval_preview(template: str, values: Mapping[str, object]) -> str:
     return result
 
 
-def approval_preview_digest(approval_id: str, execution_id: str, summary: str) -> str:
+def approval_preview_digest(
+    approval_id: str, execution_id: str, summary: str
+) -> str:
     payload = json.dumps(
         ["workflow-approval-preview-v1", approval_id, execution_id, summary],
         ensure_ascii=False,

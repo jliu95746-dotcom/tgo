@@ -18,7 +18,9 @@ async def await_parallel_branches(
     async def monitor() -> None:
         while not stopped.is_set():
             try:
-                await asyncio.wait_for(stopped.wait(), CONTROL_INTERVAL_SECONDS)
+                await asyncio.wait_for(
+                    stopped.wait(), CONTROL_INTERVAL_SECONDS
+                )
                 return
             except asyncio.TimeoutError:
                 pass
@@ -26,7 +28,9 @@ async def await_parallel_branches(
                 await check_active()
 
     group = asyncio.gather(*tasks)
-    watcher = asyncio.create_task(monitor()) if check_active is not None else None
+    watcher = (
+        asyncio.create_task(monitor()) if check_active is not None else None
+    )
     try:
         async with asyncio.timeout(timeout_seconds):
             if watcher is not None:

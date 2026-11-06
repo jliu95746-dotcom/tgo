@@ -15,7 +15,7 @@ import asyncio
 import hmac
 from app.schemas.execution import (
     ExecutionStatus,
-    WorkflowExecution as WorkflowExecutionSchema, 
+    WorkflowExecution as WorkflowExecutionSchema,
     WorkflowExecuteRequest,
     WorkflowExecutionOrigin,
     WorkflowSyncResponse,
@@ -27,33 +27,48 @@ from app.schemas.execution import (
     NodeFinishedEvent,
     NodeFinishedData,
     WorkflowFinishedEvent,
-    WorkflowFinishedData
+    WorkflowFinishedData,
 )
 from datetime import datetime, timezone
 import time
 from app.services.workflow_dispatch import (
-    enqueue_workflow, revoke_queued_execution, WorkflowDispatchError,
+    enqueue_workflow,
+    revoke_queued_execution,
+    WorkflowDispatchError,
 )
 from app.services.execution_lifecycle import (
-    ExecutionStopped, cancel_running_execution, finish_running_execution,
-    read_execution_status, require_running,
+    ExecutionStopped,
+    cancel_running_execution,
+    finish_running_execution,
+    read_execution_status,
+    require_running,
 )
-from app.services.parallel_node_receipts import preserve_cancelled_parallel_node
+from app.services.parallel_node_receipts import (
+    preserve_cancelled_parallel_node,
+)
 from app.engine.executor import WorkflowExecutor, public_execution_error
 from app.services.workflow_service import WorkflowService
 from app.services.validation_service import ValidationService
 from app.services.execution_definition import execution_graph
 from app.services.execution_snapshot import (
-    copy_json_object, definition_digest, input_receipt_hmac,
-    captured_execution_payload, SNAPSHOT_ERROR,
+    copy_json_object,
+    definition_digest,
+    input_receipt_hmac,
+    captured_execution_payload,
+    SNAPSHOT_ERROR,
 )
 from app.services.approval_retention import scrub_terminal_approval_checkpoints
 from app.services.webhook_lifecycle import scrub_webhook_inputs
 from app.services.workflow_releases import (
-    production_definition, verify_approval_dependencies, verify_execution_binding,
+    production_definition,
+    verify_approval_dependencies,
+    verify_execution_binding,
 )
 from app.services.workflow_inputs import WorkflowInputError, validate_inputs
-from app.services.workflow_lineage import extend_workflow_lineage, require_parent_execution
+from app.services.workflow_lineage import (
+    extend_workflow_lineage,
+    require_parent_execution,
+)
 from app.schemas.capabilities import ExecutionMode
 from app.config import settings
 from app.core.logging import logger
@@ -62,10 +77,13 @@ from app.schemas.business_query import BusinessExecutionContext
 from app.schemas.ai_usage import WorkflowUsageOwner
 from app.services.workflow_ai_context import request_owner
 from app.services.business_query_context import (
-    business_query_record_inputs, require_business_query_context,
+    business_query_record_inputs,
+    require_business_query_context,
 )
 from app.services.employee_workflow_binding import (
-    EmployeeWorkflowBinding, check_employee_binding, saved_employee_binding,
+    EmployeeWorkflowBinding,
+    check_employee_binding,
+    saved_employee_binding,
 )
 from typing import List, Literal
 import uuid
@@ -74,12 +92,14 @@ router = APIRouter()
 
 # --- Helper Methods ---
 
+
 async def _create_execution_record(
-    db: AsyncSession, 
-    workflow_id: str, 
-    project_id: str, 
+    db: AsyncSession,
+    workflow_id: str,
+    project_id: str,
     inputs: dict[str, JsonValue],
-    status: str = "running", *,
+    status: str = "running",
+    *,
     workflow_definition: dict[str, JsonValue] | None = None,
     workflow_version: int | None = None,
     execution_mode: ExecutionMode = "draft_test",
@@ -91,8 +111,11 @@ async def _create_execution_record(
     invocation_input_hmac: str | None = None,
     usage_owner: WorkflowUsageOwner | None = None,
 ) -> WorkflowExecution:
-    if (origin is not None and origin.business_project_id is not None
-            and str(origin.business_project_id) != project_id):
+    if (
+        origin is not None
+        and origin.business_project_id is not None
+        and str(origin.business_project_id) != project_id
+    ):
         raise ValueError("运行来源项目与工作流项目不一致")
     execution_id = execution_id or str(uuid.uuid4())
     db_execution = WorkflowExecution(
@@ -105,23 +128,42 @@ async def _create_execution_record(
         ai_usage_owner=(
             usage_owner.model_dump(mode="json") if usage_owner else None
         ),
-        definition_snapshot=(copy_json_object(workflow_definition) if workflow_definition is not None else None),
+        definition_snapshot=(
+            copy_json_object(workflow_definition)
+            if workflow_definition is not None
+            else None
+        ),
         workflow_version=workflow_version,
         execution_mode=execution_mode,
         release_id=release_id,
         employee_agent_id=employee_agent_id,
         ai_request_id=origin.ai_request_id if origin is not None else None,
-        business_request_id=(str(origin.business_request_id)
-                             if origin is not None and origin.business_request_id is not None else None),
-        visitor_session_id=(str(origin.visitor_session_id)
-                            if origin is not None and origin.visitor_session_id is not None else None),
-        source_message_id=origin.source_message_id if origin is not None else None,
+        business_request_id=(
+            str(origin.business_request_id)
+            if origin is not None and origin.business_request_id is not None
+            else None
+        ),
+        visitor_session_id=(
+            str(origin.visitor_session_id)
+            if origin is not None and origin.visitor_session_id is not None
+            else None
+        ),
+        source_message_id=(
+            origin.source_message_id if origin is not None else None
+        ),
         source_channel=origin.source_channel if origin is not None else None,
-        parent_execution_id=(str(origin.parent_execution_id)
-                             if origin is not None and origin.parent_execution_id is not None else None),
+        parent_execution_id=(
+            str(origin.parent_execution_id)
+            if origin is not None and origin.parent_execution_id is not None
+            else None
+        ),
         workflow_lineage=list(workflow_lineage or (workflow_id,)),
-        definition_digest=(definition_digest(workflow_definition) if workflow_definition is not None else None),
-        started_at=datetime.now(timezone.utc)
+        definition_digest=(
+            definition_digest(workflow_definition)
+            if workflow_definition is not None
+            else None
+        ),
+        started_at=datetime.now(timezone.utc),
     )
     db.add(db_execution)
     await db.commit()
@@ -165,7 +207,9 @@ def _same_approval_invocation(
     workflow_lineage: tuple[str, ...],
     usage_owner: WorkflowUsageOwner | None = None,
 ) -> bool:
-    """A reused invocation key may only refer to the identical approved request."""
+    """
+    A reused invocation key may only refer to the identical approved request.
+    """
     if employee_agent_id is None or origin is None:
         return False
     if saved.input is None:
@@ -217,15 +261,20 @@ def _same_approval_invocation(
 
 
 async def _load_approval_invocation(
-    db: AsyncSession, execution_id: str, project_id: str,
+    db: AsyncSession,
+    execution_id: str,
+    project_id: str,
 ) -> WorkflowExecution | None:
     return await db.scalar(
         select(WorkflowExecution)
         .options(selectinload(WorkflowExecution.node_executions))
-        .where(WorkflowExecution.id == execution_id,
-               WorkflowExecution.project_id == project_id)
+        .where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.project_id == project_id,
+        )
         .execution_options(populate_existing=True)
     )
+
 
 async def _run_stream_execution(
     workflow_id: str,
@@ -235,13 +284,14 @@ async def _run_stream_execution(
     workflow_definition: dict[str, JsonValue],
     started_at: datetime,
     db: AsyncSession,
-    *, employee_binding: EmployeeWorkflowBinding | None = None,
+    *,
+    employee_binding: EmployeeWorkflowBinding | None = None,
     workflow_lineage: tuple[str, ...] = (),
 ):
     start_time = time.time()
     task_id = f"stream-{execution_id}"
     node_count = 0
-    
+
     # 1. Emit workflow_started
     started_event = WorkflowStartedEvent(
         event="workflow_started",
@@ -251,8 +301,8 @@ async def _run_stream_execution(
             id=execution_id,
             workflow_id=workflow_id,
             inputs=inputs,
-            created_at=int(started_at.timestamp())
-        )
+            created_at=int(started_at.timestamp()),
+        ),
     )
     yield f"data: {started_event.model_dump_json()}\n\n"
 
@@ -261,8 +311,10 @@ async def _run_stream_execution(
         await check_employee_binding(employee_binding, db)
 
     executor = WorkflowExecutor(
-        workflow_definition, project_id=project_id,
-        execution_id=execution_id, workflow_lineage=workflow_lineage or (workflow_id,),
+        workflow_definition,
+        project_id=project_id,
+        execution_id=execution_id,
+        workflow_lineage=workflow_lineage or (workflow_id,),
         check_active=check_active,
     )
     queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -282,20 +334,31 @@ async def _run_stream_execution(
                 node_type=node_type,
                 title=node_data.get("title", node_type),
                 index=index,
-                created_at=int(time.time())
-            )
+                created_at=int(time.time()),
+            ),
         )
         await queue.put(f"data: {event.model_dump_json()}\n\n")
 
     async def q_on_node_complete(
-        node_id, node_type, status, input, output, error, duration,
+        node_id,
+        node_type,
+        status,
+        input,
+        output,
+        error,
+        duration,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
     ):
         if status == "cancelled" and await preserve_cancelled_parallel_node(
-            db, project_id=project_id, execution_id=execution_id,
-            node_id=node_id, node_type=node_type,
-            started_at=started_at, completed_at=completed_at, duration=duration,
+            db,
+            project_id=project_id,
+            execution_id=execution_id,
+            node_id=node_id,
+            node_type=node_type,
+            started_at=started_at,
+            completed_at=completed_at,
+            duration=duration,
         ):
             return
         await require_running(db, execution_id, project_id)
@@ -332,8 +395,8 @@ async def _run_stream_execution(
                 status="succeeded" if status == "completed" else "failed",
                 error=error,
                 elapsed_time=duration / 1000.0,
-                finished_at=int(time.time())
-            )
+                finished_at=int(time.time()),
+            ),
         )
         await queue.put(f"data: {event.model_dump_json()}\n\n")
 
@@ -347,7 +410,11 @@ async def _run_stream_execution(
         async def run_executor():
             nonlocal final_output, status, error_msg
             try:
-                final_output = await executor.run(inputs, on_node_start=q_on_node_start, on_node_complete=q_on_node_complete)
+                final_output = await executor.run(
+                    inputs,
+                    on_node_start=q_on_node_start,
+                    on_node_complete=q_on_node_complete,
+                )
                 await check_employee_binding(employee_binding, db)
             except ExecutionStopped:
                 status = "cancelled"
@@ -355,9 +422,11 @@ async def _run_stream_execution(
             except Exception as e:
                 status = "failed"
                 error_msg = public_execution_error(e)
-                logger.error("Workflow stream execution error: %s", type(e).__name__)
+                logger.error(
+                    "Workflow stream execution error: %s", type(e).__name__
+                )
             finally:
-                await queue.put(None) # Signal end
+                await queue.put(None)  # Signal end
 
         executor_task = asyncio.create_task(run_executor())
 
@@ -391,12 +460,19 @@ async def _run_stream_execution(
     duration_ms = int((time.time() - start_time) * 1000)
     if status != "cancelled":
         changed = await finish_running_execution(
-            db, execution_id, project_id, status,
-            final_output, error_msg, duration_ms,
+            db,
+            execution_id,
+            project_id,
+            status,
+            final_output,
+            error_msg,
+            duration_ms,
         )
         if not changed:
             saved_status = await read_execution_status(
-                db, execution_id, project_id,
+                db,
+                execution_id,
+                project_id,
             )
             status = "cancelled" if saved_status == "cancelled" else "failed"
             final_output = None
@@ -411,31 +487,43 @@ async def _run_stream_execution(
         data=WorkflowFinishedData(
             id=execution_id,
             workflow_id=workflow_id,
-            status="succeeded" if status == "completed" else (
-                "cancelled" if status == "cancelled" else "failed"
+            status=(
+                "succeeded"
+                if status == "completed"
+                else ("cancelled" if status == "cancelled" else "failed")
             ),
             outputs=final_output if final_output is not None else {},
             error=error_msg,
             elapsed_time=duration_ms / 1000.0,
             total_steps=node_count,
-            finished_at=int(time.time())
-        )
+            finished_at=int(time.time()),
+        ),
     )
     yield f"data: {finished_event.model_dump_json()}\n\n"
 
 
 async def _stream_with_owned_session(
-    workflow_id: str, project_id: str, execution_id: str,
-    inputs: dict[str, JsonValue], workflow_definition: dict[str, JsonValue],
+    workflow_id: str,
+    project_id: str,
+    execution_id: str,
+    inputs: dict[str, JsonValue],
+    workflow_definition: dict[str, JsonValue],
     started_at: datetime,
-    *, employee_binding: EmployeeWorkflowBinding | None = None,
+    *,
+    employee_binding: EmployeeWorkflowBinding | None = None,
     workflow_lineage: tuple[str, ...] = (),
 ) -> AsyncIterator[str]:
     # Response iteration may outlive the request dependency's DB session.
     db = AsyncSessionLocal()
     stream = _run_stream_execution(
-        workflow_id, project_id, execution_id, inputs, workflow_definition,
-        started_at, db, employee_binding=employee_binding,
+        workflow_id,
+        project_id,
+        execution_id,
+        inputs,
+        workflow_definition,
+        started_at,
+        db,
+        employee_binding=employee_binding,
         workflow_lineage=workflow_lineage,
     )
     exhausted = False
@@ -449,9 +537,12 @@ async def _stream_with_owned_session(
                 await stream.aclose()
                 await db.rollback()
                 if not exhausted:
-                    await cancel_running_execution(db, execution_id, project_id)
+                    await cancel_running_execution(
+                        db, execution_id, project_id
+                    )
             finally:
                 await db.close()
+
 
 async def _run_sync_execution(
     workflow_id: str,
@@ -461,19 +552,23 @@ async def _run_sync_execution(
     workflow_definition: dict,
     started_at: datetime,
     db: AsyncSession,
-    *, employee_binding: EmployeeWorkflowBinding | None = None,
+    *,
+    employee_binding: EmployeeWorkflowBinding | None = None,
     workflow_lineage: tuple[str, ...] = (),
     employee_agent_id: str | None = None,
     business_context: BusinessExecutionContext | None = None,
 ):
     perf_start = time.time()
+
     async def check_active() -> None:
         await require_running(db, execution_id, project_id)
         await check_employee_binding(employee_binding, db)
 
     executor = WorkflowExecutor(
-        workflow_definition, project_id=project_id,
-        execution_id=execution_id, workflow_lineage=workflow_lineage or (workflow_id,),
+        workflow_definition,
+        project_id=project_id,
+        execution_id=execution_id,
+        workflow_lineage=workflow_lineage or (workflow_id,),
         employee_agent_id=employee_agent_id,
         business_context=business_context,
         check_active=check_active,
@@ -481,17 +576,28 @@ async def _run_sync_execution(
 
     async def sync_on_node_start(node_id, node_type, node_data, index):
         await check_active()
-    
+
     # 定义同步模式下的回调（保存到 DB）
     async def sync_on_node_complete(
-        node_id, node_type, status, input, output, error, duration,
+        node_id,
+        node_type,
+        status,
+        input,
+        output,
+        error,
+        duration,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
     ):
         if status == "cancelled" and await preserve_cancelled_parallel_node(
-            db, project_id=project_id, execution_id=execution_id,
-            node_id=node_id, node_type=node_type,
-            started_at=started_at, completed_at=completed_at, duration=duration,
+            db,
+            project_id=project_id,
+            execution_id=execution_id,
+            node_id=node_id,
+            node_type=node_type,
+            started_at=started_at,
+            completed_at=completed_at,
+            duration=duration,
         ):
             return
         await require_running(db, execution_id, project_id)
@@ -518,7 +624,8 @@ async def _run_sync_execution(
     error_msg = None
     try:
         final_output = await executor.run(
-            inputs, on_node_start=sync_on_node_start,
+            inputs,
+            on_node_start=sync_on_node_start,
             on_node_complete=sync_on_node_complete,
         )
         await check_employee_binding(employee_binding, db)
@@ -531,11 +638,16 @@ async def _run_sync_execution(
 
     perf_duration = time.time() - perf_start
     end_time_dt = datetime.now(timezone.utc)
-    
+
     # 更新最终状态
     changed = await finish_running_execution(
-        db, execution_id, project_id, "completed" if success else "failed",
-        final_output, error_msg, int(perf_duration * 1000),
+        db,
+        execution_id,
+        project_id,
+        "completed" if success else "failed",
+        final_output,
+        error_msg,
+        int(perf_duration * 1000),
     )
     if not changed:
         success = False
@@ -547,37 +659,46 @@ async def _run_sync_execution(
         "metadata": {
             "duration": round(perf_duration, 3),
             "startTime": started_at.isoformat(),
-            "endTime": end_time_dt.isoformat()
-        }
+            "endTime": end_time_dt.isoformat(),
+        },
     }
 
+
 # --- Routes ---
+
 
 @router.post(
     "/{workflow_id}/execute",
     response_model=WorkflowExecutionSchema | WorkflowSyncResponse,
     summary="Execute Workflow",
     description="""
-    Execute a workflow using one of three supported modes:
-    
-    1. **Synchronous Mode (Default, `stream=False`, `async=False`)**:
-       Executes the workflow immediately and returns the final output. Ideal for short-lived tasks.
-    
-    2. **Asynchronous Mode (`async=True`)**:
-       Creates an execution record and triggers a background Celery task. Returns the execution record immediately.
-    
-    3. **Streaming Mode (`stream=True`)**:
-       Returns a Server-Sent Events (SSE) stream, pushing real-time events as the workflow progresses.
-    
-    ### Streaming Mode Events (SSE):
-    When `stream=True`, the response header includes `Content-Type: text/event-stream`.
-    Each message starts with `data: ` followed by a JSON string and ends with `\n\n`.
-    
-    - **workflow_started**: Workflow execution initialized.
-    - **node_started**: A specific node has started executing.
-    - **node_finished**: A specific node has finished (success or failure).
-    - **workflow_finished**: Entire workflow has finished.
-    """,
+                Execute a workflow using one of three supported modes:
+
+                1. **Synchronous Mode (Default, `stream=False`,
+                `async=False`)**:
+                   Executes the workflow immediately and returns the final
+                   output. Ideal for short-lived tasks.
+
+                2. **Asynchronous Mode (`async=True`)**:
+                   Creates an execution record and triggers a background Celery
+                   task. Returns the execution record immediately.
+
+                3. **Streaming Mode (`stream=True`)**:
+                   Returns a Server-Sent Events (SSE) stream, pushing real-time
+                   events as the workflow progresses.
+
+                ### Streaming Mode Events (SSE):
+                When `stream=True`, the response header includes `Content-Type:
+                text/event-stream`.
+                Each message starts with `data: ` followed by a JSON string and
+                ends with `\n\n`.
+
+                - **workflow_started**: Workflow execution initialized.
+                - **node_started**: A specific node has started executing.
+                - **node_finished**: A specific node has finished (success or
+                failure).
+                - **workflow_finished**: Entire workflow has finished.
+                """,
     responses={
         200: {
             "description": "Successful Response",
@@ -585,56 +706,87 @@ async def _run_sync_execution(
                 "application/json": {
                     "schema": {
                         "oneOf": [
-                            {"$ref": "#/components/schemas/WorkflowSyncResponse"},
-                            {"$ref": "#/components/schemas/WorkflowExecution"}
+                            {
+                                "$ref": (
+                                    "#/components/schemas/WorkflowSyncResponse"
+                                )
+                            },
+                            {"$ref": "#/components/schemas/WorkflowExecution"},
                         ]
                     },
                     "examples": {
                         "sync_mode": {
                             "summary": "Synchronous Mode (Default)",
-                            "description": "Returns final output and metadata.",
+                            "description": (
+                                "Returns final output and metadata."
+                            ),
                             "value": {
                                 "success": True,
-                                "output": {"answer": "Paris is the capital of France."},
+                                "output": {
+                                    "answer": "Paris is the capital of France."
+                                },
                                 "metadata": {
                                     "duration": 1.234,
                                     "startTime": "2026-01-03T06:16:44.478Z",
-                                    "endTime": "2026-01-03T06:16:45.712Z"
-                                }
-                            }
+                                    "endTime": "2026-01-03T06:16:45.712Z",
+                                },
+                            },
                         },
                         "async_mode": {
                             "summary": "Asynchronous Mode (async=true)",
-                            "description": "Returns the execution record with 'pending' status.",
+                            "description": (
+                                "Returns the execution record with 'pending'"
+                                " status."
+                            ),
                             "value": {
                                 "id": "d73d5f18-3cc0-400f-ab18-c0a5f05625f5",
                                 "project_id": "proj-123",
                                 "workflow_id": "wf-456",
                                 "status": "pending",
-                                "input": {"query": "What is the capital of France?"},
+                                "input": {
+                                    "query": "What is the capital of France?"
+                                },
                                 "output": None,
                                 "error": None,
                                 "started_at": "2026-01-03T06:16:44.478Z",
                                 "completed_at": None,
                                 "duration": None,
-                                "node_executions": []
-                            }
-                        }
-                    }
+                                "node_executions": [],
+                            },
+                        },
+                    },
                 },
                 "text/event-stream": {
                     "description": "Streaming Mode (stream=true)",
                     "example": (
-                        "data: {\"event\": \"workflow_started\", \"workflow_run_id\": \"uuid-1\", \"task_id\": \"stream-uuid-1\", \"data\": {\"id\": \"uuid-1\", \"workflow_id\": \"wf-1\", \"inputs\": {}, \"created_at\": 1735790000}}\n\n"
-                        "data: {\"event\": \"node_started\", \"workflow_run_id\": \"uuid-1\", \"task_id\": \"stream-uuid-1\", \"data\": {\"id\": \"node-exec-1\", \"node_id\": \"node-1\", \"node_type\": \"llm\", \"title\": \"AI Chat\", \"index\": 1, \"created_at\": 1735790001}}\n\n"
-                        "data: {\"event\": \"node_finished\", \"workflow_run_id\": \"uuid-1\", \"task_id\": \"stream-uuid-1\", \"data\": {\"id\": \"node-exec-1\", \"node_id\": \"node-1\", \"node_type\": \"llm\", \"inputs\": {}, \"outputs\": {\"text\": \"Hello\"}, \"status\": \"succeeded\", \"error\": null, \"elapsed_time\": 0.5, \"finished_at\": 1735790002}}\n\n"
-                        "data: {\"event\": \"workflow_finished\", \"workflow_run_id\": \"uuid-1\", \"task_id\": \"stream-uuid-1\", \"data\": {\"id\": \"uuid-1\", \"workflow_id\": \"wf-1\", \"status\": \"succeeded\", \"outputs\": {\"result\": \"Hello\"}, \"error\": null, \"elapsed_time\": 0.6, \"total_steps\": 1, \"finished_at\": 1735790002}}\n\n"
-                    )
-                }
-            }
+                        'data: {"event": "workflow_started",'
+                        ' "workflow_run_id": "uuid-1", "task_id":'
+                        ' "stream-uuid-1", "data": {"id": "uuid-1",'
+                        ' "workflow_id": "wf-1", "inputs": {}, "created_at":'
+                        ' 1735790000}}\n\ndata: {"event": "node_started",'
+                        ' "workflow_run_id": "uuid-1", "task_id":'
+                        ' "stream-uuid-1", "data": {"id": "node-exec-1",'
+                        ' "node_id": "node-1", "node_type": "llm", "title":'
+                        ' "AI Chat", "index": 1, "created_at":'
+                        ' 1735790001}}\n\ndata: {"event": "node_finished",'
+                        ' "workflow_run_id": "uuid-1", "task_id":'
+                        ' "stream-uuid-1", "data": {"id": "node-exec-1",'
+                        ' "node_id": "node-1", "node_type": "llm", "inputs":'
+                        ' {}, "outputs": {"text": "Hello"}, "status":'
+                        ' "succeeded", "error": null, "elapsed_time": 0.5,'
+                        ' "finished_at": 1735790002}}\n\ndata: {"event":'
+                        ' "workflow_finished", "workflow_run_id": "uuid-1",'
+                        ' "task_id": "stream-uuid-1", "data": {"id": "uuid-1",'
+                        ' "workflow_id": "wf-1", "status": "succeeded",'
+                        ' "outputs": {"result": "Hello"}, "error": null,'
+                        ' "elapsed_time": 0.6, "total_steps": 1,'
+                        ' "finished_at": 1735790002}}\n\n'
+                    ),
+                },
+            },
         },
-        404: {"description": "Workflow not found"}
-    }
+        404: {"description": "Workflow not found"},
+    },
 )
 async def execute_workflow(
     workflow_id: str,
@@ -679,7 +831,9 @@ async def execute_workflow(
     release_id = None
     if request.execution_mode == "production":
         if workflow.status != "active":
-            raise HTTPException(status_code=409, detail="请先发布工作流，再用于正式业务执行。")
+            raise HTTPException(
+                status_code=409, detail="请先发布工作流，再用于正式业务执行。"
+            )
         published = await production_definition(
             db, workflow_id, project_id, request.release_version
         )
@@ -698,12 +852,16 @@ async def execute_workflow(
             isinstance(node, dict) and node.get("type") == "timer"
             for node in published_nodes
         ):
-            raise HTTPException(403, "定时工作流必须通过已登记计划派发，不能直接正式执行。")
+            raise HTTPException(
+                403, "定时工作流必须通过已登记计划派发，不能直接正式执行。"
+            )
         if isinstance(published_nodes, list) and any(
             isinstance(node, dict) and node.get("type") == "webhook"
             for node in published_nodes
         ):
-            raise HTTPException(403, "外部通知工作流必须通过已签名通知派发，不能直接正式执行。")
+            raise HTTPException(
+                403, "外部通知工作流必须通过已签名通知派发，不能直接正式执行。"
+            )
     elif (
         request.release_version is not None
         or request.expected_release_id is not None
@@ -719,14 +877,19 @@ async def execute_workflow(
         )
     selected_nodes = execution_graph(selected_definition).nodes
     if any(node.get("type") == "event" for node in selected_nodes):
-        raise HTTPException(403, "事件工作流只能通过已签名的内部事件入口执行。")
+        raise HTTPException(
+            403, "事件工作流只能通过已签名的内部事件入口执行。"
+        )
 
     has_approval = any(
         node.get("type") == "approval" for node in selected_nodes
     )
     if has_approval:
         if request.stream or not request.async_mode:
-            raise HTTPException(422, "人工审批流程必须使用异步执行，等待期间通过运行记录查询状态。")
+            raise HTTPException(
+                422,
+                "人工审批流程必须使用异步执行，等待期间通过运行记录查询状态。",
+            )
         await verify_approval_dependencies(selected_definition, project_id)
 
     has_aftersales_review = any(
@@ -743,13 +906,17 @@ async def execute_workflow(
         or request.origin.business_request_id is None
         or request.origin.visitor_session_id is None
     ):
-        raise HTTPException(403, "售后核对任务仅允许已核验的正式员工客户会话创建。")
+        raise HTTPException(
+            403, "售后核对任务仅允许已核验的正式员工客户会话创建。"
+        )
 
     has_business_query = any(
         node.get("type") == "business_query" for node in selected_nodes
     )
     if has_business_query and (request.stream or request.async_mode):
-        raise HTTPException(422, "受控业务查询仅支持同步执行，客户会话凭证不得入队或持久化")
+        raise HTTPException(
+            422, "受控业务查询仅支持同步执行，客户会话凭证不得入队或持久化"
+        )
 
     try:
         validated_inputs = validate_inputs(selected_definition, request.inputs)
@@ -786,7 +953,9 @@ async def execute_workflow(
             or release_id is None
             or release_digest is None
         ):
-            raise HTTPException(422, "员工工作流执行必须指定完整的固定发布版本")
+            raise HTTPException(
+                422, "员工工作流执行必须指定完整的固定发布版本"
+            )
         key = settings.SECRET_KEY
         if key is None or not key.get_secret_value():
             raise HTTPException(503, "员工工作流内部核验未配置")
@@ -808,9 +977,11 @@ async def execute_workflow(
             raise HTTPException(403, str(error)) from None
         try:
             workflow_lineage = extend_workflow_lineage(
-                request.origin.workflow_lineage
-                if request.origin is not None
-                else (),
+                (
+                    request.origin.workflow_lineage
+                    if request.origin is not None
+                    else ()
+                ),
                 workflow_id,
             )
         except ValueError as error:
@@ -828,7 +999,9 @@ async def execute_workflow(
                 release_digest,
             )
         except PermissionError:
-            raise HTTPException(409, "员工工作流授权已变更，停止执行") from None
+            raise HTTPException(
+                409, "员工工作流授权已变更，停止执行"
+            ) from None
         except RuntimeError:
             raise HTTPException(503, "员工工作流授权暂时无法核验") from None
         current_status = await db.scalar(
@@ -858,7 +1031,9 @@ async def execute_workflow(
     approval_invocation_id: str | None = None
     if has_approval and employee_agent_id is not None:
         if request.invocation_key is None or execution_origin is None:
-            raise HTTPException(422, "员工审批工作流必须提供运行来源和防重复调用标识")
+            raise HTTPException(
+                422, "员工审批工作流必须提供运行来源和防重复调用标识"
+            )
         approval_invocation_id = str(
             uuid.uuid5(
                 uuid.NAMESPACE_URL,
@@ -964,7 +1139,9 @@ async def execute_workflow(
                     workflow_lineage=workflow_lineage,
                     usage_owner=usage_owner,
                 ):
-                    raise HTTPException(409, "防重复调用标识已用于不同的工作流请求")
+                    raise HTTPException(
+                        409, "防重复调用标识已用于不同的工作流请求"
+                    )
                 return existing
         try:
             db_execution = await _create_execution_record(
@@ -1003,7 +1180,9 @@ async def execute_workflow(
                 workflow_lineage=workflow_lineage,
                 usage_owner=usage_owner,
             ):
-                raise HTTPException(409, "防重复调用标识已用于不同的工作流请求") from None
+                raise HTTPException(
+                    409, "防重复调用标识已用于不同的工作流请求"
+                ) from None
             return existing
 
         try:
@@ -1060,29 +1239,38 @@ async def execute_workflow(
             business_context=business_context,
         )
 
-@router.get("/executions/{execution_id}", response_model=WorkflowExecutionSchema)
+
+@router.get(
+    "/executions/{execution_id}", response_model=WorkflowExecutionSchema
+)
 async def get_execution_status(
     execution_id: str,
     project_id: str = Query(..., description="Project ID"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     query = (
         select(WorkflowExecution)
         .options(selectinload(WorkflowExecution.node_executions))
-        .where(WorkflowExecution.id == execution_id, WorkflowExecution.project_id == project_id)
+        .where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.project_id == project_id,
+        )
     )
     result = await db.execute(query)
     execution = result.scalar_one_or_none()
-    
+
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
-    
+
     return execution
+
 
 def _history_anchor(before_started_at: datetime | None, before_id: str | None):
     """Keep pages stable when newer runs arrive between requests."""
     if (before_started_at is None) != (before_id is None):
-        raise HTTPException(400, "before_started_at and before_id must be provided together")
+        raise HTTPException(
+            400, "before_started_at and before_id must be provided together"
+        )
     if before_started_at is None:
         return None
     # SQLite-backed previews serialize UTC rows without a timezone suffix.
@@ -1090,12 +1278,16 @@ def _history_anchor(before_started_at: datetime | None, before_id: str | None):
         before_started_at = before_started_at.replace(tzinfo=timezone.utc)
     return or_(
         WorkflowExecution.started_at < before_started_at,
-        and_(WorkflowExecution.started_at == before_started_at,
-             WorkflowExecution.id < before_id),
+        and_(
+            WorkflowExecution.started_at == before_started_at,
+            WorkflowExecution.id < before_id,
+        ),
     )
 
 
-@router.get("/{workflow_id}/executions", response_model=List[WorkflowExecutionSchema])
+@router.get(
+    "/{workflow_id}/executions", response_model=List[WorkflowExecutionSchema]
+)
 async def get_workflow_executions(
     workflow_id: str,
     project_id: str = Query(..., description="Project ID"),
@@ -1103,14 +1295,19 @@ async def get_workflow_executions(
     limit: int = Query(20, ge=1, le=100),
     before_started_at: datetime | None = Query(None),
     before_id: str | None = Query(None, min_length=1, max_length=64),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     anchor = _history_anchor(before_started_at, before_id)
     query = (
         select(WorkflowExecution)
         .options(selectinload(WorkflowExecution.node_executions))
-        .where(WorkflowExecution.workflow_id == workflow_id, WorkflowExecution.project_id == project_id)
-        .order_by(desc(WorkflowExecution.started_at), desc(WorkflowExecution.id))
+        .where(
+            WorkflowExecution.workflow_id == workflow_id,
+            WorkflowExecution.project_id == project_id,
+        )
+        .order_by(
+            desc(WorkflowExecution.started_at), desc(WorkflowExecution.id)
+        )
         .offset(skip)
         .limit(limit)
     )
@@ -1142,14 +1339,18 @@ async def get_business_request_executions(
         WorkflowExecution.business_request_id == str(business_request_id),
     ]
     if visitor_session_id is not None:
-        conditions.append(WorkflowExecution.visitor_session_id == str(visitor_session_id))
+        conditions.append(
+            WorkflowExecution.visitor_session_id == str(visitor_session_id)
+        )
     if anchor is not None:
         conditions.append(anchor)
     query = (
         select(WorkflowExecution)
         .options(selectinload(WorkflowExecution.node_executions))
         .where(*conditions)
-        .order_by(desc(WorkflowExecution.started_at), desc(WorkflowExecution.id))
+        .order_by(
+            desc(WorkflowExecution.started_at), desc(WorkflowExecution.id)
+        )
         .offset(skip)
         .limit(limit)
     )
@@ -1183,10 +1384,12 @@ async def get_child_executions(
 ):
     _require_internal_read_access(x_internal_api_key)
     anchor = _history_anchor(before_started_at, before_id)
-    parent_exists = await db.scalar(select(WorkflowExecution.id).where(
-        WorkflowExecution.id == str(parent_execution_id),
-        WorkflowExecution.project_id == project_id,
-    ))
+    parent_exists = await db.scalar(
+        select(WorkflowExecution.id).where(
+            WorkflowExecution.id == str(parent_execution_id),
+            WorkflowExecution.project_id == project_id,
+        )
+    )
     if parent_exists is None:
         raise HTTPException(404, "Parent execution not found")
     query = (
@@ -1196,7 +1399,9 @@ async def get_child_executions(
             WorkflowExecution.project_id == project_id,
             WorkflowExecution.parent_execution_id == str(parent_execution_id),
         )
-        .order_by(desc(WorkflowExecution.started_at), desc(WorkflowExecution.id))
+        .order_by(
+            desc(WorkflowExecution.started_at), desc(WorkflowExecution.id)
+        )
         .offset(skip)
         .limit(limit)
     )
@@ -1230,7 +1435,9 @@ async def get_visitor_session_executions(
             WorkflowExecution.visitor_session_id == str(visitor_session_id),
             WorkflowExecution.business_request_id.isnot(None),
         )
-        .order_by(desc(WorkflowExecution.started_at), desc(WorkflowExecution.id))
+        .order_by(
+            desc(WorkflowExecution.started_at), desc(WorkflowExecution.id)
+        )
         .offset(skip)
         .limit(limit)
     )
@@ -1240,24 +1447,30 @@ async def get_visitor_session_executions(
     return list(result.scalars().all())
 
 
-@router.post("/executions/{execution_id}/cancel", response_model=WorkflowExecutionCancelResponse)
+@router.post(
+    "/executions/{execution_id}/cancel",
+    response_model=WorkflowExecutionCancelResponse,
+)
 async def cancel_execution(
     execution_id: str,
     project_id: str = Query(..., description="Project ID"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     query = (
         select(WorkflowExecution)
-        .where(WorkflowExecution.id == execution_id, WorkflowExecution.project_id == project_id)
+        .where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.project_id == project_id,
+        )
         .with_for_update()
         .execution_options(populate_existing=True)
     )
     result = await db.execute(query)
     execution = result.scalar_one_or_none()
-    
+
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
-        
+
     if execution.status == "cancelled":
         completed_at = execution.completed_at
         if completed_at is None:
@@ -1266,20 +1479,33 @@ async def cancel_execution(
         await scrub_webhook_inputs(db, project_id, execution_id)
         await db.commit()
         return WorkflowExecutionCancelResponse(
-            id=execution_id, status=ExecutionStatus.CANCELLED,
+            id=execution_id,
+            status=ExecutionStatus.CANCELLED,
             cancelled_at=completed_at,
         )
 
-    if execution.status not in ["pending", "running", "waiting_approval", "pending_resume"]:
-        raise HTTPException(status_code=400, detail=f"Cannot cancel execution in {execution.status} status")
-        
+    if execution.status not in [
+        "pending",
+        "running",
+        "waiting_approval",
+        "pending_resume",
+    ]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel execution in {execution.status} status",
+        )
+
     # Update status in DB
     completed_at = datetime.now(timezone.utc)
     if execution.status == "waiting_approval" and execution.active_approval_id:
-        approval = await db.get(WorkflowApprovalRequest, execution.active_approval_id)
+        approval = await db.get(
+            WorkflowApprovalRequest, execution.active_approval_id
+        )
         if (
-            approval is not None and approval.project_id == project_id
-            and approval.execution_id == execution_id and approval.status == "pending"
+            approval is not None
+            and approval.project_id == project_id
+            and approval.execution_id == execution_id
+            and approval.status == "pending"
         ):
             approval.status = "cancelled"
             approval.decided_at = completed_at
@@ -1289,12 +1515,12 @@ async def cancel_execution(
     await scrub_terminal_approval_checkpoints(db, project_id, execution_id)
     await scrub_webhook_inputs(db, project_id, execution_id)
     await db.commit()
-    
+
     # Do not kill a worker process: it may already be handling another task.
     await revoke_queued_execution(execution_id)
-    
+
     return WorkflowExecutionCancelResponse(
         id=execution_id,
         status=ExecutionStatus.CANCELLED,
-        cancelled_at=completed_at
+        cancelled_at=completed_at,
     )

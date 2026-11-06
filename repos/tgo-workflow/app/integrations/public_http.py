@@ -13,13 +13,18 @@ import httpx
 
 Resolver = Callable[[str, int], Awaitable[list[str]]]
 MAX_API_RESPONSE_BYTES = 1024 * 1024
-_private_query: ContextVar[bool] = ContextVar("workflow_private_query", default=False)
+_private_query: ContextVar[bool] = ContextVar(
+    "workflow_private_query", default=False
+)
 
 
 class _PrivateQueryLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if _private_query.get():
-            record.msg, record.args = "Workflow API HTTP operation completed", ()
+            record.msg, record.args = (
+                "Workflow API HTTP operation completed",
+                (),
+            )
         return True
 
 
@@ -91,9 +96,13 @@ class PinnedPublicGetTransport(httpx.AsyncBaseTransport):
             or self.maximum < 1
         ):
             raise PublicTargetRejected()
-        self.inner = inner or httpx.AsyncHTTPTransport(trust_env=False, retries=0)
+        self.inner = inner or httpx.AsyncHTTPTransport(
+            trust_env=False, retries=0
+        )
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    async def handle_async_request(
+        self, request: httpx.Request
+    ) -> httpx.Response:
         if (
             request.method != "GET"
             or request.url.scheme != "https"
@@ -121,7 +130,10 @@ class PinnedPublicGetTransport(httpx.AsyncBaseTransport):
             request.url.copy_with(host=addresses[0]),
             headers=headers,
             stream=request.stream,
-            extensions={**request.extensions, "sni_hostname": self.target.host},
+            extensions={
+                **request.extensions,
+                "sni_hostname": self.target.host,
+            },
         )
         response = await self.inner.handle_async_request(pinned)
         try:
@@ -170,9 +182,14 @@ async def bounded_api_get(
     inner: httpx.AsyncBaseTransport | None = None,
     max_response_bytes: int = MAX_API_RESPONSE_BYTES,
 ) -> httpx.Response:
-    """Return a bounded response without exposing the URL in HTTP client logs."""
+    """
+    Return a bounded response without exposing the URL in HTTP client logs.
+    """
     transport = PinnedPublicGetTransport(
-        url, resolver=resolver, inner=inner, max_response_bytes=max_response_bytes
+        url,
+        resolver=resolver,
+        inner=inner,
+        max_response_bytes=max_response_bytes,
     )
     token = _private_query.set(True)
     try:

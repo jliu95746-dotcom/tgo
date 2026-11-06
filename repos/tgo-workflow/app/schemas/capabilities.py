@@ -1,4 +1,6 @@
-"""Executable workflow capabilities, distinct from registered placeholder nodes."""
+"""
+Executable workflow capabilities, distinct from registered placeholder nodes.
+"""
 
 from typing import Literal
 

@@ -33,9 +33,14 @@ return 1
 
 
 class ProbeStore(Protocol):
-    def get(self, key: str) -> RawProbe: ...
-    def time(self) -> tuple[int, int]: ...
-    def eval(self, script: str, count: int, *args: str | bytes) -> int: ...
+    def get(self, key: str) -> RawProbe:
+        ...
+
+    def time(self) -> tuple[int, int]:
+        ...
+
+    def eval(self, script: str, count: int, *args: str | bytes) -> int:
+        ...
 
 
 class ProbeMessage(BaseModel):
@@ -61,12 +66,19 @@ def probe_scope() -> str | None:
     if secret is None or not secret.get_secret_value():
         return None
     target = make_url(settings.DATABASE_URL).set(password=None)
-    context = json.dumps([
-        "timer-runtime-v1", target.render_as_string(hide_password=True),
-        settings.WORKFLOW_QUEUE_NAME, settings.API_INTERNAL_SERVICE_URL,
-    ], separators=(",", ":"))
+    context = json.dumps(
+        [
+            "timer-runtime-v1",
+            target.render_as_string(hide_password=True),
+            settings.WORKFLOW_QUEUE_NAME,
+            settings.API_INTERNAL_SERVICE_URL,
+        ],
+        separators=(",", ":"),
+    )
     return hmac.new(
-        secret.get_secret_value().encode(), context.encode(), hashlib.sha256,
+        secret.get_secret_value().encode(),
+        context.encode(),
+        hashlib.sha256,
     ).hexdigest()
 
 
@@ -89,12 +101,14 @@ def recent(probe: TimerProbe, now: int, seconds: int = RECENT_SECONDS) -> bool:
 
 
 def assess_runtime(
-    beat_raw: RawProbe, worker_raw: RawProbe, *, now: int,
+    beat_raw: RawProbe,
+    worker_raw: RawProbe,
+    *,
+    now: int,
 ) -> TimerRuntimeState:
     result = TimerRuntimeState(
-        status="scheduler_missing", checked_at=datetime.fromtimestamp(
-            now, timezone.utc
-        ),
+        status="scheduler_missing",
+        checked_at=datetime.fromtimestamp(now, timezone.utc),
     )
     if beat_raw is None:
         return result
@@ -126,27 +140,39 @@ def assess_runtime(
 
 
 def issue_probe(
-    store: ProbeStore, scope: str, instance: UUID,
+    store: ProbeStore,
+    scope: str,
+    instance: UUID,
     publish: Callable[[ProbeMessage], None],
 ) -> None:
     probe = TimerProbe(
-        instance_id=instance, probe_id=uuid4(), role="beat",
+        instance_id=instance,
+        probe_id=uuid4(),
+        role="beat",
         observed_at=store.time()[0],
     )
     challenge = probe.model_copy(update={"role": "challenge"})
     stored = store.eval(
-        ISSUE, 2, probe_key(scope, "beat"),
+        ISSUE,
+        2,
+        probe_key(scope, "beat"),
         probe_key(scope, "challenge:" + probe.probe_id.hex),
-        probe.model_dump_json(), challenge.model_dump_json(),
+        probe.model_dump_json(),
+        challenge.model_dump_json(),
     )
     if stored == 1:
-        publish(ProbeMessage(
-            instance_id=probe.instance_id, probe_id=probe.probe_id,
-        ))
+        publish(
+            ProbeMessage(
+                instance_id=probe.instance_id,
+                probe_id=probe.probe_id,
+            )
+        )
 
 
 def consume_probe(
-    store: ProbeStore, scope: str, message: ProbeMessage,
+    store: ProbeStore,
+    scope: str,
+    message: ProbeMessage,
     check_database: Callable[[], bool],
 ) -> bool:
     beat_key = probe_key(scope, "beat")
@@ -155,12 +181,15 @@ def consume_probe(
     challenge = decode_probe(raw, "challenge")
     beat = decode_probe(store.get(beat_key), "beat")
     now = store.time()[0]
-    if (challenge is None or beat is None
-            or challenge.probe_id != message.probe_id
-            or challenge.instance_id != message.instance_id
-            or beat.instance_id != message.instance_id
-            or not recent(challenge, now, CHALLENGE_SECONDS)
-            or not recent(beat, now)):
+    if (
+        challenge is None
+        or beat is None
+        or challenge.probe_id != message.probe_id
+        or challenge.instance_id != message.instance_id
+        or beat.instance_id != message.instance_id
+        or not recent(challenge, now, CHALLENGE_SECONDS)
+        or not recent(beat, now)
+    ):
         return False
     try:
         database_ready = check_database() is True
@@ -169,17 +198,31 @@ def consume_probe(
     current_raw = store.get(beat_key)
     current = decode_probe(current_raw, "beat")
     now = store.time()[0]
-    if (current is None or current.instance_id != message.instance_id
-            or not recent(current, now)
-            or not recent(challenge, now, CHALLENGE_SECONDS)):
+    if (
+        current is None
+        or current.instance_id != message.instance_id
+        or not recent(current, now)
+        or not recent(challenge, now, CHALLENGE_SECONDS)
+    ):
         return False
     receipt = TimerProbe(
-        role="worker", instance_id=message.instance_id,
-        probe_id=message.probe_id, observed_at=now,
+        role="worker",
+        instance_id=message.instance_id,
+        probe_id=message.probe_id,
+        observed_at=now,
         database_ready=database_ready,
     )
     assert raw is not None and current_raw is not None
-    return store.eval(
-        ACKNOWLEDGE, 3, beat_key, challenge_key, probe_key(scope, "worker"),
-        current_raw, raw, receipt.model_dump_json(),
-    ) == 1
+    return (
+        store.eval(
+            ACKNOWLEDGE,
+            3,
+            beat_key,
+            challenge_key,
+            probe_key(scope, "worker"),
+            current_raw,
+            raw,
+            receipt.model_dump_json(),
+        )
+        == 1
+    )

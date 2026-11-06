@@ -1,4 +1,6 @@
-"""Device references exposed without workflow definitions or business inputs."""
+"""
+Device references exposed without workflow definitions or business inputs.
+"""
 
 from typing import Literal
 

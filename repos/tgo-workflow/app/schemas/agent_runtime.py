@@ -15,13 +15,18 @@ class AgentRuntimeRequest(BaseModel):
     session_id: str | None = Field(default=None, max_length=255)
     expected_device_id: UUID | None = None
     expected_device_policy_digest: str | None = Field(
-        default=None, pattern=r"^[0-9a-f]{64}$",
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
     )
 
     @model_validator(mode="after")
     def require_complete_device_pin(self) -> "AgentRuntimeRequest":
-        if (self.expected_device_id is None) != (self.expected_device_policy_digest is None):
-            raise ValueError("Device policy pin requires both device ID and digest")
+        if (self.expected_device_id is None) != (
+            self.expected_device_policy_digest is None
+        ):
+            raise ValueError(
+                "Device policy pin requires both device ID and digest"
+            )
         return self
 
 

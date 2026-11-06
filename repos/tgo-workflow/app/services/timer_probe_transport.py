@@ -7,7 +7,11 @@ from celery import Celery
 from redis import Redis
 from app.config import settings
 from app.services.timer_probe import (
-    ProbeMessage, ProbeStore, consume_probe, issue_probe, probe_scope,
+    ProbeMessage,
+    ProbeStore,
+    consume_probe,
+    issue_probe,
+    probe_scope,
 )
 from app.services.timer_runtime_health import timer_database_ready
 
@@ -24,7 +28,8 @@ def publish_timer_probe(app: Celery, instance: UUID) -> None:
         with app.connection_for_write(
             connect_timeout=0.5,
             transport_options={
-                "socket_connect_timeout": 0.5, "socket_timeout": 0.5,
+                "socket_connect_timeout": 0.5,
+                "socket_timeout": 0.5,
                 "retry_on_timeout": False,
             },
         ) as connection:
@@ -33,11 +38,15 @@ def publish_timer_probe(app: Celery, instance: UUID) -> None:
                 args=[message.model_dump(mode="json")],
                 task_id="timer-probe:" + message.probe_id.hex,
                 queue=settings.WORKFLOW_QUEUE_NAME,
-                connection=connection, retry=False, ignore_result=True,
+                connection=connection,
+                retry=False,
+                ignore_result=True,
             )
 
     with Redis.from_url(
-        settings.REDIS_URL, socket_connect_timeout=0.5, socket_timeout=0.5,
+        settings.REDIS_URL,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
     ) as client:
         issue_probe(cast(ProbeStore, client), scope, instance, publish)
 
@@ -49,9 +58,13 @@ def consume_timer_probe(message: ProbeMessage) -> bool:
     if scope is None:
         return False
     with Redis.from_url(
-        settings.REDIS_URL, socket_connect_timeout=0.5, socket_timeout=0.5,
+        settings.REDIS_URL,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
     ) as client:
         return consume_probe(
-            cast(ProbeStore, client), scope, message,
+            cast(ProbeStore, client),
+            scope,
+            message,
             lambda: asyncio.run(timer_database_ready()),
         )

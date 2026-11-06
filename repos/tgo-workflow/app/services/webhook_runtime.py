@@ -24,7 +24,9 @@ from app.services.webhook_state import (
     utc,
 )
 
-WebhookRunState = Literal["pending", "running", "waiting_approval", "pending_resume"]
+WebhookRunState = Literal[
+    "pending", "running", "waiting_approval", "pending_resume"
+]
 
 
 class WebhookSourceStopped(ExecutionStopped):

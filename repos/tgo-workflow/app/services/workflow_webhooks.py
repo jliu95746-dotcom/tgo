@@ -222,12 +222,18 @@ async def get_webhook(
     workflow = await _workflow(db, workflow_id, project_id)
     row = await _webhook(db, workflow_id, project_id)
     release = await published_context(db, workflow)
-    current = bool(row is not None and release is not None
-                   and row.release_id == release.release_id
-                   and row.release_digest == release.definition_digest)
+    current = bool(
+        row is not None
+        and release is not None
+        and row.release_id == release.release_id
+        and row.release_digest == release.definition_digest
+    )
     available = True
-    reason = (None if settings.WEBHOOK_EXECUTION_ENABLED else
-              "外部触发接收与执行尚未开放，可先保存停用配置。")
+    reason = (
+        None
+        if settings.WEBHOOK_EXECUTION_ENABLED
+        else "外部触发接收与执行尚未开放，可先保存停用配置。"
+    )
     try:
         ensure_credential_crypto()
         if row is not None:
@@ -346,6 +352,7 @@ async def _apply_locked(
             raise HTTPException(503, "外部触发当前授权暂时无法核验。") from None
     await db.flush()
     from app.services.webhook_lifecycle import cancel_superseded
+
     await cancel_superseded(db, row, now)
     command = WorkflowWebhookCommand(
         project_id=str(project_id),
