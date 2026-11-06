@@ -1,7 +1,7 @@
 """Visitor Assignment Rule model for LLM-based visitor distribution."""
 
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, func
@@ -9,6 +9,10 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.ai_provider import AIProvider
+    from app.models.project import Project
 
 
 # Default system prompt for visitor assignment

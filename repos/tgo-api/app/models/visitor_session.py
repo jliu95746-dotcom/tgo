@@ -2,13 +2,20 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.platform import Platform
+    from app.models.project import Project
+    from app.models.staff import Staff
+    from app.models.visitor import Visitor
+    from app.models.visitor_assignment_history import VisitorAssignmentHistory
 
 
 class SessionStatus(str, Enum):

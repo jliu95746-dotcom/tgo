@@ -1,7 +1,7 @@
 """LLM Provider (AIProvider) model."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, ForeignKey, String, Text, func
@@ -9,6 +9,10 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.ai_model import AIModel
+    from app.models.project import Project
 
 
 class AIProvider(Base):

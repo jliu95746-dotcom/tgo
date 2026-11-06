@@ -1,13 +1,24 @@
 """Project model."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.ai_provider import AIProvider
+    from app.models.platform import Platform
+    from app.models.project_ai_config import ProjectAIConfig
+    from app.models.project_onboarding import ProjectOnboardingProgress
+    from app.models.staff import Staff
+    from app.models.tag import Tag
+    from app.models.visitor import Visitor
+    from app.models.visitor_assignment_rule import VisitorAssignmentRule
+    from app.models.visitor_tag import VisitorTag
 
 
 class Project(Base):

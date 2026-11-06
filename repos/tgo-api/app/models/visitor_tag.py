@@ -1,13 +1,18 @@
 """Visitor tag model."""
 
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.project import Project
+    from app.models.tag import Tag
+    from app.models.visitor import Visitor
 
 
 class VisitorTag(Base):

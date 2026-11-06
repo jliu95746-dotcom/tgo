@@ -293,6 +293,7 @@ def apply_shared_models_to_project(
             if model.deleted_at is None
         }
         configured_model_ids = {model.model_id for model in template.models}
+        model: AIModel | None
         for model_id, model in current_models.items():
             if model_id not in configured_model_ids:
                 model.is_active = False

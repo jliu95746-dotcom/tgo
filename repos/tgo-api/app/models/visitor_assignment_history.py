@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import ForeignKey, String, Text, func, Integer
@@ -10,6 +10,13 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.project import Project
+    from app.models.staff import Staff
+    from app.models.visitor import Visitor
+    from app.models.visitor_assignment_rule import VisitorAssignmentRule
+    from app.models.visitor_session import VisitorSession
 
 
 class AssignmentSource(str, Enum):

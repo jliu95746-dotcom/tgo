@@ -515,7 +515,7 @@ async def update_ai_provider(
                 changed = True
 
                 # Normalize caps for comparison
-                current_caps = existing_model.capabilities or {}
+                current_caps: object = existing_model.capabilities or {}
                 new_caps = m_caps or {}
 
                 # Ensure we are comparing dicts

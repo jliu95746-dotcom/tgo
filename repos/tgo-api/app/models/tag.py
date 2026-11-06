@@ -3,13 +3,17 @@
 import base64
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.project import Project
+    from app.models.visitor_tag import VisitorTag
 
 
 class TagCategory(str, Enum):
@@ -118,7 +122,13 @@ class Tag(Base):
         ),
     )
 
-    def __init__(self, name: str, category: TagCategory, project_id: UUID, **kwargs):
+    def __init__(
+        self,
+        name: str,
+        category: TagCategory,
+        project_id: UUID,
+        **kwargs: object,
+    ) -> None:
         """Initialize tag with auto-generated Base64 ID."""
         # Generate Base64 encoded ID
         id_string = f"{name}@{category.value}"
