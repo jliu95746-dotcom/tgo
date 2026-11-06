@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -116,18 +116,26 @@ async def checked_turn(
 @router.post("/inbound", response_model=None)
 async def inbound(
     body: ChatCompletionRequest,
+    request: Request,
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
 ) -> StreamingResponse | dict[str, object]:
     from app.api.v1.endpoints.chat import chat_completion
 
     body.wukongim_only, body.stream = True, False
-    return await chat_completion(body, db, credentials)
+    return await chat_completion(
+        req=body,
+        request=request,
+        db=db,
+        credentials=credentials,
+        x_saas_service_token=request.headers.get("x-saas-service-token"),
+    )
 
 
 @router.post("/media-ready", response_model=None)
 async def media_ready(
     body: ChatCompletionRequest,
+    request: Request,
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
 ) -> StreamingResponse | dict[str, object]:
@@ -140,7 +148,9 @@ async def media_ready(
     )
     if part is None or body.media_pending or body.msg_type not in (2, 4):
         raise HTTPException(409, "未登记原始媒体消息，或媒体仍未就绪")
-    return await inbound(body, db, credentials)
+    return await inbound(
+        body=body, request=request, db=db, credentials=credentials
+    )
 
 
 @router.post("/ready", response_model=TurnReplyList)
