@@ -14,6 +14,7 @@ import pytest
 import pytest_asyncio
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,9 @@ from app.models import (
     VisitorSession,
 )
 from app.services import transfer_service
+from app.core.exceptions import TGOAPIException
+from app.core.security import create_access_token
+from app.services.visitor_mutation_access import begin_mutation
 from app.services.wukongim_client import wukongim_client
 from app.utils.encoding import build_visitor_channel_id
 from tests import test_authentication_boundaries_postgres as postgres_checks
@@ -240,6 +244,50 @@ async def test_two_independent_workers_send_one_assignment_notice(
         assert await asyncio.to_thread(first.result, 15) == "sent"
     state = await statistics(visitor_id)
     assert state["calls"] == ["add", "notice"]
+
+
+@pytest.mark.parametrize("change", ["unchanged", "visitor", "session"])
+async def test_staff_claim_version_binding_across_real_im_http(
+    reception, change,
+):
+    db, visitor, _, staff = reception
+    visitor_id = visitor.id
+    visitor.custom_attributes = {
+        "synthetic_channel_scenario": "changed_" + change,
+    }
+    db.commit()
+    token = create_access_token(staff.username, staff.project_id, staff.role)
+    scope = begin_mutation(
+        db, HTTPAuthorizationCredentials(scheme="Bearer", credentials=token),
+        staff, visitor.id, "visitors:update", claim=True,
+    )
+
+    async def claim():
+        return await transfer_service.transfer_to_staff(
+            db, visitor.id, visitor.project_id, target_staff_id=staff.id,
+            assigned_by_staff_id=staff.id, platform_id=visitor.platform_id,
+            mutation_scope=scope, expected_unassigned=True,
+            add_to_queue_if_no_staff=False, ai_disabled=True,
+        )
+
+    if change == "visitor":
+        with pytest.raises(TGOAPIException) as rejected:
+            await claim()
+        assert rejected.value.status_code == 409
+    else:
+        assert (await claim()).success
+    db.expire_all()
+    history = db.query(VisitorAssignmentHistory).filter_by(
+        visitor_id=visitor_id,
+    ).one()
+    row = record(db, history.id)
+    assert row.effects_status == "done"
+    assert row.status == ("sent" if change == "unchanged" else "skipped")
+    state = await statistics(visitor_id)
+    assert state["calls"].count("add") == 1
+    assert state["calls"].count("notice") == (
+        1 if change == "unchanged" else 0
+    )
 
 
 async def test_migration_upgrade_downgrade_and_upgrade_in_isolated_schema(

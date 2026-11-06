@@ -84,9 +84,9 @@ def current_channel_staff(
         if (
             latest is not None
             and latest.status == "open"
-        # Older owned sessions legitimately have no platform_id. The visitor's
-        # current project/platform above remains the channel authority.
-        and latest.platform_id in {None, visitor.platform_id}
+            # Older owned sessions may have no platform_id. The visitor's
+            # current project/platform remains the channel authority.
+            and latest.platform_id in {None, visitor.platform_id}
         )
         else None
     )
