@@ -1,6 +1,7 @@
-"""Recover accepted staff messages' IM history independently of browser state."""
+"""Recover staff history and accepted handoffs independently of browsers."""
 
 import asyncio
+from uuid import UUID
 
 from app.core.database import SessionLocal
 from app.core.logging import get_logger
@@ -11,12 +12,14 @@ from app.services.staff_delivery import (
 from app.services.staff_delivery_training import recover_pending_training
 from app.services.session_command_delivery import recover_session_commands
 from app.services.session_command_membership import recover_channel_effects
+from app.services.handoff_dispatch_recovery import recover_pending_handoffs
 
 logger = get_logger(__name__)
 _task: asyncio.Task[None] | None = None
 
 
 async def _recover_loop() -> None:
+    handoff_cursor: UUID | None = None
     while True:
         for phase_name, recover in (
             ("external_unknown", recover_stale_external_deliveries),
@@ -33,6 +36,16 @@ async def _recover_loop() -> None:
                     "Staff recovery phase %s failed: %s",
                     phase_name, type(exc).__name__,
                 )
+        try:
+            with SessionLocal() as db:
+                handoffs = await recover_pending_handoffs(
+                    db, after_request_id=handoff_cursor,
+                )
+                handoff_cursor = handoffs.next_cursor
+        except Exception as exc:
+            logger.error(
+                "Handoff recovery sweep failed: %s", type(exc).__name__,
+            )
         await asyncio.sleep(5)
 
 

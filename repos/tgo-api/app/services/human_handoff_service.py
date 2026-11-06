@@ -29,6 +29,9 @@ from app.models import (
     WaitingStatus,
 )
 from app.services.transfer_service import transfer_to_staff
+from app.services.handoff_dispatch_state import (
+    PENDING_DISPATCH_KEY, completed_dispatch_receipt, stage_pending_dispatch,
+)
 from app.services.visitor_notifications import notify_visitor_profile_updated
 from app.services.wukongim_client import wukongim_client
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MessageType
@@ -48,7 +51,7 @@ _EXPLICIT_HANDOFF_COMMANDS = frozenset({
 
 
 def is_explicit_handoff_request(message: str) -> bool:
-    """Recognize a direct command without routing quoted or conditional text."""
+    """Recognize direct commands without routing quotes or conditional text."""
     normalized = unicodedata.normalize("NFKC", message).strip()
     normalized = normalized.strip(" \t\r\n!?.。，！？")
     normalized = "".join(normalized.split())
@@ -240,6 +243,9 @@ async def _finish_handoff(
     channel_type: int,
     extra: list[dict[str, str]] | None = None,
 ) -> dict[str, object]:
+    metadata = dict(request.request_metadata or {})
+    metadata.pop(PENDING_DISPATCH_KEY, None)
+    request.request_metadata = metadata
     if action_digest is not None:
         request.request_metadata = {
             **(request.request_metadata or {}),
@@ -493,6 +499,7 @@ async def request_human_handoff(
     # Stop automatic replies durably, and release this request's visitor writes
     # before the potentially slow dispatcher. Final assignment is a new stage.
     handoff_request.status = "pending"
+    stage_pending_dispatch(db, handoff_request, visitor)
     db.commit()
     transfer_result = await transfer_to_staff(
         db=db,
@@ -505,6 +512,12 @@ async def request_human_handoff(
         ai_disabled=True,
     )
     if not transfer_result.success:
+        # Recovery may have queued/confirmed this request while the old model
+        # was outstanding. Never overwrite its committed outcome as rejected.
+        db.rollback()
+        recovered = completed_dispatch_receipt(db, handoff_request.id)
+        if recovered is not None:
+            return recovered
         handoff_request.status = "rejected"
         db.commit()
         raise HTTPException(
