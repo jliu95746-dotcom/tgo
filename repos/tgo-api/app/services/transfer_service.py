@@ -17,7 +17,11 @@ from app.services.visitor_mutation_access import VisitorMutationScope, changed
 from app.services.staff_queue_access import StaffQueueScope
 from app.services.staff_session_access import StaffSessionScope
 from app.services.session_command_delivery import record_transfer
+from app.services.assignment_channel_delivery import (
+    deliver_assignment_channel, stage_assignment_channel,
+)
 from app.services.profile_access import OperationGuard
+from app.schemas.staff_data_access import StaffDataAccess
 from app.core.logging import get_logger
 from app.models import (
     Visitor,
@@ -33,9 +37,7 @@ from app.models import (
     SessionStatus,
     Staff,
     StaffRole,
-    ChannelMember,
 )
-from app.services.wukongim_client import wukongim_client
 from app.services.queue_lifecycle import (
     assign_waiting_entries,
     cancel_entry,
@@ -60,8 +62,6 @@ from app.services.staff_assignment_response import (
     assignment_selection,
 )
 from app.services.visitor_notifications import notify_visitor_profile_updated
-from app.utils.encoding import build_visitor_channel_id
-from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_STAFF
 
 logger = get_logger("services.transfer")
 
@@ -443,6 +443,19 @@ async def transfer_to_staff(
         if mutation_scope is not None:
             visitor.updated_at = max(datetime.utcnow(), mutation_scope.original_version + timedelta(microseconds=1))
         db.flush()
+        channel_delivery_id = None
+        if assigned_staff_id and session_scope is None:
+            channel_delivery_id = await _add_staff_to_channel(
+                db=db, project_id=project_id, visitor_id=visitor_id,
+                staff_id=assigned_staff_id,
+                ai_disabled=visitor.ai_disabled or False,
+                send_notification=send_notification,
+                assignment_history=assignment_history,
+                access=mutation_scope.access if mutation_scope else None,
+                permission=(
+                    mutation_scope.permission if mutation_scope else None
+                ),
+            )
         if session_scope is not None:
             assert target_staff_id is not None
             notice_target = db.get(Staff, target_staff_id)
@@ -460,6 +473,7 @@ async def transfer_to_staff(
         if mutation_scope is not None:
             output_scope = mutation_scope.after_commit(visitor)
             if queue_scope is not None:
+                assert expected_entry is not None
                 output_queue = queue_scope.completed(output_scope, expected_entry, session)
         if session_scope is not None:
             output_session_guard = session_scope.completed_guard(
@@ -481,30 +495,21 @@ async def transfer_to_staff(
         if output_session_guard is not None:
             output_session_guard.check()
 
-        # 10. Add staff to visitor's channel and send notification
-        # This runs in a new transaction after the visitor lock is released
-        if assigned_staff_id and session_scope is None:
-            await _add_staff_to_channel(
-                db=db,
-                project_id=project_id,
-                visitor_id=visitor_id,
-                staff_id=assigned_staff_id,
-                ai_disabled=visitor.ai_disabled or False,
-                send_notification=send_notification,
-                operation_guard=output_queue.guard() if output_queue is not None else output_scope.guard() if output_scope is not None else output_session_guard,
+        # Only committed assignments may change the external channel.
+        if channel_delivery_id is not None and auto_commit:
+            await deliver_assignment_channel(
+                db=db, operation_id=channel_delivery_id,
             )
             if output_scope is not None:
                 output_scope.guard().check()
             if output_queue is not None:
                 output_queue.guard().check()
-            if output_session_guard is not None:
-                output_session_guard.check()
-            # Commit channel member changes
-            if auto_commit:
-                db.commit()
-                if source == AssignmentSource.TRANSFER:
-                    await notify_visitor_profile_updated(db, visitor)
-        
+        if (
+            auto_commit and assigned_staff_id and session_scope is None
+            and source == AssignmentSource.TRANSFER
+        ):
+            await notify_visitor_profile_updated(db, visitor)
+
         logger.info(
             f"Transferred visitor {visitor_id} to human service. "
             f"Session: {session.id}, Assigned staff: {assigned_staff_id}, Source: {source.value}, "
@@ -870,136 +875,25 @@ async def _add_staff_to_channel(
     ai_disabled: bool = False,
     send_notification: bool = True,
     operation_guard: OperationGuard | None = None,
-) -> None:
-    """
-    Add staff to visitor's channel (both DB and WuKongIM) and send notification.
-    Removes any existing staff from the channel first.
-    
-    This function separates DB operations from external API calls to minimize
-    transaction duration and prevent deadlocks.
-    
-    Args:
-        db: Database session
-        project_id: Project ID
-        visitor_id: Visitor ID
-        staff_id: Staff ID to add
-        ai_disabled: Whether AI is disabled (only send message when True)
-        send_notification: Whether to send staff assigned system message
-    """
+    *,
+    assignment_history: VisitorAssignmentHistory | None = None,
+    access: StaffDataAccess | None = None,
+    permission: str | None = None,
+) -> UUID | None:
     if operation_guard is not None:
         operation_guard.check()
-    visitor_channel_id = build_visitor_channel_id(visitor_id)
-    staff_uid = f"{staff_id}-staff"
-    
-    # Collect old staff UIDs for WuKongIM removal (to be done after DB operations)
-    old_staff_uids_to_remove: list[str] = []
-    staff_display_name: str | None = None
-    
-    # Phase 1: All DB operations first (to minimize lock holding time)
-    
-    # 1.1 Remove existing staff members from the channel (DB only)
-    existing_staff_members = db.query(ChannelMember).filter(
-        ChannelMember.channel_id == visitor_channel_id,
-        ChannelMember.channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE,
-        ChannelMember.member_type == MEMBER_TYPE_STAFF,
-        ChannelMember.member_id != staff_id,  # Don't remove the new staff
-        ChannelMember.deleted_at.is_(None),
-    ).all()
-    
-    for old_member in existing_staff_members:
-        old_member.deleted_at = datetime.utcnow()
-        old_staff_uids_to_remove.append(f"{old_member.member_id}-staff")
-        logger.info(
-            f"Marked old staff {old_member.member_id} for removal from channel",
-            extra={"visitor_id": str(visitor_id), "old_staff_id": str(old_member.member_id)},
-        )
-    
-    # 1.2 Add new staff to ChannelMember table if not exists
-    existing_member = db.query(ChannelMember).filter(
-        ChannelMember.channel_id == visitor_channel_id,
-        ChannelMember.member_id == staff_id,
-        ChannelMember.deleted_at.is_(None),
-    ).first()
-    
-    if not existing_member:
-        channel_member = ChannelMember(
-            project_id=project_id,
-            channel_id=visitor_channel_id,
-            channel_type=CHANNEL_TYPE_CUSTOMER_SERVICE,
-            member_id=staff_id,
-            member_type=MEMBER_TYPE_STAFF,
-        )
-        db.add(channel_member)
-        logger.info(
-            f"Added staff {staff_id} to ChannelMember table",
-            extra={"visitor_id": str(visitor_id), "staff_id": str(staff_id)},
-        )
-    
-    # 1.3 Get staff display name for notification (if needed)
-    if ai_disabled and send_notification:
-        assigned_staff = db.query(Staff).filter(Staff.id == staff_id).first()
-        staff_display_name = assigned_staff.name or assigned_staff.username if assigned_staff else str(staff_id)
-    
-    # Flush all DB changes
-    db.flush()
-    
-    # Phase 2: External API calls (after DB operations are flushed)
-    # These are best-effort and won't cause transaction rollback on failure
-    
-    # 2.1 Remove old staff from WuKongIM
-    for old_staff_uid in old_staff_uids_to_remove:
-        if operation_guard is not None:
-            operation_guard.check()
-        try:
-            await wukongim_client.remove_channel_subscribers(
-                channel_id=visitor_channel_id,
-                channel_type=CHANNEL_TYPE_CUSTOMER_SERVICE,
-                subscribers=[old_staff_uid],
-            )
-        except Exception as e:
-            logger.warning(f"Failed to remove old staff {old_staff_uid} from WuKongIM: {e}")
-        if operation_guard is not None:
-            operation_guard.check()
-    
-    # 2.2 Add new staff to WuKongIM channel
-    if operation_guard is not None:
-        operation_guard.check()
-    try:
-        await wukongim_client.add_channel_subscribers(
-            channel_id=visitor_channel_id,
-            channel_type=CHANNEL_TYPE_CUSTOMER_SERVICE,
-            subscribers=[staff_uid],
-        )
-        logger.info(
-            f"Added staff {staff_id} to WuKongIM channel {visitor_channel_id}",
-            extra={"visitor_id": str(visitor_id), "staff_id": str(staff_id)},
-        )
-    except Exception as e:
-        logger.error(f"Failed to add staff {staff_id} to WuKongIM channel: {e}")
-    if operation_guard is not None:
-        operation_guard.check()
-    
-    # 2.3 Send staff assigned system message (only when AI is disabled and notification is enabled)
-    if staff_display_name:
-        if operation_guard is not None:
-            operation_guard.check()
-        try:
-            await wukongim_client.send_staff_assigned_message(
-                from_uid=staff_uid,
-                channel_id=visitor_channel_id,
-                channel_type=CHANNEL_TYPE_CUSTOMER_SERVICE,
-                staff_uid=staff_uid,
-                staff_name=staff_display_name,
-            )
-            logger.info(
-                f"Sent staff assigned message",
-                extra={"visitor_id": str(visitor_id), "staff_id": str(staff_id), "staff_name": staff_display_name},
-            )
-        except Exception as e:
-            logger.error(f"Failed to send staff assigned message: {e}")
-
-    if operation_guard is not None:
-        operation_guard.check()
+    if (
+        assignment_history is None
+        or assignment_history.project_id != project_id
+        or assignment_history.visitor_id != visitor_id
+        or assignment_history.assigned_staff_id != staff_id
+    ):
+        raise ValueError('A matching assignment is required for channel work')
+    return stage_assignment_channel(
+        db, assignment_history, send_notification=send_notification,
+        ai_disabled=ai_disabled,
+        access=access, permission=permission,
+    )
 
 
 def _create_assignment_history(

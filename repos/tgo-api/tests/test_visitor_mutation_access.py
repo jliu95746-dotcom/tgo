@@ -198,16 +198,16 @@ async def test_soft_delete_cannot_erase_later_customer_state(mutation_api, monke
 
 @pytest.fixture
 def claim_api(mutation_api, monkeypatch):
-    from app.models import VisitorAssignmentHistory, VisitorAssignmentRule, VisitorWaitingQueue, ChannelMember
+    from app.models import AssignmentChannelDelivery, VisitorAssignmentHistory, VisitorAssignmentRule, VisitorWaitingQueue, ChannelMember
     from app.services import transfer_service, queue_events
     app, db, _, _, _, visitors, _, _ = mutation_api
-    for model in (VisitorAssignmentHistory, VisitorAssignmentRule, VisitorWaitingQueue, ChannelMember):
+    for model in (VisitorAssignmentHistory, VisitorAssignmentRule, VisitorWaitingQueue, ChannelMember, AssignmentChannelDelivery):
         model.__table__.create(db.get_bind(), checkfirst=True)
     db.query(VisitorSession).filter(VisitorSession.visitor_id == visitors[0].id).one().staff_id = None
     db.commit()
     monkeypatch.setattr(queue_events, "publish_queue_updates", AsyncMock())
     dispatch = AsyncMock()
-    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", dispatch)
+    monkeypatch.setattr(transfer_service, "deliver_assignment_channel", dispatch)
     return (*mutation_api, dispatch)
 
 
@@ -250,7 +250,7 @@ async def test_claim_revoked_while_selecting_member_does_not_commit_assignment(c
 async def test_claim_revoked_during_channel_dispatch_keeps_committed_assignment_but_blocks_reply(claim_api):
     app, db, _, staff, _, visitors, _, _, dispatch = claim_api
 
-    async def revoke(**_kwargs):
+    async def revoke(*_args, **_kwargs):
         staff[0].token_version += 1
         db.commit()
 
@@ -264,24 +264,41 @@ async def test_claim_revoked_during_channel_dispatch_keeps_committed_assignment_
 
 @pytest.mark.asyncio
 async def test_channel_add_revoke_blocks_following_assigned_notification(mutation_api, monkeypatch):
-    from app.services import transfer_service, visitor_mutation_access
+    from app.services import assignment_channel_delivery, visitor_mutation_access
+    from app.services.wukongim_client import wukongim_client
     from fastapi.security import HTTPAuthorizationCredentials
-    from app.models import ChannelMember
+    from app.models import AssignmentChannelDelivery, ChannelMember, VisitorAssignmentHistory, VisitorAssignmentRule
 
     _, db, _, staff, _, visitors, _, _ = mutation_api
-    ChannelMember.__table__.create(db.get_bind(), checkfirst=True)
+    for model in (ChannelMember, VisitorAssignmentRule, VisitorAssignmentHistory, AssignmentChannelDelivery):
+        model.__table__.create(db.get_bind(), checkfirst=True)
     scope = visitor_mutation_access.begin_mutation(db,
         HTTPAuthorizationCredentials(scheme="Bearer", credentials=proof(staff[0])["Authorization"][7:]),
         staff[0], visitors[0].id, "visitors:update")
     message = AsyncMock()
+    session = db.query(VisitorSession).filter_by(visitor_id=visitors[0].id).one()
+    session.platform_id = visitors[0].platform_id
+    history = VisitorAssignmentHistory(
+        project_id=visitors[0].project_id, visitor_id=visitors[0].id,
+        session_id=session.id, assigned_staff_id=staff[0].id, source="manual",
+    )
+    visitors[0].ai_disabled = True
+    db.add(history)
+    db.flush()
+    operation_id = assignment_channel_delivery.stage_assignment_channel(
+        db, history, send_notification=True, ai_disabled=True,
+        access=scope.access, permission=scope.permission,
+    )
+    db.commit()
 
     async def revoke(**_kwargs):
         staff[0].token_version += 1
         db.commit()
 
-    monkeypatch.setattr(transfer_service.wukongim_client, "add_channel_subscribers", AsyncMock(side_effect=revoke))
-    monkeypatch.setattr(transfer_service.wukongim_client, "send_staff_assigned_message", message)
+    monkeypatch.setattr(wukongim_client, "enabled", True)
+    monkeypatch.setattr(wukongim_client, "add_channel_subscribers", AsyncMock(side_effect=revoke))
+    monkeypatch.setattr(wukongim_client, "send_message", message)
+    assert await assignment_channel_delivery.deliver_assignment_channel(db, operation_id) == "skipped"
     with pytest.raises(TGOAPIException):
-        await transfer_service._add_staff_to_channel(db, visitors[0].project_id, visitors[0].id, staff[0].id,
-            ai_disabled=True, operation_guard=scope.guard())
+        scope.guard().check()
     message.assert_not_awaited()

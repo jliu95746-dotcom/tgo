@@ -55,7 +55,7 @@ async def test_model_configuration_controls_outbound_request_and_history(
 ):
     db, project, staff, platform = identity
     monkeypatch.setattr(settings, "SAAS_BILLING_ENABLED", False)
-    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock())
+    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock(return_value=None))
     monkeypatch.setattr(
         transfer_service, "notify_visitor_profile_updated", AsyncMock()
     )

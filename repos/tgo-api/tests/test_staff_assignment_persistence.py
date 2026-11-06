@@ -85,7 +85,7 @@ async def test_invalid_reason_does_not_lose_waiting_customer(
         }
     )
     monkeypatch.setattr(ai_client, "chat_completions", complete)
-    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock())
+    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock(return_value=None))
     monkeypatch.setattr(
         transfer_service, "notify_visitor_profile_updated", AsyncMock()
     )
@@ -115,8 +115,11 @@ async def test_invalid_reason_does_not_lose_waiting_customer(
 async def test_transfer_error_hides_database_details(
     queue_db, monkeypatch, caplog
 ):
+    from app.models import AssignmentChannelDelivery, ChannelMember
     monkeypatch.setattr(settings, "SAAS_BILLING_ENABLED", False)
     for model in (Staff, VisitorAssignmentRule, VisitorAssignmentHistory):
+        model.__table__.create(queue_db.get_bind())
+    for model in (ChannelMember, AssignmentChannelDelivery):
         model.__table__.create(queue_db.get_bind())
     visitor, session, _entry = seed_queue(queue_db)
     staff = Staff(

@@ -256,7 +256,7 @@ def real_session_api(session_api, monkeypatch):
         "send_message",
         AsyncMock(return_value=SimpleNamespace(message_id="fixture-message")),
     )
-    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock())
+    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock(return_value=None))
     monkeypatch.setattr(
         session_service.wukongim_client,
         "get_channel_last_message",

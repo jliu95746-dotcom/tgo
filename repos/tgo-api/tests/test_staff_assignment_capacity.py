@@ -67,7 +67,7 @@ def reception(queue_db, monkeypatch):
     )
     queue_db.add(rule)
     queue_db.commit()
-    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock())
+    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock(return_value=None))
     return queue_db, visitor, session, entry, staff, rule
 
 

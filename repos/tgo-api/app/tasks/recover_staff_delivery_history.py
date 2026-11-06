@@ -14,6 +14,9 @@ from app.services.session_command_delivery import recover_session_commands
 from app.services.session_command_membership import recover_channel_effects
 from app.services.handoff_dispatch_recovery import recover_pending_handoffs
 from app.services.handoff_notifications import recover_handoff_notices
+from app.services.assignment_channel_delivery import (
+    recover_assignment_channels,
+)
 
 logger = get_logger(__name__)
 _task: asyncio.Task[None] | None = None
@@ -29,6 +32,7 @@ async def _recover_loop() -> None:
             ("training", recover_pending_training),
             ("session_notice", recover_session_commands),
             ("channel_effects", recover_channel_effects),
+            ("assignment_channels", recover_assignment_channels),
         ):
             try:
                 with SessionLocal() as db:
@@ -36,22 +40,26 @@ async def _recover_loop() -> None:
             except Exception as exc:
                 logger.error(
                     "Staff recovery phase %s failed: %s",
-                    phase_name, type(exc).__name__,
+                    phase_name,
+                    type(exc).__name__,
                 )
         try:
             with SessionLocal() as db:
                 handoffs = await recover_pending_handoffs(
-                    db, after_request_id=handoff_cursor,
+                    db,
+                    after_request_id=handoff_cursor,
                 )
                 handoff_cursor = handoffs.next_cursor
         except Exception as exc:
             logger.error(
-                "Handoff recovery sweep failed: %s", type(exc).__name__,
+                "Handoff recovery sweep failed: %s",
+                type(exc).__name__,
             )
         try:
             with SessionLocal() as db:
                 notices = await recover_handoff_notices(
-                    db, after_request_id=notice_cursor,
+                    db,
+                    after_request_id=notice_cursor,
                 )
                 notice_cursor = notices.next_cursor
         except Exception as exc:

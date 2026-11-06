@@ -87,6 +87,7 @@ from app.models.customer_logistics import (
 )
 
 __all__ = [
+    "AssignmentChannelDelivery",
     # Models
     "Project",
     "PlatformOperator",
@@ -177,4 +178,7 @@ from app.models.customer_turn import CustomerTurn as CustomerTurn, CustomerTurnP
 from app.models.wechat_staff_delivery import WeChatStaffDelivery as WeChatStaffDelivery
 from app.models.agent_knowledge_catalog import (
     AgentKnowledgeCatalog as AgentKnowledgeCatalog,
+)
+from app.models.assignment_channel_delivery import (
+    AssignmentChannelDelivery as AssignmentChannelDelivery,
 )

@@ -36,7 +36,7 @@ async def test_real_transfer_assigns_queue_in_own_transaction(
     )
     queue_db.add(staff)
     queue_db.commit()
-    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock())
+    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock(return_value=None))
     result = await transfer_service.transfer_to_staff(
         queue_db,
         visitor.id,

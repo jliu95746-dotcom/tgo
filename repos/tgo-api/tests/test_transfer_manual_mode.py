@@ -33,7 +33,7 @@ async def test_transfer_enters_manual_and_preserves_transaction(
     )
     queue_db.add(staff)
     queue_db.commit()
-    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock())
+    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock(return_value=None))
     notify = AsyncMock()
     monkeypatch.setattr(transfer_service, "notify_visitor_profile_updated", notify, raising=False)
     result = await transfer_service.transfer_to_staff(

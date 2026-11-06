@@ -40,7 +40,7 @@ pytestmark = [
 def live_dispatch(identity, monkeypatch):
     db, project, staff, platform = identity
     monkeypatch.setattr(settings, "SAAS_BILLING_ENABLED", False)
-    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock())
+    monkeypatch.setattr(transfer_service, "_add_staff_to_channel", AsyncMock(return_value=None))
     monkeypatch.setattr(
         transfer_service, "notify_visitor_profile_updated", AsyncMock()
     )
