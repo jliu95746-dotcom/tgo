@@ -18,8 +18,15 @@ from app.schemas.workflow_release import (
 )
 from app.services.execution_snapshot import copy_json_object, definition_digest
 from app.services.validation_service import ValidationService
+from app.services.workflow_definition_inspection import (
+    WorkflowDefinitionReadError,
+    definition_nodes,
+    input_parameters,
+)
 from app.schemas.workflow import (
-    WorkflowBusinessQueryDependency, WorkflowInputParameter, WorkflowIntegrationRelease,
+    WorkflowBusinessQueryDependency,
+    WorkflowInputParameter,
+    WorkflowIntegrationRelease,
 )
 from app.integrations.ai_client import AIClient
 from app.integrations.api_client import verify_definition_approval_assignees
@@ -46,11 +53,14 @@ async def _workflow(
 
 
 def _validated(
-    definition: dict[str, JsonValue], *, allow_webhook_preparation: bool = False,
+    definition: dict[str, JsonValue],
+    *,
+    allow_webhook_preparation: bool = False,
 ) -> dict[str, JsonValue]:
     owned = copy_json_object(definition)
     errors = ValidationService.validate_workflow(
-        owned, allow_webhook_preparation=allow_webhook_preparation,
+        owned,
+        allow_webhook_preparation=allow_webhook_preparation,
     )
     if errors:
         raise HTTPException(
@@ -59,8 +69,10 @@ def _validated(
     return owned
 
 
-async def verify_tool_dependencies(definition: dict[str, JsonValue], project_id: str) -> None:
-    """Check referenced tools before publishing or accepting production work."""
+async def verify_tool_dependencies(
+    definition: dict[str, JsonValue], project_id: str
+) -> None:
+    """Verify tools before publication or production execution."""
     tool_ids: set[str] = set()
     nodes = definition.get("nodes")
     if not isinstance(nodes, list):
@@ -80,7 +92,9 @@ async def verify_tool_dependencies(definition: dict[str, JsonValue], project_id:
             raise HTTPException(503, "业务工具依赖暂时无法核验") from None
 
 
-async def verify_approval_dependencies(definition: dict[str, JsonValue], project_id: str) -> None:
+async def verify_approval_dependencies(
+    definition: dict[str, JsonValue], project_id: str
+) -> None:
     """An approval can target only a currently enabled human in this tenant."""
     try:
         await verify_definition_approval_assignees(definition, project_id)
@@ -104,7 +118,9 @@ async def publish(
         != request.expected_publication_revision
     ):
         raise HTTPException(409, CONFLICT)
-    definition = _validated(workflow.definition, allow_webhook_preparation=True)
+    definition = _validated(
+        workflow.definition, allow_webhook_preparation=True
+    )
     await verify_tool_dependencies(definition, project_id)
     await verify_approval_dependencies(definition, project_id)
     previous = await db.scalar(
@@ -194,9 +210,7 @@ async def _release(
         ):
             raise ValueError("Invalid release digest")
     except (TypeError, ValueError):
-        raise HTTPException(
-            409, "发布版本校验失败，请重新发布有效流程。"
-        ) from None
+        raise HTTPException(409, "发布版本校验失败，请重新发布有效流程。") from None
     return row
 
 
@@ -247,14 +261,13 @@ def verify_execution_binding(
     expected_release_digest: str | None,
 ) -> None:
     """Reject a changed release before creating an execution record."""
-    if (expected_release_id is None) != (expected_release_digest is None):
-        raise HTTPException(422, "发布记录 ID 和摘要必须同时提供。")
-    if expected_release_id is None:
+    if expected_release_id is None and expected_release_digest is None:
         return
-    if (published.release_id != expected_release_id
-            or not hmac.compare_digest(
-                definition_digest(published.definition), expected_release_digest
-            )):
+    if expected_release_id is None or expected_release_digest is None:
+        raise HTTPException(422, "发布记录 ID 和摘要必须同时提供。")
+    if published.release_id != expected_release_id or not hmac.compare_digest(
+        definition_digest(published.definition), expected_release_digest
+    ):
         raise HTTPException(409, "工作流固定发布版本已变更，请重新关联。")
 
 
@@ -283,22 +296,20 @@ async def integration_release(
     db: AsyncSession, workflow_id: str, project_id: str, version: int
 ) -> WorkflowIntegrationRelease:
     """Describe exactly the release an employee binding will execute."""
-    published = await production_definition(db, workflow_id, project_id, version)
-    parameters: list[WorkflowInputParameter] = []
-    for node in published.definition.get("nodes", []):
-        if not isinstance(node, dict) or node.get("type") != "input":
-            continue
-        data = node.get("data") or {}
-        if not isinstance(data, dict):
-            break
-        for variable in data.get("input_variables", []):
-            if isinstance(variable, dict):
-                parameters.append(WorkflowInputParameter.model_validate(variable))
-        break
+    published = await production_definition(
+        db, workflow_id, project_id, version
+    )
+    try:
+        nodes = definition_nodes(published.definition)
+        parameters: list[WorkflowInputParameter] = input_parameters(
+            published.definition
+        )
+    except WorkflowDefinitionReadError:
+        raise HTTPException(409, "工作流发布定义无法核验，请重新发布。") from None
     node_types: list[str] = []
     business_queries: list[WorkflowBusinessQueryDependency] = []
     approval_actions: list[str] = []
-    for node in published.definition.get("nodes", []):
+    for node in nodes:
         if not isinstance(node, dict):
             raise HTTPException(409, "工作流发布定义无法核验，请重新发布。")
         kind = node.get("type")
@@ -309,16 +320,22 @@ async def integration_release(
             data = node.get("data")
             if not isinstance(data, dict):
                 raise HTTPException(409, "工作流审批依赖无法核验，请重新发布。")
-            approval_actions.append(str(data.get("after_approval_action") or ""))
+            approval_actions.append(
+                str(data.get("after_approval_action") or "")
+            )
         if kind == "business_query":
             data = node.get("data")
             if not isinstance(data, dict):
                 raise HTTPException(409, "工作流业务查询依赖无法核验，请重新发布。")
             try:
-                business_queries.append(WorkflowBusinessQueryDependency.model_validate({
-                    "connection_id": data.get("connection_id"),
-                    "operation": data.get("operation"),
-                }))
+                business_queries.append(
+                    WorkflowBusinessQueryDependency.model_validate(
+                        {
+                            "connection_id": data.get("connection_id"),
+                            "operation": data.get("operation"),
+                        }
+                    )
+                )
             except PydanticValidationError as exc:
                 raise HTTPException(409, "工作流业务查询依赖无法核验，请重新发布。") from exc
     if approval_actions:
