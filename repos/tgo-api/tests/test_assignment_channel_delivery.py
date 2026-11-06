@@ -424,3 +424,18 @@ async def test_recovery_exception_has_a_cooldown(channel, monkeypatch):
     assert row.effects_last_error == "RECOVERY_FAILED"
     assert await delivery.recover_assignment_channels(db) == 0
     attempt.assert_awaited_once()
+
+
+async def test_legacy_session_without_platform_keeps_owned_channel(channel):
+    from app.services.assignment_channel_delivery import (
+        recover_assignment_channels,
+    )
+
+    db, _, session, _, _, row = await commit_assignment(channel)
+    session.platform_id = None
+    db.commit()
+    assert await recover_assignment_channels(db) == 1
+    db.refresh(row)
+    assert row.effects_status == "done" and row.status == "sent"
+    wukongim_client.add_channel_subscribers.assert_awaited_once()
+    wukongim_client.send_message.assert_awaited_once()

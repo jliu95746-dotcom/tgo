@@ -15,6 +15,7 @@ from app.models import (
     Visitor,
     VisitorAssignmentHistory,
     VisitorSession,
+    VisitorWaitingQueue,
 )
 from app.services.channel_effect_delivery import (
     current_channel_staff,
@@ -44,6 +45,7 @@ def stage_assignment_channel(
     ai_disabled: bool,
     access: StaffDataAccess | None = None,
     permission: str | None = None,
+    queue_entry_id: UUID | None = None,
 ) -> UUID:
     if history.assigned_staff_id is None or history.session_id is None:
         raise ValueError("An assigned session is required for channel work")
@@ -70,6 +72,27 @@ def stage_assignment_channel(
         claims = verify_token(access.token.get_secret_value())
         if claims is None or permission is None:
             raise ValueError("Current staff authority is required")
+        visitor = db.get(Visitor, history.visitor_id)
+        session = db.get(VisitorSession, history.session_id)
+        queue = (
+            db.get(VisitorWaitingQueue, queue_entry_id)
+            if queue_entry_id
+            else None
+        )
+        if (
+            visitor is None
+            or session is None
+            or (
+                queue_entry_id is not None
+                and (
+                    queue is None
+                    or queue.project_id != history.project_id
+                    or queue.visitor_id != history.visitor_id
+                    or queue.session_id != history.session_id
+                )
+            )
+        ):
+            raise ValueError("The original reception context is required")
         authority = {
             "staff_id": str(access.staff_id),
             "role": access.role,
@@ -77,6 +100,12 @@ def stage_assignment_channel(
             "token_version": access.token_version,
             "expires_at": claims.get("exp"),
             "permission": permission,
+            "visitor_version": timestamp(visitor.updated_at).isoformat(),
+            "session_version": timestamp(session.updated_at).isoformat(),
+            "queue_id": str(queue.id) if queue is not None else None,
+            "queue_version": timestamp(queue.updated_at).isoformat()
+            if queue is not None
+            else None,
         }
     payload: dict[str, JsonValue] = {}
     if send_notification and ai_disabled:
@@ -120,6 +149,10 @@ def _actor_is_current(db: Session, row: AssignmentChannelDelivery) -> bool:
         "token_version",
         "expires_at",
         "permission",
+        "visitor_version",
+        "session_version",
+        "queue_id",
+        "queue_version",
     }:
         return False
     expires, permission = authority["expires_at"], authority["permission"]
@@ -146,6 +179,58 @@ def _actor_is_current(db: Session, row: AssignmentChannelDelivery) -> bool:
         .populate_existing()
         .first()
     )
+    visitor = (
+        db.query(Visitor)
+        .filter_by(
+            id=row.visitor_id,
+            project_id=row.project_id,
+        )
+        .populate_existing()
+        .first()
+    )
+    session = (
+        db.query(VisitorSession)
+        .filter_by(
+            id=row.session_id,
+            project_id=row.project_id,
+            visitor_id=row.visitor_id,
+        )
+        .populate_existing()
+        .first()
+    )
+    if (
+        visitor is None
+        or session is None
+        or timestamp(visitor.updated_at).isoformat()
+        != authority["visitor_version"]
+        or timestamp(session.updated_at).isoformat()
+        != authority["session_version"]
+    ):
+        return False
+    if authority["queue_id"] is not None:
+        try:
+            entry_id = UUID(str(authority["queue_id"]))
+        except ValueError:
+            return False
+        queue = (
+            db.query(VisitorWaitingQueue)
+            .filter_by(
+                id=entry_id,
+                project_id=row.project_id,
+                visitor_id=row.visitor_id,
+                session_id=row.session_id,
+                status="assigned",
+                assigned_staff_id=row.target_staff_id,
+            )
+            .populate_existing()
+            .first()
+        )
+        if (
+            queue is None
+            or timestamp(queue.updated_at).isoformat()
+            != authority["queue_version"]
+        ):
+            return False
     return actor is not None and (
         actor.role == authority["role"]
         and actor.username == authority["username"]

@@ -302,3 +302,48 @@ async def test_channel_add_revoke_blocks_following_assigned_notification(mutatio
     with pytest.raises(TGOAPIException):
         scope.guard().check()
     message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["customer", "session"])
+async def test_real_claim_stops_notice_when_context_changes_in_im(
+    claim_api, monkeypatch, change,
+):
+    from app.models import AssignmentChannelDelivery
+    from app.services import assignment_channel_delivery, transfer_service
+    from app.services.wukongim_client import wukongim_client
+
+    app, db, _, staff, _, visitors, _, _, _ = claim_api
+    session = db.query(VisitorSession).filter_by(
+        visitor_id=visitors[0].id,
+    ).one()
+
+    async def change_context(**_kwargs):
+        target = visitors[0] if change == "customer" else session
+        target.updated_at = datetime.utcnow() + timedelta(seconds=1)
+        db.commit()
+
+    monkeypatch.setattr(
+        transfer_service, "deliver_assignment_channel",
+        assignment_channel_delivery.deliver_assignment_channel,
+    )
+    monkeypatch.setattr(wukongim_client, "enabled", True)
+    monkeypatch.setattr(
+        wukongim_client, "add_channel_subscribers",
+        AsyncMock(side_effect=change_context),
+    )
+    message = AsyncMock()
+    monkeypatch.setattr(wukongim_client, "send_message", message)
+    response = await send(
+        app, "POST", f"/visitors/{visitors[0].id}/accept", proof(staff[0]),
+    )
+    # Direct claim guards the customer version; a same-owner session timestamp
+    # change stops the old notice without invalidating the claimed owner.
+    assert response.status_code == (409 if change == "customer" else 200)
+    if change == "customer":
+        assert "session_id" not in response.text
+    db.expire_all()
+    row = db.query(AssignmentChannelDelivery).one()
+    assert row.effects_status == "done" and row.status == "skipped"
+    assert session.staff_id == staff[0].id
+    message.assert_not_awaited()

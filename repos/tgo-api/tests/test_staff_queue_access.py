@@ -107,6 +107,47 @@ async def test_cancel_current_wait_closes_exact_session_and_no_store(queue_api):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["customer", "session", "queue"])
+async def test_real_queue_claim_stops_notice_after_context_change(
+    queue_api, monkeypatch, change,
+):
+    from app.models import AssignmentChannelDelivery
+    from app.services import assignment_channel_delivery
+    from app.services.wukongim_client import wukongim_client
+
+    app, db, staff, visitors, session, entry, _ = queue_api
+
+    async def change_context(**_kwargs):
+        target = {
+            "customer": visitors[0], "session": session, "queue": entry,
+        }[change]
+        target.updated_at = datetime.utcnow() + timedelta(seconds=1)
+        db.commit()
+
+    monkeypatch.setattr(
+        transfer_service, "deliver_assignment_channel",
+        assignment_channel_delivery.deliver_assignment_channel,
+    )
+    monkeypatch.setattr(wukongim_client, "enabled", True)
+    monkeypatch.setattr(
+        wukongim_client, "add_channel_subscribers",
+        AsyncMock(side_effect=change_context),
+    )
+    message = AsyncMock()
+    monkeypatch.setattr(wukongim_client, "send_message", message)
+    response = await send(
+        app, "POST", "/waiting-queue/accept", proof(staff[0]),
+        {"visitor_id": str(visitors[0].id)},
+    )
+    assert response.status_code == 409 and "session_id" not in response.text
+    db.expire_all()
+    row = db.query(AssignmentChannelDelivery).one()
+    assert row.effects_status == "done" and row.status == "skipped"
+    assert entry.status == "assigned" and session.staff_id == staff[0].id
+    message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_old_wait_cannot_cancel_new_customer_session(queue_api):
     app, db, staff, visitors, session, entry, _ = queue_api
     session.status = "closed"

@@ -455,6 +455,9 @@ async def transfer_to_staff(
                 permission=(
                     mutation_scope.permission if mutation_scope else None
                 ),
+                queue_entry_id=(
+                    expected_queue_entry_id if queue_scope else None
+                ),
             )
         if session_scope is not None:
             assert target_staff_id is not None
@@ -879,6 +882,7 @@ async def _add_staff_to_channel(
     assignment_history: VisitorAssignmentHistory | None = None,
     access: StaffDataAccess | None = None,
     permission: str | None = None,
+    queue_entry_id: UUID | None = None,
 ) -> UUID | None:
     if operation_guard is not None:
         operation_guard.check()
@@ -893,6 +897,7 @@ async def _add_staff_to_channel(
         db, assignment_history, send_notification=send_notification,
         ai_disabled=ai_disabled,
         access=access, permission=permission,
+        queue_entry_id=queue_entry_id,
     )
 
 
