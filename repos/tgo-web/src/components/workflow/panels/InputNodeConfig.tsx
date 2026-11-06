@@ -25,7 +25,7 @@ export default function InputNodeConfig({ data, onUpdate }: Props) {
     <div className="space-y-6">
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">{t('workflow.fields.input_variables')}</span>
+          <span className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">{t('workflow.debug.input_variables')}</span>
           <button type="button" onClick={add} className="flex items-center gap-1 text-[10px] font-bold text-blue-500 hover:text-blue-600 uppercase tracking-widest transition-colors">
             <PlusCircle className="w-3.5 h-3.5" />{t('common.add')}
           </button>

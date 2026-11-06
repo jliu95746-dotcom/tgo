@@ -256,7 +256,7 @@ const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({ node }) => {
           )}
 
           {node.type === 'approval' && (
-            <ApprovalNodeConfig data={localData as ApprovalNodeData} nodes={nodes} onUpdate={handleUpdate} />
+            <ApprovalNodeConfig data={localData as ApprovalNodeData} nodeId={node.id} nodes={nodes} edges={edges} onUpdate={handleUpdate} />
           )}
 
           {node.type === 'tool' && (
