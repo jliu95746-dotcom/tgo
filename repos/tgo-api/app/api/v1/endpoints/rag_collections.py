@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES, UPDATE_RESPONSES
 from app.core.logging import get_logger
 from app.core.security import get_authenticated_project
+from app.core.security import AuthenticatedProject
 from app.schemas.rag import (
     CollectionCreateRequest,
     CollectionDetailResponse,
@@ -54,7 +55,7 @@ async def list_collections(
     offset: int = Query(
         0, ge=0, description="Number of collections to skip"
     ),
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> CollectionListResponse:
     """List collections from RAG service."""
     logger.info(
@@ -96,7 +97,7 @@ async def list_collections(
 )
 async def create_collection(
     collection_data: CollectionCreateRequest,
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> CollectionResponse:
     """Create collection in RAG service."""
     logger.info(
@@ -132,7 +133,7 @@ async def get_collection(
     include_stats: bool = Query(
         False, description="Include document and file count statistics"
     ),
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> CollectionDetailResponse:
     """Get collection from RAG service."""
     logger.info(
@@ -172,7 +173,7 @@ async def get_collection(
 async def update_collection(
     collection_id: UUID,
     collection_data: CollectionUpdateRequest,
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> CollectionResponse:
     """Update collection in RAG service."""
     logger.info(
@@ -208,7 +209,7 @@ async def update_collection(
 )
 async def delete_collection(
     collection_id: UUID,
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> None:
     """Delete collection from RAG service."""
     logger.info(
@@ -240,7 +241,7 @@ async def delete_collection(
 async def search_collection_documents(
     collection_id: UUID,
     search_request: CollectionSearchRequest,
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> SearchResponse:
     """Search documents in collection."""
     logger.info(
@@ -288,7 +289,7 @@ async def list_collection_pages(
     offset: int = Query(
         0, ge=0, description="Number of pages to skip"
     ),
-    project_and_key=Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> WebsitePageListResponse:
     """List crawled pages for a website collection."""
     logger.info(

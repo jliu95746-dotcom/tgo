@@ -1,13 +1,21 @@
 """Client for communicating with tgo-plugin-runtime service."""
 
-from typing import Any, Dict, Optional
+from collections.abc import Mapping, Sequence
+from typing import Any, Dict, Optional, TypeAlias
 
 import httpx
+from fastapi import HTTPException
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas.connection_test_protocol import ConnectionTestCommand, ConnectionTestReceipt
 from app.services.connection_test_client import request_connection_test
+
+JsonObject: TypeAlias = dict[str, JsonValue]
+QueryPrimitive: TypeAlias = str | int | float | bool | None
+QueryValue: TypeAlias = QueryPrimitive | Sequence[QueryPrimitive]
+_plugin_response: TypeAdapter[JsonObject] = TypeAdapter(JsonObject)
 
 logger = get_logger("services.plugin_runtime_client")
 
@@ -15,24 +23,24 @@ logger = get_logger("services.plugin_runtime_client")
 class PluginRuntimeClient:
     """HTTP client for tgo-plugin-runtime service."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.base_url = settings.PLUGIN_RUNTIME_URL.rstrip("/")
         self.timeout = settings.PLUGIN_RUNTIME_TIMEOUT
 
     async def test_business_connection(self, command: ConnectionTestCommand) -> ConnectionTestReceipt:
-        """Use dedicated typed transport; legacy plugin requests log raw bodies."""
+        """Use the dedicated connection-test transport and receipt contract."""
         return await request_connection_test(self.base_url, self.timeout, command)
 
     async def _request(
         self,
         method: str,
         path: str,
-        json: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        json: Mapping[str, object] | None = None,
+        params: Mapping[str, QueryValue] | None = None,
+    ) -> JsonObject | None:
         """Make an HTTP request to plugin-runtime."""
         url = f"{self.base_url}{path}"
-        
+
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.request(
@@ -42,17 +50,30 @@ class PluginRuntimeClient:
                     params=params,
                     headers={"Content-Type": "application/json"},
                 )
-                
+
                 if response.status_code == 404:
                     return None
-                
+
                 response.raise_for_status()
-                return response.json()
+                try:
+                    return _plugin_response.validate_json(
+                        response.content, strict=True
+                    )
+                except (ValueError, ValidationError):
+                    raise HTTPException(
+                        502, "Plugin runtime returned an invalid response"
+                    ) from None
         except httpx.HTTPStatusError as e:
-            logger.error(f"Plugin runtime HTTP error: {e.response.status_code} {e.response.text}")
+            logger.error(
+                "Plugin runtime HTTP error",
+                extra={"status_code": e.response.status_code},
+            )
             raise
         except httpx.RequestError as e:
-            logger.error(f"Plugin runtime request error: {e}")
+            logger.error(
+                "Plugin runtime request error",
+                extra={"error_type": type(e).__name__},
+            )
             raise
 
     # ==================== Plugin List ====================

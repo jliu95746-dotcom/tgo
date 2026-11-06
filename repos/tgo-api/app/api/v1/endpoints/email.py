@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, status
 
 from app.core.logging import get_logger
 from app.core.security import get_authenticated_project
+from app.core.security import AuthenticatedProject
 from app.schemas.email_schema import EmailConnectionTestRequest, EmailConnectionTestResponse
 
 logger = get_logger("endpoints.email")
@@ -180,7 +181,9 @@ def test_imap_connection(
 )
 async def test_email_connection(
     request: EmailConnectionTestRequest,
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> EmailConnectionTestResponse:
     """
     Test email server connection for SMTP and IMAP.

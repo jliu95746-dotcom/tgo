@@ -1,12 +1,14 @@
 """Plugin API endpoints - Proxies to tgo-plugin-runtime service."""
 
 from datetime import datetime, timedelta, timezone
+from typing import NoReturn
 
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import StreamingResponse
 import httpx
 import json
+from pydantic import JsonValue, TypeAdapter
 from sqlalchemy.orm import Session
 from jose import jwt
 
@@ -42,29 +44,59 @@ from app.schemas.plugin import (
 
 logger = get_logger("api.plugins")
 router = APIRouter(route_class=CurrentAccessRoute)
+_plugin_error_body: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 
 
-def _handle_runtime_error(e: Exception, context: str):
+def _handle_runtime_error(e: Exception, context: str) -> NoReturn:
     """Helper to handle errors from plugin runtime service."""
     if isinstance(e, (HTTPException, TGOAPIException)):
         raise e
-        
+
     if isinstance(e, httpx.HTTPStatusError):
         if 400 <= e.response.status_code < 500:
             try:
-                detail = e.response.json().get("detail", e.response.text)
-            except Exception:
-                detail = e.response.text
-            raise HTTPException(status_code=e.response.status_code, detail=detail)
-        logger.error(f"Plugin runtime service error ({e.response.status_code}) during {context}: {e.response.text}")
-        raise HTTPException(status_code=502, detail="Plugin runtime service error")
-    
+                data = _plugin_error_body.validate_json(e.response.content)
+                detail = (
+                    data.get("detail", "Plugin runtime request failed")
+                    if isinstance(data, dict)
+                    else "Plugin runtime request failed"
+                )
+            except ValueError:
+                detail = "Plugin runtime request failed"
+            raise HTTPException(
+                status_code=e.response.status_code, detail=detail
+            )
+        logger.error(
+            "Plugin runtime service error",
+            extra={
+                "status_code": e.response.status_code,
+                "operation": context,
+            },
+        )
+        raise HTTPException(
+            status_code=502, detail="Plugin runtime service error"
+        )
+
     if isinstance(e, httpx.RequestError):
-        logger.error(f"Plugin runtime connection error during {context}: {e}")
-        raise HTTPException(status_code=502, detail="Plugin runtime service unavailable")
-    
-    logger.error(f"Unexpected error during {context}: {e}")
-    raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(
+            "Plugin runtime connection error",
+            extra={
+                "operation": context,
+                "error_type": type(e).__name__,
+            },
+        )
+        raise HTTPException(
+            status_code=502, detail="Plugin runtime service unavailable"
+        )
+
+    logger.error(
+        "Unexpected plugin runtime error",
+        extra={
+            "operation": context,
+            "error_type": type(e).__name__,
+        },
+    )
+    raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ==================== Plugin List ====================

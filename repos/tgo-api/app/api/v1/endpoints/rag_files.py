@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES
 from app.core.logging import get_logger
 from app.core.security import get_authenticated_project
+from app.core.security import AuthenticatedProject
 from app.schemas.rag import (
     BatchFileUploadResponse,
     FileListResponse,
@@ -56,7 +57,7 @@ async def list_files(
     offset: int = Query(
         0, ge=0, description="Number of files to skip"
     ),
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> FileListResponse:
     """List files from RAG service."""
     logger.info(
@@ -122,7 +123,7 @@ async def upload_file(
     tags: Optional[str] = Form(
         None, description="Comma-separated list of tags"
     ),
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> FileUploadResponse:
     """Upload file to RAG service."""
     logger.info(
@@ -182,7 +183,7 @@ async def upload_files_batch(
     tags: Optional[str] = Form(
         None, description="Comma-separated list of tags applied to all files"
     ),
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> BatchFileUploadResponse:
     """Upload multiple files to RAG service in a batch."""
     logger.info(
@@ -221,7 +222,7 @@ async def upload_files_batch(
 )
 async def get_file(
     file_id: UUID,
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> FileResponse:
     """Get file from RAG service."""
     logger.info(
@@ -267,7 +268,7 @@ async def get_file(
 )
 async def download_file(
     file_id: UUID,
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> StreamingResponse:
     """Download file from RAG service."""
     logger.info(
@@ -358,7 +359,7 @@ async def download_file(
 )
 async def delete_file(
     file_id: UUID,
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> None:
     """Delete file from RAG service."""
     logger.info(
@@ -400,7 +401,7 @@ async def list_file_documents(
     offset: int = Query(
         0, ge=0, description="Number of documents to skip"
     ),
-    project_and_key = Depends(get_authenticated_project),
+    project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> DocumentListResponse:
     """List documents for a file from RAG service."""
     logger.info(

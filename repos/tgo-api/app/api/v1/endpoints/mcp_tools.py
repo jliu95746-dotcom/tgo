@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, DELETE_RESPONSES, UPDATE_RESPONSES
 from app.core.security import get_authenticated_project
+from app.core.security import AuthenticatedProject
 from app.schemas.mcp import (
     CreateCustomToolRequest,
     ExecuteToolRequest,
@@ -78,7 +79,9 @@ async def list_tools(
     per_page: int = Query(
         20, ge=1, le=100, description="Items per page"
     ),
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ToolListResponse:
     """List tools from AI service MCP integration."""
     logger.info(
@@ -119,7 +122,9 @@ async def list_tools(
 )
 async def get_tool(
     tool_id: UUID,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ToolResponse:
     """Get tool from AI service MCP integration."""
     logger.info(
@@ -152,7 +157,9 @@ async def get_tool(
 )
 async def create_custom_tool(
     tool_data: CreateCustomToolRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ToolResponse:
     """Create custom tool in AI service MCP integration."""
     logger.info(
@@ -188,7 +195,9 @@ async def create_custom_tool(
 async def update_custom_tool(
     tool_id: UUID,
     tool_data: UpdateCustomToolRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ToolResponse:
     """Update custom tool in AI service MCP integration."""
     logger.info(
@@ -224,7 +233,9 @@ async def update_custom_tool(
 )
 async def delete_custom_tool(
     tool_id: UUID,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> None:
     """Delete custom tool from AI service MCP integration."""
     logger.info(
@@ -256,7 +267,9 @@ async def delete_custom_tool(
 async def execute_tool(
     tool_id: UUID,
     execution_data: ExecuteToolRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ToolExecutionResult:
     """Execute tool via AI service MCP integration."""
     logger.info(

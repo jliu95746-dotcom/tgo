@@ -10,6 +10,7 @@ from pydantic import ValidationError as SchemaValidationError
 from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES, UPDATE_RESPONSES
 from app.core.logging import get_logger
 from app.core.security import get_authenticated_project, get_current_active_user
+from app.core.security import AuthenticatedProject
 from app.core.database import get_db
 from sqlalchemy.orm import Session
 from app.schemas.ai import (
@@ -160,7 +161,9 @@ async def list_agents(
     offset: int = Query(
         0, ge=0, description="Number of agents to skip"
     ),
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
     ) -> AgentListResponse:
     """List agents from AI service.
 
@@ -217,7 +220,9 @@ async def list_agents(
 )
 async def create_agent(
     agent_data: AgentCreateRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
     db: Session = Depends(get_db),
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> AgentResponse:
@@ -310,7 +315,9 @@ async def get_agent(
     include_workflows: bool = Query(
         False, description="Include workflow bindings in the response"
     ),
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> AgentWithDetailsResponse:
     """Get agent from AI service with schema-validated response.
 
@@ -359,7 +366,9 @@ async def get_agent(
 async def update_agent(
     agent_id: UUID,
     agent_data: AgentUpdateRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
     db: Session = Depends(get_db),
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> AgentResponse:
@@ -424,7 +433,9 @@ async def update_agent(
 )
 async def delete_agent(
     agent_id: UUID,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> None:
     """Delete agent from AI service."""
@@ -456,7 +467,9 @@ async def set_agent_tool_enabled(
     agent_id: UUID,
     tool_id: UUID,
     toggle_data: ToggleEnabledRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> None:
     """Enable or disable a specific tool binding for an agent."""
@@ -494,7 +507,9 @@ async def set_agent_collection_enabled(
     agent_id: UUID,
     collection_id: str,
     toggle_data: ToggleEnabledRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> None:
     """Enable or disable a specific collection binding for an agent."""
@@ -532,7 +547,9 @@ async def set_agent_workflow_enabled(
     agent_id: UUID,
     workflow_id: str,
     toggle_data: ToggleEnabledRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> None:
     """Enable or disable a specific workflow binding for an agent."""

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, DELETE_RESPONSES, UPDATE_RESPONSES
 from app.core.security import get_authenticated_project
+from app.core.security import AuthenticatedProject
 from app.schemas.mcp import (
     BulkInstallRequest,
     InstallToolRequest,
@@ -54,7 +55,9 @@ async def list_project_tools(
     per_page: int = Query(
         20, ge=1, le=100, description="Items per page"
     ),
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ProjectToolListResponse:
     """List project tools from AI service MCP integration."""
     project, _ = project_and_api_key
@@ -96,7 +99,9 @@ async def list_project_tools(
     """,
 )
 async def get_project_tool_stats(
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ProjectToolStats:
     """Get project tool statistics from AI service MCP integration."""
     logger.info(
@@ -125,7 +130,9 @@ async def get_project_tool_stats(
 )
 async def get_project_tool(
     tool_id: UUID,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ProjectToolResponse:
     """Get project tool from AI service MCP integration."""
     logger.info(
@@ -157,7 +164,9 @@ async def get_project_tool(
 async def update_project_tool(
     tool_id: UUID,
     tool_data: UpdateProjectToolRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ProjectToolResponse:
     """Update project tool in AI service MCP integration."""
     logger.info(
@@ -193,7 +202,9 @@ async def update_project_tool(
 )
 async def uninstall_tool(
     tool_id: UUID,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> None:
     """Uninstall tool from AI service MCP integration."""
     logger.info(
@@ -223,7 +234,9 @@ async def uninstall_tool(
 )
 async def install_tool(
     install_data: InstallToolRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ProjectToolResponse:
     """Install tool via AI service MCP integration."""
     
@@ -252,7 +265,9 @@ async def install_tool(
 )
 async def bulk_install_tools(
     bulk_install_data: BulkInstallRequest,
-    project_and_api_key = Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> List[ProjectToolResponse]:
     """Bulk install tools via AI service MCP integration."""
     logger.info(

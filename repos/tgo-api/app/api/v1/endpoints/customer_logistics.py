@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_authenticated_project
+from app.core.security import AuthenticatedProject
 from app.models import Visitor
 from app.schemas.customer_logistics import (
     LogisticsSettingsResponse,
@@ -45,7 +46,9 @@ def _ensure_visitor(db: Session, project_id: UUID, visitor_id: UUID) -> None:
 @router.get("/settings", response_model=LogisticsSettingsResponse)
 def get_settings(
     db: Session = Depends(get_db),
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> LogisticsSettingsResponse:
     project, _ = project_and_api_key
     return LogisticsSettingsResponse.model_validate(
@@ -57,7 +60,9 @@ def get_settings(
 def update_settings(
     update: LogisticsSettingsUpdate,
     db: Session = Depends(get_db),
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> LogisticsSettingsResponse:
     project, _ = project_and_api_key
     return LogisticsSettingsResponse.model_validate(
@@ -69,7 +74,9 @@ def update_settings(
 async def test_query_tool(
     request: LogisticsToolTestRequest,
     db: Session = Depends(get_db),
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> LogisticsToolTestResponse:
     project, _ = project_and_api_key
     query_details = {key: value for key, value in {
@@ -93,7 +100,9 @@ async def test_query_tool(
 def list_shipments(
     visitor_id: UUID,
     db: Session = Depends(get_db),
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ShipmentListResponse:
     project, _ = project_and_api_key
     _ensure_visitor(db, project.id, visitor_id)
@@ -111,7 +120,9 @@ def create_shipment(
     visitor_id: UUID,
     request: ShipmentCreateRequest,
     db: Session = Depends(get_db),
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ShipmentQueryResponse:
     project, _ = project_and_api_key
     _ensure_visitor(db, project.id, visitor_id)
@@ -138,7 +149,9 @@ def create_shipment(
 async def query_shipment(
     shipment_id: UUID,
     db: Session = Depends(get_db),
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ShipmentQueryResponse:
     project, _ = project_and_api_key
     shipment, events = await _service(db).query_shipment(
@@ -159,7 +172,9 @@ async def query_shipment(
 def list_events(
     shipment_id: UUID,
     db: Session = Depends(get_db),
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> TrackingEventListResponse:
     project, _ = project_and_api_key
     return TrackingEventListResponse(

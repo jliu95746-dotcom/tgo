@@ -2,7 +2,7 @@
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, TypeAlias, Union
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, status
@@ -23,6 +23,8 @@ from app.models import (
     RolePermission,
     ProjectRolePermission,
 )
+
+AuthenticatedProject: TypeAlias = tuple[Project, str]
 
 logger = get_logger("security")
 

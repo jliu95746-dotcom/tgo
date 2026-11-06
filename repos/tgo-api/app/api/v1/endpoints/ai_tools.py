@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 
 from app.core.security import get_authenticated_project
+from app.core.security import AuthenticatedProject
 from app.schemas.tools import ToolCreateRequest, ToolResponse, ToolType, ToolUpdateRequest
 from app.services.ai_client import ai_client
 from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse, ToolTestRequest, ToolTestResponse
@@ -19,7 +20,9 @@ router = APIRouter()
 @router.post("/discover", response_model=MCPDiscoverResponse)
 async def discover_tools(
     request: MCPDiscoverRequest,
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> MCPDiscoverResponse:
     project, _ = project_and_api_key
     return await ai_client.discover_tools(str(project.id), request)
@@ -29,7 +32,9 @@ async def discover_tools(
 async def test_saved_tool(
     tool_id: UUID,
     request: ToolTestRequest,
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ToolTestResponse:
     project, _ = project_and_api_key
     result = await ai_client.execute_tool(
@@ -42,7 +47,9 @@ async def test_saved_tool(
 async def list_tools(
     tool_type: Optional[ToolType] = Query(None, description="Filter by tool type (MCP, FUNCTION, or ALL)"),
     include_deleted: bool = Query(False, description="Include soft-deleted tools"),
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> List[ToolResponse]:
     """
     List tools for the current project.
@@ -76,7 +83,9 @@ async def list_tools(
 @router.post("", response_model=ToolResponse, status_code=201)
 async def create_tool(
     tool_data: ToolCreateRequest,
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ToolResponse:
     """
     Create a new tool for the current project.
@@ -109,7 +118,9 @@ async def create_tool(
 async def update_tool(
     tool_id: UUID,
     tool_data: ToolUpdateRequest,
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ToolResponse:
     """
     Update an existing tool.
@@ -142,7 +153,9 @@ async def update_tool(
 @router.delete("/{tool_id}", response_model=ToolResponse)
 async def delete_tool(
     tool_id: UUID,
-    project_and_api_key=Depends(get_authenticated_project),
+    project_and_api_key: AuthenticatedProject = Depends(
+        get_authenticated_project
+    ),
 ) -> ToolResponse:
     """
     Delete a tool (soft delete).
