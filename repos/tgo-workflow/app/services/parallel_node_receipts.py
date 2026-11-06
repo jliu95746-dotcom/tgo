@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.execution import NodeExecution, WorkflowExecution
+from app.services.execution_definition import execution_graph
 from app.services.parallel_topology import parallel_plan_for
 
 
@@ -45,23 +46,22 @@ async def preserve_cancelled_parallel_node(
         await db.rollback()
         return False
     definition = run.definition_snapshot
-    nodes = definition.get("nodes") if isinstance(definition, dict) else None
-    edges = definition.get("edges") if isinstance(definition, dict) else None
     branch_ids: set[str] = set()
-    if isinstance(nodes, list) and isinstance(edges, list):
-        try:
-            for node in nodes:
-                if isinstance(node, dict) and node.get("type") == "parallel":
-                    branch_ids.update(parallel_plan_for(str(node["id"]), nodes, edges).branch_ids)
-        except (ValueError, KeyError, TypeError):
-            branch_ids.clear()
-    if (
-        not isinstance(nodes, list)
-        or node_id not in branch_ids
-        or not any(
-            isinstance(node, dict) and node.get("id") == node_id and node.get("type") == node_type
-            for node in nodes
-        )
+    try:
+        if not isinstance(definition, dict):
+            raise ValueError("Missing saved graph")
+        graph = execution_graph(definition)
+        nodes, edges = graph.nodes, graph.edges
+        for node in nodes:
+            if node["type"] == "parallel":
+                branch_ids.update(
+                    parallel_plan_for(node["id"], nodes, edges).branch_ids
+                )
+    except (ValueError, KeyError, TypeError):
+        await db.rollback()
+        return False
+    if node_id not in branch_ids or not any(
+        node["id"] == node_id and node["type"] == node_type for node in nodes
     ):
         await db.rollback()
         return False

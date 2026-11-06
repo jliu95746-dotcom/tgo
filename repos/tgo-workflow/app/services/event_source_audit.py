@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from time import monotonic
 from typing import Literal, Protocol
@@ -9,7 +10,7 @@ from uuid import UUID, uuid4
 
 from redis.asyncio import Redis
 from sqlalchemy import and_, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.execution import WorkflowExecution
@@ -31,6 +32,7 @@ BUDGET_SECONDS = 45.0
 CHECK_TIMEOUT_SECONDS = 10.0
 LEASE_SECONDS = 90
 CURSOR_SECONDS = 7 * 24 * 60 * 60
+SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
 ADVANCE = """
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
@@ -78,7 +80,9 @@ class RedisAuditProgress:
         if value is None or value in (b"", ""):
             return None
         try:
-            decoded = value.decode("ascii") if isinstance(value, bytes) else value
+            decoded = (
+                value.decode("ascii") if isinstance(value, bytes) else value
+            )
             if not isinstance(decoded, str) or len(decoded) != 36:
                 raise ValueError()
             return str(UUID(decoded))
@@ -87,7 +91,8 @@ class RedisAuditProgress:
 
     async def advance(self, owner: str, cursor: str) -> bool:
         return bool(
-            await self.broker.eval(
+            await self.broker.execute_command(
+                "EVAL",
                 ADVANCE,
                 2,
                 self.lease_key,
@@ -99,7 +104,9 @@ class RedisAuditProgress:
         )
 
     async def release(self, owner: str) -> None:
-        await self.broker.eval(RELEASE, 1, self.lease_key, owner)
+        await self.broker.execute_command(
+            "EVAL", RELEASE, 1, self.lease_key, owner
+        )
 
 
 @dataclass(frozen=True)
@@ -112,7 +119,7 @@ class AuditCandidate:
 
 
 async def candidates(
-    sessions: async_sessionmaker[AsyncSession],
+    sessions: SessionFactory,
     after: str | None,
     limit: int,
 ) -> list[AuditCandidate]:
@@ -133,7 +140,9 @@ async def candidates(
                 WorkflowExecution.source_channel == "external_webhook",
             ),
             WorkflowExecution.execution_mode == "production",
-            WorkflowExecution.status.in_(("waiting_approval", "pending_resume")),
+            WorkflowExecution.status.in_(
+                ("waiting_approval", "pending_resume")
+            ),
         )
         .order_by(WorkflowExecution.id)
         .limit(limit)
@@ -159,13 +168,13 @@ async def candidates(
 
 
 async def audit_waiting_event_sources(
-    sessions: async_sessionmaker[AsyncSession],
+    sessions: SessionFactory,
     progress: AuditProgress,
     *,
     limit: int = BATCH_SIZE,
     clock: Callable[[], float] = monotonic,
 ) -> int:
-    """Only a lease holder advances the durable cursor, even after a restart."""
+    """Only lease holders advance the cursor, including after restart."""
     if type(limit) is not int or not 1 <= limit <= BATCH_SIZE:
         raise ValueError("事件来源巡检批量大小无效。")
     owner = uuid4().hex

@@ -17,7 +17,7 @@ SOURCE_EVENT_PENDING_RETENTION = timedelta(minutes=30)
 SOURCE_EVENT_PENDING_TIMEOUT = "自动事件等待执行超过 30 分钟，片段输入已清理；请核查队列状态。"
 
 
-def running_segment_started_at() -> ColumnElement[datetime]:
+def running_segment_started_at() -> ColumnElement[datetime | None]:
     """Keep old runs readable without guessing their historical claim time."""
     return func.coalesce(
         WorkflowExecution.active_segment_started_at,
@@ -26,7 +26,8 @@ def running_segment_started_at() -> ColumnElement[datetime]:
 
 
 def event_execution_cutoff(
-    now: datetime, hard_time_limit: object,
+    now: datetime,
+    hard_time_limit: object,
 ) -> datetime | None:
     """A missing/disabled Celery limit does not prove a run is overdue."""
     if (
@@ -45,8 +46,11 @@ def event_execution_cutoff(
 
 
 async def expire_internal_event(
-    db: AsyncSession, project_id: str, execution_id: str,
-    cutoff: datetime, now: datetime,
+    db: AsyncSession,
+    project_id: str,
+    execution_id: str,
+    cutoff: datetime,
+    now: datetime,
 ) -> bool:
     """Recheck eligibility atomically; a late worker cannot revive this run."""
     changed = await db.scalar(
@@ -63,8 +67,11 @@ async def expire_internal_event(
             running_segment_started_at() <= cutoff,
         )
         .values(
-            status="failed", input=None, output=None,
-            error=EVENT_EXECUTION_TIMEOUT, completed_at=now,
+            status="failed",
+            input=None,
+            output=None,
+            error=EVENT_EXECUTION_TIMEOUT,
+            completed_at=now,
         )
         .returning(WorkflowExecution.id)
         .execution_options(synchronize_session=False)
@@ -77,8 +84,11 @@ async def expire_internal_event(
 
 
 async def expire_pending_source_event(
-    db: AsyncSession, project_id: str, execution_id: str,
-    cutoff: datetime, now: datetime,
+    db: AsyncSession,
+    project_id: str,
+    execution_id: str,
+    cutoff: datetime,
+    now: datetime,
 ) -> bool:
     """Expire unclaimed events; a concurrent worker claim wins safely."""
     changed = await db.scalar(
@@ -93,8 +103,12 @@ async def expire_pending_source_event(
             WorkflowExecution.started_at <= cutoff,
         )
         .values(
-            status="failed", input=None, output=None, duration=0,
-            error=SOURCE_EVENT_PENDING_TIMEOUT, completed_at=now,
+            status="failed",
+            input=None,
+            output=None,
+            duration=0,
+            error=SOURCE_EVENT_PENDING_TIMEOUT,
+            completed_at=now,
         )
         .returning(WorkflowExecution.id)
         .execution_options(synchronize_session=False)
