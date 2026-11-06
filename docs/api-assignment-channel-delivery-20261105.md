@@ -7,7 +7,7 @@
 - 工作目录：`E:/智能客服系统`；分支：`codex/whole-project-release-20261104`；origin 为个人 Fork `jliu95746-dotcom/tgo`。
 - 基线：`8010b2383ec624d2c25023575fa7b3abb3e593d2`。
 - 当前源码候选：`f24a06ab1132ff1d19a380f626136906f1451f8e`，已提交并核对 origin 同编号，包含 `23c28c1` 的事务改造、`66edcdb` 的原请求版本绑定及后续数据库用例；尚未合并或部署。相对基线 API 共 21 份文件、2128 行新增、360 行删除，其中 8 份运行源码、1 份迁移、12 份测试。
-- 下列 Linux 429 / 数据库 93 结果对应第一份候选 `23c28c19f975a30ac139e94e27c144b2070af5e9`。最新本机为 435 项通过，最新 Linux/数据库 96 项仍待运行，详见文末，不跨版本拼成最终通过报告。
+- 下列 Linux 429 / 数据库 93 结果对应第一份候选 `23c28c19f975a30ac139e94e27c144b2070af5e9`。2026-11-06 连接恢复后，最新固定 `f24a06a` 的 Linux 435 / PostgreSQL 与受控 HTTP 96 项已通过，详见文末补充，不跨版本拼成一份报告。
 - 2026-11-06 **04:54:09 UTC** 只读复核：正式域名仍报告 `e7abc80859f9e381a90c7b269a840a58a9019f5b` / 1.0.0，12 个正式应用 healthy，其他正式容器保持。本机日期为 2026-11-05，UTC 已是次日。
 - 随后本机连接服务器在 SSH 密钥交换前被关闭，直接 HTTPS 复核也失败，当前健康状态不能继续刷新；没有把传输失败当作凭证错误或要求重新登录。
 
@@ -74,3 +74,16 @@ $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = '1'
 第三轮对 `66edcdb` 的包上传在 SCP 阶段返回 `Connection reset`，本地启动器没有执行启动步骤。第四轮准备程序试图复核第三轮目录的 `started/pid`，SSH 已在密钥交换前关闭，因此未继续打包或启动。第三轮远端文件/启动状态仍需实际复核，没有在未知状态下盲目重开同一任务。
 
 最终源码和测试已推送任务分支；没有合并 main、迁移正式数据库、替换正式容器、发送生产消息或调用真实模型。下一步先恢复连接，核对第三轮状态，再从 `f24a06a` 干净 Git 输入运行 Linux 435 和 PostgreSQL/受控 HTTP 96 组合，验证清理与正式服务状态；随后继续长期 unknown 的运营处理、正式渠道和全工程验收。完整目标保持未完成。
+
+## 连接恢复后的固定候选验证（2026-11-06）
+
+前一节保留连接失败时的历史状态。本轮恢复 SSH 后，实际确认第三轮目录只有 `source.tar.gz`，没有 `started` 或 `pid`，没有未观察到的已启动任务；随后新开第四轮，未重复启动第三轮。
+
+第四轮只从已推送的 `f24a06ab1132ff1d19a380f626136906f1451f8e` 执行 Git 归档，不读取当前工作目录中的知识库草稿。归档 SHA-256 为 `78d7814e17ea234a21ad12b48830c06f2559dcbf72cdd6047831027a830363ea`，1,526 份输入逐项核对。
+
+- 固定旧基线定向：单元组 2 failed / 0 passed，PostgreSQL 组 1 failed / 0 passed，正确复现提交前外部副作用。
+- 固定新候选：Linux 单元组 **435 passed**；真实 PostgreSQL 与受控 IM HTTP **96 passed**，包括新增的三项真实领取版本场景及隔离 schema 迁移演练。
+- 最终回执 `state=passed`、`original_container_ids_preserved=true`、`temporary_resources_removed=true`；原容器保留，临时容器、卷与网络清理。
+- 06:29:38 UTC 正式域名重新读取仍为 e7abc808 / 1.0.0，12 应用 healthy，其他容器保持。没有部署本候选或正式迁移。
+
+回执为 `/opt/yujian/incoming/assignment-channel-delivery-20261105/check-04/result.json`，本机副本在 `.tmp/assignment-channel-delivery-20261105/check-04/`。这关闭了前一节最新 Linux/96 项待运行缺口；正式 IM/微信、域名 Ego、长期 unknown 运营处置、全工程质量和最终发布继续未完成，不将受控服务替代正式业务验收。
