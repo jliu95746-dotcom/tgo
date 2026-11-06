@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -159,6 +159,52 @@ def test_captured_payload_is_owned_and_preserves_original_data():
     definition["nodes"] = []
     assert row.input == {"question": "original"}
     assert row.definition_snapshot == original
+
+
+@pytest.mark.asyncio
+async def test_direct_execution_uses_refreshed_capture_before_accepting():
+    run = captured_run()
+    run.input = None
+
+    async def refresh(saved, *, attribute_names):
+        assert saved is run
+        assert attribute_names == [
+            "input", "definition_snapshot", "definition_digest"
+        ]
+        saved.input = {"question": "persisted"}
+
+    db = SimpleNamespace(refresh=AsyncMock(side_effect=refresh))
+    inputs, definition = await executions._accepted_execution_payload(
+        db, run, "project"
+    )
+    db.refresh.assert_awaited_once()
+    assert inputs == {"question": "persisted"}
+    assert definition == run.definition_snapshot
+    inputs["question"] = "changed"
+    assert run.input == {"question": "persisted"}
+
+
+@pytest.mark.asyncio
+async def test_direct_execution_rejects_changed_capture_after_finish_race(
+    monkeypatch,
+):
+    run = captured_run()
+
+    async def refresh(saved, *, attribute_names):
+        saved.definition_snapshot = answer_definition(MARKER)
+
+    db = SimpleNamespace(refresh=AsyncMock(side_effect=refresh))
+    finish = AsyncMock(return_value=False)
+    monkeypatch.setattr(executions, "finish_running_execution", finish)
+    with pytest.raises(HTTPException) as error:
+        await executions._accepted_execution_payload(db, run, "project")
+    assert error.value.status_code == 409
+    assert error.value.detail == execution_snapshot.SNAPSHOT_ERROR
+    finish.assert_awaited_once_with(
+        db, "run", "project", "failed", None,
+        execution_snapshot.SNAPSHOT_ERROR, 0,
+    )
+    assert MARKER not in str(error.value)
 
 
 @pytest.mark.asyncio
