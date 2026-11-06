@@ -13,6 +13,7 @@ from app.services.staff_delivery_training import recover_pending_training
 from app.services.session_command_delivery import recover_session_commands
 from app.services.session_command_membership import recover_channel_effects
 from app.services.handoff_dispatch_recovery import recover_pending_handoffs
+from app.services.handoff_notifications import recover_handoff_notices
 
 logger = get_logger(__name__)
 _task: asyncio.Task[None] | None = None
@@ -20,6 +21,7 @@ _task: asyncio.Task[None] | None = None
 
 async def _recover_loop() -> None:
     handoff_cursor: UUID | None = None
+    notice_cursor: UUID | None = None
     while True:
         for phase_name, recover in (
             ("external_unknown", recover_stale_external_deliveries),
@@ -46,6 +48,14 @@ async def _recover_loop() -> None:
             logger.error(
                 "Handoff recovery sweep failed: %s", type(exc).__name__,
             )
+        try:
+            with SessionLocal() as db:
+                notices = await recover_handoff_notices(
+                    db, after_request_id=notice_cursor,
+                )
+                notice_cursor = notices.next_cursor
+        except Exception as exc:
+            logger.error("Handoff notice sweep failed: %s", type(exc).__name__)
         await asyncio.sleep(5)
 
 

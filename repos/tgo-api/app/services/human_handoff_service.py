@@ -32,6 +32,9 @@ from app.services.transfer_service import transfer_to_staff
 from app.services.handoff_dispatch_state import (
     PENDING_DISPATCH_KEY, completed_dispatch_receipt, stage_pending_dispatch,
 )
+from app.services.handoff_notifications import (
+    NOTICE_KEY, deliver_handoff_notice, stage_handoff_notice,
+)
 from app.services.visitor_notifications import notify_visitor_profile_updated
 from app.services.wukongim_client import wukongim_client
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MessageType
@@ -245,14 +248,26 @@ async def _finish_handoff(
 ) -> dict[str, object]:
     metadata = dict(request.request_metadata or {})
     metadata.pop(PENDING_DISPATCH_KEY, None)
-    request.request_metadata = metadata
+    can_stage_notice = (
+        not is_duplicate and "handoff_receipt" not in metadata
+    )
+    request.request_metadata = {**metadata, "handoff_receipt": receipt}
     if action_digest is not None:
         request.request_metadata = {
             **(request.request_metadata or {}),
             "handoff_action_digest": action_digest,
-            "handoff_receipt": receipt,
-            "notification_status": "unknown",
         }
+    if can_stage_notice:
+        stage_handoff_notice(
+            request, visitor, receipt, content=content, channel_id=channel_id,
+            channel_type=channel_type, extra=extra,
+        )
+    request.request_metadata = {
+        **request.request_metadata,
+        "notification_status": request.request_metadata.get(
+            "notification_status", "unknown",
+        ),
+    }
     db.commit()
     if is_duplicate:
         return {
@@ -261,38 +276,28 @@ async def _finish_handoff(
                 "notification_status", "unknown"
             ),
         }
+    notification_status = request.request_metadata["notification_status"]
     try:
-        await notify_visitor_profile_updated(db, visitor)
-        await _notify_handoff(
-            content=content, channel_id=channel_id,
-            channel_type=channel_type, extra=extra,
-            client_msg_no=(
-                f"handoff-{request.id}" if action_digest is not None else None
-            ),
-        )
+        if NOTICE_KEY in request.request_metadata:
+            outcome = await deliver_handoff_notice(db, request.id)
+            notification_status = (
+                "submitted" if outcome == "sent" else "unknown"
+            )
     except Exception as exc:
         logger.warning(
             "Committed handoff notification status unknown: %s",
             type(exc).__name__,
             extra={"request_id": str(request.id)},
         )
-        return {**receipt, "notification_status": "unknown"}
-    if action_digest is not None:
-        request.request_metadata = {
-            **(request.request_metadata or {}),
-            "notification_status": "submitted",
-        }
-        try:
-            db.commit()
-        except Exception as exc:
-            db.rollback()
-            logger.warning(
-                "Handoff notification receipt status unknown: %s",
-                type(exc).__name__,
-                extra={"request_id": str(request.id)},
-            )
-            return {**receipt, "notification_status": "unknown"}
-    return {**receipt, "notification_status": "submitted"}
+        db.rollback()
+        notification_status = "unknown"
+    try:
+        await notify_visitor_profile_updated(db, visitor)
+    except Exception as exc:
+        logger.warning(
+            "Handoff profile refresh failed: %s", type(exc).__name__,
+        )
+    return {**receipt, "notification_status": notification_status}
 
 
 def _saved_handoff_receipt(

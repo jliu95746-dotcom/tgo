@@ -27,6 +27,8 @@ from app.services.transfer_service import (
     _add_to_waiting_queue, _get_or_create_session,
 )
 from app.services.visitor_mutation_access import timestamp
+from app.services.handoff_notice_state import stage_handoff_notice
+from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 
 logger = get_logger(__name__)
 RECOVERY_DELAY_SECONDS = 300
@@ -61,6 +63,7 @@ def _finish(
 ) -> str:
     metadata = dict(request.request_metadata or {})
     metadata.pop(PENDING_DISPATCH_KEY, None)
+    can_stage_notice = "handoff_receipt" not in metadata
     request.request_metadata = {
         **metadata, "handoff_receipt": receipt,
         "notification_status": "unknown",
@@ -74,6 +77,21 @@ def _finish(
             "wukongim_red_dot" if receipt["status"] == "active"
             else "wukongim_queue"
         )
+        if can_stage_notice and request.visitor_id is not None:
+            visitor = db.get(Visitor, request.visitor_id)
+            if visitor is not None:
+                stage_handoff_notice(
+                    request, visitor, receipt,
+                    content=(
+                        "已收到您的人工客服请求，人工客服将接手处理。"
+                        if receipt["status"] == "active" else
+                        "已收到您的人工客服请求，当前正在排队，请稍候。"
+                    ),
+                    channel_id=request.channel_id or "",
+                    channel_type=(
+                        request.channel_type or CHANNEL_TYPE_CUSTOMER_SERVICE
+                    ),
+                )
     db.commit()
     return "cancelled" if cancelled else "recovered"
 

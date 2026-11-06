@@ -19,7 +19,9 @@ from app.models import (
     VisitorWaitingQueue,
 )
 from app.services import human_handoff_service
-from app.utils.manual_service_tag import MANUAL_SERVICE_TAG_ID, manual_service_tag_id
+from app.utils.manual_service_tag import (
+    MANUAL_SERVICE_TAG_ID, manual_service_tag_id,
+)
 
 
 def test_manual_service_request_uses_application_timestamp_defaults() -> None:
@@ -77,7 +79,9 @@ def test_first_handoff_creates_manual_service_tag() -> None:
     human_handoff_service.ensure_manual_service_tag(db, project_id, visitor)
 
     tag = next(value for value in db.added if isinstance(value, Tag))
-    visitor_tag = next(value for value in db.added if isinstance(value, VisitorTag))
+    visitor_tag = next(
+        value for value in db.added if isinstance(value, VisitorTag)
+    )
     assert tag.id == manual_service_tag_id(project_id)
     assert visitor_tag.tag_id == tag.id
 
@@ -90,7 +94,9 @@ def test_existing_legacy_manual_tag_is_reused() -> None:
 
     human_handoff_service.ensure_manual_service_tag(db, project_id, visitor)
 
-    visitor_tag = next(value for value in db.added if isinstance(value, VisitorTag))
+    visitor_tag = next(
+        value for value in db.added if isinstance(value, VisitorTag)
+    )
     assert visitor_tag.tag_id == MANUAL_SERVICE_TAG_ID
 
 
@@ -133,8 +139,8 @@ async def test_existing_staff_handoff_is_persisted_and_notified() -> None:
         ) as notify_profile,
         patch.object(
             human_handoff_service,
-            "_notify_handoff",
-            new=AsyncMock(),
+            "deliver_handoff_notice",
+            new=AsyncMock(return_value="sent"),
         ) as notify_handoff,
     ):
         result = await human_handoff_service.request_human_handoff(
@@ -163,7 +169,8 @@ async def test_existing_staff_handoff_is_persisted_and_notified() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ai_handoff_keeps_committed_receipt_when_notification_fails() -> None:
+async def test_ai_handoff_keeps_committed_receipt_when_notification_fails(
+) -> None:
     project_id, visitor_id, staff_id = uuid4(), uuid4(), uuid4()
     visitor = SimpleNamespace(
         id=visitor_id, project_id=project_id, platform_id=uuid4(),
@@ -183,8 +190,12 @@ async def test_ai_handoff_keeps_committed_receipt_when_notification_fails() -> N
     with (
         patch.object(human_handoff_service, "notify_visitor_profile_updated",
                      new=AsyncMock()),
-        patch.object(human_handoff_service, "_notify_handoff",
-                     new=AsyncMock(side_effect=RuntimeError("notification unavailable"))) as notify,
+        patch.object(
+            human_handoff_service, "deliver_handoff_notice",
+            new=AsyncMock(
+                side_effect=RuntimeError("notification unavailable"),
+            ),
+        ) as notify,
     ):
         first = await human_handoff_service.request_human_handoff(
             db=db, project=project, visitor=visitor, reason="转人工",
@@ -227,14 +238,18 @@ async def test_handoff_disabled_im_keeps_notification_unconfirmed() -> None:
         Staff: SimpleNamespace(name="张客服", nickname=None, username="staff"),
     })
     visitor = SimpleNamespace(
-        id=visitor_id, project_id=project_id, service_status="active",
+        id=visitor_id, project_id=project_id, platform_id=uuid4(),
+        service_status="active",
         is_unassigned=False, ai_disabled=False, service_mode="auto",
     )
     with (
         patch.object(human_handoff_service, "notify_visitor_profile_updated",
                      new=AsyncMock()),
-        patch.object(human_handoff_service.wukongim_client,
-                     "send_system_message", new=AsyncMock(return_value=None)) as send,
+        patch.object(
+            human_handoff_service.wukongim_client, "send_system_message",
+            new=AsyncMock(return_value=None),
+        ) as send,
+        patch.object(human_handoff_service.wukongim_client, "enabled", False),
     ):
         receipt = await human_handoff_service.request_human_handoff(
             db=db, project=SimpleNamespace(id=project_id), visitor=visitor,
@@ -242,9 +257,14 @@ async def test_handoff_disabled_im_keeps_notification_unconfirmed() -> None:
             channel="wecom", strict_source_receipt=True,
         )
     assert receipt["notification_status"] == "unknown"
-    request = next(row for row in db.added if isinstance(row, ManualServiceRequest))
+    request = next(
+        row for row in db.added if isinstance(row, ManualServiceRequest)
+    )
     assert request.request_metadata["notification_status"] == "unknown"
-    assert send.await_args.kwargs["client_msg_no"] == f"handoff-{request.id}"
+    assert request.request_metadata["handoff_notification"]["state"] == (
+        "pending"
+    )
+    send.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -284,10 +304,12 @@ async def test_ai_handoff_unique_conflict_reads_committed_receipt() -> None:
     saved = SimpleNamespace(
         id=uuid4(), deleted_at=None,
         request_metadata={
-            "handoff_action_digest": human_handoff_service._handoff_action_digest(
-                reason, None,
-                human_handoff_service.build_visitor_channel_id(visitor_id),
-                human_handoff_service.CHANNEL_TYPE_CUSTOMER_SERVICE,
+            "handoff_action_digest": (
+                human_handoff_service._handoff_action_digest(
+                    reason, None,
+                    human_handoff_service.build_visitor_channel_id(visitor_id),
+                    human_handoff_service.CHANNEL_TYPE_CUSTOMER_SERVICE,
+                )
             ),
             "handoff_receipt": saved_receipt,
             "notification_status": "submitted",
@@ -367,8 +389,8 @@ async def test_new_handoff_notifies_after_assignment_or_queue(available_staff):
                      new=AsyncMock(return_value=assignment)) as transfer,
         patch.object(human_handoff_service, "notify_visitor_profile_updated",
                      new=AsyncMock()),
-        patch.object(human_handoff_service, "_notify_handoff",
-                     new=AsyncMock()) as notify,
+        patch.object(human_handoff_service, "deliver_handoff_notice",
+                     new=AsyncMock(return_value="sent")) as notify,
     ):
         result = await human_handoff_service.request_human_handoff(
             db=db, project=SimpleNamespace(id=project_id), visitor=visitor,

@@ -393,7 +393,10 @@ async def test_handoff_persists_stop_ai_before_awaiting_assignment(
     monkeypatch.setattr(
         human_handoff_service, "notify_visitor_profile_updated", AsyncMock()
     )
-    monkeypatch.setattr(human_handoff_service, "_notify_handoff", AsyncMock())
+    monkeypatch.setattr(
+        human_handoff_service, "deliver_handoff_notice",
+        AsyncMock(return_value="sent"),
+    )
     result = await human_handoff_service.request_human_handoff(
         db=db,
         project=project,
