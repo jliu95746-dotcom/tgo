@@ -1,8 +1,10 @@
 """Workflow CRUD keeps scope, filtering and independent copies."""
 
 from uuid import uuid4
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from sqlalchemy.dialects.postgresql import dialect
 
 from app.models.workflow import Workflow
 from app.schemas.workflow import WorkflowCreate, WorkflowUpdate
@@ -13,6 +15,27 @@ from tests.unit.test_workflow_delete_contract import (
 from tests.unit.test_workflow_releases import definition
 
 sessions = _shared_sessions
+
+
+@pytest.mark.asyncio
+async def test_tag_filters_bind_array_in_both_page_and_count_queries():
+    tags = ["quality-tag", "quote'); DROP TABLE wf_workflows; --"]
+    page = [object()]
+    db = Mock()
+    db.execute = AsyncMock(
+        side_effect=[
+            Mock(scalar_one=Mock(return_value=1)),
+            Mock(scalars=Mock(return_value=Mock(all=Mock(return_value=page)))),
+        ]
+    )
+    result, total = await WorkflowService.get_all(db, "project", tags=tags)
+    assert result == page and total == 1
+    assert db.execute.await_count == 2
+    for invocation in db.execute.await_args_list:
+        compiled = invocation.args[0].compile(dialect=dialect())
+        assert "tags &&" in str(compiled)
+        assert tags in compiled.params.values()
+        assert tags[1] not in str(compiled)
 
 
 def request(name, description="synthetic description"):

@@ -46,7 +46,7 @@ class WorkflowService:
                 )
             )
         if tags:
-            filters.append(Workflow.tags.overlap(tags))
+            filters.append(Workflow.tags.bool_op("&&")(tags))
 
         if filters:
             query = query.where(*filters)
