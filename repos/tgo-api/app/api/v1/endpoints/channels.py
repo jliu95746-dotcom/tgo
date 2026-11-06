@@ -353,8 +353,10 @@ async def get_channel_info(
             guard.check()
             if public.get("id") != str(entity):
                 raise HTTPException(502, "客服显示信息无法核验")
-            name = public.get("name") if isinstance(public.get("name"), str) else "客服"
-            avatar = public.get("avatar_url") if isinstance(public.get("avatar_url"), str) else ""
+            public_name = public.get("name")
+            public_avatar = public.get("avatar_url")
+            name = public_name if isinstance(public_name, str) else "客服"
+            avatar = public_avatar if isinstance(public_avatar, str) else ""
             kind = "agent"
         guard.check()
         return ChannelInfoResponse(name=name, avatar=avatar, channel_id=channel_id,
@@ -520,8 +522,9 @@ async def _get_agent_channel_info(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
         raise
 
-    name = agent_data.get("name", "Unknown Agent")
-    avatar = agent_data.get("avatar_url", "") or ""
+    raw_name, raw_avatar = agent_data.get("name"), agent_data.get("avatar_url")
+    name = raw_name if isinstance(raw_name, str) else "Unknown Agent"
+    avatar = raw_avatar if isinstance(raw_avatar, str) else ""
 
     return ChannelInfoResponse(
         name=name,

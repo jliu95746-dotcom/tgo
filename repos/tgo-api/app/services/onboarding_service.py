@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.models import AIProvider, ProjectAIConfig
 from app.services.ai_client import AIServiceClient
+from app.services.ai_transport import response_objects
 from app.services.rag_client import RAGServiceClient
 
 logger = get_logger("services.onboarding")
@@ -98,12 +99,14 @@ async def check_step_4_agent_created(project_id: UUID) -> bool:
             limit=1,
             offset=0,
         )
-        agents = result.get("data", [])
+        agents = response_objects(result.get("data", []))
         return len(agents) > 0
     except Exception as e:
         logger.warning(
             "Failed to check agents for onboarding",
-            extra={"project_id": str(project_id), "error": str(e)},
+            extra={
+                "project_id": str(project_id), "error_type": type(e).__name__,
+            },
         )
         return False
 

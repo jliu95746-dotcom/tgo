@@ -188,8 +188,15 @@ async def list_agents(
     )
 
     # Enrich agents with bound device info from tgo-device-control
-    if bound_device_id is None and isinstance(result, dict) and isinstance(result.get("data"), list):
-        await _enrich_agents_with_devices(result["data"], str(project.id))
+    if bound_device_id is None and isinstance(result, dict):
+        rows = result.get("data")
+        if isinstance(rows, list):
+            agent_rows = [row for row in rows if isinstance(row, dict)]
+            if len(agent_rows) != len(rows):
+                raise HTTPException(
+                    502, "AI service returned an invalid agent list"
+                )
+            await _enrich_agents_with_devices(agent_rows, str(project.id))
 
     # Return raw JSON to avoid strict validation while keeping OpenAPI schema
     return JSONResponse(content=result)

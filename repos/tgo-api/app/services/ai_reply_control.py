@@ -10,6 +10,7 @@ from typing import Literal
 from uuid import uuid4
 
 from anyio import CancelScope
+from fastapi import HTTPException
 from pydantic import JsonValue
 
 from app.core.logging import get_logger
@@ -131,7 +132,8 @@ async def begin_reply_publication() -> None:
 
 async def tracked_ai_stream(
     source_factory: Callable[
-        [ReplyPhaseIdentity | None], AsyncGenerator[tuple[str, ReplyEvent], None]
+        [ReplyPhaseIdentity | None],
+        AsyncGenerator[tuple[str, JsonValue], None]
     ],
 ) -> AsyncGenerator[tuple[str, ReplyEvent], None]:
     phase = await begin_ai_phase()
@@ -141,6 +143,10 @@ async def tracked_ai_stream(
     async with aclosing(source):
         async for event, data in source:
             check_current_chat_access()
+            if not isinstance(data, dict):
+                raise HTTPException(
+                    502, "AI service returned an invalid event"
+                )
             event_type = data.get("event_type") or event
             if not isinstance(event_type, str):
                 event_type = event

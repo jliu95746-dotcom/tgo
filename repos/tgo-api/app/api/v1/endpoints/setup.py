@@ -36,6 +36,7 @@ from app.schemas.setup import (
     VerifySetupResponse,
 )
 from app.services.ai_client import ai_client
+from app.services.ai_transport import response_objects
 from app.services.ai_provider_default_models import resolve_initial_model_seeds
 from app.services.wukongim_client import wukongim_client
 from app.utils.const import CHANNEL_TYPE_PROJECT_STAFF, SETUP_DEFAULT_AGENT_MODEL
@@ -483,7 +484,10 @@ async def configure_llm(
                 limit=1,
                 offset=0,
             )
-            agents = agents_result.get("data", []) if isinstance(agents_result, dict) else []
+            agents = (
+                response_objects(agents_result.get("data", []))
+                if isinstance(agents_result, dict) else []
+            )
             if agents:
                 default_agent = agents[0]
                 default_agent_id = default_agent.get("id")

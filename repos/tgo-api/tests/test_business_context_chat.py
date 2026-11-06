@@ -296,7 +296,8 @@ async def test_visitor_ingress_issues_and_passes_context_to_each_existing_chat_p
         AsyncMock(return_value={"knowledge_channel": "web"}),
     )
     outcome = SimpleNamespace(
-        routing_target="auto_reply", tool_context=None, excluded_tool_ids=()
+        routing_target="auto_reply", tool_context=None, excluded_tool_ids=(),
+        contextual_reply=None,
     )
     classify = AsyncMock(return_value=outcome)
     monkeypatch.setattr(

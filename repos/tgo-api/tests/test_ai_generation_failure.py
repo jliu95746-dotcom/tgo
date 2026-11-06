@@ -1,6 +1,7 @@
 """Provider error text cannot become a successful, billable customer draft."""
 
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -24,7 +25,7 @@ async def test_failed_run_is_rejected_before_fallback_text(monkeypatch):
         ),
     )
     with pytest.raises(HTTPException) as error:
-        await client.run_supervisor_agent("synthetic question", "synthetic project")
+        await client.run_supervisor_agent("synthetic question", str(uuid4()))
     assert error.value.status_code == 502
     assert "synthetic internal failure" not in str(error.value.detail)
 
@@ -34,5 +35,9 @@ async def test_successful_run_keeps_its_content(monkeypatch):
     client = AIServiceClient()
     payload = {"success": True, "content": "可公开的答复"}
     monkeypatch.setattr(client, "_make_request", AsyncMock())
-    monkeypatch.setattr(client, "_handle_response", AsyncMock(return_value=payload))
-    assert await client.run_supervisor_agent("question", "project") == payload
+    monkeypatch.setattr(
+        client, "_handle_response", AsyncMock(return_value=payload)
+    )
+    assert (
+        await client.run_supervisor_agent("question", str(uuid4())) == payload
+    )

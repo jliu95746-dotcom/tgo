@@ -70,7 +70,7 @@ async def list_tools(
         include_deleted=include_deleted,
     )
     
-    return result
+    return [ToolResponse.model_validate(row) for row in result]
 
 
 @router.post("", response_model=ToolResponse, status_code=201)
@@ -102,7 +102,7 @@ async def create_tool(
         tool_data=tool_data_dict
     )
 
-    return result
+    return ToolResponse.model_validate(result)
 
 
 @router.patch("/{tool_id}", response_model=ToolResponse)
@@ -136,7 +136,7 @@ async def update_tool(
         tool_data=tool_data_dict,
     )
 
-    return result
+    return ToolResponse.model_validate(result)
 
 
 @router.delete("/{tool_id}", response_model=ToolResponse)
@@ -164,5 +164,5 @@ async def delete_tool(
         tool_id=str(tool_id),
     )
 
-    return result
+    return ToolResponse.model_validate(result)
 

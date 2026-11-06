@@ -12,6 +12,7 @@ from app.schemas.agent_device_script_trials import (
     ScriptTrialReport,
     ScriptTrialStart,
 )
+from app.services.ai_transport import RequestParams
 from app.services.agent_activation_policy_client import PolicyTransport
 from app.schemas.agent_device_script_requests import (
     ScriptTrialControl,
@@ -228,7 +229,7 @@ async def _case_call(
     schema: type[CaseReply],
     *,
     command: BaseModel | None = None,
-    params: dict[str, object] | None = None,
+    params: RequestParams | None = None,
     timeout: float = 45,
 ) -> CaseReply:
     headers = client._trial_headers(project, actor)

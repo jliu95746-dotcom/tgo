@@ -1,8 +1,8 @@
 """AI service client for proxying requests to external AI service."""
 
 import json
-from datetime import date, datetime
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+from collections.abc import AsyncGenerator, Mapping
+from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
 import httpx
@@ -11,62 +11,107 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.schemas.reply_phase import ReplyPhaseIdentity
-from app.schemas.workflow_ai_usage import WorkflowAgentInput, WorkflowAIResult
-from app.schemas.assist_trace import AssistTracePhase
-from app.services.assist_run_trace import record_assist_run_trace
-from app.schemas.knowledge_availability import AgentKnowledgeAvailability
-from app.schemas.media_probe import MediaProbeResult
-from app.schemas.agent_trials import AgentTrialReport, AgentTrialRequest
-from app.schemas.agent_knowledge_capabilities import AgentKnowledgeCapabilities, KnowledgeCapabilityQuery
-from app.schemas.agent_trial_reviews import KnowledgeReviewCommand, KnowledgeReviewQuery, KnowledgeReviewResponse, KnowledgeReviewState
-from app.schemas.scenario_agents import ScenarioAgentReceipt, ScenarioAgentSnapshot
-from app.schemas.agent_activation import AgentActivationPolicies, AgentActivationPolicyChange, AgentActivationPolicyRecord
+from app.schemas.agent_activation import (
+    AgentActivationPolicies,
+    AgentActivationPolicyChange,
+    AgentActivationPolicyRecord,
+)
 from app.schemas.agent_activation_readiness import AgentActivationReadiness
-from app.schemas.agent_business_connections import AgentBusinessConnectionRecord, AgentBusinessConnections, AgentBusinessConnectionWrite
+from app.schemas.agent_activation_requests import (
+    AgentActivationReceipt,
+    AgentActivationRequest,
+)
+from app.schemas.agent_business_connections import (
+    AgentBusinessConnectionRecord,
+    AgentBusinessConnections,
+    AgentBusinessConnectionWrite,
+)
 from app.schemas.agent_device_script_binding import (
-    AgentDeviceScriptRecord, AgentDeviceScriptState, AgentDeviceScriptWrite,
-)
-from app.schemas.agent_device_script_trials import (
-    ScriptTrialReport, ScriptTrialStart,
-)
-from app.schemas.agent_device_script_requests import (
-    ScriptTrialControl, ScriptTrialRequestState,
+    AgentDeviceScriptRecord,
+    AgentDeviceScriptState,
+    AgentDeviceScriptWrite,
 )
 from app.schemas.agent_device_script_cases import (
-    ScriptCasePage, ScriptCaseRead, ScriptCaseRecord, ScriptCaseWrite,
-    ScriptCaseSaveControl, ScriptCaseSaveState,
-    ScriptCaseTrialResult, ScriptTrialEvidence,
+    ScriptCasePage,
+    ScriptCaseRead,
+    ScriptCaseRecord,
+    ScriptCaseSaveControl,
+    ScriptCaseSaveState,
+    ScriptCaseTrialResult,
+    ScriptCaseWrite,
+    ScriptTrialEvidence,
+)
+from app.schemas.agent_device_script_requests import (
+    ScriptTrialControl,
+    ScriptTrialRequestState,
 )
 from app.schemas.agent_device_script_reviews import (
-    ScriptReviewState, ScriptReviewWrite, ScriptRunCheck,
+    ScriptReviewState,
+    ScriptReviewWrite,
+    ScriptRunCheck,
 )
 from app.schemas.agent_device_script_runs import (
-    ScriptRunControl, ScriptRunStart, ScriptRunView,
+    ScriptRunControl,
+    ScriptRunStart,
+    ScriptRunView,
 )
 from app.schemas.agent_device_script_selection import (
-    ScriptSelectionRecord, ScriptSelectionState, ScriptSelectionWrite,
+    ScriptSelectionRecord,
+    ScriptSelectionState,
+    ScriptSelectionWrite,
 )
-from app.schemas.agent_activation_requests import AgentActivationRequest, AgentActivationReceipt
-from app.schemas.agent_execution import AgentExecutionCheckReceipt, AgentExecutionReference
+from app.schemas.agent_device_script_trials import (
+    ScriptTrialReport,
+    ScriptTrialStart,
+)
+from app.schemas.agent_execution import (
+    AgentExecutionCheckReceipt,
+    AgentExecutionReference,
+)
+from app.schemas.agent_knowledge_capabilities import (
+    AgentKnowledgeCapabilities,
+    KnowledgeCapabilityQuery,
+)
+from app.schemas.agent_trial_reviews import (
+    KnowledgeReviewCommand,
+    KnowledgeReviewQuery,
+    KnowledgeReviewResponse,
+    KnowledgeReviewState,
+)
+from app.schemas.agent_trials import AgentTrialReport, AgentTrialRequest
 from app.schemas.ai import (
     AgentDeviceActionReadiness,
-    WorkflowReleaseAuditResponse, WorkflowPinTransitionHistory,
+    WorkflowPinTransitionHistory,
     WorkflowPinTransitionReceipt,
+    WorkflowReleaseAuditResponse,
 )
+from app.schemas.assist_trace import AssistTracePhase
 from app.schemas.business_execution_context import BusinessRequestAuthorization
-from app.services.business_execution_transport import business_headers
-from app.schemas.knowledge import KnowledgeChannel
-from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse
 from app.schemas.humanization import (
-    ConversationTurn, HumanizationContext, HumanizationMatchRequest,
-    TrainingPublishRequest, TrainingReview,
+    ConversationTurn,
+    HumanizationContext,
+    HumanizationMatchRequest,
+    TrainingPublishRequest,
+    TrainingReview,
 )
+from app.schemas.knowledge import KnowledgeChannel
+from app.schemas.knowledge_availability import AgentKnowledgeAvailability
+from app.schemas.media_probe import MediaProbeResult
+from app.schemas.reply_phase import ReplyPhaseIdentity
+from app.schemas.scenario_agents import (
+    ScenarioAgentReceipt,
+    ScenarioAgentSnapshot,
+)
+from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse
+from app.schemas.workflow_ai_usage import WorkflowAgentInput, WorkflowAIResult
+from app.services.ai_transport import AITransport, JsonObject, RequestParams
+from app.services.assist_run_trace import record_assist_run_trace
+from app.services.business_execution_transport import business_headers
 
 logger = get_logger("ai_client")
 
 
-class AIServiceClient:
+class AIServiceClient(AITransport):
     """Client for communicating with the external AI service."""
 
     def __init__(self) -> None:
@@ -75,166 +120,28 @@ class AIServiceClient:
         self.api_key = settings.AI_SERVICE_API_KEY
 
     async def run_workflow_agent(
-        self, payload: WorkflowAgentInput, project_id: UUID,
-        execution_id: UUID, lineage: tuple[str, ...],
+        self,
+        payload: WorkflowAgentInput,
+        project_id: UUID,
+        execution_id: UUID,
+        lineage: tuple[str, ...],
     ) -> WorkflowAIResult:
         from app.services.workflow_ai_client import run
+
         return await run(self, payload, project_id, execution_id, lineage)
-
-    def _get_headers(self) -> Dict[str, str]:
-        """Get headers for AI service requests (no auth required by downstream)."""
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "TGO-API-Service/0.1.0",
-        }
-        # Authentication headers have been removed per latest AI service API spec
-        from app.services.ai_usage_runtime import authorization_headers
-        headers.update(authorization_headers())
-        return headers
-
-    def _to_jsonable(self, obj: Any) -> Any:
-        """Recursively convert data to JSON-serializable primitives (str/int/bool/list/dict).
-        Handles UUID, datetime/date, sets, and Pydantic models (via model_dump if present).
-        """
-        if obj is None:
-            return None
-        if isinstance(obj, (str, int, float, bool)):
-            return obj
-        if isinstance(obj, UUID):
-            return str(obj)
-        if isinstance(obj, (date, datetime)):
-            return obj.isoformat()
-        if isinstance(obj, dict):
-            return {str(k): self._to_jsonable(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple, set)):
-            return [self._to_jsonable(v) for v in obj]
-        # Support Pydantic models without importing pydantic explicitly
-        if hasattr(obj, "model_dump"):
-            try:
-                return self._to_jsonable(obj.model_dump(exclude_none=True))
-            except Exception:
-                pass
-        try:
-            return json.loads(json.dumps(obj, default=str))
-        except Exception:
-            return str(obj)
-
-    async def _make_request(
-        self,
-        method: str,
-        endpoint: str,
-        json_data: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, Any]] = None,
-        extra_headers: Optional[Dict[str, str]] = None,
-        content: Optional[str] = None,
-        form_data: dict[str, str] | None = None,
-        files: dict[str, tuple[str, bytes, str]] | None = None,
-        timeout: float | None = None,
-    ) -> httpx.Response:
-        """Make HTTP request to AI service."""
-        url = f"{self.base_url}{endpoint}"
-        request_id = str(uuid4())
-
-        headers = self._get_headers()
-        headers["X-Request-ID"] = request_id
-        if extra_headers:
-            headers.update(extra_headers)
-
-        logger.info(
-            "AI service request",
-            extra={
-                "request_id": request_id,
-                "method": method,
-            },
-        )
-
-        try:
-            async with httpx.AsyncClient(
-                timeout=timeout if timeout is not None else self.timeout,
-                trust_env=False,
-            ) as client:
-                kwargs: Dict[str, Any] = {
-                    "method": method,
-                    "url": url,
-                    "headers": headers,
-                    "params": params,
-                }
-                if json_data is not None:
-                    kwargs["json"] = self._to_jsonable(json_data)
-                if content is not None:
-                    kwargs["content"] = content
-                if files is not None:
-                    if content is not None or json_data is not None:
-                        raise ValueError("Multipart and JSON content cannot be combined")
-                    headers.pop("Content-Type", None)
-                    kwargs["data"] = form_data
-                    kwargs["files"] = files
-                response = await client.request(**kwargs)
-
-                logger.info(
-                    f"AI service response: {response.status_code}",
-                    extra={
-                        "request_id": request_id,
-                        "status_code": response.status_code,
-                        "response_time": response.elapsed.total_seconds()
-                        if response.elapsed
-                        else None,
-                    },
-                )
-
-                return response
-
-        except httpx.TimeoutException:
-            logger.error(
-                "AI service timeout",
-                extra={"request_id": request_id, "timeout": timeout if timeout is not None else self.timeout},
-            )
-            raise HTTPException(status_code=504, detail="AI service request timed out")
-        except httpx.RequestError as e:
-            logger.error(
-                "AI service request failed",
-                extra={
-                    "request_id": request_id,
-                    "error_type": type(e).__name__,
-                },
-            )
-            raise HTTPException(
-                status_code=502, detail="Failed to connect to AI service"
-            )
-
-    async def _handle_response(self, response: httpx.Response) -> Any:
-        """Handle AI service response and convert errors."""
-        if response.is_success:
-            if response.status_code == 204:
-                return None
-            try:
-                return response.json()
-            except json.JSONDecodeError:
-                return response.text
-
-        # Handle error responses
-        try:
-            error_data = response.json()
-        except json.JSONDecodeError:
-            error_data = {"error": {"message": response.text or "Unknown error"}}
-
-        logger.warning(
-            f"AI service error response: {response.status_code}",
-            extra={
-                "status_code": response.status_code,
-            },
-        )
-
-        raise HTTPException(status_code=response.status_code, detail=error_data)
 
     # Agent endpoints
     @staticmethod
-    def _execution_headers(project_id: str, channel: str | None) -> dict[str, str]:
-        """The API supplies this scope after deriving the customer's platform."""
+    def _execution_headers(
+        project_id: str, channel: str | None
+    ) -> dict[str, str]:
+        """Derive execution scope from the customer's platform in the API."""
         return {
             "X-Internal-API-Key": settings.SECRET_KEY,
             "X-Project-Id": str(UUID(project_id)),
-            "X-Execution-Channel": KnowledgeChannel(channel or "internal").value,
+            "X-Execution-Channel": KnowledgeChannel(
+                channel or "internal"
+            ).value,
         }
 
     async def run_supervisor_agent(
@@ -263,9 +170,9 @@ class AIServiceClient:
         business_authorization: "BusinessRequestAuthorization | None" = None,
         trace_phase: AssistTracePhase | None = None,
         trace_template: str | None = None,
-    ) -> Dict[str, Any]:
+    ) -> JsonObject:
         """Run supervisor agent workflow and return response content."""
-        payload: Dict[str, Any] = {
+        payload: dict[str, object] = {
             "message": message,
             "stream": stream,
         }
@@ -303,7 +210,10 @@ class AIServiceClient:
         if cancel_on_disconnect:
             payload["cancel_on_disconnect"] = True
         if reply_phase is not None:
-            if not cancel_on_disconnect or reply_phase.project_id != project_id:
+            if (
+                not cancel_on_disconnect
+                or reply_phase.project_id != project_id
+            ):
                 raise ValueError("Invalid AI reply phase ownership")
             payload["reply_phase"] = reply_phase.model_dump(mode="json")
 
@@ -312,15 +222,23 @@ class AIServiceClient:
             "/api/v1/agents/run",
             json_data=payload,
             params={"project_id": project_id},
-            extra_headers={**self._execution_headers(project_id, knowledge_channel),
-                **business_headers(business_authorization, project_id, user_id, knowledge_channel)},
+            extra_headers={
+                **self._execution_headers(project_id, knowledge_channel),
+                **business_headers(
+                    business_authorization,
+                    project_id,
+                    user_id,
+                    knowledge_channel,
+                ),
+            },
         )
         data = await self._handle_response(response)
         if isinstance(data, dict):
             if data.get("success") is False:
                 raise HTTPException(502, "AI 生成失败，请稍后重试或转人工处理")
             record_assist_run_trace(
-                trace_phase, data,
+                trace_phase,
+                data,
                 system_message=system_message,
                 template_text=trace_template,
                 requested_agent_id=agent_id,
@@ -351,9 +269,9 @@ class AIServiceClient:
         cancel_on_disconnect: bool = False,
         reply_phase: ReplyPhaseIdentity | None = None,
         business_authorization: "BusinessRequestAuthorization | None" = None,
-    ) -> AsyncGenerator[Tuple[str, Any], None]:
+    ) -> AsyncGenerator[tuple[str, JsonValue], None]:
         """Stream supervisor agent events as they arrive."""
-        payload: Dict[str, Any] = {
+        payload: dict[str, object] = {
             "message": message,
             "stream": True,
             "ui_mode": "text",
@@ -388,7 +306,10 @@ class AIServiceClient:
         if cancel_on_disconnect:
             payload["cancel_on_disconnect"] = True
         if reply_phase is not None:
-            if not cancel_on_disconnect or reply_phase.project_id != project_id:
+            if (
+                not cancel_on_disconnect
+                or reply_phase.project_id != project_id
+            ):
                 raise ValueError("Invalid AI reply phase ownership")
             payload["reply_phase"] = reply_phase.model_dump(mode="json")
 
@@ -396,13 +317,16 @@ class AIServiceClient:
         request_id = str(uuid4())
         headers = self._get_headers()
         headers.update(self._execution_headers(project_id, knowledge_channel))
-        headers.update(business_headers(business_authorization, project_id, user_id, knowledge_channel))
+        headers.update(
+            business_headers(
+                business_authorization, project_id, user_id, knowledge_channel
+            )
+        )
         headers["X-Request-ID"] = request_id
         headers.setdefault("Accept", "text/event-stream")
 
         logger.info(
-            "AI service stream request: POST %s",
-            url,
+            "AI service stream request: POST",
             extra={"request_id": request_id},
         )
 
@@ -419,20 +343,16 @@ class AIServiceClient:
                     params={"project_id": project_id},
                 ) as response:
                     if response.status_code != 200:
-                        try:
-                            error_data = await response.json()
-                        except Exception:
-                            error_body = await response.aread()
-                            error_data = {
-                                "error": error_body.decode("utf-8", errors="ignore")
-                            }
+                        await response.aread()
+                        error_data = self._error_detail(response)
                         logger.warning(
                             "AI service stream error: %s",
                             response.status_code,
-                            extra={"request_id": request_id, "detail": error_data},
+                            extra={"request_id": request_id},
                         )
                         raise HTTPException(
-                            status_code=response.status_code, detail=error_data
+                            status_code=response.status_code,
+                            detail=error_data,
                         )
 
                     event_name: Optional[str] = None
@@ -444,10 +364,7 @@ class AIServiceClient:
                                 event_name = None
                                 continue
                             data_text = "\n".join(data_lines)
-                            try:
-                                parsed = json.loads(data_text)
-                            except json.JSONDecodeError:
-                                parsed = data_text
+                            parsed = self._event_data(data_text)
                             yield (event_name or "message", parsed)
                             event_name = None
                             data_lines = []
@@ -461,21 +378,22 @@ class AIServiceClient:
 
                     if data_lines:
                         data_text = "\n".join(data_lines)
-                        try:
-                            parsed = json.loads(data_text)
-                        except json.JSONDecodeError:
-                            parsed = data_text
+                        parsed = self._event_data(data_text)
                         yield (event_name or "message", parsed)
         except httpx.TimeoutException:
             logger.error(
-                "AI service stream timeout: %s", url, extra={"request_id": request_id}
+                "AI service stream timeout", extra={"request_id": request_id}
             )
-            raise HTTPException(status_code=504, detail="AI service stream timed out")
+            raise HTTPException(
+                status_code=504, detail="AI service stream timed out"
+            )
         except httpx.RequestError as exc:
             logger.error(
-                "AI service stream request error: %s",
-                exc,
-                extra={"request_id": request_id},
+                "AI service stream request error",
+                extra={
+                    "request_id": request_id,
+                    "error_type": type(exc).__name__,
+                },
             )
             raise HTTPException(
                 status_code=502, detail="Failed to connect to AI service"
@@ -486,7 +404,7 @@ class AIServiceClient:
         project_id: str,
         run_id: str,
         reason: Optional[str] = None,
-    ) -> Any:
+    ) -> JsonValue:
         """Cancel a running supervisor execution by run_id.
         Proxies to AI service: POST /api/v1/agents/run/{run_id}/cancel
         """
@@ -520,17 +438,19 @@ class AIServiceClient:
             )
             data = await self._handle_response(response)
             if isinstance(data, dict):
-                return data.get("exists", False)
+                exists = data.get("exists", False)
+                return exists if isinstance(exists, bool) else False
             return False
         except HTTPException:
             # If the check fails, assume agents exist to avoid blocking
             logger.warning(
-                f"Failed to check agents existence for project {project_id}, assuming agents exist"
+                "Failed to check agents existence; assuming agents exist"
             )
             return True
         except Exception as e:
             logger.warning(
-                f"Unexpected error checking agents existence: {e}, assuming agents exist"
+                "Unexpected agents existence error; assuming agents exist",
+                extra={"error_type": type(e).__name__},
             )
             return True
 
@@ -542,9 +462,13 @@ class AIServiceClient:
         limit: int = 20,
         offset: int = 0,
         bound_device_id: UUID | None = None,
-    ) -> Dict[str, Any]:
+    ) -> JsonObject:
         """List agents from AI service."""
-        params = {"limit": limit, "offset": offset, "project_id": project_id}
+        params: RequestParams = {
+            "limit": limit,
+            "offset": offset,
+            "project_id": project_id,
+        }
         if model:
             params["model"] = model
         if is_default is not None:
@@ -552,14 +476,21 @@ class AIServiceClient:
         if bound_device_id is not None:
             params["bound_device_id"] = str(bound_device_id)
 
-        response = await self._make_request("GET", "/api/v1/agents", params=params)
-        return await self._handle_response(response)
+        response = await self._make_request(
+            "GET", "/api/v1/agents", params=params
+        )
+        return await self._object_response(response)
 
     async def get_device_action_readiness(
-        self, project_id: str, agent_id: str, *, requested_by: UUID,
+        self,
+        project_id: str,
+        agent_id: str,
+        *,
+        requested_by: UUID,
     ) -> AgentDeviceActionReadiness:
         response = await self._make_request(
-            "GET", f"/api/v1/agents/{agent_id}/device-action-readiness",
+            "GET",
+            f"/api/v1/agents/{agent_id}/device-action-readiness",
             params={"project_id": project_id},
             extra_headers=self._trial_headers(UUID(project_id), requested_by),
         )
@@ -571,24 +502,38 @@ class AIServiceClient:
             raise HTTPException(502, "AI 员工设备状态响应无效") from None
 
     async def get_workflow_release_audit(
-        self, project_id: str, limit: int, offset: int,
+        self,
+        project_id: str,
+        limit: int,
+        offset: int,
     ) -> WorkflowReleaseAuditResponse:
         """Read the project's unpinned employee workflow bindings."""
         response = await self._make_request(
-            "GET", "/api/v1/agents/workflow-release-audit",
-            params={"project_id": project_id, "limit": limit, "offset": offset},
+            "GET",
+            "/api/v1/agents/workflow-release-audit",
+            params={
+                "project_id": project_id,
+                "limit": limit,
+                "offset": offset,
+            },
         )
         return WorkflowReleaseAuditResponse.model_validate(
             await self._handle_response(response)
         )
 
     async def pin_legacy_workflow(
-        self, *, project_id: str, agent_id: str, workflow_id: str,
-        command: dict[str, object], requested_by: UUID,
+        self,
+        *,
+        project_id: str,
+        agent_id: str,
+        workflow_id: str,
+        command: dict[str, object],
+        requested_by: UUID,
     ) -> WorkflowPinTransitionReceipt:
         """Forward a signed administrator command for one old binding."""
         response = await self._make_request(
-            "POST", f"/api/v1/agents/{agent_id}/workflows/{workflow_id}/pin-legacy",
+            "POST",
+            f"/api/v1/agents/{agent_id}/workflows/{workflow_id}/pin-legacy",
             json_data=command,
             params={"project_id": project_id},
             extra_headers=self._trial_headers(UUID(project_id), requested_by),
@@ -598,12 +543,22 @@ class AIServiceClient:
         )
 
     async def get_workflow_pin_transitions(
-        self, *, project_id: str, agent_id: str,
-        requested_by: UUID, limit: int, offset: int,
+        self,
+        *,
+        project_id: str,
+        agent_id: str,
+        requested_by: UUID,
+        limit: int,
+        offset: int,
     ) -> WorkflowPinTransitionHistory:
         response = await self._make_request(
-            "GET", f"/api/v1/agents/{agent_id}/workflow-pin-transitions",
-            params={"project_id": project_id, "limit": limit, "offset": offset},
+            "GET",
+            f"/api/v1/agents/{agent_id}/workflow-pin-transitions",
+            params={
+                "project_id": project_id,
+                "limit": limit,
+                "offset": offset,
+            },
             extra_headers=self._trial_headers(UUID(project_id), requested_by),
         )
         return WorkflowPinTransitionHistory.model_validate(
@@ -613,18 +568,21 @@ class AIServiceClient:
     async def create_agent(
         self,
         project_id: str,
-        agent_data: Dict[str, Any],
-        *, requested_by: UUID | None = None,
-    ) -> Dict[str, Any]:
+        agent_data: Mapping[str, object],
+        *,
+        requested_by: UUID | None = None,
+    ) -> JsonObject:
         """Create agent in AI service."""
         response = await self._make_request(
             "POST",
             "/api/v1/agents",
             json_data=agent_data,
             params={"project_id": project_id},
-            extra_headers=self._trial_headers(UUID(project_id), requested_by) if requested_by else None,
+            extra_headers=self._trial_headers(UUID(project_id), requested_by)
+            if requested_by
+            else None,
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def get_agent(
         self,
@@ -633,9 +591,9 @@ class AIServiceClient:
         include_tools: bool = True,
         include_collections: bool = False,
         include_workflows: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> JsonObject:
         """Get agent from AI service."""
-        params = {
+        params: RequestParams = {
             "include_tools": include_tools,
             "include_collections": include_collections,
             "include_workflows": include_workflows,
@@ -644,7 +602,7 @@ class AIServiceClient:
         response = await self._make_request(
             "GET", f"/api/v1/agents/{agent_id}", params=params
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def knowledge_availability(
         self, project_id: str, channel: str, agent_id: UUID | None = None
@@ -663,18 +621,21 @@ class AIServiceClient:
         self,
         project_id: str,
         agent_id: str,
-        agent_data: Dict[str, Any],
-        *, requested_by: UUID | None = None,
-    ) -> Dict[str, Any]:
+        agent_data: Mapping[str, object],
+        *,
+        requested_by: UUID | None = None,
+    ) -> JsonObject:
         """Update agent in AI service."""
         response = await self._make_request(
             "PATCH",
             f"/api/v1/agents/{agent_id}",
             json_data=agent_data,
             params={"project_id": project_id},
-            extra_headers=self._trial_headers(UUID(project_id), requested_by) if requested_by else None,
+            extra_headers=self._trial_headers(UUID(project_id), requested_by)
+            if requested_by
+            else None,
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def delete_agent(
         self,
@@ -683,9 +644,11 @@ class AIServiceClient:
     ) -> None:
         """Delete agent from AI service."""
         response = await self._make_request(
-            "DELETE", f"/api/v1/agents/{agent_id}", params={"project_id": project_id}
+            "DELETE",
+            f"/api/v1/agents/{agent_id}",
+            params={"project_id": project_id},
         )
-        return await self._handle_response(response)
+        await self._handle_response(response)
 
     async def set_agent_tool_enabled(
         self,
@@ -704,7 +667,7 @@ class AIServiceClient:
         # 204 No Content response
         if response.status_code == 204:
             return None
-        return await self._handle_response(response)
+        await self._handle_response(response)
 
     async def set_agent_collection_enabled(
         self,
@@ -723,7 +686,7 @@ class AIServiceClient:
         # 204 No Content response
         if response.status_code == 204:
             return None
-        return await self._handle_response(response)
+        await self._handle_response(response)
 
     async def set_agent_workflow_enabled(
         self,
@@ -742,7 +705,7 @@ class AIServiceClient:
         # 204 No Content response
         if response.status_code == 204:
             return None
-        return await self._handle_response(response)
+        await self._handle_response(response)
 
     async def clear_session_memory(
         self,
@@ -756,7 +719,7 @@ class AIServiceClient:
             f"/api/v1/agents/sessions/{session_id}/memory",
             params={"project_id": project_id, "user_id": user_id},
         )
-        return await self._handle_response(response)
+        await self._handle_response(response)
 
     # Tools endpoints
     async def list_tools(
@@ -764,31 +727,36 @@ class AIServiceClient:
         project_id: str,
         tool_type: Optional[str] = None,
         include_deleted: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[JsonObject]:
         """List tools from AI service."""
-        params = {"project_id": project_id, "include_deleted": include_deleted}
+        params: RequestParams = {
+            "project_id": project_id,
+            "include_deleted": include_deleted,
+        }
         if tool_type:
             params["tool_type"] = tool_type
 
-        response = await self._make_request("GET", "/api/v1/tools", params=params)
-        return await self._handle_response(response)
+        response = await self._make_request(
+            "GET", "/api/v1/tools", params=params
+        )
+        return await self._object_list_response(response)
 
     async def create_tool(
         self,
-        tool_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        tool_data: Mapping[str, object],
+    ) -> JsonObject:
         """Create tool in AI service."""
         response = await self._make_request(
             "POST", "/api/v1/tools", json_data=tool_data
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def update_tool(
         self,
         project_id: str,
         tool_id: str,
-        tool_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        tool_data: Mapping[str, object],
+    ) -> JsonObject:
         """Update tool in AI service."""
         response = await self._make_request(
             "PATCH",
@@ -796,24 +764,26 @@ class AIServiceClient:
             json_data=tool_data,
             params={"project_id": project_id},
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def delete_tool(
         self,
         project_id: str,
         tool_id: str,
-    ) -> Dict[str, Any]:
+    ) -> JsonObject:
         """Delete tool from AI service (soft delete)."""
         response = await self._make_request(
-            "DELETE", f"/api/v1/tools/{tool_id}", params={"project_id": project_id}
+            "DELETE",
+            f"/api/v1/tools/{tool_id}",
+            params={"project_id": project_id},
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def create_or_update_tool(
         self,
         project_id: str,
-        tool_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        tool_data: Mapping[str, object],
+    ) -> JsonObject:
         """Create or update a tool in the AI service."""
         tool_name = tool_data.get("name")
         # Check if tool already exists
@@ -824,10 +794,15 @@ class AIServiceClient:
 
         if existing_tool:
             # Update existing tool
-            return await self.update_tool(project_id, existing_tool["id"], tool_data)
+            tool_id = existing_tool["id"]
+            if not isinstance(tool_id, str):
+                raise HTTPException(
+                    502, "AI tool service returned an invalid identity"
+                )
+            return await self.update_tool(project_id, tool_id, tool_data)
         else:
             # Create new tool
-            # create_tool in AI service expects tool_data with project_id
+            # AI tool creation requires the owning project in the payload.
             data = {**tool_data, "project_id": project_id}
             return await self.create_tool(data)
 
@@ -839,28 +814,43 @@ class AIServiceClient:
         """Delete all tools with names starting with prefix."""
         tools = await self.list_tools(project_id)
         for tool in tools:
-            if tool["name"].startswith(prefix):
-                await self.delete_tool(project_id, tool["id"])
+            name, tool_id = tool["name"], tool["id"]
+            if not isinstance(name, str) or not isinstance(tool_id, str):
+                raise HTTPException(
+                    502, "AI tool service returned an invalid identity"
+                )
+            if name.startswith(prefix):
+                await self.delete_tool(project_id, tool_id)
 
-    async def discover_tools(self, project_id: str, request: "MCPDiscoverRequest") -> "MCPDiscoverResponse":
+    async def discover_tools(
+        self, project_id: str, request: "MCPDiscoverRequest"
+    ) -> "MCPDiscoverResponse":
         from app.schemas.tool_probe import MCPDiscoverResponse
+
         response = await self._make_request(
-            "POST", "/api/v1/tools/discover", json_data=request.model_dump(),
-            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY, "X-Project-Id": project_id},
+            "POST",
+            "/api/v1/tools/discover",
+            json_data=request.model_dump(),
+            extra_headers={
+                "X-Internal-API-Key": settings.SECRET_KEY,
+                "X-Project-Id": project_id,
+            },
         )
-        return MCPDiscoverResponse.model_validate(await self._handle_response(response))
+        return MCPDiscoverResponse.model_validate(
+            await self._handle_response(response)
+        )
 
     async def execute_tool(
         self,
         *,
         project_id: str,
         tool_id: str,
-        input_data: Dict[str, Any],
+        input_data: Mapping[str, object],
         visitor_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> JsonObject:
         """Execute a project-owned tool directly through tgo-ai."""
 
-        payload: Dict[str, Any] = {"input_data": input_data}
+        payload: dict[str, object] = {"input_data": input_data}
         if visitor_id is not None:
             payload["visitor_id"] = visitor_id
         response = await self._make_request(
@@ -890,7 +880,7 @@ class AIServiceClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         stream: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> JsonObject:
         """
         Create a chat completion using the AI service.
 
@@ -909,7 +899,7 @@ class AIServiceClient:
         Returns:
             Chat completion response with choices
         """
-        payload: Dict[str, Any] = {
+        payload: dict[str, object] = {
             "provider_id": provider_id,
             "model": model,
             "messages": messages,
@@ -926,18 +916,30 @@ class AIServiceClient:
             json_data=payload,
             params={"project_id": project_id},
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def probe_media_model(
-        self, *, project_id: str, provider_id: str, model_id: str,
-        capability: str, content: bytes, mime_type: str,
+        self,
+        *,
+        project_id: str,
+        provider_id: str,
+        model_id: str,
+        capability: str,
+        content: bytes,
+        mime_type: str,
     ) -> "MediaProbeResult":
         response = await self._make_request(
-            "POST", "/api/v1/analysis/probe",
-            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY,
-                           "X-Project-Id": project_id},
-            form_data={"provider_id": provider_id, "model_id": model_id,
-                       "capability": capability},
+            "POST",
+            "/api/v1/analysis/probe",
+            extra_headers={
+                "X-Internal-API-Key": settings.SECRET_KEY,
+                "X-Project-Id": project_id,
+            },
+            form_data={
+                "provider_id": provider_id,
+                "model_id": model_id,
+                "capability": capability,
+            },
             files={"file": ("sample", content, mime_type)},
         )
         if response.status_code != 200 or len(response.content) > 512 * 1024:
@@ -948,21 +950,30 @@ class AIServiceClient:
             raise HTTPException(502, "测试服务返回了无效结果。") from exc
 
     async def analyze_media(
-        self, *, project_id: str, metadata: dict[str, JsonValue],
-        content: bytes, mime_type: str,
+        self,
+        *,
+        project_id: str,
+        metadata: dict[str, JsonValue],
+        content: bytes,
+        mime_type: str,
     ) -> dict[str, JsonValue]:
-        """Send verified stored bytes to this project's configured media models."""
+        """Send verified bytes to the configured project media models."""
         response = await self._make_request(
-            "POST", "/api/v1/analysis/media",
-            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY,
-                           "X-Project-Id": project_id},
+            "POST",
+            "/api/v1/analysis/media",
+            extra_headers={
+                "X-Internal-API-Key": settings.SECRET_KEY,
+                "X-Project-Id": project_id,
+            },
             form_data={"metadata": json.dumps(metadata, ensure_ascii=False)},
             files={"file": ("media", content, mime_type)},
         )
         if response.status_code != 200 or len(response.content) > 512 * 1024:
             raise HTTPException(502, "图片或语音识别暂时不可用，请补充文字说明。")
         try:
-            return TypeAdapter(dict[str, JsonValue]).validate_json(response.content)
+            return TypeAdapter(dict[str, JsonValue]).validate_json(
+                response.content
+            )
         except ValidationError as exc:
             raise HTTPException(502, "识别服务没有返回有效结果。") from exc
 
@@ -972,8 +983,8 @@ class AIServiceClient:
         project_id: str,
         provider_id: str,
         model: str,
-        classification_input: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        classification_input: Mapping[str, object],
+    ) -> JsonObject:
         """Classify one customer message through tgo-ai's strict intent API."""
         response = await self._make_request(
             "POST",
@@ -1005,8 +1016,8 @@ class AIServiceClient:
         return {"X-Project-Id": project_id}
 
     async def import_skill(
-        self, project_id: str, import_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, project_id: str, import_data: Mapping[str, object]
+    ) -> JsonObject:
         """Import a skill from GitHub (proxy to tgo-ai)."""
         response = await self._make_request(
             "POST",
@@ -1014,20 +1025,20 @@ class AIServiceClient:
             json_data=import_data,
             extra_headers=self._skill_headers(project_id),
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
-    async def list_skills(self, project_id: str) -> List[Dict[str, Any]]:
+    async def list_skills(self, project_id: str) -> list[JsonObject]:
         """List all skills visible to a project (private + official)."""
         response = await self._make_request(
             "GET",
             "/api/v1/skills",
             extra_headers=self._skill_headers(project_id),
         )
-        return await self._handle_response(response)
+        return await self._object_list_response(response)
 
     async def create_skill(
-        self, project_id: str, skill_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, project_id: str, skill_data: Mapping[str, object]
+    ) -> JsonObject:
         """Create a new project-private skill."""
         response = await self._make_request(
             "POST",
@@ -1035,11 +1046,11 @@ class AIServiceClient:
             json_data=skill_data,
             extra_headers=self._skill_headers(project_id),
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def create_humanization_skill(
-        self, project_id: str, skill_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, project_id: str, skill_data: Mapping[str, object]
+    ) -> JsonObject:
         """Create a trainable humanization skill."""
         response = await self._make_request(
             "POST",
@@ -1059,8 +1070,8 @@ class AIServiceClient:
         self,
         project_id: str,
         skill_name: str,
-        sample_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        sample_data: Mapping[str, object],
+    ) -> JsonObject:
         """Store one pending assist-mode correction."""
         response = await self._make_request(
             "POST",
@@ -1077,8 +1088,8 @@ class AIServiceClient:
         return result
 
     async def apply_humanization_training(
-        self, project_id: str, skill_name: str, data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, project_id: str, skill_name: str, data: Mapping[str, object]
+    ) -> JsonObject:
         """Publish all pending corrections for one humanization skill."""
         response = await self._make_request(
             "POST",
@@ -1094,36 +1105,58 @@ class AIServiceClient:
             )
         return result
 
-    async def review_humanization_training(self, project_id: str, skill_name: str) -> TrainingReview:
-        response = await self._make_request("GET", f"/api/v1/skills/{skill_name}/training-review",
-                                            extra_headers=self._skill_headers(project_id))
-        return TrainingReview.model_validate(await self._handle_response(response))
+    async def review_humanization_training(
+        self, project_id: str, skill_name: str
+    ) -> TrainingReview:
+        response = await self._make_request(
+            "GET",
+            f"/api/v1/skills/{skill_name}/training-review",
+            extra_headers=self._skill_headers(project_id),
+        )
+        return TrainingReview.model_validate(
+            await self._handle_response(response)
+        )
 
     async def match_humanization_context(
-        self, project_id: str, skill_name: str, customer_message: str,
-        candidate: TrainingPublishRequest | None = None, factual_draft: str = "",
+        self,
+        project_id: str,
+        skill_name: str,
+        customer_message: str,
+        candidate: TrainingPublishRequest | None = None,
+        factual_draft: str = "",
         recent_messages: list[ConversationTurn] | None = None,
     ) -> HumanizationContext:
         payload = HumanizationMatchRequest(
-            customer_message=customer_message, factual_draft=factual_draft,
-            recent_messages=recent_messages or [], candidate=candidate,
+            customer_message=customer_message,
+            factual_draft=factual_draft,
+            recent_messages=recent_messages or [],
+            candidate=candidate,
         ).model_dump()
-        response = await self._make_request("POST", f"/api/v1/skills/{skill_name}/match-context",
-                                            json_data=payload, extra_headers=self._skill_headers(project_id))
-        return HumanizationContext.model_validate(await self._handle_response(response))
+        response = await self._make_request(
+            "POST",
+            f"/api/v1/skills/{skill_name}/match-context",
+            json_data=payload,
+            extra_headers=self._skill_headers(project_id),
+        )
+        return HumanizationContext.model_validate(
+            await self._handle_response(response)
+        )
 
-    async def get_skill(self, project_id: str, skill_name: str) -> Dict[str, Any]:
+    async def get_skill(self, project_id: str, skill_name: str) -> JsonObject:
         """Get skill details."""
         response = await self._make_request(
             "GET",
             f"/api/v1/skills/{skill_name}",
             extra_headers=self._skill_headers(project_id),
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def update_skill(
-        self, project_id: str, skill_name: str, skill_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self,
+        project_id: str,
+        skill_name: str,
+        skill_data: Mapping[str, object],
+    ) -> JsonObject:
         """Update a project-private skill."""
         response = await self._make_request(
             "PATCH",
@@ -1131,11 +1164,14 @@ class AIServiceClient:
             json_data=skill_data,
             extra_headers=self._skill_headers(project_id),
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def toggle_skill(
-        self, project_id: str, skill_name: str, toggle_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self,
+        project_id: str,
+        skill_name: str,
+        toggle_data: Mapping[str, object],
+    ) -> JsonObject:
         """Toggle a skill's enabled/disabled state."""
         response = await self._make_request(
             "PUT",
@@ -1143,7 +1179,7 @@ class AIServiceClient:
             json_data=toggle_data,
             extra_headers=self._skill_headers(project_id),
         )
-        return await self._handle_response(response)
+        return await self._object_response(response)
 
     async def delete_skill(self, project_id: str, skill_name: str) -> None:
         """Delete a project-private skill."""
@@ -1199,308 +1235,546 @@ class AIServiceClient:
         if response.status_code not in (200, 204):
             await self._handle_response(response)
 
-
-    async def agent_activation_policies(self, project_id: UUID, staff_id: UUID,
-                                        agent_id: UUID) -> AgentActivationPolicies:
+    async def agent_activation_policies(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID
+    ) -> AgentActivationPolicies:
         from app.services.agent_activation_policy_client import read
+
         return await read(self, project_id, staff_id, agent_id)
 
-    async def submit_agent_activation_request(self, project_id: UUID, staff_id: UUID, agent_id: UUID,
-                                             command: AgentActivationRequest) -> AgentActivationReceipt:
+    async def submit_agent_activation_request(
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        command: AgentActivationRequest,
+    ) -> AgentActivationReceipt:
         from app.services.agent_activation_request_client import submit
+
         return await submit(self, project_id, staff_id, agent_id, command)
 
-    async def lookup_agent_activation_request(self, project_id: UUID, staff_id: UUID, agent_id: UUID,
-                                             request_key: UUID) -> AgentActivationReceipt:
+    async def lookup_agent_activation_request(
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        request_key: UUID,
+    ) -> AgentActivationReceipt:
         from app.services.agent_activation_request_client import lookup
+
         return await lookup(self, project_id, staff_id, agent_id, request_key)
 
     async def agent_device_script_binding(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
     ) -> AgentDeviceScriptState:
         from app.services.agent_device_script_binding_client import read
+
         return await read(self, project_id, staff_id, agent_id)
 
     async def save_agent_device_script_binding(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
         command: AgentDeviceScriptWrite,
     ) -> AgentDeviceScriptRecord:
         from app.services.agent_device_script_binding_client import save
+
         return await save(self, project_id, staff_id, agent_id, command)
 
     async def agent_device_script_binding_request(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, request_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        request_id: UUID,
     ) -> AgentDeviceScriptRecord:
         from app.services.agent_device_script_binding_client import recover
+
         return await recover(self, project_id, staff_id, agent_id, request_id)
 
     async def start_agent_device_script_trial(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
         command: ScriptTrialStart,
     ) -> ScriptTrialReport:
         from app.services.agent_device_script_trial_client import start
+
         return await start(self, project_id, staff_id, agent_id, command)
 
     async def agent_device_script_request_state(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
         request_id: UUID,
     ) -> ScriptTrialRequestState:
         from app.services.agent_device_script_trial_client import request_state
+
         return await request_state(
             self, project_id, staff_id, agent_id, request_id
         )
 
     async def cancel_agent_device_script_request(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
         command: ScriptTrialControl,
     ) -> ScriptTrialRequestState:
-        from app.services.agent_device_script_trial_client import cancel_request
+        from app.services.agent_device_script_trial_client import (
+            cancel_request,
+        )
+
         return await cancel_request(
             self, project_id, staff_id, agent_id, command
         )
 
     async def get_agent_device_script_trial(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, report_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        report_id: UUID,
     ) -> ScriptTrialReport:
         from app.services.agent_device_script_trial_client import read
+
         return await read(self, project_id, staff_id, agent_id, report_id)
 
     async def agent_device_script_trial_request(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, request_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        request_id: UUID,
     ) -> ScriptTrialReport:
         from app.services.agent_device_script_trial_client import recover
+
         return await recover(self, project_id, staff_id, agent_id, request_id)
 
     async def list_agent_device_script_cases(
-        self, project: UUID, actor: UUID, agent: UUID, *,
-        skip: int = 0, limit: int = 20,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        *,
+        skip: int = 0,
+        limit: int = 20,
     ) -> ScriptCasePage:
         from app.services.agent_device_script_trial_client import list_cases
-        return await list_cases(self, project, actor, agent,
-                                skip=skip, limit=limit)
+
+        return await list_cases(
+            self, project, actor, agent, skip=skip, limit=limit
+        )
 
     async def save_agent_device_script_case(
-        self, project: UUID, actor: UUID, agent: UUID, command: ScriptCaseWrite,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        command: ScriptCaseWrite,
     ) -> ScriptCaseRecord:
         from app.services.agent_device_script_trial_client import save_case
+
         return await save_case(self, project, actor, agent, command)
 
     async def get_agent_device_script_case(
-        self, project: UUID, actor: UUID, agent: UUID, version: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        version: UUID,
     ) -> ScriptCaseRead:
         from app.services.agent_device_script_trial_client import read_case
+
         return await read_case(self, project, actor, agent, version)
 
     async def agent_device_script_case_request(
-        self, project: UUID, actor: UUID, agent: UUID, request: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        request: UUID,
     ) -> ScriptCaseRecord:
         from app.services.agent_device_script_trial_client import recover_case
+
         return await recover_case(self, project, actor, agent, request)
 
     async def agent_device_script_case_save_state(
-        self, project: UUID, actor: UUID, agent: UUID, request: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        request: UUID,
     ) -> ScriptCaseSaveState:
         from app.services.agent_device_script_trial_client import (
             case_save_state,
         )
+
         return await case_save_state(self, project, actor, agent, request)
 
     async def cancel_agent_device_script_case_save(
-        self, project: UUID, actor: UUID, agent: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
         command: ScriptCaseSaveControl,
     ) -> ScriptCaseSaveState:
         from app.services.agent_device_script_trial_client import (
             case_save_state,
         )
+
         return await case_save_state(
-            self, project, actor, agent, command.request_id, command=command)
+            self, project, actor, agent, command.request_id, command=command
+        )
 
     async def run_agent_device_script_case(
-        self, project: UUID, actor: UUID, agent: UUID, version: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        version: UUID,
         command: ScriptTrialControl,
     ) -> ScriptCaseTrialResult:
         from app.services.agent_device_script_trial_client import run_case
+
         return await run_case(self, project, actor, agent, version, command)
 
     async def agent_device_script_evidence(
-        self, project: UUID, actor: UUID, agent: UUID, report: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        report: UUID,
     ) -> ScriptTrialEvidence:
         from app.services.agent_device_script_trial_client import read_evidence
+
         return await read_evidence(self, project, actor, agent, report)
 
     async def agent_device_script_review(
-        self, project: UUID, actor: UUID, agent: UUID, report: UUID,
-        *, command: ScriptReviewWrite | None = None, revoke: UUID | None = None,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        report: UUID,
+        *,
+        command: ScriptReviewWrite | None = None,
+        revoke: UUID | None = None,
     ) -> ScriptReviewState:
         from app.services.agent_device_script_trial_client import script_review
+
         return await script_review(
             self, project, actor, agent, report, command=command, revoke=revoke
         )
 
     async def agent_device_script_run_check(
-        self, project: UUID, actor: UUID, agent: UUID, report: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        report: UUID,
     ) -> ScriptRunCheck:
         from app.services.agent_device_script_trial_client import (
             script_run_check,
         )
+
         return await script_run_check(self, project, actor, agent, report)
 
     async def agent_device_script_selection(
-        self, project: UUID, actor: UUID, agent: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
     ) -> ScriptSelectionState:
         from app.services.agent_device_script_selection_client import (
             read_selection,
         )
+
         return await read_selection(self, project, actor, agent)
 
     async def save_agent_device_script_selection(
-        self, project: UUID, actor: UUID, agent: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
         command: ScriptSelectionWrite,
     ) -> ScriptSelectionRecord:
         from app.services.agent_device_script_selection_client import (
             save_selection,
         )
+
         return await save_selection(self, project, actor, agent, command)
 
     async def agent_device_script_selection_request(
-        self, project: UUID, actor: UUID, agent: UUID, request: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        request: UUID,
     ) -> ScriptSelectionRecord:
         from app.services.agent_device_script_selection_client import (
             selection_request,
         )
+
         return await selection_request(self, project, actor, agent, request)
 
     async def start_agent_device_script_run(
-        self, project: UUID, actor: UUID, agent: UUID, command: ScriptRunStart,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        command: ScriptRunStart,
     ) -> ScriptRunView:
         from app.services.agent_device_script_run_client import run_call
+
         return await run_call(
-            self, project, actor, agent, command.request_id, "start", command,
+            self,
+            project,
+            actor,
+            agent,
+            command.request_id,
+            "start",
+            command,
         )
 
     async def agent_device_script_run(
-        self, project: UUID, actor: UUID, agent: UUID, request: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        request: UUID,
     ) -> ScriptRunView:
         from app.services.agent_device_script_run_client import run_call
+
         return await run_call(self, project, actor, agent, request, "read")
 
     async def cancel_agent_device_script_run(
-        self, project: UUID, actor: UUID, agent: UUID,
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
         command: ScriptRunControl,
     ) -> ScriptRunView:
         from app.services.agent_device_script_run_client import run_call
+
         return await run_call(
-            self, project, actor, agent, command.request_id, "cancel", command,
+            self,
+            project,
+            actor,
+            agent,
+            command.request_id,
+            "cancel",
+            command,
         )
 
-    async def agent_business_connections(self, project_id: UUID, staff_id: UUID,
-                                        agent_id: UUID) -> AgentBusinessConnections:
+    async def agent_business_connections(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID
+    ) -> AgentBusinessConnections:
         from app.services.agent_business_connection_client import read
+
         return await read(self, project_id, staff_id, agent_id)
 
-    async def save_agent_business_connection(self, project_id: UUID, staff_id: UUID,
-        agent_id: UUID, connection_id: UUID, command: AgentBusinessConnectionWrite) -> AgentBusinessConnectionRecord:
+    async def save_agent_business_connection(
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        connection_id: UUID,
+        command: AgentBusinessConnectionWrite,
+    ) -> AgentBusinessConnectionRecord:
         from app.services.agent_business_connection_client import save
-        return await save(self, project_id, staff_id, agent_id, connection_id, command)
 
-    async def agent_business_connection_request(self, project_id: UUID, staff_id: UUID,
-        agent_id: UUID, request_id: UUID) -> AgentBusinessConnectionRecord:
+        return await save(
+            self, project_id, staff_id, agent_id, connection_id, command
+        )
+
+    async def agent_business_connection_request(
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        request_id: UUID,
+    ) -> AgentBusinessConnectionRecord:
         from app.services.agent_business_connection_client import recover
+
         return await recover(self, project_id, staff_id, agent_id, request_id)
 
-    async def verify_agent_execution(self, reference: AgentExecutionReference) -> AgentExecutionCheckReceipt:
+    async def verify_agent_execution(
+        self, reference: AgentExecutionReference
+    ) -> AgentExecutionCheckReceipt:
         from app.services.agent_execution_client import verify
+
         return await verify(self, reference)
 
     async def capture_agent_execution_reference(
-        self, project_id: str, agent_id: str, channel: str | None,
+        self,
+        project_id: str,
+        agent_id: str,
+        channel: str | None,
     ) -> AgentExecutionReference:
         response = await self._make_request(
-            "GET", f"/api/v1/agents/execution-reference/{UUID(agent_id)}",
+            "GET",
+            f"/api/v1/agents/execution-reference/{UUID(agent_id)}",
             extra_headers=self._execution_headers(project_id, channel),
         )
-        return AgentExecutionReference.model_validate(await self._handle_response(response))
+        return AgentExecutionReference.model_validate(
+            await self._handle_response(response)
+        )
 
-    async def agent_activation_readiness(self, project_id: UUID, staff_id: UUID,
-                                       agent_id: UUID) -> AgentActivationReadiness:
+    async def agent_activation_readiness(
+        self, project_id: UUID, staff_id: UUID, agent_id: UUID
+    ) -> AgentActivationReadiness:
         from app.services.agent_activation_policy_client import readiness
+
         return await readiness(self, project_id, staff_id, agent_id)
 
-    async def save_agent_activation_policy(self, project_id: UUID, staff_id: UUID,
-        agent_id: UUID, channel: KnowledgeChannel, command: AgentActivationPolicyChange) -> AgentActivationPolicyRecord:
+    async def save_agent_activation_policy(
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        channel: KnowledgeChannel,
+        command: AgentActivationPolicyChange,
+    ) -> AgentActivationPolicyRecord:
         from app.services.agent_activation_policy_client import save
-        return await save(self, project_id, staff_id, agent_id, channel, command)
 
-    async def remove_agent_activation_policy(self, project_id: UUID, staff_id: UUID,
-        agent_id: UUID, channel: KnowledgeChannel, revision: int) -> AgentActivationPolicyRecord:
+        return await save(
+            self, project_id, staff_id, agent_id, channel, command
+        )
+
+    async def remove_agent_activation_policy(
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        channel: KnowledgeChannel,
+        revision: int,
+    ) -> AgentActivationPolicyRecord:
         from app.services.agent_activation_policy_client import remove
-        return await remove(self, project_id, staff_id, agent_id, channel, revision)
+
+        return await remove(
+            self, project_id, staff_id, agent_id, channel, revision
+        )
 
     async def save_agent_draft(
-        self, project_id: UUID, staff_id: UUID, draft_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        draft_id: UUID,
         request: "ScenarioAgentSnapshot",
     ) -> "ScenarioAgentReceipt":
         response = await self._make_request(
-            "POST", f"/api/v1/agent-drafts/{draft_id}",
+            "POST",
+            f"/api/v1/agent-drafts/{draft_id}",
             json_data=request.model_dump(mode="json"),
             extra_headers=self._trial_headers(project_id, staff_id),
         )
-        receipt = self._draft_receipt(response, project_id, staff_id, draft_id, request.revision)
+        receipt = self._draft_receipt(
+            response, project_id, staff_id, draft_id, request.revision
+        )
         if receipt.activation_selection != request.activation_selection:
             raise HTTPException(502, "员工岗位配置结果与当前草稿不一致")
         return receipt
 
     async def get_agent_draft(
-        self, project_id: UUID, staff_id: UUID, draft_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        draft_id: UUID,
     ) -> "ScenarioAgentReceipt":
         response = await self._make_request(
-            "GET", f"/api/v1/agent-drafts/{draft_id}",
+            "GET",
+            f"/api/v1/agent-drafts/{draft_id}",
             extra_headers=self._trial_headers(project_id, staff_id),
         )
         return self._draft_receipt(response, project_id, staff_id, draft_id)
 
     def _draft_receipt(
-        self, response: httpx.Response, project_id: UUID, staff_id: UUID,
-        draft_id: UUID, revision: int | None = None,
+        self,
+        response: httpx.Response,
+        project_id: UUID,
+        staff_id: UUID,
+        draft_id: UUID,
+        revision: int | None = None,
     ) -> "ScenarioAgentReceipt":
         if not response.is_success:
             raise HTTPException(response.status_code, "员工配置尚未保存，请恢复原草稿后重试")
         try:
-            receipt = ScenarioAgentReceipt.model_validate_json(response.content)
+            receipt = ScenarioAgentReceipt.model_validate_json(
+                response.content
+            )
         except ValidationError:
             raise HTTPException(502, "员工配置服务返回了无效结果") from None
-        if (receipt.project_id != project_id or receipt.created_by != staff_id
-            or receipt.draft_id != draft_id or revision is not None and receipt.revision != revision):
+        if (
+            receipt.project_id != project_id
+            or receipt.created_by != staff_id
+            or receipt.draft_id != draft_id
+            or revision is not None
+            and receipt.revision != revision
+        ):
             raise HTTPException(502, "员工配置结果与当前草稿不一致")
         return receipt
 
-    def _trial_headers(self, project_id: UUID, staff_id: UUID) -> dict[str, str]:
+    def _trial_headers(
+        self, project_id: UUID, staff_id: UUID
+    ) -> dict[str, str]:
         return {
             "X-Internal-API-Key": settings.SECRET_KEY,
-            "X-Project-Id": str(project_id), "X-Staff-Id": str(staff_id),
+            "X-Project-Id": str(project_id),
+            "X-Staff-Id": str(staff_id),
         }
 
     async def review_agent_trial(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, report_id: UUID, command: KnowledgeReviewCommand,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        report_id: UUID,
+        command: KnowledgeReviewCommand,
     ) -> KnowledgeReviewResponse:
         from app.services.agent_trial_review_client import submit
-        return await submit(self, project_id, staff_id, agent_id, report_id, command)
+
+        return await submit(
+            self, project_id, staff_id, agent_id, report_id, command
+        )
 
     async def agent_trial_review_state(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, report_id: UUID, query: KnowledgeReviewQuery,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        report_id: UUID,
+        query: KnowledgeReviewQuery,
     ) -> KnowledgeReviewState:
         from app.services.agent_trial_review_client import state
-        return await state(self, project_id, staff_id, agent_id, report_id, query)
+
+        return await state(
+            self, project_id, staff_id, agent_id, report_id, query
+        )
 
     async def agent_knowledge_capabilities(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, query: KnowledgeCapabilityQuery,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        query: KnowledgeCapabilityQuery,
     ) -> AgentKnowledgeCapabilities:
         from app.services.agent_trial_review_client import capabilities
+
         return await capabilities(self, project_id, staff_id, agent_id, query)
 
     def _trial_report(
-        self, response: httpx.Response, agent_id: UUID,
-        *, request_key: UUID | None = None, report_id: UUID | None = None,
+        self,
+        response: httpx.Response,
+        agent_id: UUID,
+        *,
+        request_key: UUID | None = None,
+        report_id: UUID | None = None,
     ) -> AgentTrialReport:
         if not response.is_success:
             # Do not log or echo upstream validation input/provider errors.
@@ -1509,74 +1783,117 @@ class AIServiceClient:
             report = AgentTrialReport.model_validate_json(response.content)
         except ValidationError:
             raise HTTPException(502, "试聊服务返回了无效报告") from None
-        if (report.agent_id != agent_id
-            or request_key is not None and report.request_key != request_key
-            or report_id is not None and report.id != report_id):
+        if (
+            report.agent_id != agent_id
+            or request_key is not None
+            and report.request_key != request_key
+            or report_id is not None
+            and report.id != report_id
+        ):
             raise HTTPException(502, "试聊服务返回的报告标识不一致")
         return report
 
     async def start_agent_trial(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, request: AgentTrialRequest,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        request: AgentTrialRequest,
     ) -> AgentTrialReport:
         response = await self._make_request(
-            "POST", f"/api/v1/agents/{agent_id}/trials",
+            "POST",
+            f"/api/v1/agents/{agent_id}/trials",
             json_data=request.model_dump(mode="json"),
             extra_headers=self._trial_headers(project_id, staff_id),
             timeout=max(self.timeout, request.timeout + 15),
         )
-        return self._trial_report(response, agent_id, request_key=request.request_key)
+        return self._trial_report(
+            response, agent_id, request_key=request.request_key
+        )
 
     async def match_agent_trial_request(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, request: AgentTrialRequest,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        request: AgentTrialRequest,
     ) -> AgentTrialReport:
         response = await self._make_request(
-            "POST", f"/api/v1/agents/{agent_id}/trials/lookup",
+            "POST",
+            f"/api/v1/agents/{agent_id}/trials/lookup",
             json_data=request.model_dump(mode="json"),
             extra_headers=self._trial_headers(project_id, staff_id),
         )
-        return self._trial_report(response, agent_id, request_key=request.request_key)
+        return self._trial_report(
+            response, agent_id, request_key=request.request_key
+        )
 
     async def agent_trial_by_request(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, request_key: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        request_key: UUID,
     ) -> AgentTrialReport:
         response = await self._make_request(
-            "GET", f"/api/v1/agents/{agent_id}/trials/requests/{request_key}",
+            "GET",
+            f"/api/v1/agents/{agent_id}/trials/requests/{request_key}",
             extra_headers=self._trial_headers(project_id, staff_id),
         )
         return self._trial_report(response, agent_id, request_key=request_key)
 
     async def get_agent_trial(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, report_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        report_id: UUID,
     ) -> AgentTrialReport:
         response = await self._make_request(
-            "GET", f"/api/v1/agents/{agent_id}/trials/{report_id}",
+            "GET",
+            f"/api/v1/agents/{agent_id}/trials/{report_id}",
             extra_headers=self._trial_headers(project_id, staff_id),
         )
         return self._trial_report(response, agent_id, report_id=report_id)
 
     async def cancel_agent_trial(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, report_id: UUID,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        report_id: UUID,
     ) -> AgentTrialReport:
         response = await self._make_request(
-            "POST", f"/api/v1/agents/{agent_id}/trials/{report_id}/cancel",
+            "POST",
+            f"/api/v1/agents/{agent_id}/trials/{report_id}/cancel",
             extra_headers=self._trial_headers(project_id, staff_id),
         )
         return self._trial_report(response, agent_id, report_id=report_id)
 
     async def list_agent_trials(
-        self, project_id: UUID, staff_id: UUID, agent_id: UUID, limit: int = 20,
+        self,
+        project_id: UUID,
+        staff_id: UUID,
+        agent_id: UUID,
+        limit: int = 20,
     ) -> list[AgentTrialReport]:
         response = await self._make_request(
-            "GET", f"/api/v1/agents/{agent_id}/trials", params={"limit": limit},
+            "GET",
+            f"/api/v1/agents/{agent_id}/trials",
+            params={"limit": limit},
             extra_headers=self._trial_headers(project_id, staff_id),
         )
         if not response.is_success:
             raise HTTPException(response.status_code, "无法读取试聊报告")
         try:
-            reports = TypeAdapter(list[AgentTrialReport]).validate_json(response.content)
+            reports = TypeAdapter(list[AgentTrialReport]).validate_json(
+                response.content
+            )
         except ValidationError:
             raise HTTPException(502, "试聊服务返回了无效报告列表") from None
-        if len(reports) > limit or any(report.agent_id != agent_id for report in reports):
+        if len(reports) > limit or any(
+            report.agent_id != agent_id for report in reports
+        ):
             raise HTTPException(502, "试聊报告列表与请求不一致")
         return reports
 

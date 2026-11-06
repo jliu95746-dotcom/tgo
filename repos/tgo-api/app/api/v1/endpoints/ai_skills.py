@@ -47,7 +47,7 @@ async def list_skills(
     project, _ = auth_data
     project_id = str(project.id)
     result = await ai_client.list_skills(project_id)
-    return [SkillSummary(**item) for item in result]
+    return [SkillSummary.model_validate(item) for item in result]
 
 
 @router.post(
@@ -64,7 +64,7 @@ async def create_skill(
     project, _ = auth_data
     project_id = str(project.id)
     result = await ai_client.create_skill(project_id, data.model_dump(exclude_none=True))
-    return SkillDetail(**result)
+    return SkillDetail.model_validate(result)
 
 
 @router.post(
@@ -81,7 +81,7 @@ async def create_humanization_skill(
     result = await ai_client.create_humanization_skill(
         str(project.id), data.model_dump(exclude_none=True)
     )
-    return SkillDetail(**result)
+    return SkillDetail.model_validate(result)
 
 
 @router.post(
@@ -98,7 +98,7 @@ async def add_humanization_training_sample(
     result = await ai_client.add_humanization_training_sample(
         str(project.id), skill_name, data.model_dump(exclude_none=True)
     )
-    return HumanizationTrainingStatus(**result)
+    return HumanizationTrainingStatus.model_validate(result)
 
 
 @router.post(
@@ -115,7 +115,7 @@ async def apply_humanization_training(
     result = await ai_client.apply_humanization_training(
         str(project.id), skill_name, data.model_dump()
     )
-    return HumanizationTrainingApplyResponse(**result)
+    return HumanizationTrainingApplyResponse.model_validate(result)
 
 
 @router.get("/{skill_name}/training-review", response_model=TrainingReview)
@@ -152,7 +152,7 @@ async def get_skill(
     project, _ = auth_data
     project_id = str(project.id)
     result = await ai_client.get_skill(project_id, skill_name)
-    return SkillDetail(**result)
+    return SkillDetail.model_validate(result)
 
 
 @router.patch(
@@ -171,7 +171,7 @@ async def update_skill(
     result = await ai_client.update_skill(
         project_id, skill_name, data.model_dump(exclude_none=True)
     )
-    return SkillDetail(**result)
+    return SkillDetail.model_validate(result)
 
 
 @router.delete(
@@ -211,7 +211,7 @@ async def toggle_skill(
     result = await ai_client.toggle_skill(
         project_id, skill_name, data.model_dump()
     )
-    return SkillToggleResponse(**result)
+    return SkillToggleResponse.model_validate(result)
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +248,7 @@ async def import_skill(
         display_name=display_name.strip() or None,
     )
     result = await ai_client.import_skill(str(project.id), data.model_dump(exclude_none=True))
-    return SkillDetail(**result)
+    return SkillDetail.model_validate(result)
 
 # ---------------------------------------------------------------------------
 # Skill sub-file endpoints

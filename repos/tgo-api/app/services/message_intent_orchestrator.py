@@ -16,6 +16,7 @@ from app.schemas.contextual_reply import ContextualReply
 from app.schemas.humanization import ConversationTurn
 from app.schemas.message_analysis import IntentResultUpsertRequest
 from app.services.ai_client import AIServiceClient
+from app.services.ai_transport import JsonObject
 from app.services.customer_logistics_service import CustomerLogisticsService
 from app.services.customer_intelligence_service import CustomerIntelligenceService
 from app.services.human_handoff_service import request_human_handoff
@@ -242,7 +243,7 @@ class MessageIntentOrchestrator:
         prior_turns: list[ConversationTurn] | None = None,
         conversation_context: list[str] | None = None,
         media_input: dict[str, object] | None = None,
-    ) -> dict[str, object]:
+    ) -> JsonObject:
         config = (
             self._db.query(ProjectAIConfig)
             .filter(
@@ -463,7 +464,7 @@ class MessageIntentOrchestrator:
         )
 
     @staticmethod
-    def _fail_closed_payload() -> dict[str, object]:
+    def _fail_closed_payload() -> JsonObject:
         return {
             "intent": "unknown",
             "confidence": 0.0,

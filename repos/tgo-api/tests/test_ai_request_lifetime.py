@@ -18,6 +18,7 @@ from app.schemas.reply_phase import ReplyPhaseIdentity
 async def test_agent_client_sends_explicit_disconnect_ownership(
     monkeypatch, stream, owned, with_phase
 ):
+    project_id = str(uuid4())
     payloads = []
 
     async def respond(request):
@@ -39,13 +40,15 @@ async def test_agent_client_sends_explicit_disconnect_ownership(
     monkeypatch.setattr(
         client_module.httpx,
         "AsyncClient",
-        lambda **kwargs: client_type(transport=httpx.MockTransport(respond), **kwargs),
+        lambda **kwargs: client_type(
+            transport=httpx.MockTransport(respond), **kwargs
+        ),
     )
     service = client_module.AIServiceClient()
     service.base_url = "http://owned.test"
     options = {"cancel_on_disconnect": True} if owned else {}
     phase = ReplyPhaseIdentity(
-        project_id="fixture",
+        project_id=project_id,
         client_msg_no=uuid4().hex,
         generation=uuid4(),
         phase_id=uuid4(),
@@ -60,13 +63,13 @@ async def test_agent_client_sends_explicit_disconnect_ownership(
                 event
                 async for event in service.run_supervisor_agent_stream(
                     message="隔离测试",
-                    project_id="fixture",
+                    project_id=project_id,
                     **options,
                 )
             ]
         return await service.run_supervisor_agent(
             message="隔离测试",
-            project_id="fixture",
+            project_id=project_id,
             **options,
         )
 
@@ -88,6 +91,7 @@ async def test_agent_client_sends_explicit_disconnect_ownership(
 @pytest.mark.parametrize("stream", [False, True])
 async def test_agent_client_rejects_phase_for_another_project(stream):
     service = client_module.AIServiceClient()
+    project_id = str(uuid4())
     phase = ReplyPhaseIdentity(
         project_id="other",
         client_msg_no=uuid4().hex,
@@ -101,7 +105,7 @@ async def test_agent_client_rejects_phase_for_another_project(stream):
                 event
                 async for event in service.run_supervisor_agent_stream(
                     message="隔离测试",
-                    project_id="fixture",
+                    project_id=project_id,
                     cancel_on_disconnect=True,
                     reply_phase=phase,
                 )
@@ -109,7 +113,7 @@ async def test_agent_client_rejects_phase_for_another_project(stream):
         else:
             await service.run_supervisor_agent(
                 message="隔离测试",
-                project_id="fixture",
+                project_id=project_id,
                 cancel_on_disconnect=True,
                 reply_phase=phase,
             )

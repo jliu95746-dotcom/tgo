@@ -1,6 +1,7 @@
 """Policy response validation using the existing AI client's transport."""
 
 from typing import Protocol, TypeVar
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from pydantic import BaseModel, JsonValue, ValidationError
 from app.schemas.agent_activation import AgentActivationPolicies, AgentActivationPolicyChange, AgentActivationPolicyRecord
 from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.agent_activation_readiness import AgentActivationReadiness
+from app.services.ai_transport import QueryValue
 
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
 
@@ -19,7 +21,7 @@ class PolicyTransport(Protocol):
     def _trial_headers(self, project_id: UUID, staff_id: UUID) -> dict[str, str]: ...
     async def _make_request(self, method: str, endpoint: str, *,
         json_data: dict[str, JsonValue] | None = None,
-        params: dict[str, object] | None = None,
+        params: Mapping[str, QueryValue] | None = None,
         extra_headers: dict[str, str] | None = None,
         timeout: float | None = None) -> httpx.Response: ...
 
