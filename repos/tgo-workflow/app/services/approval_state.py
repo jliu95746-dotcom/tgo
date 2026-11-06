@@ -435,7 +435,9 @@ async def claim_approved_resume(
     ):
         raise ApprovalConflict("批准检查点与当前运行不一致。")
     try:
-        selected = await selected_resume_checkpoint(db, run, request, checkpoint)
+        selected = await selected_resume_checkpoint(
+            db, run, request, checkpoint,
+        )
     except ApprovalCheckpointKeyUnavailable:
         await db.execute(
             update(WorkflowExecution)
