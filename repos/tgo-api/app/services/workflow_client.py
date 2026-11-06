@@ -342,7 +342,6 @@ class WorkflowServiceClient:
         rows = await self._handle_response(response)
         return reconciliation_list(rows)
 
-
     async def get_reconciliation(
         self,
         project_id: str,
@@ -364,7 +363,6 @@ class WorkflowServiceClient:
             await self._handle_response(response),
             WorkflowReconciliationSummary,
         )
-
 
     async def decide_reconciliation(
         self,
@@ -390,7 +388,6 @@ class WorkflowServiceClient:
             WorkflowReconciliationDecisionResult,
         )
 
-
     async def get_reconciliation_decision(
         self,
         project_id: str,
@@ -402,7 +399,8 @@ class WorkflowServiceClient:
             raise HTTPException(503, "工作流内部审批核验未配置")
         response = await self._make_request(
             "GET",
-            f"/v1/workflows/approvals/reconciliations/{approval_id}/decisions/{digest}",
+            f"/v1/workflows/approvals/reconciliations/{approval_id}"
+            f"/decisions/{digest}",
             params={
                 "project_id": project_id,
                 "actor_staff_id": actor_staff_id,

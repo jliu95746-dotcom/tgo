@@ -33,6 +33,8 @@ from app.services.workflow_dispatch import (
     WorkflowResumeDispatchError, enqueue_approved_resume,
 )
 
+__all__ = ["router", "settings"]
+
 router = APIRouter()
 router.include_router(reconciliation_router)
 

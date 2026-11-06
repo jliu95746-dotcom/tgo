@@ -437,13 +437,19 @@ async def claim_approved_resume(
     try:
         selected = await selected_resume_checkpoint(db, run, request, checkpoint)
     except ApprovalCheckpointKeyUnavailable:
-        await db.execute(update(WorkflowExecution).where(
-            WorkflowExecution.id == execution_id,
-            WorkflowExecution.project_id == project_id,
-            WorkflowExecution.workflow_id == workflow_id,
-            WorkflowExecution.status == "pending_resume",
-            WorkflowExecution.active_approval_id == expected_approval_id,
-        ).values(error="恢复记录所需历史保管密钥暂不可用，原记录保留等待恢复。"))
+        await db.execute(
+            update(WorkflowExecution)
+            .where(
+                WorkflowExecution.id == execution_id,
+                WorkflowExecution.project_id == project_id,
+                WorkflowExecution.workflow_id == workflow_id,
+                WorkflowExecution.status == "pending_resume",
+                WorkflowExecution.active_approval_id == expected_approval_id,
+            )
+            .values(
+                error="恢复记录所需历史保管密钥暂不可用，原记录保留等待恢复。"
+            )
+        )
         await db.commit()
         return None
     except (CheckpointCryptoError, ValueError):

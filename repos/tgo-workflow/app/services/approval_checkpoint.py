@@ -155,7 +155,9 @@ def open_checkpoint(
     saved = request.checkpoint
     if not isinstance(saved, dict):
         raise CheckpointCryptoError("审批检查点格式无效。")
-    if saved.get("capture_status") not in ("encrypted", VERIFIED_RESUME_CAPTURE):
+    if saved.get("capture_status") not in (
+        "encrypted", VERIFIED_RESUME_CAPTURE,
+    ):
         # These sources had no supported pending approvals before encryption.
         if run.source_channel in EXTERNAL_SOURCES:
             raise CheckpointCryptoError("外部来源审批检查点必须加密。")
