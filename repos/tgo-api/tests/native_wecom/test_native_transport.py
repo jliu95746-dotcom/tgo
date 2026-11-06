@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
+import httpx
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.api.internal.endpoints import wecom_native
@@ -13,7 +13,10 @@ from app.schemas.wecom_native import NativeContextEvent
 from app.services import wecom_native_context
 
 
-def test_private_bridge_rejects_missing_or_invalid_service_identity(monkeypatch):
+@pytest.mark.asyncio
+async def test_private_bridge_rejects_missing_or_invalid_service_identity(
+    monkeypatch,
+):
     monkeypatch.setattr(
         wecom_native.settings,
         "SAAS_INTERNAL_TOKEN",
@@ -21,19 +24,20 @@ def test_private_bridge_rejects_missing_or_invalid_service_identity(monkeypatch)
     )
     app = FastAPI()
     app.include_router(wecom_native.router, prefix="/internal/wecom-native")
-    with TestClient(app) as client:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
         body = {"platform_id": str(uuid4())}
         assert (
-            client.post("/internal/wecom-native/pending", json=body).status_code == 403
-        )
+            await client.post("/internal/wecom-native/pending", json=body)
+        ).status_code == 403
         assert (
-            client.post(
+            await client.post(
                 "/internal/wecom-native/pending",
                 json=body,
                 headers={"X-SaaS-Service-Token": "wrong"},
-            ).status_code
-            == 403
-        )
+            )
+        ).status_code == 403
 
 
 def test_bridge_is_disabled_for_other_channels_and_deleted_platforms():
@@ -58,17 +62,24 @@ async def test_native_staff_message_uses_staff_role_and_persisted_source_receipt
 ):
     platform = SimpleNamespace(id=uuid4(), project_id=uuid4())
     visitor = SimpleNamespace(
-        id=uuid4(), service_mode="auto", ai_disabled=False, custom_attributes={}
+        id=uuid4(),
+        service_mode="auto",
+        ai_disabled=False,
+        custom_attributes={},
     )
     query = Mock()
-    query.filter.return_value.with_for_update.return_value.first.return_value = visitor
+    query.filter.return_value.with_for_update.return_value.first.return_value = (
+        visitor
+    )
     db = SimpleNamespace(query=Mock(return_value=query), commit=Mock())
     gateway = SimpleNamespace(
         send_visitor_profile_updated=AsyncMock(),
         get_message_by_client_msg_no=AsyncMock(return_value=None),
         send_message=AsyncMock(return_value=object()),
     )
-    monkeypatch.setattr(wecom_native_context, "native_platform", lambda *_: platform)
+    monkeypatch.setattr(
+        wecom_native_context, "native_platform", lambda *_: platform
+    )
     monkeypatch.setattr(
         wecom_native_context, "_exchange_state", AsyncMock(return_value=None)
     )
@@ -115,10 +126,15 @@ async def test_history_failure_is_retried_after_ai_has_already_been_disabled(
 ):
     platform = SimpleNamespace(id=uuid4(), project_id=uuid4())
     visitor = SimpleNamespace(
-        id=uuid4(), service_mode="auto", ai_disabled=False, custom_attributes={}
+        id=uuid4(),
+        service_mode="auto",
+        ai_disabled=False,
+        custom_attributes={},
     )
     query = Mock()
-    query.filter.return_value.with_for_update.return_value.first.return_value = visitor
+    query.filter.return_value.with_for_update.return_value.first.return_value = (
+        visitor
+    )
     db = SimpleNamespace(query=Mock(return_value=query), commit=Mock())
     gateway = SimpleNamespace(
         send_visitor_profile_updated=AsyncMock(),
@@ -126,7 +142,9 @@ async def test_history_failure_is_retried_after_ai_has_already_been_disabled(
             side_effect=RuntimeError("history unavailable")
         ),
     )
-    monkeypatch.setattr(wecom_native_context, "native_platform", lambda *_: platform)
+    monkeypatch.setattr(
+        wecom_native_context, "native_platform", lambda *_: platform
+    )
     monkeypatch.setattr(
         wecom_native_context, "_exchange_state", AsyncMock(return_value=None)
     )
