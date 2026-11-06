@@ -17,10 +17,14 @@ def add_months(
 
 
 def microseconds(value: timedelta) -> int:
-    return value.days * 86400000000 + value.seconds * 1000000 + value.microseconds
+    return (
+        value.days * 86400000000 + value.seconds * 1000000 + value.microseconds
+    )
 
 
-def remaining_fraction(start: datetime, end: datetime, now: datetime) -> Fraction:
+def remaining_fraction(
+    start: datetime, end: datetime, now: datetime
+) -> Fraction:
     duration = microseconds(end - start)
     if duration <= 0:
         raise ValueError("Billing period must have positive duration")
@@ -32,7 +36,10 @@ def prorated_charge(
     periods: list[tuple[int, datetime, datetime]], now: datetime
 ) -> int:
     amount = sum(
-        (price * remaining_fraction(start, end, now) for price, start, end in periods),
+        (
+            price * remaining_fraction(start, end, now)
+            for price, start, end in periods
+        ),
         Fraction(0),
     )
     return max(0, ceil(amount))

@@ -12,7 +12,11 @@ from app.core.database import get_db
 from app.core.exceptions import TGOAPIException
 from app.models.billing import BillingAudit, BillingRefund
 from app.models.platform_operator import PlatformOperator
-from app.schemas.billing_refunds import RefundConfirm, RefundCreate, RefundResponse
+from app.schemas.billing_refunds import (
+    RefundConfirm,
+    RefundCreate,
+    RefundResponse,
+)
 from app.services.billing_quotes import conflict
 from app.services.billing_refunds import (
     confirm_refund,
@@ -93,7 +97,9 @@ def cancel(
 
 
 @callback_router.post("/payments/wechat/refund-notify", status_code=204)
-async def refund_notify(request: Request, db: Session = Depends(get_db)) -> Response:
+async def refund_notify(
+    request: Request, db: Session = Depends(get_db)
+) -> Response:
     body = bytearray()
     async for part in request.stream():
         body.extend(part)

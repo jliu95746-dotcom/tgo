@@ -36,10 +36,14 @@ def prepare_operation_id(db: Session, requested_id: UUID | None) -> UUID:
     if requested_id is None:
         return uuid4()
     if requested_id.version != 4:
-        raise TGOAPIException("操作编号格式无效", "INVALID_OPERATION_ID", status_code=422)
+        raise TGOAPIException(
+            "操作编号格式无效", "INVALID_OPERATION_ID", status_code=422
+        )
     if db.get_bind().dialect.name == "postgresql":
         lock_key = int.from_bytes(requested_id.bytes[:8], "big", signed=True)
-        db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key}
+        )
     exists = (
         db.query(SessionCommandDelivery.id)
         .filter(SessionCommandDelivery.id == requested_id)
@@ -310,7 +314,9 @@ async def deliver_session_command(db: Session, operation_id: UUID) -> str:
             client_msg_no=client_msg_no,
         )
     except Exception as exc:
-        logger.warning("Session notice outcome unknown: %s", type(exc).__name__)
+        logger.warning(
+            "Session notice outcome unknown: %s", type(exc).__name__
+        )
         result = None
     current = (
         db.query(SessionCommandDelivery)
@@ -383,13 +389,10 @@ async def recover_session_commands(db: Session, limit: int = 20) -> int:
     if not wukongim_client.enabled:
         return 0
     cutoff = utc_now() - timedelta(seconds=30)
-    pending_ready = (
-        (SessionCommandDelivery.status == "pending")
-        & or_(
-            SessionCommandDelivery.last_error.is_(None),
-            SessionCommandDelivery.last_error != "RECOVERY_FAILED",
-            SessionCommandDelivery.updated_at <= cutoff,
-        )
+    pending_ready = (SessionCommandDelivery.status == "pending") & or_(
+        SessionCommandDelivery.last_error.is_(None),
+        SessionCommandDelivery.last_error != "RECOVERY_FAILED",
+        SessionCommandDelivery.updated_at <= cutoff,
     )
     ids = [
         item[0]
@@ -432,7 +435,9 @@ async def recover_session_commands(db: Session, limit: int = 20) -> int:
                 .first()
             )
             if row is not None and row.status in {
-                "pending", "sending", "unknown",
+                "pending",
+                "sending",
+                "unknown",
             }:
                 if row.status == "pending" or row.last_error is None:
                     row.last_error = "RECOVERY_FAILED"

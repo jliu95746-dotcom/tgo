@@ -9,7 +9,10 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.schemas.connection_test_protocol import ConnectionTestCommand, ConnectionTestReceipt
+from app.schemas.connection_test_protocol import (
+    ConnectionTestCommand,
+    ConnectionTestReceipt,
+)
 from app.services.connection_test_client import request_connection_test
 
 JsonObject: TypeAlias = dict[str, JsonValue]
@@ -27,9 +30,13 @@ class PluginRuntimeClient:
         self.base_url = settings.PLUGIN_RUNTIME_URL.rstrip("/")
         self.timeout = settings.PLUGIN_RUNTIME_TIMEOUT
 
-    async def test_business_connection(self, command: ConnectionTestCommand) -> ConnectionTestReceipt:
+    async def test_business_connection(
+        self, command: ConnectionTestCommand
+    ) -> ConnectionTestReceipt:
         """Use the dedicated connection-test transport and receipt contract."""
-        return await request_connection_test(self.base_url, self.timeout, command)
+        return await request_connection_test(
+            self.base_url, self.timeout, command
+        )
 
     async def _request(
         self,
@@ -53,7 +60,6 @@ class PluginRuntimeClient:
 
                 if response.status_code == 404:
                     return None
-
                 response.raise_for_status()
                 try:
                     return _plugin_response.validate_json(
@@ -78,22 +84,35 @@ class PluginRuntimeClient:
 
     # ==================== Plugin List ====================
 
-    async def list_plugins(self, project_id: Optional[str] = None) -> Dict[str, Any]:
+    async def list_plugins(
+        self, project_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Get all registered plugins."""
         params = {"project_id": project_id} if project_id else None
-        return await self._request("GET", "/plugins", params=params) or {"plugins": [], "total": 0}
+        return await self._request("GET", "/plugins", params=params) or {
+            "plugins": [],
+            "total": 0,
+        }
 
-    async def get_plugin(self, plugin_id: str, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def get_plugin(
+        self, plugin_id: str, project_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Get a specific plugin by ID."""
         params = {"project_id": project_id} if project_id else None
-        return await self._request("GET", f"/plugins/{plugin_id}", params=params)
+        return await self._request(
+            "GET", f"/plugins/{plugin_id}", params=params
+        )
 
     # ==================== Chat Toolbar ====================
 
-    async def get_chat_toolbar_buttons(self, project_id: Optional[str] = None) -> Dict[str, Any]:
+    async def get_chat_toolbar_buttons(
+        self, project_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Get chat toolbar buttons from all plugins."""
         params = {"project_id": project_id} if project_id else None
-        return await self._request("GET", "/plugins/chat-toolbar/buttons", params=params) or {"buttons": []}
+        return await self._request(
+            "GET", "/plugins/chat-toolbar/buttons", params=params
+        ) or {"buttons": []}
 
     async def render_chat_toolbar(
         self,
@@ -220,10 +239,14 @@ class PluginRuntimeClient:
 
     # ==================== Installation & Lifecycle ====================
 
-    async def list_installed_plugins(self, project_id: Optional[str] = None) -> Dict[str, Any]:
+    async def list_installed_plugins(
+        self, project_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Get all installed plugins."""
         params = {"project_id": project_id} if project_id else None
-        return await self._request("GET", "/plugins/installed", params=params) or {"plugins": [], "total": 0}
+        return await self._request(
+            "GET", "/plugins/installed", params=params
+        ) or {"plugins": [], "total": 0}
 
     async def fetch_plugin_info(self, url: str) -> Optional[Dict[str, Any]]:
         """Fetch plugin info from a URL."""
@@ -233,7 +256,9 @@ class PluginRuntimeClient:
             json={"url": url},
         )
 
-    async def install_plugin(self, request_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def install_plugin(
+        self, request_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
         """Install a plugin from YAML."""
         return await self._request(
             "POST",
@@ -241,7 +266,9 @@ class PluginRuntimeClient:
             json=request_data,
         )
 
-    async def uninstall_plugin(self, plugin_id: str, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def uninstall_plugin(
+        self, plugin_id: str, project_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Uninstall a plugin."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -250,7 +277,12 @@ class PluginRuntimeClient:
             params=params,
         )
 
-    async def start_plugin(self, plugin_id: str, request_data: Dict[str, Any], project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def start_plugin(
+        self,
+        plugin_id: str,
+        request_data: Dict[str, Any],
+        project_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Start a plugin process."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -260,7 +292,9 @@ class PluginRuntimeClient:
             params=params,
         )
 
-    async def stop_plugin(self, plugin_id: str, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def stop_plugin(
+        self, plugin_id: str, project_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Stop a plugin process."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -269,7 +303,9 @@ class PluginRuntimeClient:
             params=params,
         )
 
-    async def restart_plugin(self, plugin_id: str, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def restart_plugin(
+        self, plugin_id: str, project_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Restart a plugin process."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -278,7 +314,9 @@ class PluginRuntimeClient:
             params=params,
         )
 
-    async def get_plugin_logs(self, plugin_id: str, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def get_plugin_logs(
+        self, plugin_id: str, project_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Get plugin logs."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -287,7 +325,9 @@ class PluginRuntimeClient:
             params=params,
         )
 
-    async def get_plugin_status(self, plugin_id: str, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def get_plugin_status(
+        self, plugin_id: str, project_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Get plugin status from runtime."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -296,7 +336,9 @@ class PluginRuntimeClient:
             params=params,
         )
 
-    async def check_plugin_update(self, plugin_id: str, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def check_plugin_update(
+        self, plugin_id: str, project_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Check for plugin updates."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -307,5 +349,5 @@ class PluginRuntimeClient:
 
 
 # Global client instance
-plugin_runtime_client = PluginRuntimeClient()
 
+plugin_runtime_client = PluginRuntimeClient()

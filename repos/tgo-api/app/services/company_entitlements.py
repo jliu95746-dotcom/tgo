@@ -16,7 +16,9 @@ from app.services.company_email import utc
 
 def require_new_service(db: Session, project_id: UUID) -> None:
     if settings.SAAS_ENABLED and settings.SAAS_BILLING_ENABLED:
-        require_service(db.get(CompanyAccount, project_id), datetime.now(timezone.utc))
+        require_service(
+            db.get(CompanyAccount, project_id), datetime.now(timezone.utc)
+        )
 
 
 def new_service_available(db: Session, project_id: UUID) -> bool:

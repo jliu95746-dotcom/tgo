@@ -27,7 +27,9 @@ def load_public_key(pem: bytes) -> rsa.RSAPublicKey:
     else:
         key = serialization.load_pem_public_key(pem)
     if not isinstance(key, rsa.RSAPublicKey) or key.key_size < 2048:
-        raise ValueError("WeChat Pay requires an RSA public key of at least 2048 bits")
+        raise ValueError(
+            "WeChat Pay requires an RSA public key of at least 2048 bits"
+        )
     return key
 
 
@@ -45,10 +47,16 @@ def verify_message(
     signature = normalized.get("wechatpay-signature", "")
     if (
         not timestamp.isdigit()
-        or abs((now if now is not None else int(time.time())) - int(timestamp)) > 300
+        or abs((now if now is not None else int(time.time())) - int(timestamp))
+        > 300
     ):
         raise ValueError("Invalid WeChat Pay timestamp")
-    if not nonce or len(nonce) > 256 or serial not in keys or len(body) > 131072:
+    if (
+        not nonce
+        or len(nonce) > 256
+        or serial not in keys
+        or len(body) > 131072
+    ):
         raise ValueError("Invalid WeChat Pay signature headers")
     signed = timestamp.encode() + b"\n" + nonce.encode() + b"\n" + body + b"\n"
     keys[serial].verify(
@@ -77,7 +85,9 @@ def sign_request(
     timestamp: str,
     nonce: str,
 ) -> str:
-    message = f"{method}\n{path}\n{timestamp}\n{nonce}\n".encode() + body + b"\n"
+    message = (
+        f"{method}\n{path}\n{timestamp}\n{nonce}\n".encode() + body + b"\n"
+    )
     return base64.b64encode(
         private_key.sign(message, padding.PKCS1v15(), hashes.SHA256())
     ).decode()

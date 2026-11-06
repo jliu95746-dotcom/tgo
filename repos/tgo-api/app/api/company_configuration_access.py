@@ -27,7 +27,9 @@ def require_configuration_write(
         return
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
     actor = (
-        resolve_staff_token(db, token) if scheme.lower() == "bearer" and token else None
+        resolve_staff_token(db, token)
+        if scheme.lower() == "bearer" and token
+        else None
     )
     if actor is None:
         raise HTTPException(401, "请先登录企业工作台")

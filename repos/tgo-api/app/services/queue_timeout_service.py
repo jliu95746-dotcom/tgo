@@ -26,7 +26,8 @@ async def process_queue_timeouts(
     if project_id is not None:
         query = query.filter(VisitorWaitingQueue.project_id == project_id)
     ids = [
-        row.id for row in query.order_by(VisitorWaitingQueue.expired_at).limit(limit)
+        row.id
+        for row in query.order_by(VisitorWaitingQueue.expired_at).limit(limit)
     ]
     db.rollback()
     expired = 0

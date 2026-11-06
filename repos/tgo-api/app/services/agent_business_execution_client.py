@@ -16,7 +16,9 @@ from app.schemas.agent_business_execution import (
 class ExecutionTransport(Protocol):
     def _execution_headers(
         self, project_id: str, channel: str | None
-    ) -> dict[str, str]: ...
+    ) -> dict[str, str]:
+        ...
+
     async def _make_request(
         self,
         method: str,
@@ -25,7 +27,8 @@ class ExecutionTransport(Protocol):
         json_data: dict[str, JsonValue],
         extra_headers: dict[str, str],
         timeout: float,
-    ) -> httpx.Response: ...
+    ) -> httpx.Response:
+        ...
 
 
 async def authorize(
@@ -44,12 +47,17 @@ async def authorize(
     if response.status_code != 200 or len(response.content) > 65536:
         raise HTTPException(409, "当前正式查询授权无法确认")
     try:
-        result = BusinessExecutionAuthority.model_validate_json(response.content)
+        result = BusinessExecutionAuthority.model_validate_json(
+            response.content
+        )
         if (
             not result.matches(check.command)
             or result.phase != check.phase
-            or result.model_fields_set != set(BusinessExecutionAuthority.model_fields)
-            or not -5 <= (datetime.now(UTC) - result.checked_at).total_seconds() <= 30
+            or result.model_fields_set
+            != set(BusinessExecutionAuthority.model_fields)
+            or not -5
+            <= (datetime.now(UTC) - result.checked_at).total_seconds()
+            <= 30
             or result.expires_at <= datetime.now(UTC)
         ):
             raise ValueError("Invalid business authority")

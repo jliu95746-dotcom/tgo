@@ -9,9 +9,13 @@ from fastapi import HTTPException
 ADMISSION_TIMEOUT_SECONDS = 30
 
 
-async def prepare_workflow_stream(upstream: AsyncGenerator[str, None]) -> AsyncGenerator[str, None]:
+async def prepare_workflow_stream(
+    upstream: AsyncGenerator[str, None]
+) -> AsyncGenerator[str, None]:
     try:
-        first = await asyncio.wait_for(anext(upstream), timeout=ADMISSION_TIMEOUT_SECONDS)
+        first = await asyncio.wait_for(
+            anext(upstream), timeout=ADMISSION_TIMEOUT_SECONDS
+        )
     except BaseException as error:
         with CancelScope(shield=True):
             await upstream.aclose()

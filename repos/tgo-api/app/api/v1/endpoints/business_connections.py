@@ -20,19 +20,25 @@ from app.schemas.business_connection_tests import (
     BusinessConnectionTestRequest,
     BusinessConnectionTestReport,
 )
-from app.services.business_connection_tests import BusinessConnectionTestService
+from app.services.business_connection_tests import (
+    BusinessConnectionTestService,
+)
 from app.services.request_execution import run_until_disconnect
 
 router = APIRouter()
 
 
-@router.get("/requests/{request_id}", response_model=BusinessConnectionResponse)
+@router.get(
+    "/requests/{request_id}", response_model=BusinessConnectionResponse
+)
 def recover_connection_creation(
     request_id: UUID,
     actor: Staff = Depends(require_admin()),
     db: Session = Depends(get_db),
 ) -> BusinessConnectionResponse:
-    return business_connections.creation_result(db, actor.project_id, request_id)
+    return business_connections.creation_result(
+        db, actor.project_id, request_id
+    )
 
 
 def get_connection_test_service(
@@ -51,31 +57,43 @@ async def submit_connection_test(
     payload: BusinessConnectionTestRequest,
     request: Request,
     actor: Staff = Depends(require_admin()),
-    service: BusinessConnectionTestService = Depends(get_connection_test_service),
+    service: BusinessConnectionTestService = Depends(
+        get_connection_test_service
+    ),
 ) -> BusinessConnectionTestReport:
     return await run_until_disconnect(
-        lambda: service.run(actor.project_id, actor.id, connection_id, payload), request
+        lambda: service.run(
+            actor.project_id, actor.id, connection_id, payload
+        ),
+        request,
     )
 
 
-@router.get("/{connection_id}/tests", response_model=list[BusinessConnectionTestReport])
+@router.get(
+    "/{connection_id}/tests", response_model=list[BusinessConnectionTestReport]
+)
 def list_connection_tests(
     connection_id: UUID,
     limit: int = Query(default=50, ge=1, le=100),
     actor: Staff = Depends(require_admin()),
-    service: BusinessConnectionTestService = Depends(get_connection_test_service),
+    service: BusinessConnectionTestService = Depends(
+        get_connection_test_service
+    ),
 ) -> list[BusinessConnectionTestReport]:
     return service.list(actor.project_id, actor.id, connection_id, limit)
 
 
 @router.get(
-    "/{connection_id}/tests/{request_id}", response_model=BusinessConnectionTestReport
+    "/{connection_id}/tests/{request_id}",
+    response_model=BusinessConnectionTestReport,
 )
 def get_connection_test(
     connection_id: UUID,
     request_id: UUID,
     actor: Staff = Depends(require_admin()),
-    service: BusinessConnectionTestService = Depends(get_connection_test_service),
+    service: BusinessConnectionTestService = Depends(
+        get_connection_test_service
+    ),
 ) -> BusinessConnectionTestReport:
     return service.get(actor.project_id, actor.id, connection_id, request_id)
 
@@ -88,9 +106,13 @@ def cancel_connection_test(
     connection_id: UUID,
     request_id: UUID,
     actor: Staff = Depends(require_admin()),
-    service: BusinessConnectionTestService = Depends(get_connection_test_service),
+    service: BusinessConnectionTestService = Depends(
+        get_connection_test_service
+    ),
 ) -> BusinessConnectionTestReport:
-    return service.cancel(actor.project_id, actor.id, connection_id, request_id)
+    return service.cancel(
+        actor.project_id, actor.id, connection_id, request_id
+    )
 
 
 @router.get("", response_model=list[BusinessConnectionResponse])
@@ -144,7 +166,9 @@ def update_connection(
     )
 
 
-@router.post("/{connection_id}/disable", response_model=BusinessConnectionResponse)
+@router.post(
+    "/{connection_id}/disable", response_model=BusinessConnectionResponse
+)
 def disable_connection(
     connection_id: UUID,
     payload: BusinessConnectionRevisionRequest,

@@ -8,15 +8,24 @@ from app.services.scenario_templates import get_template
 
 def list_cases() -> list[KnowledgeReviewCase]:
     cases = []
-    template_ids: tuple[Literal["knowledge", "aftersales"], ...] = ("knowledge", "aftersales")
+    template_ids: tuple[Literal["knowledge", "aftersales"], ...] = (
+        "knowledge",
+        "aftersales",
+    )
     for template_id in template_ids:
         template = get_template("agents", template_id, 1)
         for index, question in enumerate(template.test_questions):
-            cases.append(KnowledgeReviewCase(
-                id=f"{template.id}.v{template.version}.{index+1}", template_id=template_id,
-                template_version=template.version, question=question,
-                expected_result="safe_refusal" if index == 2 else "grounded_answer",
-            ))
+            cases.append(
+                KnowledgeReviewCase(
+                    id=f"{template.id}.v{template.version}.{index+1}",
+                    template_id=template_id,
+                    template_version=template.version,
+                    question=question,
+                    expected_result="safe_refusal"
+                    if index == 2
+                    else "grounded_answer",
+                )
+            )
     return cases
 
 

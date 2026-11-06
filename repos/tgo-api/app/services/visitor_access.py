@@ -23,7 +23,9 @@ from app.schemas.visitor_access import (
     VisitorBusinessAccess,
     VisitorIMBusinessReference,
 )
-from app.services.business_customer_identity import BusinessCustomerIdentityService
+from app.services.business_customer_identity import (
+    BusinessCustomerIdentityService,
+)
 from app.services.business_customer_identity_crypto import issue_session
 from app.services.visitor_business_scope import scopes
 from app.services.visitor_access_crypto import access_digest
@@ -61,7 +63,9 @@ def current_visitor(
         .with_for_update(of=Visitor)
         .execution_options(populate_existing=True)
     )
-    if current is None or (current.access_retired_at is not None and not allow_retired):
+    if current is None or (
+        current.access_retired_at is not None and not allow_retired
+    ):
         raise denied()
     return current
 
@@ -127,7 +131,8 @@ def business_access(
         for row in rows
     ]
     return VisitorBusinessAccess(
-        references=references, expires_at=min(item.expires_at for item in verified)
+        references=references,
+        expires_at=min(item.expires_at for item in verified),
     )
 
 
@@ -135,16 +140,21 @@ def check_im_business_references(
     db: Session, visitor: Visitor, refs: list[VisitorIMBusinessReference]
 ) -> None:
     rows = scopes(db, visitor.project_id, visitor.id)
-    if len(rows) != len(refs) or len({item.connection_id for item in refs}) != len(
-        refs
-    ):
+    if len(rows) != len(refs) or len(
+        {item.connection_id for item in refs}
+    ) != len(refs):
         raise denied()
     if not rows and protected(db, visitor):
         raise denied()
     identity = BusinessCustomerIdentityService(db)
     for scope in rows:
         ref = next(
-            (item for item in refs if item.connection_id == scope.connection_id), None
+            (
+                item
+                for item in refs
+                if item.connection_id == scope.connection_id
+            ),
+            None,
         )
         if (
             ref is None
@@ -252,7 +262,13 @@ def registration_access(
     return secret, business
 
 
-def end_access(db: Session, visitor: Visitor, proof: VisitorAccessInput, *, end_token: SecretStr | None = None) -> None:
+def end_access(
+    db: Session,
+    visitor: Visitor,
+    proof: VisitorAccessInput,
+    *,
+    end_token: SecretStr | None = None,
+) -> None:
     # Possession of browser access is sufficient to end its own session; never reads data.
     visitor = current_visitor(db, visitor, allow_retired=True)
     secret = proof.visitor_access_token
@@ -323,7 +339,12 @@ def end_access(db: Session, visitor: Visitor, proof: VisitorAccessInput, *, end_
             AIInteractionRun.visitor_id == visitor.id,
             AIInteractionRun.status == "running",
         )
-        .values(status="failed", error_message="visitor_access_ended", completed_at=now, updated_at=now)
+        .values(
+            status="failed",
+            error_message="visitor_access_ended",
+            completed_at=now,
+            updated_at=now,
+        )
     )
     db.execute(
         update(VisitorWaitingQueue)

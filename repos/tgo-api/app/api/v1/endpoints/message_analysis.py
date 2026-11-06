@@ -54,7 +54,9 @@ from app.schemas.shadow_sample import (
     ShadowSampleCreateRequest,
 )
 from app.services.shadow_sample_service import ShadowSampleService
-from app.services.shadow_review_protocol_service import ShadowReviewProtocolService
+from app.services.shadow_review_protocol_service import (
+    ShadowReviewProtocolService,
+)
 from app.schemas.shadow_gate_assessment import ShadowGateAssessment
 from app.services.shadow_gate_assessment import ShadowGateAssessmentService
 from app.schemas.shadow_gate_signoff import (
@@ -82,7 +84,9 @@ def export_staff_intent_evaluation_predictions(
     current_user: Staff = Depends(require_admin()),
     db: Session = Depends(get_db),
 ) -> Response:
-    content = IntentEvaluationExportService(db).export(current_user.project_id, request)
+    content = IntentEvaluationExportService(db).export(
+        current_user.project_id, request
+    )
     return Response(
         content=content,
         media_type="application/x-ndjson",
@@ -183,8 +187,12 @@ def list_staff_shadow_adjudications(
         current_user.project_id, current_user.id
     )
     return ShadowAdjudicationService(db).list_history(
-        current_user.project_id, batch_id, draft_id, visitor_id,
-        limit=limit, before_id=before_id,
+        current_user.project_id,
+        batch_id,
+        draft_id,
+        visitor_id,
+        limit=limit,
+        before_id=before_id,
     )
 
 
@@ -337,7 +345,9 @@ def get_staff_shadow_gate_signoff(
     ShadowBlindReviewAccess(db).require_result_access(
         current_user.project_id, current_user.id
     )
-    return ShadowGateSignoffService(db).get(current_user.project_id, protocol_id)
+    return ShadowGateSignoffService(db).get(
+        current_user.project_id, protocol_id
+    )
 
 
 @router.post(
@@ -395,7 +405,9 @@ def list_staff_shadow_review_protocols(
     db: Session = Depends(get_db),
 ) -> ShadowProtocolList:
     response.headers["Cache-Control"] = "no-store"
-    return ShadowReviewProtocolService(db).list(current_user.project_id, limit=limit)
+    return ShadowReviewProtocolService(db).list(
+        current_user.project_id, limit=limit
+    )
 
 
 @router.post(
@@ -571,6 +583,7 @@ def get_staff_message_analyses(
         for message in request.messages
     }
     from app.services.staff_conversation_scope import require_owned_visitor
+
     for visitor_id in {key.visitor_id for key in key_to_channel}:
         require_owned_visitor(db, current_user, visitor_id)
     combined_results = MessageAnalysisService(

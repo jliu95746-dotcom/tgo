@@ -118,6 +118,7 @@ def _chinese_quantity(value: str) -> Decimal:
 def numeric_values(text: str) -> set[Decimal]:
     """Compare quantities despite separators or Chinese numeric formatting."""
     # Numbered list markers are formatting, not business quantities.
+
     text = re.sub(r"(?m)^\s*\d+[.)、](?!\d)[ \t]*", "", text)
     values = {
         Decimal(value.replace(",", "")) for value in NUMBERS.findall(text)
@@ -143,9 +144,8 @@ def trim_trailing_preference_questions(reply: str) -> str:
         sentence = match.group().strip()
         if not sentence:
             continue
-        if (
-            not sentence.endswith(("？", "?"))
-            or not _asks_for_preferences(sentence)
+        if not sentence.endswith(("？", "?")) or not _asks_for_preferences(
+            sentence
         ):
             break
         end = match.start()
@@ -181,6 +181,7 @@ def assess_reply(
     ):
         # A greeting is a new social turn, not renewed shopping intent merely
         # because older customer messages mentioned products or a budget.
+
         issues.append("greeting_overreach")
     if include_style and CEREMONIAL_CAVEAT.search(reply):
         issues.append("ceremonial_caveat")
@@ -194,7 +195,8 @@ def assess_reply(
         issues.append("certainty_changed")
     numeric_authority = (
         knowledge_evidence.factual_text()
-        if knowledge_evidence is not None else factual_draft
+        if knowledge_evidence is not None
+        else factual_draft
     )
     if numeric_values(reply) - numeric_values(
         numeric_authority + "\n" + customer_message
@@ -217,6 +219,7 @@ def assess_reply(
     customer_context = "\n".join(customer_turns)
     # A product's usage scene and a later product question are independent.
     # Match the preference topic and request within the same sentence.
+
     asks_for_preferences = any(
         _asks_for_preferences(sentence)
         for sentence in re.findall(r"[^。！？?\n]+[。！？?\n]?", reply)
@@ -238,8 +241,12 @@ def assess_reply(
 class FactAudit(BaseModel):
     valid: StrictBool
     issues: list[str] = Field(default_factory=list, max_length=12)
-    calculations: list[CalculationProof] = Field(default_factory=list, max_length=24)
-    calculation_hints: list[CalculationHint] = Field(default_factory=list, max_length=3)
+    calculations: list[CalculationProof] = Field(
+        default_factory=list, max_length=24
+    )
+    calculation_hints: list[CalculationHint] = Field(
+        default_factory=list, max_length=3
+    )
 
 
 ANSWER_SCOPE_PROMPT = (
@@ -320,26 +327,42 @@ async def audit_reply_facts(
 ) -> list[str]:
     context = list(recent_messages)
     authority = (
-        knowledge_evidence.factual_text()
-        if knowledge_evidence is not None else factual_draft
-    ) + "\n" + customer_message
-    audit_prompt = FACT_AUDIT_PROMPT + (
-        CURRENT_EVIDENCE_AUDIT_PROMPT if knowledge_evidence is not None
-        else "事实依据是输入的本轮业务事实，旧聊天和案例不能补充事实。" + CONVERSATION_EVIDENCE_PROMPT
-    ) + CALCULATION_AUDIT_PROMPT
-    required_numbers = sorted(str(value) for value in (
-        numeric_values(reply) - numeric_values(authority)
-    ))
+        (
+            knowledge_evidence.factual_text()
+            if knowledge_evidence is not None
+            else factual_draft
+        )
+        + "\n"
+        + customer_message
+    )
+    audit_prompt = (
+        FACT_AUDIT_PROMPT
+        + (
+            CURRENT_EVIDENCE_AUDIT_PROMPT
+            if knowledge_evidence is not None
+            else "事实依据是输入的本轮业务事实，旧聊天和案例不能补充事实。" + CONVERSATION_EVIDENCE_PROMPT
+        )
+        + CALCULATION_AUDIT_PROMPT
+    )
+    required_numbers = sorted(
+        str(value)
+        for value in (numeric_values(reply) - numeric_values(authority))
+    )
     authority_numbers = numeric_values(authority)
     required_positions: list[str] = []
-    for token in re.finditer(NUMBERS.pattern + "|" + CHINESE_QUANTITY.pattern, reply):
+    for token in re.finditer(
+        NUMBERS.pattern + "|" + CHINESE_QUANTITY.pattern, reply
+    ):
         text = token.group()
-        value = (Decimal(text.replace(",", "")) if text[0].isascii()
-                 else _chinese_quantity(text))
+        value = (
+            Decimal(text.replace(",", ""))
+            if text[0].isascii()
+            else _chinese_quantity(text)
+        )
         if value not in authority_numbers:
             required_positions.append(
                 f"位置{token.start()}，数值{value}，片段："
-                + reply[max(0, token.start() - 8):token.end() + 12]
+                + reply[max(0, token.start() - 8): token.end() + 12]
             )
     if _repair_calculation_proof:
         audit_prompt = CALCULATION_PROOF_REPAIR_PROMPT
@@ -354,21 +377,34 @@ async def audit_reply_facts(
             {
                 "客户问题": customer_question(customer_message),
                 "近期对话": context,
-                ("待校正的业务初稿" if knowledge_evidence is not None
-                 else "本轮业务事实"): factual_draft,
+                (
+                    "待校正的业务初稿" if knowledge_evidence is not None else "本轮业务事实"
+                ): factual_draft,
                 "待审核回复": reply,
                 "必须逐处证明的数值": required_numbers,
                 "必须逐处证明的位置": required_positions,
                 "程序复算参考": _proof_feedback or [],
-                "计算来源ID": list(calculation_sources(
-                    knowledge_evidence, customer_message, context,
-                )),
-                **({"本轮检索证据": knowledge_evidence.model_dump(
-                    mode="json", exclude={
-                        "tool_results": {"__all__": {"query_id", "operation"}},
-                    },
-                )}
-                   if knowledge_evidence is not None else {}),
+                "计算来源ID": list(
+                    calculation_sources(
+                        knowledge_evidence,
+                        customer_message,
+                        context,
+                    )
+                ),
+                **(
+                    {
+                        "本轮检索证据": knowledge_evidence.model_dump(
+                            mode="json",
+                            exclude={
+                                "tool_results": {
+                                    "__all__": {"query_id", "operation"}
+                                },
+                            },
+                        )
+                    }
+                    if knowledge_evidence is not None
+                    else {}
+                ),
             },
             ensure_ascii=False,
         )
@@ -389,7 +425,9 @@ async def audit_reply_facts(
             system_message=audit_prompt,
             response_purpose="expression",
             knowledge_channel=(
-                knowledge_evidence.channel if knowledge_evidence is not None else None
+                knowledge_evidence.channel
+                if knowledge_evidence is not None
+                else None
             ),
             session_id=None,
             disable_tools=True,
@@ -413,35 +451,79 @@ async def audit_reply_facts(
         ) from exc
     if verdict.valid and not verdict.issues:
         issues = verify_calculated_numbers(
-            reply=reply, proofs=verdict.calculations,
-            sources=calculation_sources(knowledge_evidence, customer_message, context),
+            reply=reply,
+            proofs=verdict.calculations,
+            sources=calculation_sources(
+                knowledge_evidence, customer_message, context
+            ),
             authority=authority,
             numeric_values=numeric_values,
         )
-        feedback = calculation_feedback([
-            CalculationHint(
-                inputs=proof.inputs, expression=proof.expression,
-                rounding=("nearest" if proof.rounding == "exact" else proof.rounding),
-                decimal_places=proof.decimal_places, label="待复核计算结果",
-                assumption="业务适用条件和最终取整含义仍须独立审核",
-            ) for proof in verdict.calculations
-        ], calculation_sources(knowledge_evidence, customer_message, context), numeric_values) if issues else []
+        feedback = (
+            calculation_feedback(
+                [
+                    CalculationHint(
+                        inputs=proof.inputs,
+                        expression=proof.expression,
+                        rounding=(
+                            "nearest"
+                            if proof.rounding == "exact"
+                            else proof.rounding
+                        ),
+                        decimal_places=proof.decimal_places,
+                        label="待复核计算结果",
+                        assumption="业务适用条件和最终取整含义仍须独立审核",
+                    )
+                    for proof in verdict.calculations
+                ],
+                calculation_sources(
+                    knowledge_evidence, customer_message, context
+                ),
+                numeric_values,
+            )
+            if issues
+            else []
+        )
         if issues and not _repair_calculation_proof:
             # Repair the internal proof before rewriting a potentially correct
             # customer answer. The same hard checks still run on the retry.
+
             return await audit_reply_facts(
-                client, project_id=project_id, agent_id=agent_id,
-                reply=reply, factual_draft=factual_draft,
-                customer_message=customer_message, recent_messages=context,
+                client,
+                project_id=project_id,
+                agent_id=agent_id,
+                reply=reply,
+                factual_draft=factual_draft,
+                customer_message=customer_message,
+                recent_messages=context,
                 knowledge_evidence=knowledge_evidence,
                 _repair_calculation_proof=True,
-                _proof_feedback=[json.dumps({
-                    "inputs": {item["name"]: item["value"] for item in data["inputs"]},
-                    **{key: data[key] for key in (
-                        "expression", "result", "rounding", "decimal_places",
-                    )},
-                }, ensure_ascii=False) for entry in feedback
-                    for data in [json.loads(entry.removeprefix("verified_calculation: "))]],
+                _proof_feedback=[
+                    json.dumps(
+                        {
+                            "inputs": {
+                                item["name"]: item["value"]
+                                for item in data["inputs"]
+                            },
+                            **{
+                                key: data[key]
+                                for key in (
+                                    "expression",
+                                    "result",
+                                    "rounding",
+                                    "decimal_places",
+                                )
+                            },
+                        },
+                        ensure_ascii=False,
+                    )
+                    for entry in feedback
+                    for data in [
+                        json.loads(
+                            entry.removeprefix("verified_calculation: ")
+                        )
+                    ]
+                ],
             )
         return issues + feedback
     return (verdict.issues or ["semantic_fact_change"]) + calculation_feedback(

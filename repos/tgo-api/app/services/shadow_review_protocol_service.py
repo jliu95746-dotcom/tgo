@@ -12,7 +12,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import TGOAPIException
-from app.models.shadow_review_batch import ShadowReviewBatch, ShadowReviewBatchItem
+from app.models.shadow_review_batch import (
+    ShadowReviewBatch,
+    ShadowReviewBatchItem,
+)
 from app.models.shadow_review_protocol import (
     ShadowReviewProtocol,
     ShadowReviewProtocolCandidate,
@@ -61,7 +64,9 @@ def _response(row: ShadowReviewProtocol) -> ShadowProtocolResponse:
         window_end=row.window_end,
         sample_size=row.sample_size,
         algorithm=row.algorithm,
-        target_channel="wecom_kf" if row.algorithm == WECOM_SAMPLE_ALGORITHM else "all",
+        target_channel="wecom_kf"
+        if row.algorithm == WECOM_SAMPLE_ALGORITHM
+        else "all",
         seed_sha256=hashlib.sha256(bytes.fromhex(row.random_seed)).hexdigest(),
         status=status,
         finalized_at=row.finalized_at,
@@ -79,7 +84,9 @@ class ShadowReviewProtocolService:
     def verify_integrity(
         self, project_id: UUID, protocol_id: UUID
     ) -> ShadowProtocolIntegrityResponse:
-        from app.services.shadow_manifest_integrity import verify_shadow_manifest
+        from app.services.shadow_manifest_integrity import (
+            verify_shadow_manifest,
+        )
 
         return verify_shadow_manifest(self._db, project_id, protocol_id)
 
@@ -170,7 +177,9 @@ class ShadowReviewProtocolService:
                 ShadowReviewProtocolCandidate.draft_id > after_draft_id
             )
         rows = self._db.execute(
-            candidates.order_by(ShadowReviewProtocolCandidate.draft_id).limit(limit + 1)
+            candidates.order_by(ShadowReviewProtocolCandidate.draft_id).limit(
+                limit + 1
+            )
         ).all()
         visible = rows[:limit]
         return ShadowProtocolCandidatePage(

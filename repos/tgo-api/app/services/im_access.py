@@ -14,7 +14,10 @@ from app.core.exceptions import TGOAPIException
 from app.core.security import resolve_staff_token
 from app.models import Platform, Project, Staff, Visitor
 from app.models.platform import PlatformType
-from app.schemas.visitor_access import VisitorBusinessAccess, VisitorIMAccessClaims
+from app.schemas.visitor_access import (
+    VisitorBusinessAccess,
+    VisitorIMAccessClaims,
+)
 from app.services.channel_access import require_staff_channel_access
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 from app.utils.encoding import build_visitor_channel_id
@@ -77,7 +80,11 @@ def read_visitor_im_access(token: str) -> VisitorIMAccessClaims:
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
             audience=VISITOR_IM_AUDIENCE,
-            options={"require_exp": True, "require_sub": True, "require_aud": True},
+            options={
+                "require_exp": True,
+                "require_sub": True,
+                "require_aud": True,
+            },
         )
         return VisitorIMAccessClaims.model_validate(claims)
     except (JWTError, ValidationError, ValueError, TypeError):
@@ -91,7 +98,6 @@ def authenticate_im_actor(db: Session, uid: str, token: str) -> IMActor:
         if staff is None or uid != f"{staff.id}-staff":
             raise _unauthorized()
         return staff
-
     if not uid.endswith("-vtr"):
         raise _unauthorized()
     claims = read_visitor_im_access(token)
@@ -99,15 +105,20 @@ def authenticate_im_actor(db: Session, uid: str, token: str) -> IMActor:
 
 
 def authenticate_visitor_im_claims(
-    db: Session, uid: str, claims: VisitorIMAccessClaims,
+    db: Session,
+    uid: str,
+    claims: VisitorIMAccessClaims,
 ) -> Visitor:
     """Recheck already verified claims, including their original expiry and owner."""
     if claims.exp <= int(datetime.now(timezone.utc).timestamp()):
         raise _unauthorized()
-    visitor_id, project_id, platform_id = claims.sub, claims.project_id, claims.platform_id
+    visitor_id, project_id, platform_id = (
+        claims.sub,
+        claims.project_id,
+        claims.platform_id,
+    )
     if uid != build_visitor_channel_id(visitor_id):
         raise _unauthorized()
-
     visitor: Visitor | None = (
         db.query(Visitor)
         .join(
@@ -136,15 +147,22 @@ def authenticate_visitor_im_claims(
     if visitor is None:
         raise _unauthorized()
     platform = db.get(Platform, visitor.platform_id)
-    if platform is not None and platform.type == PlatformType.WECHAT_LOCAL.value:
-        from app.services.wechat_local_bridge import require_current_bridge_identity
+    if (
+        platform is not None
+        and platform.type == PlatformType.WECHAT_LOCAL.value
+    ):
+        from app.services.wechat_local_bridge import (
+            require_current_bridge_identity,
+        )
 
         require_current_bridge_identity(platform, visitor.platform_open_id)
     if claims.access_revision != visitor.access_revision and (
-        claims.access_revision is not None or visitor.access_secret_digest is not None
+        claims.access_revision is not None
+        or visitor.access_secret_digest is not None
     ):
         raise _unauthorized()
     # The JWT is only a reference: check its original customer binding every operation.
+
     from app.services.visitor_access import check_im_business_references
 
     check_im_business_references(db, visitor, claims.business_references)

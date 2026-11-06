@@ -27,7 +27,9 @@ ops_router = APIRouter(dependencies=[Depends(require_commercial_operations)])
 company_router = APIRouter(dependencies=[Depends(require_company_features)])
 
 
-@ops_router.post("/trial-codes", response_model=TrialCodeIssue, status_code=201)
+@ops_router.post(
+    "/trial-codes", response_model=TrialCodeIssue, status_code=201
+)
 def create_trial_code(
     response: Response,
     db: Session = Depends(get_db),
@@ -50,7 +52,9 @@ def list_trial_codes(
     return list(
         db.scalars(
             select(TrialActivationCode)
-            .order_by(TrialActivationCode.created_at.desc(), TrialActivationCode.id)
+            .order_by(
+                TrialActivationCode.created_at.desc(), TrialActivationCode.id
+            )
             .limit(limit)
         )
     )

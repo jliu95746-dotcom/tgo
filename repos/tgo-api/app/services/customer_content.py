@@ -11,7 +11,9 @@ def customer_question(message: str) -> str:
             data = json.loads(payload)
         except ValueError:
             data = None
-        if isinstance(data, dict) and set(data) == {"recognized_customer_content"}:
+        if isinstance(data, dict) and set(data) == {
+            "recognized_customer_content"
+        }:
             text = data["recognized_customer_content"]
             if isinstance(text, str) and text.strip():
                 return text
@@ -26,5 +28,7 @@ def customer_question(message: str) -> str:
                 for item in data
             )
         ):
-            return "\n".join(customer_question(item["content"]) for item in data)
+            return "\n".join(
+                customer_question(item["content"]) for item in data
+            )
     return message

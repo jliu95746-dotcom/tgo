@@ -20,7 +20,9 @@ from app.schemas.customer_turn import TurnReceipt
 from app.services.customer_turn_store import OPEN_STATES, TurnStore, utc
 
 logger = logging.getLogger(__name__)
-HUMAN_REQUEST = re.compile(r"^\s*(?:请|帮我|我要|给我|麻烦)?\s*(?:转人工|找人工|人工客服|人工接待)[。！!\s]*$")
+HUMAN_REQUEST = re.compile(
+    r"^\s*(?:请|帮我|我要|给我|麻烦)?\s*(?:转人工|找人工|人工客服|人工接待)[。！!\s]*$"
+)
 
 
 async def stop_run(project: UUID, client_msg_no: str | None) -> None:
@@ -34,6 +36,7 @@ async def stop_run(project: UUID, client_msg_no: str | None) -> None:
             await run_registry.request_cancel(run)
     except Exception as error:
         # The durable version fence still prevents any old publication.
+
         logger.warning("Turn stop signal deferred: %s", type(error).__name__)
 
 
@@ -74,7 +77,9 @@ async def ingest(
 ) -> TurnReceipt:
     extra = request.extra or {}
     sender = str(
-        extra.get("wechat_local_author") or extra.get("reception_author") or visitor.id
+        extra.get("wechat_local_author")
+        or extra.get("reception_author")
+        or visitor.id
     )
     conversation = extra.get("reception_conversation")
     if not isinstance(conversation, str) or not re.fullmatch(
@@ -84,7 +89,9 @@ async def ingest(
     channel = request.channel_id or f"{visitor.id}-vtr"
     from app.utils.encoding import build_visitor_channel_id
 
-    if channel != build_visitor_channel_id(visitor.id) or request.channel_type not in (
+    if channel != build_visitor_channel_id(
+        visitor.id
+    ) or request.channel_type not in (
         None,
         251,
     ):
@@ -110,7 +117,8 @@ async def ingest(
         await scheduler.enqueue(admitted.turn_id, due)
     except Exception as error:
         logger.warning(
-            "Turn persisted; wakeup requires recovery: %s", type(error).__name__
+            "Turn persisted; wakeup requires recovery: %s",
+            type(error).__name__,
         )
     return admitted
 
@@ -121,7 +129,9 @@ def snapshot(admitted: TurnReceipt) -> dict[str, object]:
         if turn.version != admitted.version:
             return {"event_type": "superseded", "success": True}
         if (
-            turn.state == "sent" or turn.external_delivery and turn.state == "ready"
+            turn.state == "sent"
+            or turn.external_delivery
+            and turn.state == "ready"
         ) and turn.reply_text:
             return {
                 "event_type": "workflow_completed",
@@ -166,7 +176,9 @@ async def response(
         async def accepted_events() -> AsyncIterator[str]:
             yield "event: accepted\ndata: " + json.dumps(accepted) + "\n\n"
 
-        return StreamingResponse(accepted_events(), media_type="text/event-stream")
+        return StreamingResponse(
+            accepted_events(), media_type="text/event-stream"
+        )
 
     async def wait() -> dict[str, object]:
         deadline = asyncio.get_running_loop().time() + 300
@@ -209,7 +221,10 @@ async def response(
                     yield "event: agent_content_chunk\ndata: " + json.dumps(
                         chunk, ensure_ascii=False
                     ) + "\n\n"
-                    for kind in ("agent_response_complete", "workflow_completed"):
+                    for kind in (
+                        "agent_response_complete",
+                        "workflow_completed",
+                    ):
                         payload = {"event_type": kind, "data": {"data": final}}
                         yield f"event: {kind}\ndata: " + json.dumps(
                             payload, ensure_ascii=False

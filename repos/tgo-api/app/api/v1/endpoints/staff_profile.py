@@ -11,7 +11,11 @@ from app.core.database import get_db
 from app.core.security import get_current_active_user
 from app.models import Staff
 from app.schemas.staff import StaffProfileUpdate, StaffResponse
-from app.services.staff_profile_service import avatar_path, save_avatar, update_profile
+from app.services.staff_profile_service import (
+    avatar_path,
+    save_avatar,
+    update_profile,
+)
 
 router = APIRouter()
 
@@ -34,7 +38,9 @@ async def upload_my_avatar(
 ) -> StaffResponse:
     try:
         profile = (
-            StaffProfileUpdate(nickname=nickname) if nickname is not None else None
+            StaffProfileUpdate(nickname=nickname)
+            if nickname is not None
+            else None
         )
     except ValidationError as exc:
         raise HTTPException(422, "昵称不能为空，且不能超过 100 个字符") from exc
@@ -49,7 +55,9 @@ def get_staff_avatar(
     db: Session = Depends(get_db),
 ) -> FileResponse:
     staff = (
-        db.query(Staff).filter(Staff.id == staff_id, Staff.deleted_at.is_(None)).first()
+        db.query(Staff)
+        .filter(Staff.id == staff_id, Staff.deleted_at.is_(None))
+        .first()
     )
     if staff is None:
         raise HTTPException(404, "头像不存在")

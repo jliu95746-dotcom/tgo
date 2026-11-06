@@ -3,7 +3,17 @@
 import base64
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
 
 from app.core.logging import get_logger
 from app.core.security import get_authenticated_project
@@ -22,9 +32,15 @@ from app.schemas.skill import (
 )
 from app.services.ai_client import ai_client
 from app.schemas.humanization import (
-    TrainingReview, TrainingPublishRequest, HumanizationTryRequest, HumanizationTryResponse,
+    TrainingReview,
+    TrainingPublishRequest,
+    HumanizationTryRequest,
+    HumanizationTryResponse,
 )
-from app.services.humanization_review_service import analyze_training, try_humanization
+from app.services.humanization_review_service import (
+    analyze_training,
+    try_humanization,
+)
 
 logger = get_logger("endpoints.ai_skills")
 router = APIRouter()
@@ -63,7 +79,9 @@ async def create_skill(
 ) -> SkillDetail:
     project, _ = auth_data
     project_id = str(project.id)
-    result = await ai_client.create_skill(project_id, data.model_dump(exclude_none=True))
+    result = await ai_client.create_skill(
+        project_id, data.model_dump(exclude_none=True)
+    )
     return SkillDetail.model_validate(result)
 
 
@@ -119,20 +137,29 @@ async def apply_humanization_training(
 
 
 @router.get("/{skill_name}/training-review", response_model=TrainingReview)
-async def review_training(skill_name: str,
-                          auth_data: tuple[Any, str] = Depends(get_authenticated_project)) -> TrainingReview:
-    return await ai_client.review_humanization_training(str(auth_data[0].id), skill_name)
+async def review_training(
+    skill_name: str,
+    auth_data: tuple[Any, str] = Depends(get_authenticated_project),
+) -> TrainingReview:
+    return await ai_client.review_humanization_training(
+        str(auth_data[0].id), skill_name
+    )
 
 
 @router.post("/{skill_name}/training-preview", response_model=TrainingReview)
-async def preview_training(skill_name: str,
-                           auth_data: tuple[Any, str] = Depends(get_authenticated_project)) -> TrainingReview:
+async def preview_training(
+    skill_name: str,
+    auth_data: tuple[Any, str] = Depends(get_authenticated_project),
+) -> TrainingReview:
     return await analyze_training(str(auth_data[0].id), skill_name)
 
 
 @router.post("/{skill_name}/try-reply", response_model=HumanizationTryResponse)
-async def try_reply(skill_name: str, data: HumanizationTryRequest,
-                    auth_data: tuple[Any, str] = Depends(get_authenticated_project)) -> HumanizationTryResponse:
+async def try_reply(
+    skill_name: str,
+    data: HumanizationTryRequest,
+    auth_data: tuple[Any, str] = Depends(get_authenticated_project),
+) -> HumanizationTryResponse:
     try:
         return await try_humanization(str(auth_data[0].id), skill_name, data)
     except ValueError as exc:
@@ -240,15 +267,20 @@ async def import_skill(
     if not content:
         raise HTTPException(status_code=422, detail="上传文件不能为空")
     filename = file.filename or "SKILL.md"
-    if len(filename) > 255 or not (filename.lower() == "skill.md" or filename.lower().endswith(".zip")):
+    if len(filename) > 255 or not (
+        filename.lower() == "skill.md" or filename.lower().endswith(".zip")
+    ):
         raise HTTPException(status_code=422, detail="请选择 SKILL.md 或 ZIP 技能包")
     data = SkillImportRequest(
         filename=filename,
         content_base64=base64.b64encode(content).decode("ascii"),
         display_name=display_name.strip() or None,
     )
-    result = await ai_client.import_skill(str(project.id), data.model_dump(exclude_none=True))
+    result = await ai_client.import_skill(
+        str(project.id), data.model_dump(exclude_none=True)
+    )
     return SkillDetail.model_validate(result)
+
 
 # ---------------------------------------------------------------------------
 # Skill sub-file endpoints

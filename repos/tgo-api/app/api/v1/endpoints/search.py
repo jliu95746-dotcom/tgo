@@ -30,10 +30,11 @@ router = APIRouter()
 
 def _build_message_result(raw: dict) -> dict:
     """Normalize raw WuKongIM search item to API schema."""
-    payload_obj = raw.get("payload") if isinstance(raw.get("payload"), dict) else {}
+    payload_obj = (
+        raw.get("payload") if isinstance(raw.get("payload"), dict) else {}
+    )
     if not isinstance(payload_obj, dict):
         payload_obj = {}
-
     preview_text = None
     if payload_obj:
         preview_text = (
@@ -42,7 +43,6 @@ def _build_message_result(raw: dict) -> dict:
             or payload_obj.get("title")
             or payload_obj.get("body")
         )
-
     return {
         "message_id": raw.get("message_id"),
         "client_msg_no": raw.get("client_msg_no"),
@@ -76,11 +76,15 @@ async def unified_search(
         SearchScope.ALL,
         description="Search scope: all, visitors, or messages",
     ),
-    visitor_page: int = Query(1, ge=1, description="Visitor result page number (1-indexed)"),
+    visitor_page: int = Query(
+        1, ge=1, description="Visitor result page number (1-indexed)"
+    ),
     visitor_page_size: int = Query(
         10, ge=1, le=100, description="Number of visitor records per page"
     ),
-    message_page: int = Query(1, ge=1, description="Message result page number (1-indexed)"),
+    message_page: int = Query(
+        1, ge=1, description="Message result page number (1-indexed)"
+    ),
     message_page_size: int = Query(
         20, ge=1, le=100, description="Number of message records per page"
     ),
@@ -94,7 +98,6 @@ async def unified_search(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Search keyword cannot be empty",
         )
-
     logger.info(
         "Unified search invoked",
         extra={
@@ -129,7 +132,9 @@ async def unified_search(
             .limit(visitor_page_size)
             .all()
         )
-        visitors = [VisitorBasicResponse.model_validate(row) for row in visitor_rows]
+        visitors = [
+            VisitorBasicResponse.model_validate(row) for row in visitor_rows
+        ]
         visitor_pagination = SearchPagination(
             page=visitor_page,
             page_size=visitor_page_size,
@@ -141,19 +146,25 @@ async def unified_search(
             page_size=visitor_page_size,
             total=0,
         )
-
     messages: List[MessageSearchResult] = []
     message_pagination: MessageSearchPagination | None = None
     if scope in (SearchScope.ALL, SearchScope.MESSAGES):
         if not wukongim_client.enabled:
-            logger.debug("WuKongIM integration disabled; skipping message search")
+            logger.debug(
+                "WuKongIM integration disabled; skipping message search"
+            )
         else:
             try:
                 search_response = await search_staff_messages(
-                    db, current_user, keyword, message_page, message_page_size,
+                    db,
+                    current_user,
+                    keyword,
+                    message_page,
+                    message_page_size,
                 )
             except (HTTPException, TGOAPIException):
                 # Propagate downstream errors (already sanitized by client)
+
                 raise
             except Exception as exc:
                 logger.error(
@@ -169,7 +180,9 @@ async def unified_search(
                 raw_messages = search_response.messages
                 for raw in raw_messages:
                     normalized = _build_message_result(raw.model_dump())
-                    messages.append(MessageSearchResult.model_validate(normalized))
+                    messages.append(
+                        MessageSearchResult.model_validate(normalized)
+                    )
                 message_pagination = search_response.pagination
     if message_pagination is None:
         message_pagination = MessageSearchPagination(
@@ -179,7 +192,6 @@ async def unified_search(
             has_next=False,
             has_previous=message_page > 1,
         )
-
     return UnifiedSearchResponse(
         query=keyword,
         scope=scope,

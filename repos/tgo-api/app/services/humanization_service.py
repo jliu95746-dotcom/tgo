@@ -65,8 +65,7 @@ ASSIST_REWRITE_PROMPT = (
 )
 
 DRAFT_FACT_AUTHORITY_PROMPT = (
-    "事实依据规则：产品、款式、材质、颜色、价格、库存、时间、政策、链接和操作结果"
-    "只能来自本轮业务答复。案例和旧聊天不能补充事实。"
+    "事实依据规则：产品、款式、材质、颜色、价格、库存、时间、政策、链接和操作结果" "只能来自本轮业务答复。案例和旧聊天不能补充事实。"
 ) + CONVERSATION_EVIDENCE_PROMPT
 
 CURRENT_FACT_AUTHORITY_PROMPT = (
@@ -97,8 +96,7 @@ TONE_REPAIR_GUIDANCE = {
     "process_language": "删除查找过程和后续核实承诺，保留事实与不确定性，直接回答",
     "multiple_questions": "合并重复追问，只问确实缺少的必要条件，可以一次问清",
     "unnecessary_question": (
-        "删除与本轮问题无关的预算、使用场合或场景追问，保留已确认的产品介绍；"
-        "客户明确要求推荐且缺少必要条件时才追问"
+        "删除与本轮问题无关的预算、使用场合或场景追问，保留已确认的产品介绍；" "客户明确要求推荐且缺少必要条件时才追问"
     ),
     "template_opening": "删去业务答复前的固定问候，直接回答客户问题",
     "greeting_overreach": "本轮只打招呼，只保留简短回应，删除业务清单、推荐和预算用途追问",
@@ -154,7 +152,10 @@ def append_humanization_prompt(
 
 
 async def recent_customer_messages(
-    channel_id: str, channel_type: int, login_uid: str, *,
+    channel_id: str,
+    channel_type: int,
+    login_uid: str,
+    *,
     before_source_message_id: str | None = None,
 ) -> list[ConversationTurn]:
     from app.core.logging import get_logger
@@ -162,6 +163,7 @@ async def recent_customer_messages(
 
     try:
         from app.services.customer_history import history_scope
+
         scope = await asyncio.to_thread(history_scope, channel_id)
         for delay in (0.0, 0.2, 0.4, 0.6):
             if delay:
@@ -175,7 +177,8 @@ async def recent_customer_messages(
                 event_summary_mode="full",
             )
             messages = sorted(
-                history.messages, key=lambda item: item.message_seq,
+                history.messages,
+                key=lambda item: item.message_seq,
             )
             if before_source_message_id is None:
                 break
@@ -187,10 +190,13 @@ async def recent_customer_messages(
                     payload.get("extra") if isinstance(payload, dict) else None
                 )
                 external_id = (
-                    extra.get("message_id") if isinstance(extra, dict) else None
+                    extra.get("message_id")
+                    if isinstance(extra, dict)
+                    else None
                 )
                 if before_source_message_id in (
-                    str(message.message_id), message.client_msg_no,
+                    str(message.message_id),
+                    message.client_msg_no,
                     external_id,
                 ):
                     messages = messages[:index]
@@ -199,7 +205,9 @@ async def recent_customer_messages(
                 continue
             break
         else:
-            raise ValueError("The current customer message is absent from history")
+            raise ValueError(
+                "The current customer message is absent from history"
+            )
         turns: list[ConversationTurn] = []
         native_staff_indices: list[int] = []
         for message in messages:
@@ -213,9 +221,15 @@ async def recent_customer_messages(
                 "customer" if message.from_uid.endswith("-vtr") else "staff"
             )
             if scope.author is not None:
-                if role == "customer" and any(extra.get(key) != value for key, value in scope.selectors.items()):
+                if role == "customer" and any(
+                    extra.get(key) != value
+                    for key, value in scope.selectors.items()
+                ):
                     continue
-                if role != "customer" and message.client_msg_no not in scope.replies:
+                if (
+                    role != "customer"
+                    and message.client_msg_no not in scope.replies
+                ):
                     continue
             if payload.get("type") == 100:
                 meta = message.event_meta or {}
@@ -236,7 +250,9 @@ async def recent_customer_messages(
                             content = snapshot.get("text")
                 role = "assistant"
             elif payload.get("type") in (2, 4) and role == "customer":
-                recognized = scope.media.get(str(extra.get("message_id") or ""))
+                recognized = scope.media.get(
+                    str(extra.get("message_id") or "")
+                )
                 if not recognized:
                     continue
                 content = "客户媒体识别（仅用于理解，不证明业务事实）：" + recognized
@@ -281,7 +297,8 @@ async def rewrite_assist_draft(
     knowledge_evidence: KnowledgeEvidence | None = None,
 ) -> str:
     has_staff_context = any(
-        (turn.role if isinstance(turn, ConversationTurn) else turn.get("role")) == "staff"
+        (turn.role if isinstance(turn, ConversationTurn) else turn.get("role"))
+        == "staff"
         for turn in (recent_messages or [])
     )
     if (
@@ -297,7 +314,8 @@ async def rewrite_assist_draft(
         return UNCONFIRMED_REPLY
     fact_authority = (
         CURRENT_FACT_AUTHORITY_PROMPT
-        if knowledge_evidence is not None else DRAFT_FACT_AUTHORITY_PROMPT
+        if knowledge_evidence is not None
+        else DRAFT_FACT_AUTHORITY_PROMPT
     )
     prompt = ASSIST_REWRITE_PROMPT + fact_authority
     if humanization_prompt:
@@ -310,15 +328,30 @@ async def rewrite_assist_draft(
     ][-8:]
 
     def encode() -> str:
-        return json.dumps({
-            "客户原话": customer_question(customer_message), "近期对话": context,
-            ("待校正的业务初稿" if knowledge_evidence is not None
-             else "本轮业务答复"): factual_draft,
-            **({"本轮检索证据": knowledge_evidence.model_dump(
-                mode="json", exclude={"tool_results": {"__all__": {"query_id", "operation"}}},
-            )}
-               if knowledge_evidence is not None else {}),
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "客户原话": customer_question(customer_message),
+                "近期对话": context,
+                (
+                    "待校正的业务初稿" if knowledge_evidence is not None else "本轮业务答复"
+                ): factual_draft,
+                **(
+                    {
+                        "本轮检索证据": knowledge_evidence.model_dump(
+                            mode="json",
+                            exclude={
+                                "tool_results": {
+                                    "__all__": {"query_id", "operation"}
+                                }
+                            },
+                        )
+                    }
+                    if knowledge_evidence is not None
+                    else {}
+                ),
+            },
+            ensure_ascii=False,
+        )
 
     message = encode()
     while len(message) > 10000 and context:
@@ -327,7 +360,8 @@ async def rewrite_assist_draft(
     if len(message) > 10000:
         if knowledge_evidence is not None:
             logger.info(
-                "Grounded reply unconfirmed", extra={"reason": "input_budget"},
+                "Grounded reply unconfirmed",
+                extra={"reason": "input_budget"},
             )
             return UNCONFIRMED_REPLY
         raise ReplyQualityError(
@@ -348,13 +382,15 @@ async def rewrite_assist_draft(
         )
         effective_prompt = prompt
         if (
-            attempt == 1 and humanization_prompt
+            attempt == 1
+            and humanization_prompt
             and "unnecessary_question" in issues
         ):
             # A selected style may contain sales questions that conflict with
             # this turn. Repair without those examples, keeping fact checks.
             effective_prompt = (
-                ASSIST_REWRITE_PROMPT + fact_authority
+                ASSIST_REWRITE_PROMPT
+                + fact_authority
                 + DEFAULT_EXPRESSION_STYLE
             )
         async with tracked_ai_request() as phase:
@@ -367,7 +403,9 @@ async def rewrite_assist_draft(
                 enable_memory=False,
                 disable_tools=True,
                 response_purpose="expression",
-                knowledge_channel=knowledge_evidence.channel if knowledge_evidence is not None else None,
+                knowledge_channel=knowledge_evidence.channel
+                if knowledge_evidence is not None
+                else None,
                 markdown=False,
                 temperature=0.2,
                 cancel_on_disconnect=True,
@@ -394,8 +432,11 @@ async def rewrite_assist_draft(
             if trimmed:
                 reply = trimmed
                 issues = assess_reply(
-                    reply, factual_draft, customer_message,
-                    recent_messages=context, include_style=False,
+                    reply,
+                    factual_draft,
+                    customer_message,
+                    recent_messages=context,
+                    include_style=False,
                     knowledge_evidence=knowledge_evidence,
                 )
         if (
@@ -426,9 +467,13 @@ async def rewrite_assist_draft(
         ):
             try:
                 issues = await audit_reply_facts(
-                    client, project_id=project_id, agent_id=agent_id,
-                    reply=reply, factual_draft=factual_draft,
-                    customer_message=customer_message, recent_messages=context,
+                    client,
+                    project_id=project_id,
+                    agent_id=agent_id,
+                    reply=reply,
+                    factual_draft=factual_draft,
+                    customer_message=customer_message,
+                    recent_messages=context,
                     knowledge_evidence=knowledge_evidence,
                 )
             except ReplyQualityError:
@@ -448,7 +493,10 @@ async def rewrite_assist_draft(
     if knowledge_evidence is not None:
         logger.info(
             "Grounded reply unconfirmed",
-            extra={"reason": "quality_rejected", "issues": _issue_codes(issues)},
+            extra={
+                "reason": "quality_rejected",
+                "issues": _issue_codes(issues),
+            },
         )
         return UNCONFIRMED_REPLY
     raise ReplyQualityError("Reply quality check failed: " + ", ".join(issues))
@@ -456,8 +504,11 @@ async def rewrite_assist_draft(
 
 def _issue_codes(issues: Sequence[str]) -> list[str]:
     """Keep customer text and model explanations out of rejection logs."""
-    return list(dict.fromkeys(
-        match.group() if (match := re.match(r"[a-z][a-z0-9_]{0,63}", issue))
-        else "semantic_fact_change"
-        for issue in issues
-    ))
+    return list(
+        dict.fromkeys(
+            match.group()
+            if (match := re.match(r"[a-z][a-z0-9_]{0,63}", issue))
+            else "semantic_fact_change"
+            for issue in issues
+        )
+    )

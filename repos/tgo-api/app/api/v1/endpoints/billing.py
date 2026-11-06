@@ -56,20 +56,26 @@ def plans(db: Session = Depends(get_db)) -> list[PlanResponse]:
 
 @router.get("/plans/available", response_model=list[PlanResponse])
 def available_plans(
-    db: Session = Depends(get_db), actor: Staff = Depends(get_current_active_user)
+    db: Session = Depends(get_db),
+    actor: Staff = Depends(get_current_active_user),
 ) -> list[PlanResponse]:
-    return [plan_response(plan) for plan in catalogue_plans(db, actor.project_id)]
+    return [
+        plan_response(plan) for plan in catalogue_plans(db, actor.project_id)
+    ]
 
 
 @router.get("/subscription", response_model=SubscriptionResponse)
 def subscription(
-    db: Session = Depends(get_db), actor: Staff = Depends(get_current_active_user)
+    db: Session = Depends(get_db),
+    actor: Staff = Depends(get_current_active_user),
 ) -> SubscriptionResponse:
     now = datetime.now(timezone.utc)
     account = db.get(CompanyAccount, actor.project_id)
     used, reserved = seat_usage(db, actor.project_id)
     current = (
-        db.get(BillingPlan, account.plan_id) if account and account.plan_id else None
+        db.get(BillingPlan, account.plan_id)
+        if account and account.plan_id
+        else None
     )
     state = account.status if account else "legacy"
     if (
@@ -97,7 +103,9 @@ def subscription(
 
 
 @router.post(
-    "/quotes", response_model=QuoteResponse, dependencies=[Depends(require_purchases)]
+    "/quotes",
+    response_model=QuoteResponse,
+    dependencies=[Depends(require_purchases)],
 )
 def quote(
     payload: QuoteRequest,
@@ -115,7 +123,9 @@ def quote(
 
 
 @router.post(
-    "/orders", response_model=OrderResponse, dependencies=[Depends(require_purchases)]
+    "/orders",
+    response_model=OrderResponse,
+    dependencies=[Depends(require_purchases)],
 )
 def order_create(
     payload: OrderCreate,

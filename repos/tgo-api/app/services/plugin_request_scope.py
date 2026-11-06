@@ -82,7 +82,9 @@ async def capture_plugin_scope(
             return
         if identifier is not None:
             if session_id == get_session_id(
-                f"{access.staff_id}-staff", build_visitor_channel_id(identifier), 251
+                f"{access.staff_id}-staff",
+                build_visitor_channel_id(identifier),
+                251,
             ):
                 return
             try:

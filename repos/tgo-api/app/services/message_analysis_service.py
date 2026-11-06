@@ -128,7 +128,6 @@ class MessageAnalysisService:
                 source_message_id,
             )
             return existing
-
         result = MediaAnalysisResult(
             project_id=platform.project_id,
             platform_id=platform.id,
@@ -140,9 +139,12 @@ class MessageAnalysisService:
             mime_type=request.mime_type,
             status=request.status.value,
             normalized_text=request.normalized_text,
-            normalized_text_is_untrusted=(request.normalized_text_is_untrusted),
+            normalized_text_is_untrusted=(
+                request.normalized_text_is_untrusted
+            ),
             sensitive_data_categories=[
-                category.value for category in request.sensitive_data_categories
+                category.value
+                for category in request.sensitive_data_categories
             ],
             transcript=request.transcript,
             ocr_text=request.ocr_text,
@@ -201,7 +203,6 @@ class MessageAnalysisService:
                 source_message_id,
             )
             return existing
-
         result = MessageIntentResult(
             project_id=platform.project_id,
             platform_id=platform.id,
@@ -248,7 +249,6 @@ class MessageAnalysisService:
         """Return requested analyses visible to one authenticated project."""
         if not keys:
             return ()
-
         requested_keys = set(keys)
         media_source_message_id = MediaAnalysisResult.source_message_id
         intent_source_message_id = MessageIntentResult.source_message_id
@@ -295,7 +295,6 @@ class MessageAnalysisService:
             )
             if media_row.project_id == project_id and key in requested_keys:
                 media_by_key[key] = media_row
-
         intent_by_key: dict[MessageAnalysisLookupKey, MessageIntentResult] = {}
         for intent_row in intent_rows:
             key = MessageAnalysisLookupKey(
@@ -304,7 +303,6 @@ class MessageAnalysisService:
             )
             if intent_row.project_id == project_id and key in requested_keys:
                 intent_by_key[key] = intent_row
-
         results: list[ProjectMessageAnalysis] = []
         for key in keys:
             media = media_by_key.get(key)

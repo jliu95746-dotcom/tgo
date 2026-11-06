@@ -6,7 +6,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.billing import BillingOrder, BillingQuote, SeatAddon, SubscriptionPeriod
+from app.models.billing import (
+    BillingOrder,
+    BillingQuote,
+    SeatAddon,
+    SubscriptionPeriod,
+)
 from app.models.company_account import AICreditBatch
 from app.schemas.billing import PlanDefinition, QuoteDetails
 from app.services.billing_calendar import add_months
@@ -26,7 +31,9 @@ def grant_credit(
 ) -> None:
     if (
         amount <= 0
-        or db.scalar(select(AICreditBatch.id).where(AICreditBatch.source_key == source))
+        or db.scalar(
+            select(AICreditBatch.id).where(AICreditBatch.source_key == source)
+        )
         is not None
     ):
         return
@@ -44,14 +51,20 @@ def grant_credit(
     db.flush()
 
 
-def grant_due_month(db: Session, period: SubscriptionPeriod, now: datetime) -> None:
+def grant_due_month(
+    db: Session, period: SubscriptionPeriod, now: datetime
+) -> None:
     """Only the current monthly bucket is issued; missed expired buckets are useless."""
     definition = PlanDefinition.model_validate(period.definition)
     for index in range(period.months):
-        start = add_months(utc(period.starts_at), index, anchor_day=period.anchor_day)
+        start = add_months(
+            utc(period.starts_at), index, anchor_day=period.anchor_day
+        )
         end = min(
             utc(period.ends_at),
-            add_months(utc(period.starts_at), index + 1, anchor_day=period.anchor_day),
+            add_months(
+                utc(period.starts_at), index + 1, anchor_day=period.anchor_day
+            ),
         )
         if start <= now < end:
             grant_credit(
@@ -110,7 +123,9 @@ def fulfill_order(
             and account.expires_at is not None
             and utc(account.expires_at) > paid
         )
-        start = utc(account.expires_at) if early and account.expires_at else paid
+        start = (
+            utc(account.expires_at) if early and account.expires_at else paid
+        )
         anchor = details.anchor_day if early else start.day
         end = add_months(start, details.months, anchor_day=anchor)
         period = SubscriptionPeriod(
@@ -140,6 +155,7 @@ def fulfill_order(
             )
         if details.kind == "subscribe":
             # End trial buckets without rewriting their historical amount.
+
             for batch in db.scalars(
                 select(AICreditBatch).where(
                     AICreditBatch.project_id == order.project_id,
@@ -161,10 +177,14 @@ def fulfill_order(
     elif details.kind == "upgrade":
         for snapshot in details.periods:
             saved_period = db.get(SubscriptionPeriod, snapshot.id)
-            if saved_period is None or saved_period.project_id != order.project_id:
+            if (
+                saved_period is None
+                or saved_period.project_id != order.project_id
+            ):
                 raise conflict("订阅周期缺失，需人工核对")
             period = saved_period
             # Materialize the old monthly bucket before replacing its definition.
+
             grant_due_month(db, period, details.quoted_at)
             period.plan_id = details.plan_id
             period.definition = details.definition.model_dump(mode="json")
@@ -177,7 +197,9 @@ def fulfill_order(
                 end = min(
                     utc(period.ends_at),
                     add_months(
-                        utc(period.starts_at), index + 1, anchor_day=period.anchor_day
+                        utc(period.starts_at),
+                        index + 1,
+                        anchor_day=period.anchor_day,
                     ),
                 )
                 if start <= details.quoted_at < end:

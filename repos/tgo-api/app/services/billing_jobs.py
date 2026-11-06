@@ -19,7 +19,10 @@ def run_one() -> bool:
                 BillingJob.kind.in_(["fulfill", "refund", "tradebill"]),
                 BillingJob.status == "pending",
                 BillingJob.available_at <= now,
-                or_(BillingJob.locked_until.is_(None), BillingJob.locked_until <= now),
+                or_(
+                    BillingJob.locked_until.is_(None),
+                    BillingJob.locked_until <= now,
+                ),
             )
             .order_by(BillingJob.available_at)
             .with_for_update(skip_locked=True)
@@ -51,7 +54,11 @@ def run_one() -> bool:
                 raise ValueError("Missing fulfillment order")
             with SessionLocal() as db:
                 order = fulfill_order(db, order_id)
-                state = "review" if order.fulfillment_status == "conflict" else "done"
+                state = (
+                    "review"
+                    if order.fulfillment_status == "conflict"
+                    else "done"
+                )
                 db.commit()
     except Exception as exc:
         error = type(exc).__name__
@@ -68,7 +75,9 @@ def run_one() -> bool:
             if error is None:
                 job.status = state
                 if state == "pending":
-                    job.available_at = datetime.now(timezone.utc) + timedelta(minutes=1)
+                    job.available_at = datetime.now(timezone.utc) + timedelta(
+                        minutes=1
+                    )
             else:
                 job.available_at = datetime.now(timezone.utc) + timedelta(
                     seconds=min(3600, 2 ** min(job.attempts, 11))

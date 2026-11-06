@@ -31,7 +31,9 @@ class ParsedTrackingResult:
     events: tuple[ParsedTrackingEvent, ...]
 
 
-def _text(data: dict[str, JsonValue], keys: Iterable[str], limit: int) -> str | None:
+def _text(
+    data: dict[str, JsonValue], keys: Iterable[str], limit: int
+) -> str | None:
     for key in keys:
         value = data.get(key)
         if isinstance(value, str) and value.strip():
@@ -53,31 +55,65 @@ def _check_envelope(data: dict[str, JsonValue], expected: str | None) -> None:
     for key in ("success", "ok"):
         if key in data and data[key] is not True:
             raise ValueError("Tracking tool did not succeed")
-    if data.get("isError") not in (None, False) or data.get("error") not in (None, False, "", 0):
+    if data.get("isError") not in (None, False) or data.get("error") not in (
+        None,
+        False,
+        "",
+        0,
+    ):
         raise ValueError("Tracking tool returned an error")
     for key in ("code", "status_code", "status"):
         value = data.get(key)
-        if isinstance(value, (int, str)) and str(value).isdigit() and int(value) not in (0, 200):
+        if (
+            isinstance(value, (int, str))
+            and str(value).isdigit()
+            and int(value) not in (0, 200)
+        ):
             raise ValueError("Tracking provider returned a failure code")
-    if _text(data, ("status",), 64) in ("error", "failed", "failure", "not_found"):
+    if _text(data, ("status",), 64) in (
+        "error",
+        "failed",
+        "failure",
+        "not_found",
+    ):
         raise ValueError("Tracking provider returned a failure status")
-    for key in ("tracking_no", "tracking_number", "waybill_no", "bill_no", "nu"):
+    for key in (
+        "tracking_no",
+        "tracking_number",
+        "waybill_no",
+        "bill_no",
+        "nu",
+    ):
         if expected and key in data:
             value = data[key]
-            if not isinstance(value, str) or re.sub(r"\s+", "", value).upper() != expected:
-                raise ValueError("Tracking response belongs to another shipment")
+            if (
+                not isinstance(value, str)
+                or re.sub(r"\s+", "", value).upper() != expected
+            ):
+                raise ValueError(
+                    "Tracking response belongs to another shipment"
+                )
 
 
 def _unwrap(raw: object, expected: str | None) -> dict[str, JsonValue]:
     data = _object(raw)
     for _ in range(10):
         _check_envelope(data, expected)
-        wrapped = next((key for key in ("output_data", "result", "data", "logistics") if key in data), None)
+        wrapped = next(
+            (
+                key
+                for key in ("output_data", "result", "data", "logistics")
+                if key in data
+            ),
+            None,
+        )
         if wrapped is not None:
             data = _object(data[wrapped])
             continue
         content = data.get("content")
-        if isinstance(content, str) and content.lstrip().startswith(("{", "[")):
+        if isinstance(content, str) and content.lstrip().startswith(
+            ("{", "[")
+        ):
             data = _object(content)
             continue
         if isinstance(content, list):
@@ -90,7 +126,9 @@ def _unwrap(raw: object, expected: str | None) -> dict[str, JsonValue]:
                     if isinstance(text, str) and text.lstrip().startswith("{"):
                         objects.append(_object(text))
             if len(objects) != 1:
-                raise ValueError("Tracking tool must return one structured result")
+                raise ValueError(
+                    "Tracking tool must return one structured result"
+                )
             data = objects[0]
             continue
         return data
@@ -107,12 +145,15 @@ def normalize_tracking_status(value: str | None) -> str | None:
     if re.search(r"(?:待|等待|未|尚未)揽收|\bpending\b|awaiting collection", value):
         return "pending"
     if re.search(
-        r"未签收|未妥投|未送达|待签收|\b(undelivered|unsigned)\b|not(?: \w+){0,2} (?:delivered|signed)", value
+        r"未签收|未妥投|未送达|待签收|\b(undelivered|unsigned)\b|not(?: \w+){0,2} (?:delivered|signed)",
+        value,
     ):
         return "unknown"
     if re.search(r"已签收|签收|已妥投|已送达|\b(delivered|signed)\b", value):
         return "delivered"
-    if re.search(r"运输中|在途|派送|\b(in_transit|transit|out_for_delivery)\b", value):
+    if re.search(
+        r"运输中|在途|派送|\b(in_transit|transit|out_for_delivery)\b", value
+    ):
         return "in_transit"
     if re.search(r"揽收|\b(active|collected)\b", value):
         return "active"
@@ -133,20 +174,42 @@ def _event_time(value: JsonValue) -> datetime | None:
         if not 2000 <= parsed.year <= 2100:
             return None
         # Preserve the existing adapter convention for offset-less provider dates.
-        return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+        return (
+            parsed.astimezone(timezone.utc)
+            if parsed.tzinfo
+            else parsed.replace(tzinfo=timezone.utc)
+        )
     except (ValueError, OverflowError, OSError):
         return None
 
 
-def parse_tracking_result(raw: object, *, expected_tracking_no: str | None = None) -> ParsedTrackingResult:
+def parse_tracking_result(
+    raw: object, *, expected_tracking_no: str | None = None
+) -> ParsedTrackingResult:
     """Only structured, successful, source-matching data can update an archive."""
-    expected = re.sub(r"\s+", "", expected_tracking_no).upper() if expected_tracking_no else None
+    expected = (
+        re.sub(r"\s+", "", expected_tracking_no).upper()
+        if expected_tracking_no
+        else None
+    )
     data = _unwrap(raw, expected)
-    status = normalize_tracking_status(_text(data, ("status", "state", "delivery_status"), 64))
-    summary = _text(data, ("summary", "message", "latest", "description", "content"), 4000)
+    status = normalize_tracking_status(
+        _text(data, ("status", "state", "delivery_status"), 64)
+    )
+    summary = _text(
+        data, ("summary", "message", "latest", "description", "content"), 4000
+    )
     carrier_code = _text(data, ("carrier_code", "company_code"), 64)
     carrier_name = _text(data, ("carrier_name", "company", "carrier"), 128)
-    raw_events = next((data[key] for key in ("traces", "events", "tracking", "route") if key in data), [])
+    raw_events = next(
+        (
+            data[key]
+            for key in ("traces", "events", "tracking", "route")
+            if key in data
+        ),
+        [],
+    )
     if not isinstance(raw_events, list) or len(raw_events) > 500:
         raise ValueError("Tracking events must be a bounded list")
     events: list[ParsedTrackingEvent] = []
@@ -154,11 +217,24 @@ def parse_tracking_result(raw: object, *, expected_tracking_no: str | None = Non
     for item in raw_events:
         if not isinstance(item, dict):
             raise ValueError("Tracking event must be an object")
-        description = _text(item, ("description", "context", "message", "status_text"), 4000)
-        event_time = _event_time(
-            next((item[key] for key in ("time", "event_time", "datetime", "ftime") if key in item), None)
+        description = _text(
+            item, ("description", "context", "message", "status_text"), 4000
         )
-        if not description or event_time is None or (event_time, description) in seen:
+        event_time = _event_time(
+            next(
+                (
+                    item[key]
+                    for key in ("time", "event_time", "datetime", "ftime")
+                    if key in item
+                ),
+                None,
+            )
+        )
+        if (
+            not description
+            or event_time is None
+            or (event_time, description) in seen
+        ):
             continue
         seen.add((event_time, description))
         events.append(
@@ -173,7 +249,11 @@ def parse_tracking_result(raw: object, *, expected_tracking_no: str | None = Non
     if events:
         summary = summary or events[0].description
         if status is None:
-            status = normalize_tracking_status(f"{events[0].status or ''} {events[0].description}")
+            status = normalize_tracking_status(
+                f"{events[0].status or ''} {events[0].description}"
+            )
     if status is None and not events:
         raise ValueError("Tool response has no usable tracking facts")
-    return ParsedTrackingResult(status or "unknown", carrier_code, carrier_name, summary, tuple(events))
+    return ParsedTrackingResult(
+        status or "unknown", carrier_code, carrier_name, summary, tuple(events)
+    )

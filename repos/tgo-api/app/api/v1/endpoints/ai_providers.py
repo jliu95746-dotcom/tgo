@@ -5,11 +5,24 @@ from typing import Optional, Any
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+    Query,
+    BackgroundTasks,
+)
 from sqlalchemy import or_, and_, select, exists, func
 from sqlalchemy.orm import Session
 
-from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES, UPDATE_RESPONSES, DELETE_RESPONSES
+from app.api.common_responses import (
+    CREATE_RESPONSES,
+    CRUD_RESPONSES,
+    LIST_RESPONSES,
+    UPDATE_RESPONSES,
+    DELETE_RESPONSES,
+)
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.core.security import get_current_active_user
@@ -27,63 +40,76 @@ from app.utils.crypto import decrypt_str, encrypt_str, mask_secret
 from app.services.ai_provider_sync import sync_provider_with_retry_and_update
 from app.services.ai_provider_default_models import resolve_initial_model_seeds
 from app.services.provider_usage import assert_provider_unused
-from app.services.provider_connection import build_test_request as _build_test_request
+from app.services.provider_connection import (
+    build_test_request as _build_test_request,
+)
 from app.api.v1.endpoints.provider_setup import router as setup_router
-from app.services.store_sync import sync_uninstall_models_to_store, sync_uninstall_all_provider_models
+from app.services.store_sync import (
+    sync_uninstall_models_to_store,
+    sync_uninstall_all_provider_models,
+)
 
 logger = get_logger("endpoints.ai_providers")
 
 
-def _to_response(item: AIProvider, model_type: Optional[str] = None) -> AIProviderResponse:
+def _to_response(
+    item: AIProvider, model_type: Optional[str] = None
+) -> AIProviderResponse:
     plain = decrypt_str(item.api_key) if item.api_key else None
     masked = mask_secret(plain)
 
     active_models = [m for m in item.models if m.deleted_at is None]
     if model_type:
-        active_models = [m for m in active_models if m.model_type == model_type]
+        active_models = [
+            m for m in active_models if m.model_type == model_type
+        ]
     models = [m.model_id for m in active_models]
 
     # Build detailed model configs
+
     model_configs = [
         AIModelInput(
             model_id=m.model_id,
             model_type=m.model_type,
-            capabilities=m.capabilities
+            capabilities=m.capabilities,
         )
         for m in active_models
     ]
 
-    return AIProviderResponse.model_validate({
-        "id": item.id,
-        "project_id": item.project_id,
-        "provider": item.provider,
-        "name": item.name,
-        "api_base_url": item.api_base_url,
-        "available_models": models,
-        "available_model_configs": [
-            {
-                "model_id": model.model_id,
-                "model_type": model.model_type,
-                "capabilities": model.capabilities,
-            }
-            for model in active_models
-        ],
-        "model_configs": model_configs,
-        "default_model": item.default_model,
-        "config": item.config,
-        "is_active": item.is_active,
-        "created_at": item.created_at,
-        "updated_at": item.updated_at,
-        "deleted_at": item.deleted_at,
-        "has_api_key": bool(item.api_key),
-        "api_key_masked": masked,
-        "store_resource_id": str(item.store_resource_id) if item.store_resource_id else None,
-        "is_from_store": bool(item.is_from_store),
-        "last_synced_at": item.last_synced_at,
-        "sync_status": item.sync_status,
-        "sync_error": item.sync_error,
-    })
-
+    return AIProviderResponse.model_validate(
+        {
+            "id": item.id,
+            "project_id": item.project_id,
+            "provider": item.provider,
+            "name": item.name,
+            "api_base_url": item.api_base_url,
+            "available_models": models,
+            "available_model_configs": [
+                {
+                    "model_id": model.model_id,
+                    "model_type": model.model_type,
+                    "capabilities": model.capabilities,
+                }
+                for model in active_models
+            ],
+            "model_configs": model_configs,
+            "default_model": item.default_model,
+            "config": item.config,
+            "is_active": item.is_active,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+            "deleted_at": item.deleted_at,
+            "has_api_key": bool(item.api_key),
+            "api_key_masked": masked,
+            "store_resource_id": str(item.store_resource_id)
+            if item.store_resource_id
+            else None,
+            "is_from_store": bool(item.is_from_store),
+            "last_synced_at": item.last_synced_at,
+            "sync_status": item.sync_status,
+            "sync_error": item.sync_error,
+        }
+    )
 
 
 def _parse_remote_models(provider: str, data: Any) -> list[RemoteModelInfo]:
@@ -95,54 +121,82 @@ def _parse_remote_models(provider: str, data: Any) -> list[RemoteModelInfo]:
         caps = {}
         mid_lower = mid.lower()
         # Basic vision detection for common models
-        if any(x in mid_lower for x in ("vision", "vl", "gpt-4o", "claude-3-5", "claude-3-opus", "claude-3-sonnet")):
+
+        if any(
+            x in mid_lower
+            for x in (
+                "vision",
+                "vl",
+                "gpt-4o",
+                "claude-3-5",
+                "claude-3-opus",
+                "claude-3-sonnet",
+            )
+        ):
             caps["vision"] = True
         return caps
 
-    if p in ("openai", "gpt", "gpt-4o", "oai", "dashscope", "ali", "aliyun") or "compatible" in p:
+    if (
+        p in ("openai", "gpt", "gpt-4o", "oai", "dashscope", "ali", "aliyun")
+        or "compatible" in p
+    ):
         # OpenAI style: { "data": [ { "id": "...", ... } ] }
+
         if isinstance(data, dict) and "data" in data:
             for m in data["data"]:
                 if isinstance(m, dict) and "id" in m:
                     mid = m["id"]
-                    mtype = "embedding" if "embedding" in mid.lower() else "chat"
-                    models.append(RemoteModelInfo(
-                        id=mid,
-                        name=mid,
-                        model_type=mtype,
-                        capabilities=get_caps(mid)
-                    ))
-    
+                    mtype = (
+                        "embedding" if "embedding" in mid.lower() else "chat"
+                    )
+                    models.append(
+                        RemoteModelInfo(
+                            id=mid,
+                            name=mid,
+                            model_type=mtype,
+                            capabilities=get_caps(mid),
+                        )
+                    )
     elif p in ("anthropic", "claude"):
         # Anthropic style: { "data": [ { "id": "...", "display_name": "..." } ] }
+
         if isinstance(data, dict) and "data" in data:
             for m in data["data"]:
                 if isinstance(m, dict) and "id" in m:
                     mid = m["id"]
-                    models.append(RemoteModelInfo(
-                        id=mid,
-                        name=m.get("display_name") or mid,
-                        model_type="chat",
-                        capabilities=get_caps(mid)
-                    ))
-    
+                    models.append(
+                        RemoteModelInfo(
+                            id=mid,
+                            name=m.get("display_name") or mid,
+                            model_type="chat",
+                            capabilities=get_caps(mid),
+                        )
+                    )
     elif p in ("azure_openai", "azure-openai", "azure"):
         # Azure style: { "value": [ { "id": "...", "model": "..." } ] }
+
         if isinstance(data, dict) and "value" in data:
             for m in data["value"]:
                 # Azure deployments often use 'id' or 'name' as the deployment name
+
                 mid = m.get("id") or m.get("name")
                 if mid:
                     # Model name might be in 'model' field
-                    actual_model = m.get("model", mid)
-                    mtype = "embedding" if "embedding" in actual_model.lower() else "chat"
-                    models.append(RemoteModelInfo(
-                        id=mid,
-                        name=f"{mid} ({actual_model})",
-                        model_type=mtype,
-                        capabilities=get_caps(actual_model)
-                    ))
 
+                    actual_model = m.get("model", mid)
+                    mtype = (
+                        "embedding"
+                        if "embedding" in actual_model.lower()
+                        else "chat"
+                    )
+                    models.append(
+                        RemoteModelInfo(
+                            id=mid,
+                            name=f"{mid} ({actual_model})",
+                            model_type=mtype,
+                            capabilities=get_caps(actual_model),
+                        )
+                    )
     return models
 
 
@@ -150,11 +204,15 @@ router = APIRouter()
 router.include_router(setup_router)
 
 
-@router.get("/{provider_id}/remote-models", response_model=RemoteModelListResponse)
+@router.get(
+    "/{provider_id}/remote-models", response_model=RemoteModelListResponse
+)
 async def get_provider_remote_models(
     provider_id: UUID,
     model_type: Optional[str] = Query(None, pattern="^(chat|embedding)$"),
-    capabilities: Optional[str] = Query(None, description="Filter by capabilities, e.g., 'vision:true'"),
+    capabilities: Optional[str] = Query(
+        None, description="Filter by capabilities, e.g., 'vision:true'"
+    ),
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
 ):
@@ -169,36 +227,39 @@ async def get_provider_remote_models(
         .first()
     )
     if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI provider not found")
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI provider not found",
+        )
     plain_key = decrypt_str(item.api_key) if item.api_key else None
     if not plain_key:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="API key is not set for this provider")
-
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="API key is not set for this provider",
+        )
     method, url, headers = _build_test_request(item, plain_key)
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.request(method, url, headers=headers)
-        
         resp.raise_for_status()
         remote_data = resp.json()
 
         models = _parse_remote_models(item.provider, remote_data)
 
         # Apply filtering
+
         if model_type:
             models = [m for m in models if m.model_type == model_type]
-
         if capabilities:
             try:
                 # Parse capabilities filter, e.g., "vision:true,function_calling:true"
+
                 filters = {}
                 for part in capabilities.split(","):
                     if ":" in part:
                         k, v = part.split(":", 1)
                         filters[k.strip()] = v.strip().lower() == "true"
-
                 if filters:
                     filtered_models = []
                     for m in models:
@@ -212,24 +273,26 @@ async def get_provider_remote_models(
                             filtered_models.append(m)
                     models = filtered_models
             except Exception as e:
-                logger.warning(f"Failed to parse capabilities filter '{capabilities}': {e}")
-
+                logger.warning(
+                    f"Failed to parse capabilities filter '{capabilities}': {e}"
+                )
         return RemoteModelListResponse(
-            provider=item.provider,
-            models=models,
-            is_fallback=False
+            provider=item.provider, models=models, is_fallback=False
         )
     except Exception as e:
-        logger.warning(f"Failed to fetch remote models for {provider_id}: {str(e)}")
+        logger.warning(
+            f"Failed to fetch remote models for {provider_id}: {str(e)}"
+        )
         # Return empty list or handle as fallback if needed
+
         return RemoteModelListResponse(
-            provider=item.provider,
-            models=[],
-            is_fallback=True
+            provider=item.provider, models=[], is_fallback=True
         )
 
 
-@router.get("", response_model=AIProviderListResponse, responses=LIST_RESPONSES)
+@router.get(
+    "", response_model=AIProviderListResponse, responses=LIST_RESPONSES
+)
 async def list_ai_providers(
     params: AIProviderListParams = Depends(),
     model_type: Optional[str] = Query(
@@ -257,30 +320,34 @@ async def list_ai_providers(
                 AIProvider.default_model.ilike(like),
             )
         )
-
     # Determine model type filter logic
+
     filter_func = None
     if model_type:
+
         def check_model_type(provider: AIProvider) -> bool:
             models = [m for m in provider.models if m.deleted_at is None]
             if not models:
                 # Keep empty/undefined providers in list
+
                 return True
             return any(model.model_type == model_type for model in models)
-        filter_func = check_model_type
 
+        filter_func = check_model_type
     # Fetch all candidates first (filtered by basic params)
     # Since specific model filtering is complex in SQL with mixed types, we do it in Python
     # This is safe because the number of providers per project is typically small (< 50)
+
     candidates = query.order_by(AIProvider.created_at.desc()).all()
 
     # Apply python-side filtering
+
     if filter_func:
         candidates = [c for c in candidates if filter_func(c)]
-
     total = len(candidates)
-    
+
     # Apply pagination in memory
+
     start = params.offset
     end = params.offset + params.limit
     items = candidates[start:end]
@@ -312,21 +379,36 @@ async def create_ai_provider(
     """Create a new AI provider configuration for current project."""
 
     requested = payload.available_models or []
-    model_details = {model.model_id: model for model in requested if isinstance(model, AIModelInput)}
-    requested_ids = [model if isinstance(model, str) else model.model_id for model in requested]
-    initial_model_seeds = resolve_initial_model_seeds(db, payload.provider, requested_ids)
+    model_details = {
+        model.model_id: model
+        for model in requested
+        if isinstance(model, AIModelInput)
+    }
+    requested_ids = [
+        model if isinstance(model, str) else model.model_id
+        for model in requested
+    ]
+    initial_model_seeds = resolve_initial_model_seeds(
+        db, payload.provider, requested_ids
+    )
     initial_model_ids = [seed.model_id for seed in initial_model_seeds]
 
-    if payload.default_model and payload.default_model not in initial_model_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="default_model must be in available_models")
-
+    if (
+        payload.default_model
+        and payload.default_model not in initial_model_ids
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="default_model must be in available_models",
+        )
     item = AIProvider(
         project_id=current_user.project_id,
         provider=payload.provider,
         name=payload.name,
         api_key=encrypt_str(payload.api_key),
         api_base_url=payload.api_base_url,
-        default_model=payload.default_model or (initial_model_ids[0] if initial_model_ids else None),
+        default_model=payload.default_model
+        or (initial_model_ids[0] if initial_model_ids else None),
         config=payload.config,
         is_active=payload.is_active,
     )
@@ -335,37 +417,51 @@ async def create_ai_provider(
     db.flush()  # To get item.id
 
     # Create AIModel records from payload or DB-backed provider defaults.
+
     for seed in initial_model_seeds:
         model_record = AIModel(
             provider_id=item.id,
             provider=item.provider,
             model_id=seed.model_id,
             model_name=seed.model_name,
-            model_type=model_details[seed.model_id].model_type if seed.model_id in model_details else seed.model_type,
-            capabilities=model_details[seed.model_id].capabilities if seed.model_id in model_details else None,
-            is_active=True
+            model_type=model_details[seed.model_id].model_type
+            if seed.model_id in model_details
+            else seed.model_type,
+            capabilities=model_details[seed.model_id].capabilities
+            if seed.model_id in model_details
+            else None,
+            is_active=True,
         )
         db.add(model_record)
-
     # Safety fallback in case caller sends no default but records exist.
+
     if not item.default_model and initial_model_ids:
         item.default_model = initial_model_ids[0]
-
     db.commit()
     db.refresh(item)
 
-    logger.info("Created AIProvider", extra={"id": str(item.id), "project_id": str(item.project_id)})
+    logger.info(
+        "Created AIProvider",
+        extra={"id": str(item.id), "project_id": str(item.project_id)},
+    )
 
     # Attempt to sync to tgo-ai with retry (non-blocking for main flow)
+
     try:
         await sync_provider_with_retry_and_update(db, item)
     except Exception as e:
-        logger.warning("AIProvider sync after create failed", extra={"id": str(item.id), "error": str(e)})
-
+        logger.warning(
+            "AIProvider sync after create failed",
+            extra={"id": str(item.id), "error": str(e)},
+        )
     return _to_response(item)
 
 
-@router.get("/{provider_id}", response_model=AIProviderResponse, responses=CRUD_RESPONSES)
+@router.get(
+    "/{provider_id}",
+    response_model=AIProviderResponse,
+    responses=CRUD_RESPONSES,
+)
 async def get_ai_provider(
     provider_id: UUID,
     db: Session = Depends(get_db),
@@ -383,11 +479,18 @@ async def get_ai_provider(
         .first()
     )
     if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI provider not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI provider not found",
+        )
     return _to_response(item)
 
 
-@router.patch("/{provider_id}", response_model=AIProviderResponse, responses=UPDATE_RESPONSES)
+@router.patch(
+    "/{provider_id}",
+    response_model=AIProviderResponse,
+    responses=UPDATE_RESPONSES,
+)
 async def update_ai_provider(
     provider_id: UUID,
     payload: AIProviderUpdate,
@@ -407,11 +510,14 @@ async def update_ai_provider(
         .first()
     )
     if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI provider not found")
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI provider not found",
+        )
     data = payload.model_dump(exclude_unset=True)
 
     # If changing name, ensure uniqueness within project
+
     if "name" in data and data["name"] != item.name:
         exists = (
             db.query(AIProvider)
@@ -424,46 +530,56 @@ async def update_ai_provider(
             .first()
         )
         if exists:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Provider name already exists")
-
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Provider name already exists",
+            )
     # Validate default_model within available_models if both provided
-    current_available = [m.model_id for m in item.models if m.deleted_at is None]
+
+    current_available = [
+        m.model_id for m in item.models if m.deleted_at is None
+    ]
     new_available_input = data.get("available_models")
-    
+
     if new_available_input is not None:
         # Extract model IDs from input (which can be list[str | AIModelInput])
+
         new_available_ids = []
         for m in new_available_input:
             if isinstance(m, str):
                 new_available_ids.append(m)
             else:
                 # It's an AIModelInput object/dict
+
                 m_id = m.model_id if hasattr(m, "model_id") else m["model_id"]
                 new_available_ids.append(m_id)
         new_available = new_available_ids
     else:
         new_available = current_available
-
     new_default = data.get("default_model", item.default_model)
     removed_models = set(current_available) - set(new_available)
     if removed_models:
-        await assert_provider_unused(db, current_user.project_id, item.id, removed_models)
+        await assert_provider_unused(
+            db, current_user.project_id, item.id, removed_models
+        )
     if new_default and new_default not in new_available:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="此模型仍是该服务的默认模型，不能移除")
-
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="此模型仍是该服务的默认模型，不能移除"
+        )
     # Handle secret update with encryption (ignore empty to keep existing)
+
     if "api_key" in data:
         raw = data.pop("api_key")
         if raw is not None and raw != "":
             item.api_key = encrypt_str(raw)
-
     # Handle available_models update
+
     if "available_models" in data:
         new_models_input = data.pop("available_models") or []
         new_model_ids = []
         model_type_map = {}
         model_caps_map = {}
-        
+
         for m in new_models_input:
             if isinstance(m, str):
                 m_id = m
@@ -475,23 +591,25 @@ async def update_ai_provider(
                 m_caps = m.get("capabilities")
             else:
                 # It's an AIModelInput object
+
                 m_id = m.model_id
                 m_type = m.model_type
                 m_caps = m.capabilities
-
             new_model_ids.append(m_id)
             model_type_map[m_id] = m_type
             model_caps_map[m_id] = m_caps
-
-        existing_models = {m.model_id: m for m in item.models if m.deleted_at is None}
+        existing_models = {
+            m.model_id: m for m in item.models if m.deleted_at is None
+        }
 
         # Deactivate models not in new list
+
         for m_id, m_obj in existing_models.items():
             if m_id not in new_model_ids:
                 m_obj.deleted_at = datetime.utcnow()
                 db.add(m_obj)
-        
         # Add new models or update existing ones' types/caps if needed
+
         for m_id in new_model_ids:
             m_type = model_type_map[m_id]
             m_caps = model_caps_map[m_id]
@@ -503,11 +621,12 @@ async def update_ai_provider(
                     model_name=m_id,
                     model_type=m_type,
                     capabilities=m_caps,
-                    is_active=True
+                    is_active=True,
                 )
                 db.add(new_model)
             else:
                 # Update type/caps if they changed
+
                 existing_model = existing_models[m_id]
                 changed = False
                 if existing_model.model_type != m_type:
@@ -515,24 +634,24 @@ async def update_ai_provider(
                 changed = True
 
                 # Normalize caps for comparison
+
                 current_caps: object = existing_model.capabilities or {}
                 new_caps = m_caps or {}
 
                 # Ensure we are comparing dicts
+
                 if isinstance(current_caps, str):
                     import json
+
                     try:
                         current_caps = json.loads(current_caps)
                     except:
                         current_caps = {}
-                
                 if current_caps != new_caps:
                     existing_model.capabilities = new_caps
                     changed = True
-
                 if changed:
                     db.add(existing_model)
-
     for field, value in data.items():
         setattr(item, field, value)
     item.updated_at = datetime.utcnow()
@@ -543,15 +662,22 @@ async def update_ai_provider(
     logger.info("Updated AIProvider", extra={"id": str(item.id)})
 
     # Attempt to sync to tgo-ai (non-blocking)
+
     try:
         await sync_provider_with_retry_and_update(db, item)
     except Exception as e:
-        logger.warning("AIProvider sync after update failed", extra={"id": str(item.id), "error": str(e)})
-
+        logger.warning(
+            "AIProvider sync after update failed",
+            extra={"id": str(item.id), "error": str(e)},
+        )
     return _to_response(item)
 
 
-@router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT, responses=DELETE_RESPONSES)
+@router.delete(
+    "/{provider_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=DELETE_RESPONSES,
+)
 async def delete_ai_provider(
     provider_id: UUID,
     background_tasks: BackgroundTasks,
@@ -570,43 +696,52 @@ async def delete_ai_provider(
         .first()
     )
     if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI provider not found")
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI provider not found",
+        )
     await assert_provider_unused(db, current_user.project_id, provider_id)
 
     # Soft delete and mark inactive, then sync remote as inactive
+
     now = datetime.utcnow()
     item.is_active = False
     item.deleted_at = now
     item.updated_at = now
-    
+
     # Also soft delete related models
+
     for m in item.models:
         if m.deleted_at is None:
             m.deleted_at = now
             db.add(m)
-
     db.commit()
 
     # Async uninstall all provider models from Store
+
     background_tasks.add_task(
         sync_uninstall_all_provider_models,
         db,
         current_user.project_id,
-        provider_id
+        provider_id,
     )
 
     # Try to sync deletion as deactivation with retry
+
     try:
         await sync_provider_with_retry_and_update(db, item)
     except Exception as e:
-        logger.warning("AIProvider sync after delete failed", extra={"id": str(item.id), "error": str(e)})
-
+        logger.warning(
+            "AIProvider sync after delete failed",
+            extra={"id": str(item.id), "error": str(e)},
+        )
     logger.info("Deleted AIProvider", extra={"id": str(provider_id)})
     return None
 
 
-@router.delete("/{provider_id}/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{provider_id}/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 async def delete_provider_model(
     provider_id: UUID,
     model_id: str,
@@ -624,8 +759,10 @@ async def delete_provider_model(
         .first()
     )
     if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI provider not found")
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI provider not found",
+        )
     model = (
         db.query(AIModel)
         .filter(
@@ -636,24 +773,37 @@ async def delete_provider_model(
         .first()
     )
     if not model:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
-
-    await assert_provider_unused(db, current_user.project_id, provider_id, {model_id})
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Model not found"
+        )
+    await assert_provider_unused(
+        db, current_user.project_id, provider_id, {model_id}
+    )
     if item.default_model == model_id:
         raise HTTPException(409, '此模型仍是服务的兼容默认模型，请先指定其他默认模型后删除')
     model.deleted_at = datetime.utcnow()
     db.add(model)
     db.commit()
 
-    logger.info("Deleted model from provider", extra={"provider_id": str(provider_id), "model_id": model_id})
+    logger.info(
+        "Deleted model from provider",
+        extra={"provider_id": str(provider_id), "model_id": model_id},
+    )
     try:
         await sync_provider_with_retry_and_update(db, item)
     except Exception:
-        logger.warning("AIProvider sync after model removal failed", extra={"id": str(item.id)})
+        logger.warning(
+            "AIProvider sync after model removal failed",
+            extra={"id": str(item.id)},
+        )
     return None
 
 
-@router.post("/{provider_id}/enable", response_model=AIProviderResponse, responses=UPDATE_RESPONSES)
+@router.post(
+    "/{provider_id}/enable",
+    response_model=AIProviderResponse,
+    responses=UPDATE_RESPONSES,
+)
 async def enable_ai_provider(
     provider_id: UUID,
     db: Session = Depends(get_db),
@@ -671,22 +821,32 @@ async def enable_ai_provider(
         .first()
     )
     if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI provider not found")
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI provider not found",
+        )
     item.is_active = True
     item.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(item)
 
     # Sync status to tgo-ai with retry (non-blocking)
+
     try:
         await sync_provider_with_retry_and_update(db, item)
     except Exception as e:
-        logger.warning("AIProvider sync after enable failed", extra={"id": str(item.id), "error": str(e)})
+        logger.warning(
+            "AIProvider sync after enable failed",
+            extra={"id": str(item.id), "error": str(e)},
+        )
         db.refresh(item)
 
 
-@router.post("/{provider_id}/sync", response_model=AIProviderResponse, responses=UPDATE_RESPONSES)
+@router.post(
+    "/{provider_id}/sync",
+    response_model=AIProviderResponse,
+    responses=UPDATE_RESPONSES,
+)
 async def sync_ai_provider_now(
     provider_id: UUID,
     db: Session = Depends(get_db),
@@ -704,17 +864,25 @@ async def sync_ai_provider_now(
         .first()
     )
     if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI provider not found")
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI provider not found",
+        )
     try:
         await sync_provider_with_retry_and_update(db, item)
     except Exception as e:
-        logger.warning("AIProvider manual sync failed", extra={"id": str(item.id), "error": str(e)})
-
+        logger.warning(
+            "AIProvider manual sync failed",
+            extra={"id": str(item.id), "error": str(e)},
+        )
     return _to_response(item)
 
 
-@router.post("/{provider_id}/disable", response_model=AIProviderResponse, responses=UPDATE_RESPONSES)
+@router.post(
+    "/{provider_id}/disable",
+    response_model=AIProviderResponse,
+    responses=UPDATE_RESPONSES,
+)
 async def disable_ai_provider(
     provider_id: UUID,
     db: Session = Depends(get_db),
@@ -732,19 +900,24 @@ async def disable_ai_provider(
         .first()
     )
     if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI provider not found")
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI provider not found",
+        )
     item.is_active = False
     item.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(item)
 
     # Sync status to tgo-ai with retry (non-blocking)
+
     try:
         await sync_provider_with_retry_and_update(db, item)
     except Exception as e:
-        logger.warning("AIProvider sync after disable failed", extra={"id": str(item.id), "error": str(e)})
-
+        logger.warning(
+            "AIProvider sync after disable failed",
+            extra={"id": str(item.id), "error": str(e)},
+        )
     return _to_response(item)
 
 
@@ -769,8 +942,10 @@ async def test_ai_provider_connection(
         .first()
     )
     if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI provider not found")
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI provider not found",
+        )
     plain_key = decrypt_str(item.api_key) if item.api_key else None
     method, url, headers = _build_test_request(item, plain_key)
 
@@ -784,9 +959,25 @@ async def test_ai_provider_connection(
         except Exception:
             detail = resp.text
         if ok:
-            return {"success": True, "message": "Connection test passed", "status": resp.status_code, "details": detail}
+            return {
+                "success": True,
+                "message": "Connection test passed",
+                "status": resp.status_code,
+                "details": detail,
+            }
         else:
-            return {"success": False, "message": f"HTTP {resp.status_code}", "status": resp.status_code, "details": detail}
+            return {
+                "success": False,
+                "message": f"HTTP {resp.status_code}",
+                "status": resp.status_code,
+                "details": detail,
+            }
     except httpx.RequestError as e:
-        logger.warning("AIProvider test request error", extra={"id": str(item.id), "error": str(e)})
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Connection failed: {e}")
+        logger.warning(
+            "AIProvider test request error",
+            extra={"id": str(item.id), "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Connection failed: {e}",
+        )

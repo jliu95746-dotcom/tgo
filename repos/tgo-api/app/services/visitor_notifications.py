@@ -14,7 +14,9 @@ from app.utils.encoding import build_visitor_channel_id
 logger = logging.getLogger("services.visitor_notifications")
 
 
-async def notify_visitor_profile_updated(db: Session, visitor: Visitor) -> None:
+async def notify_visitor_profile_updated(
+    db: Session, visitor: Visitor
+) -> None:
     """
     Notify all staff associated with the visitor's customer-service channel that the profile was updated.
     """

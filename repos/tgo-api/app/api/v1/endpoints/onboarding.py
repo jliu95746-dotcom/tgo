@@ -75,11 +75,12 @@ async def get_onboarding_progress(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
-
     # Get or create progress record
+
     progress = _get_or_create_progress(db, project_id)
 
     # If already marked as completed (skipped), return current state without re-checking
+
     if progress.is_completed:
         step_statuses = [
             progress.step_1_completed,
@@ -89,6 +90,7 @@ async def get_onboarding_progress(
             progress.step_5_completed,  # Read from database (may be skipped by user)
         ]
         # Only count action steps (1-4) for progress
+
         completed_count = sum(1 for s in step_statuses[:4] if s)
         current_step = 5
         for i in range(4):  # Only check steps 1-4
@@ -97,43 +99,50 @@ async def get_onboarding_progress(
                 break
     else:
         # Check all steps and update progress
+
         step_statuses, current_step, _ = await check_all_steps(db, project_id)
 
         # Update progress record (only action steps 1-4)
+
         progress.step_1_completed = step_statuses[0]
         progress.step_2_completed = step_statuses[1]
         progress.step_3_completed = step_statuses[2]
         progress.step_4_completed = step_statuses[3]
         # Step 5 is 'notify' type - read from database (may be skipped by user)
+
         step_statuses[4] = progress.step_5_completed
 
         # Check if all action steps (1-4) are completed
+
         if all(step_statuses):
             progress.is_completed = True
             progress.completed_at = datetime.now(timezone.utc)
-
         db.commit()
         db.refresh(progress)
         completed_count = sum(1 for s in step_statuses[:4] if s)
-
     # Build step status list
+
     steps = []
     for i, step_def in enumerate(ONBOARDING_STEPS):
         steps.append(
             OnboardingStepStatus(
                 step_number=step_def["step_number"],
                 step_name=step_def["step_name"],
-                is_completed=step_statuses[i] if i < len(step_statuses) else False,
+                is_completed=step_statuses[i]
+                if i < len(step_statuses)
+                else False,
                 description=step_def["description"],
                 description_zh=step_def["description_zh"],
                 route=step_def["route"],
                 step_type=step_def["step_type"],
                 title=step_def["title"] if "title" in step_def else None,
-                title_zh=step_def["title_zh"] if "title_zh" in step_def else None,
+                title_zh=step_def["title_zh"]
+                if "title_zh" in step_def
+                else None,
             )
         )
-
     # Progress percentage based on steps 1-4 (action steps only)
+
     progress_percentage = int((completed_count / 4) * 100)
 
     return OnboardingProgressResponse(
@@ -179,14 +188,15 @@ async def skip_onboarding(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
-
     progress = _get_or_create_progress(db, project_id)
 
     # Get step_number from request body (if provided)
+
     step_number = request.step_number if request else None
 
     if step_number is not None:
         # Skip specific step
+
         step_attr = f"step_{step_number}_completed"
         setattr(progress, step_attr, True)
 
@@ -200,16 +210,20 @@ async def skip_onboarding(
         )
 
         # Check if all action steps (1-4) are now completed
-        if all([
-            progress.step_1_completed,
-            progress.step_2_completed,
-            progress.step_3_completed,
-            progress.step_4_completed,
-        ]):
+
+        if all(
+            [
+                progress.step_1_completed,
+                progress.step_2_completed,
+                progress.step_3_completed,
+                progress.step_4_completed,
+            ]
+        ):
             progress.is_completed = True
             progress.completed_at = datetime.now(timezone.utc)
     else:
         # Skip all steps
+
         progress.step_1_completed = True
         progress.step_2_completed = True
         progress.step_3_completed = True
@@ -220,13 +234,16 @@ async def skip_onboarding(
 
         logger.info(
             "Onboarding skipped (all steps)",
-            extra={"project_id": str(project_id), "user_id": str(current_user.id)},
+            extra={
+                "project_id": str(project_id),
+                "user_id": str(current_user.id),
+            },
         )
-
     db.commit()
     db.refresh(progress)
 
     # Return updated progress
+
     return await get_onboarding_progress(db, current_user)
 
 
@@ -258,7 +275,6 @@ async def reset_onboarding(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
-
     progress = _get_or_create_progress(db, project_id)
     progress.step_1_completed = False
     progress.step_2_completed = False
@@ -276,4 +292,5 @@ async def reset_onboarding(
     )
 
     # Return updated progress (will re-check actual step statuses)
+
     return await get_onboarding_progress(db, current_user)

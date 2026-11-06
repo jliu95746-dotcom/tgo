@@ -56,7 +56,9 @@ def authenticate_file_actor(
     credentials: HTTPAuthorizationCredentials | None,
     platform_key: str | None,
 ) -> FileActor:
-    staff, platform = authenticate_staff_or_platform(db, credentials, platform_key)
+    staff, platform = authenticate_staff_or_platform(
+        db, credentials, platform_key
+    )
     if staff is not None:
         assert credentials is not None
         claims = verify_token(credentials.credentials)
@@ -78,7 +80,9 @@ def authenticate_file_actor(
         project_id=access.project_id,
         platform_id=access.platform_id,
         im_claims=read_visitor_im_access(access.im_token.get_secret_value()),
-        platform_key_digest=hashlib.sha256(platform.api_key.encode()).hexdigest(),
+        platform_key_digest=hashlib.sha256(
+            platform.api_key.encode()
+        ).hexdigest(),
     )
 
 
@@ -129,7 +133,9 @@ def _current_actor(db: Session, actor: FileActor) -> Staff | None:
         actor.platform_key_digest,
     ):
         raise _unauthorized()
-    visitor = authenticate_visitor_im_claims(db, f"{actor.id}-vtr", actor.im_claims)
+    visitor = authenticate_visitor_im_claims(
+        db, f"{actor.id}-vtr", actor.im_claims
+    )
     if (
         visitor.id != actor.id
         or visitor.project_id != actor.project_id
@@ -160,7 +166,11 @@ def _actor_from_link(db: Session, token: str, file_id: UUID) -> FileActor:
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
             audience=FILE_AUDIENCE,
-            options={"require_exp": True, "require_aud": True, "require_sub": True},
+            options={
+                "require_exp": True,
+                "require_aud": True,
+                "require_sub": True,
+            },
         )
         if claims.get("type") != "chat_file_download":
             raise _unauthorized()
@@ -170,7 +180,6 @@ def _actor_from_link(db: Session, token: str, file_id: UUID) -> FileActor:
         project_id = UUID(claims["project_id"])
     except (JWTError, ValueError, TypeError, KeyError, AttributeError) as exc:
         raise _unauthorized() from exc
-
     if claims.get("actor") == "staff":
         try:
             actor: FileActor = StaffFileActor(
@@ -188,7 +197,9 @@ def _actor_from_link(db: Session, token: str, file_id: UUID) -> FileActor:
                 id=actor_id,
                 project_id=project_id,
                 platform_id=UUID(claims["platform_id"]),
-                im_claims=VisitorIMAccessClaims.model_validate(claims["visitor_scope"]),
+                im_claims=VisitorIMAccessClaims.model_validate(
+                    claims["visitor_scope"]
+                ),
                 platform_key_digest=claims["platform_key_digest"],
                 expires_at=claims["exp"],
             )
@@ -244,7 +255,9 @@ def issue_file_link(
     now = datetime.now(timezone.utc)
     expires = now + timedelta(minutes=5)
     if actor.expires_at is not None:
-        expires = min(expires, datetime.fromtimestamp(actor.expires_at, timezone.utc))
+        expires = min(
+            expires, datetime.fromtimestamp(actor.expires_at, timezone.utc)
+        )
     if isinstance(actor, VisitorFileActor):
         expires = min(
             expires, datetime.fromtimestamp(actor.im_claims.exp, timezone.utc)
@@ -282,7 +295,9 @@ def issue_file_link(
     )
 
 
-def chat_file_guard(db: Session, file: ChatFile, actor: FileActor) -> FileGuard:
+def chat_file_guard(
+    db: Session, file: ChatFile, actor: FileActor
+) -> FileGuard:
     original = (
         file.project_id,
         file.channel_id,
@@ -316,13 +331,19 @@ class _CheckedFileResponse(Response):
         self.response = response
         self.guard = guard
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
         async def checked_send(message: Message) -> None:
-            if message["type"] in ("http.response.start", "http.response.body"):
+            if message["type"] in (
+                "http.response.start",
+                "http.response.body",
+            ):
                 await self.guard()
             await send(message)
 
         # Kernel pathsend would bypass checks between chunks.
+
         safe_scope = dict(scope)
         safe_scope["extensions"] = {
             key: value
@@ -358,10 +379,10 @@ async def serve_chat_file(file: ChatFile, guard: FileGuard) -> Response:
         return _CheckedFileResponse(
             FileResponse(str(target), media_type=mime, headers=headers), guard
         )
-
     from app.services.storage import get_storage
 
     # Private bucket reads are made by the backend; never expose a public URL.
+
     limit = int(settings.MAX_UPLOAD_SIZE_MB) * 1024 * 1024
     content = await get_storage().read(file.file_path, max_bytes=limit)
     await guard()

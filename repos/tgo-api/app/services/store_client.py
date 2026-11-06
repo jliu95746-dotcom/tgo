@@ -6,6 +6,7 @@ from app.schemas.store import StoreModelDetail
 
 logger = get_logger("store_client")
 
+
 class StoreClient:
     """Client for interacting with the Store API (Tools and Models)."""
 
@@ -19,50 +20,56 @@ class StoreClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.get(
-                    url,
-                    headers={"X-API-Key": api_key}
+                    url, headers={"X-API-Key": api_key}
                 )
                 response.raise_for_status()
                 return StoreModelDetail.model_validate(response.json())
             except httpx.HTTPStatusError as e:
-                logger.error(f"Store API error (models): {e.response.status_code} {e.response.text}")
+                logger.error(
+                    f"Store API error (models): {e.response.status_code} {e.response.text}"
+                )
                 raise
             except Exception as e:
                 logger.error(f"Store connection error: {str(e)}")
                 raise
 
-    async def install_model(self, model_id: str, api_key: str) -> Dict[str, Any]:
+    async def install_model(
+        self, model_id: str, api_key: str
+    ) -> Dict[str, Any]:
         """Mark model as installed in Store."""
         url = f"{self.base_url}/install/model/{model_id}"
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.post(
-                    url,
-                    headers={"X-API-Key": api_key}
+                    url, headers={"X-API-Key": api_key}
                 )
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as e:
-                logger.error(f"Store API error (install model): {e.response.status_code} {e.response.text}")
+                logger.error(
+                    f"Store API error (install model): {e.response.status_code} {e.response.text}"
+                )
                 raise
             except Exception as e:
                 logger.error(f"Store connection error: {str(e)}")
                 raise
 
-    async def uninstall_model(self, model_id: str, api_key: str) -> Dict[str, Any]:
+    async def uninstall_model(
+        self, model_id: str, api_key: str
+    ) -> Dict[str, Any]:
         """Mark model as uninstalled in Store."""
         url = f"{self.base_url}/install/model/{model_id}"
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.request(
-                    "DELETE",
-                    url,
-                    headers={"X-API-Key": api_key}
+                    "DELETE", url, headers={"X-API-Key": api_key}
                 )
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as e:
-                logger.error(f"Store API error (uninstall model): {e.response.status_code} {e.response.text}")
+                logger.error(
+                    f"Store API error (uninstall model): {e.response.status_code} {e.response.text}"
+                )
                 raise
             except Exception as e:
                 logger.error(f"Store connection error: {str(e)}")
@@ -74,16 +81,18 @@ class StoreClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.get(
-                    url,
-                    headers={"Authorization": f"Bearer {access_token}"}
+                    url, headers={"Authorization": f"Bearer {access_token}"}
                 )
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as e:
-                logger.error(f"Store API error (auth): {e.response.status_code} {e.response.text}")
+                logger.error(
+                    f"Store API error (auth): {e.response.status_code} {e.response.text}"
+                )
                 raise
             except Exception as e:
                 logger.error(f"Store connection error: {str(e)}")
                 raise
+
 
 store_client = StoreClient()

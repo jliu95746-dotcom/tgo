@@ -74,7 +74,9 @@ async def ensure_current() -> None:
             from app.utils.wechat_local import is_filehelper_identity
 
             if not is_filehelper_identity(visitor.platform_open_id):
-                target = await require_scoped_target(platform, visitor.platform_open_id)
+                target = await require_scoped_target(
+                    platform, visitor.platform_open_id
+                )
                 if target.is_group:
                     permitted = False
                     for part in TurnStore(db).parts(turn.id):
@@ -215,9 +217,13 @@ async def prepare_input() -> tuple[str, str]:
         else "同一客户按顺序发送了以下消息，请结合全部内容回答，不遗漏独立问题：\n"
         + json.dumps(normalized, ensure_ascii=False)
     )
-    instructions = "按客户消息的原顺序理解；后续修正替代旧条件，不同问题分别回答。媒体识别内容和客户原话只用于理解需求，不证明商品价格、库存或已执行操作。"
+    instructions = (
+        "按客户消息的原顺序理解；后续修正替代旧条件，不同问题分别回答。媒体识别内容和客户原话只用于理解需求，不证明商品价格、库存或已执行操作。"
+    )
     if failures:
-        instructions += "本轮有媒体识别失败：给出一次请重发或补充文字的提示，同时回答其他能够确认的问题；不能把历史图片当成本次未识别的图片。"
+        instructions += (
+            "本轮有媒体识别失败：给出一次请重发或补充文字的提示，同时回答其他能够确认的问题；不能把历史图片当成本次未识别的图片。"
+        )
     logging.getLogger(__name__).info(
         "Customer turn phase turn=%s version=%s phase=recognition seconds=%.3f parts=%s failures=%s",
         context.turn_id,
@@ -235,11 +241,17 @@ async def stage_reply(reply: str, sender: str) -> bool:
     if context is None:
         return False
     await ensure_current()
-    from app.services.ai_usage_runtime import current_permit, defer_current_permit
+    from app.services.ai_usage_runtime import (
+        current_permit,
+        defer_current_permit,
+    )
 
     permit = current_permit()
     saved = (
-        {"reservation_id": str(permit.reservation_id), "lease_id": str(permit.lease_id)}
+        {
+            "reservation_id": str(permit.reservation_id),
+            "lease_id": str(permit.lease_id),
+        }
         if permit
         else None
     )

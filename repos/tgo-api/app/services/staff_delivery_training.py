@@ -13,17 +13,24 @@ from app.schemas.skill import (
     HumanizationTrainingSampleRequest,
     HumanizationTrainingStatus,
 )
-from app.schemas.staff_delivery import AssistTrainingIntent, StaffDeliveryRequest
+from app.schemas.staff_delivery import (
+    AssistTrainingIntent,
+    StaffDeliveryRequest,
+)
 from app.services.ai_client import ai_client
 from app.services.staff_message_target import StaffMessageTarget
 
 
-def training_snapshot(request: StaffDeliveryRequest) -> dict[str, JsonValue] | None:
+def training_snapshot(
+    request: StaffDeliveryRequest,
+) -> dict[str, JsonValue] | None:
     intent = request.training
     if intent is None:
         return None
     content = request.payload.get("content")
-    if request.payload.get("type") not in (1, 12) or not isinstance(content, str):
+    if request.payload.get("type") not in (1, 12) or not isinstance(
+        content, str
+    ):
         raise HTTPException(422, "只有带回复正文的人工修正可以训练拟人技能")
     if content.strip() == intent.ai_draft.strip():
         return None
@@ -72,11 +79,13 @@ async def _capture_locked(db: Session, row: StaffMessageDelivery) -> bool:
         row.training_error = None
     except HTTPException as exc:
         # A deleted/incompatible skill must not silently recreate or retarget itself.
+
         if exc.status_code in (400, 404, 422):
             row.training_status = "unavailable"
         row.training_error = f"AI_HTTP_{exc.status_code}"
     except Exception as exc:
         # A lost AI response is retried using the immutable delivery id.
+
         row.training_error = type(exc).__name__[:100]
     row.training_attempts += 1
     row.training_next_retry_at = utc_now() + timedelta(

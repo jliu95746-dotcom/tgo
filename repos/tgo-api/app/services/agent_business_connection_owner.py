@@ -21,11 +21,18 @@ from app.services.business_connections import get
 from app.core.exceptions import NotFoundError
 
 _AGENT_SUPPORTED_OPERATIONS = frozenset(
-    {"order_query", "logistics_query", "customer_profile_query", "membership_query"}
+    {
+        "order_query",
+        "logistics_query",
+        "customer_profile_query",
+        "membership_query",
+    }
 )
 
 
-def supported_operations(capabilities: Sequence[str]) -> list[BusinessOperation]:
+def supported_operations(
+    capabilities: Sequence[str],
+) -> list[BusinessOperation]:
     return [
         cast(BusinessOperation, operation)
         for operation in capabilities
@@ -36,7 +43,9 @@ def supported_operations(capabilities: Sequence[str]) -> list[BusinessOperation]
 def operation_configuration(
     db: Session, project: UUID, connection_id: UUID
 ) -> list[ConnectionOperationConfiguration]:
-    connection = db.get(BusinessConnection, connection_id, populate_existing=True)
+    connection = db.get(
+        BusinessConnection, connection_id, populate_existing=True
+    )
     if connection is None or connection.project_id != project:
         raise NotFoundError("连接")
     result: list[ConnectionOperationConfiguration] = []

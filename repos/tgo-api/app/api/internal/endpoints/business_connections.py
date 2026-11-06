@@ -26,7 +26,8 @@ def require_business_adapter(
     if configured is None or len(configured.get_secret_value()) < 32:
         raise HTTPException(503, "业务连接私有服务尚未配置")
     if not x_business_service_token or not hmac.compare_digest(
-        configured.get_secret_value().encode(), x_business_service_token.encode()
+        configured.get_secret_value().encode(),
+        x_business_service_token.encode(),
     ):
         raise HTTPException(403, "业务连接私有鉴权失败")
 
@@ -43,7 +44,10 @@ def resolve_connection(
 ) -> BusinessConnectionPrivateSnapshot:
     actor = db.execute(
         select(Staff)
-        .where(Staff.id == payload.actor_id, Staff.project_id == payload.project_id)
+        .where(
+            Staff.id == payload.actor_id,
+            Staff.project_id == payload.project_id,
+        )
         .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if (

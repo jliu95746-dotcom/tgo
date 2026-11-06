@@ -9,8 +9,20 @@ from sqlalchemy.orm import Session, selectinload
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.database import get_db
-from app.core.security import resolve_staff_token, get_user_language, UserLanguage
-from app.models import Staff, Visitor, VisitorTag, VisitorActivity, Platform, VisitorSession, SessionStatus
+from app.core.security import (
+    resolve_staff_token,
+    get_user_language,
+    UserLanguage,
+)
+from app.models import (
+    Staff,
+    Visitor,
+    VisitorTag,
+    VisitorActivity,
+    Platform,
+    VisitorSession,
+    SessionStatus,
+)
 from app.schemas.visitor import (
     VisitorResponse,
     VisitorAIProfileResponse,
@@ -26,7 +38,11 @@ from app.schemas.tag import set_tag_list_display_name
 from app.services.ai_client import ai_client
 from app.api.current_access_route import CurrentAccessRoute
 from app.schemas.visitor_data_access import VisitorDataAccess
-from app.services.profile_access import require_profile_access, require_visible_visitor_channel, profile_guard
+from app.services.profile_access import (
+    require_profile_access,
+    require_visible_visitor_channel,
+    profile_guard,
+)
 from app.services.channel_access import require_staff_channel_access
 from app.services.staff_record_access import staff_record_guard
 
@@ -39,6 +55,7 @@ router = APIRouter(route_class=CurrentAccessRoute)
 
 
 # Channel ID suffixes
+
 STAFF_SUFFIX = "-staff"
 AGENT_SUFFIX = "-agent"
 VISITOR_SUFFIX = "-vtr"
@@ -48,9 +65,12 @@ class ChannelInfoResponse(BaseModel):
     name: str = Field(..., description="Channel display name")
     avatar: str = Field(..., description="Channel avatar URL")
     channel_id: str = Field(..., description="WuKongIM channel identifier")
-    channel_type: int = Field(..., description="Channel type: 1 (personal), 251 (customer service)")
+    channel_type: int = Field(
+        ..., description="Channel type: 1 (personal), 251 (customer service)"
+    )
     entity_type: Literal["visitor", "staff", "agent"] = Field(
-        ..., description="Entity type represented by this channel: 'visitor', 'staff', or 'agent'"
+        ...,
+        description="Entity type represented by this channel: 'visitor', 'staff', or 'agent'",
     )
     extra: Optional[Dict[str, Any]] = Field(
         None,
@@ -71,12 +91,12 @@ class ChannelInfoResponse(BaseModel):
                     "platform_id": "00000000-0000-0000-0000-000000000001",
                     "platform_type": "website",
                     "name": "Jane Doe",
-                    "is_online": True
+                    "is_online": True,
                 },
                 {
                     "staff_id": "7b7d3d6e-8a7d-4a23-9a2f-1f1c9c7f8f00",
                     "username": "support.alice",
-                    "role": "user"
+                    "role": "user",
                 },
                 {
                     "id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
@@ -84,7 +104,7 @@ class ChannelInfoResponse(BaseModel):
                     "model": "gpt-4",
                     "is_default": True,
                     "tools": [],
-                    "collections": []
+                    "collections": [],
                 },
             ]
         },
@@ -108,13 +128,19 @@ def _build_enriched_visitor_payload(
     set_tag_list_display_name(tag_responses, user_language)
 
     ai_profile_response = (
-        VisitorAIProfileResponse.model_validate(visitor.ai_profile) if visitor.ai_profile else None
+        VisitorAIProfileResponse.model_validate(visitor.ai_profile)
+        if visitor.ai_profile
+        else None
     )
     ai_insight_response = (
-        VisitorAIInsightResponse.model_validate(visitor.ai_insight) if visitor.ai_insight else None
+        VisitorAIInsightResponse.model_validate(visitor.ai_insight)
+        if visitor.ai_insight
+        else None
     )
     system_info_response = (
-        VisitorSystemInfoResponse.model_validate(visitor.system_info) if visitor.system_info else None
+        VisitorSystemInfoResponse.model_validate(visitor.system_info)
+        if visitor.system_info
+        else None
     )
 
     recent_activities = (
@@ -129,10 +155,12 @@ def _build_enriched_visitor_payload(
         .all()
     )
     recent_activity_responses = [
-        VisitorActivityResponse.model_validate(activity) for activity in recent_activities
+        VisitorActivityResponse.model_validate(activity)
+        for activity in recent_activities
     ]
 
     # Query the open session to get assigned staff_id
+
     open_session = (
         db.query(VisitorSession)
         .filter(
@@ -161,7 +189,9 @@ def _build_enriched_visitor_payload(
     return visitor_payload
 
 
-def _get_visitor_with_relations(db: Session, visitor_id: UUID, project_id: UUID) -> Optional[Visitor]:
+def _get_visitor_with_relations(
+    db: Session, visitor_id: UUID, project_id: UUID
+) -> Optional[Visitor]:
     """Query visitor with all necessary relations loaded."""
     return (
         db.query(Visitor)
@@ -252,9 +282,9 @@ def _build_staff_channel_response(
                                     "platform_id": "00000000-0000-0000-0000-000000000001",
                                     "platform_type": "website",
                                     "name": "Jane Doe",
-                                    "is_online": True
-                                }
-                            }
+                                    "is_online": True,
+                                },
+                            },
                         },
                         "Personal Channel - Staff": {
                             "summary": "Personal Channel - Staff",
@@ -267,9 +297,9 @@ def _build_staff_channel_response(
                                 "extra": {
                                     "staff_id": "7b7d3d6e-8a7d-4a23-9a2f-1f1c9c7f8f00",
                                     "username": "support.alice",
-                                    "role": "user"
-                                }
-                            }
+                                    "role": "user",
+                                },
+                            },
                         },
                         "Personal Channel - Agent": {
                             "summary": "Personal Channel - Agent",
@@ -287,9 +317,9 @@ def _build_staff_channel_response(
                                     "is_default": True,
                                     "config": {"temperature": 0.7},
                                     "tools": [],
-                                    "collections": []
-                                }
-                            }
+                                    "collections": [],
+                                },
+                            },
                         },
                         "Personal Channel - Visitor": {
                             "summary": "Personal Channel - Visitor",
@@ -304,13 +334,13 @@ def _build_staff_channel_response(
                                     "platform_id": "00000000-0000-0000-0000-000000000002",
                                     "platform_type": "wechat",
                                     "name": "John Smith",
-                                    "is_online": False
-                                }
-                            }
-                        }
+                                    "is_online": False,
+                                },
+                            },
+                        },
                     }
                 }
-            }
+            },
         }
     },
 )
@@ -319,8 +349,12 @@ async def get_channel_info(
     channel_id: str,
     channel_type: int,
     platform_api_key: Optional[str] = None,
-    x_platform_api_key: Optional[str] = Header(None, alias="X-Platform-API-Key"),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+    x_platform_api_key: Optional[str] = Header(
+        None, alias="X-Platform-API-Key"
+    ),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(
+        HTTPBearer(auto_error=False)
+    ),
     db: Session = Depends(get_db),
     user_language: UserLanguage = Depends(get_user_language),
 ) -> ChannelInfoResponse:
@@ -333,23 +367,41 @@ async def get_channel_info(
     """
     accept_language = request.headers.get("Accept-Language")
 
-    access = require_profile_access(db, credentials, platform_api_key or x_platform_api_key)
+    access = require_profile_access(
+        db, credentials, platform_api_key or x_platform_api_key
+    )
     if isinstance(access, VisitorDataAccess):
         guard = profile_guard(access, channel=(channel_id, channel_type))
         request.state.operation_guard = guard
         kind: Literal["visitor", "staff", "agent"]
-        entity = require_visible_visitor_channel(db, access, channel_id, channel_type)
+        entity = require_visible_visitor_channel(
+            db, access, channel_id, channel_type
+        )
         if isinstance(entity, Visitor):
-            name = resolve_visitor_display_name(name=entity.name, nickname=entity.nickname,
-                nickname_zh=entity.nickname_zh, language=user_language, fallback="访客")
+            name = resolve_visitor_display_name(
+                name=entity.name,
+                nickname=entity.nickname,
+                nickname_zh=entity.nickname_zh,
+                language=user_language,
+                fallback="访客",
+            )
             avatar = entity.avatar_url or ""
             kind = "visitor"
         elif isinstance(entity, Staff):
-            name, avatar, kind = entity.nickname or "客服", entity.avatar_url or "", "staff"
+            name, avatar, kind = (
+                entity.nickname or "客服",
+                entity.avatar_url or "",
+                "staff",
+            )
         else:
             guard.check()
-            public = await ai_client.get_agent(project_id=str(access.project_id), agent_id=str(entity),
-                include_tools=False, include_collections=False, include_workflows=False)
+            public = await ai_client.get_agent(
+                project_id=str(access.project_id),
+                agent_id=str(entity),
+                include_tools=False,
+                include_collections=False,
+                include_workflows=False,
+            )
             guard.check()
             if public.get("id") != str(entity):
                 raise HTTPException(502, "客服显示信息无法核验")
@@ -359,28 +411,51 @@ async def get_channel_info(
             avatar = public_avatar if isinstance(public_avatar, str) else ""
             kind = "agent"
         guard.check()
-        return ChannelInfoResponse(name=name, avatar=avatar, channel_id=channel_id,
-            channel_type=channel_type, entity_type=kind, extra=None)
+        return ChannelInfoResponse(
+            name=name,
+            avatar=avatar,
+            channel_id=channel_id,
+            channel_type=channel_type,
+            entity_type=kind,
+            extra=None,
+        )
     guard = profile_guard(access, channel=(channel_id, channel_type))
     request.state.operation_guard = guard
     guard.check()
     current_user = resolve_staff_token(db, access.token.get_secret_value())
     assert current_user is not None
-    await require_staff_channel_access(db, current_user, channel_id, channel_type)
+    await require_staff_channel_access(
+        db, current_user, channel_id, channel_type
+    )
     guard.check()
-    if channel_type == 251 or (channel_type == 1 and not channel_id.endswith((STAFF_SUFFIX, AGENT_SUFFIX))):
+    if channel_type == 251 or (
+        channel_type == 1
+        and not channel_id.endswith((STAFF_SUFFIX, AGENT_SUFFIX))
+    ):
         # Private customer metadata keeps the same record permission as details.
-        identifier = parse_visitor_channel_id(channel_id) if channel_type == 251 else UUID(channel_id.removesuffix(VISITOR_SUFFIX))
+
+        identifier = (
+            parse_visitor_channel_id(channel_id)
+            if channel_type == 251
+            else UUID(channel_id.removesuffix(VISITOR_SUFFIX))
+        )
         guard = staff_record_guard(access, (identifier,), "visitors:read")
         request.state.operation_guard = guard
         guard.check()
-    result = await _handle_staff_auth_channel_info(channel_id=channel_id, channel_type=channel_type,
-        current_user=current_user, db=db, accept_language=accept_language, user_language=user_language)
+    result = await _handle_staff_auth_channel_info(
+        channel_id=channel_id,
+        channel_type=channel_type,
+        current_user=current_user,
+        db=db,
+        accept_language=accept_language,
+        user_language=user_language,
+    )
     guard.check()
-    await require_staff_channel_access(db, current_user, channel_id, channel_type)
+    await require_staff_channel_access(
+        db, current_user, channel_id, channel_type
+    )
     guard.check()
     return result
-
 
 
 async def _handle_staff_auth_channel_info(
@@ -393,6 +468,7 @@ async def _handle_staff_auth_channel_info(
 ) -> ChannelInfoResponse:
     """Handle channel info request for JWT authenticated staff."""
     # CUSTOMER SERVICE CHANNEL (251): decode Base62 and extract visitor_id
+
     if channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE:
         return await _get_customer_service_channel_info(
             channel_id=channel_id,
@@ -402,10 +478,11 @@ async def _handle_staff_auth_channel_info(
             accept_language=accept_language,
             user_language=user_language,
         )
-
     # PERSONAL CHANNEL (1)
+
     if channel_type == 1:
         # Staff channel
+
         if channel_id.endswith(STAFF_SUFFIX):
             return _get_staff_channel_info(
                 channel_id=channel_id,
@@ -413,16 +490,16 @@ async def _handle_staff_auth_channel_info(
                 project_id=current_user.project_id,
                 db=db,
             )
-
         # Agent channel
+
         if channel_id.endswith(AGENT_SUFFIX):
             return await _get_agent_channel_info(
                 channel_id=channel_id,
                 channel_type=channel_type,
                 project_id=current_user.project_id,
             )
-
         # Visitor channel (with -vtr suffix)
+
         if channel_id.endswith(VISITOR_SUFFIX):
             return _get_personal_visitor_channel_info(
                 channel_id=channel_id,
@@ -432,8 +509,8 @@ async def _handle_staff_auth_channel_info(
                 accept_language=accept_language,
                 user_language=user_language,
             )
-
         # Visitor channel (no suffix - raw UUID)
+
         return _get_personal_visitor_channel_info(
             channel_id=channel_id,
             channel_type=channel_type,
@@ -442,8 +519,10 @@ async def _handle_staff_auth_channel_info(
             accept_language=accept_language,
             user_language=user_language,
         )
-
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported channel_type")
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Unsupported channel_type",
+    )
 
 
 async def _get_customer_service_channel_info(
@@ -458,15 +537,22 @@ async def _get_customer_service_channel_info(
     try:
         visitor_uuid = parse_visitor_channel_id(channel_id)
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid channel_id format")
-
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid channel_id format",
+        )
     visitor = _get_visitor_with_relations(db, visitor_uuid, project_id)
     if not visitor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
-
-    visitor_payload = _build_enriched_visitor_payload(visitor, db, project_id, accept_language, user_language)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found"
+        )
+    visitor_payload = _build_enriched_visitor_payload(
+        visitor, db, project_id, accept_language, user_language
+    )
     set_visitor_display_nickname(visitor_payload, user_language)
-    return _build_visitor_channel_response(visitor, visitor_payload, channel_id, channel_type, user_language)
+    return _build_visitor_channel_response(
+        visitor, visitor_payload, channel_id, channel_type, user_language
+    )
 
 
 def _get_staff_channel_info(
@@ -476,12 +562,14 @@ def _get_staff_channel_info(
     db: Session,
 ) -> ChannelInfoResponse:
     """Get channel info for staff personal channel."""
-    staff_id_str = channel_id[:-len(STAFF_SUFFIX)]
+    staff_id_str = channel_id[: -len(STAFF_SUFFIX)]
     try:
         staff_uuid = UUID(staff_id_str)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid staff_id in channel")
-
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid staff_id in channel",
+        )
     staff = (
         db.query(Staff)
         .filter(
@@ -492,8 +580,9 @@ def _get_staff_channel_info(
         .first()
     )
     if not staff:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff not found")
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Staff not found"
+        )
     return _build_staff_channel_response(staff, channel_id, channel_type)
 
 
@@ -503,13 +592,16 @@ async def _get_agent_channel_info(
     project_id: UUID,
 ) -> ChannelInfoResponse:
     """Get channel info for agent personal channel."""
-    agent_id_str = channel_id[:-len(AGENT_SUFFIX)]
+    agent_id_str = channel_id[: -len(AGENT_SUFFIX)]
     try:
         agent_uuid = UUID(agent_id_str)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid agent_id in channel")
-
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid agent_id in channel",
+        )
     # Fetch agent from AI service
+
     try:
         agent_data = await ai_client.get_agent(
             project_id=str(project_id),
@@ -519,9 +611,10 @@ async def _get_agent_channel_info(
         )
     except HTTPException as e:
         if e.status_code == 404:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found"
+            )
         raise
-
     raw_name, raw_avatar = agent_data.get("name"), agent_data.get("avatar_url")
     name = raw_name if isinstance(raw_name, str) else "Unknown Agent"
     avatar = raw_avatar if isinstance(raw_avatar, str) else ""
@@ -546,19 +639,26 @@ def _get_personal_visitor_channel_info(
 ) -> ChannelInfoResponse:
     """Get channel info for visitor personal channel (with or without -vtr suffix)."""
     # Handle both formats: raw UUID or UUID with -vtr suffix
+
     visitor_id_str = channel_id
     if channel_id.endswith(VISITOR_SUFFIX):
-        visitor_id_str = channel_id[:-len(VISITOR_SUFFIX)]
-    
+        visitor_id_str = channel_id[: -len(VISITOR_SUFFIX)]
     try:
         visitor_uuid = UUID(visitor_id_str)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid visitor_id in channel")
-
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid visitor_id in channel",
+        )
     visitor = _get_visitor_with_relations(db, visitor_uuid, project_id)
     if not visitor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
-
-    visitor_payload = _build_enriched_visitor_payload(visitor, db, project_id, accept_language, user_language)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found"
+        )
+    visitor_payload = _build_enriched_visitor_payload(
+        visitor, db, project_id, accept_language, user_language
+    )
     set_visitor_display_nickname(visitor_payload, user_language)
-    return _build_visitor_channel_response(visitor, visitor_payload, channel_id, channel_type, user_language)
+    return _build_visitor_channel_response(
+        visitor, visitor_payload, channel_id, channel_type, user_language
+    )

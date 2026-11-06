@@ -6,7 +6,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, DELETE_RESPONSES, UPDATE_RESPONSES
+from app.api.common_responses import (
+    CREATE_RESPONSES,
+    CRUD_RESPONSES,
+    DELETE_RESPONSES,
+    UPDATE_RESPONSES,
+)
 from app.core.security import get_authenticated_project
 from app.core.security import AuthenticatedProject
 from app.schemas.mcp import (
@@ -41,7 +46,8 @@ async def list_project_tools(
         None, description="Filter by tool source type (MCP_SERVER, CUSTOM)"
     ),
     status: Optional[str] = Query(
-        None, description="Filter by tool status (ACTIVE, INACTIVE, DEPRECATED)"
+        None,
+        description="Filter by tool status (ACTIVE, INACTIVE, DEPRECATED)",
     ),
     is_enabled: Optional[bool] = Query(
         None, description="Filter by enabled status"
@@ -49,12 +55,8 @@ async def list_project_tools(
     search: Optional[str] = Query(
         None, description="Search term for tool name or description"
     ),
-    page: int = Query(
-        1, ge=1, description="Page number"
-    ),
-    per_page: int = Query(
-        20, ge=1, le=100, description="Items per page"
-    ),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     project_and_api_key: AuthenticatedProject = Depends(
         get_authenticated_project
     ),
@@ -70,7 +72,7 @@ async def list_project_tools(
             "search": search,
             "page": page,
             "per_page": per_page,
-        }
+        },
     )
 
     result = await ai_client.list_project_tools(
@@ -104,9 +106,7 @@ async def get_project_tool_stats(
     ),
 ) -> ProjectToolStats:
     """Get project tool statistics from AI service MCP integration."""
-    logger.info(
-        "Getting MCP project tool statistics"
-    )
+    logger.info("Getting MCP project tool statistics")
 
     project, _ = project_and_api_key
     result = await ai_client.get_project_tool_stats(
@@ -135,10 +135,7 @@ async def get_project_tool(
     ),
 ) -> ProjectToolResponse:
     """Get project tool from AI service MCP integration."""
-    logger.info(
-        "Getting MCP project tool",
-        extra={"tool_id": str(tool_id)}
-    )
+    logger.info("Getting MCP project tool", extra={"tool_id": str(tool_id)})
 
     project, _ = project_and_api_key
     result = await ai_client.get_project_tool(
@@ -175,9 +172,9 @@ async def update_project_tool(
             "tool_id": str(tool_id),
             "is_enabled": tool_data.is_enabled,
             "has_configuration": tool_data.configuration is not None,
-        }
+        },
     )
-    
+
     project, _ = project_and_api_key
     result = await ai_client.update_project_tool(
         project_id=str(project.id),
@@ -208,10 +205,9 @@ async def uninstall_tool(
 ) -> None:
     """Uninstall tool from AI service MCP integration."""
     logger.info(
-        "Uninstalling MCP project tool",
-        extra={"tool_id": str(tool_id)}
+        "Uninstalling MCP project tool", extra={"tool_id": str(tool_id)}
     )
-    
+
     project, _ = project_and_api_key
     await ai_client.uninstall_tool(
         project_id=str(project.id),
@@ -239,8 +235,7 @@ async def install_tool(
     ),
 ) -> ProjectToolResponse:
     """Install tool via AI service MCP integration."""
-    
-    
+
     project, _ = project_and_api_key
     result = await ai_client.install_tool(
         project_id=str(project.id),
@@ -276,10 +271,11 @@ async def bulk_install_tools(
             "project_id": str(bulk_install_data.project_id),
             "tool_count": len(bulk_install_data.tool_ids),
             "enable_all": bulk_install_data.enable_all,
-            "has_default_configuration": bulk_install_data.default_configuration is not None,
-        }
+            "has_default_configuration": bulk_install_data.default_configuration
+            is not None,
+        },
     )
-    
+
     project, _ = project_and_api_key
     result = await ai_client.bulk_install_tools(
         project_id=str(project.id),
@@ -287,6 +283,3 @@ async def bulk_install_tools(
     )
 
     return [ProjectToolResponse.model_validate(item) for item in result]
-
-
-

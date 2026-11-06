@@ -30,7 +30,10 @@ from app.services.operations_authorization import (
 )
 
 router = APIRouter(
-    dependencies=[Depends(require_commercial_operations), Depends(require_operator)]
+    dependencies=[
+        Depends(require_commercial_operations),
+        Depends(require_operator),
+    ]
 )
 
 
@@ -42,14 +45,24 @@ def overview(db: Session = Depends(get_db)) -> OperationsOverview:
 @router.get("/company-directory", response_model=CompanyDirectory)
 def directory(
     q: str = Query("", max_length=254),
-    state: Literal["legacy", "pending", "trial", "active", "expired", "suspended", "enabled"]
+    state: Literal[
+        "legacy",
+        "pending",
+        "trial",
+        "active",
+        "expired",
+        "suspended",
+        "enabled",
+    ]
     | None = None,
     expiring: bool = False,
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> CompanyDirectory:
-    return service.directory(db, offset, limit, q=q, state=state, expiring=expiring)
+    return service.directory(
+        db, offset, limit, q=q, state=state, expiring=expiring
+    )
 
 
 @router.get("/companies/{project_id}", response_model=CompanyDetail)
@@ -58,15 +71,20 @@ def detail(project_id: UUID, db: Session = Depends(get_db)) -> CompanyDetail:
 
 
 @router.post(
-    "/companies/{project_id}/authorization/preview", response_model=AuthorizationPreview
+    "/companies/{project_id}/authorization/preview",
+    response_model=AuthorizationPreview,
 )
 def preview(
-    project_id: UUID, payload: AuthorizationChange, db: Session = Depends(get_db)
+    project_id: UUID,
+    payload: AuthorizationChange,
+    db: Session = Depends(get_db),
 ) -> AuthorizationPreview:
     return preview_authorization(db, project_id, payload)
 
 
-@router.put("/companies/{project_id}/authorization", response_model=CompanyDetail)
+@router.put(
+    "/companies/{project_id}/authorization", response_model=CompanyDetail
+)
 def authorization(
     project_id: UUID,
     payload: AuthorizationChange,
@@ -88,12 +106,16 @@ def member(
     db: Session = Depends(get_db),
     operator: PlatformOperator = Depends(require_operator),
 ) -> ManagedMember:
-    result = service.update_member(db, operator, project_id, member_id, payload)
+    result = service.update_member(
+        db, operator, project_id, member_id, payload
+    )
     db.commit()
     return result
 
 
-@router.post("/companies/{project_id}/members/{member_id}/reset-email", status_code=204)
+@router.post(
+    "/companies/{project_id}/members/{member_id}/reset-email", status_code=204
+)
 def reset_email(
     project_id: UUID,
     member_id: UUID,
@@ -101,7 +123,9 @@ def reset_email(
     db: Session = Depends(get_db),
     operator: PlatformOperator = Depends(require_operator),
 ) -> Response:
-    service.send_reset_email(db, operator, project_id, member_id, payload.reason)
+    service.send_reset_email(
+        db, operator, project_id, member_id, payload.reason
+    )
     db.commit()
     return Response(status_code=204)
 

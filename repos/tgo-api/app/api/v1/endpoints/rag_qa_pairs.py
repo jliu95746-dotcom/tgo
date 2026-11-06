@@ -8,7 +8,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES
+from app.api.common_responses import (
+    CREATE_RESPONSES,
+    CRUD_RESPONSES,
+    LIST_RESPONSES,
+)
 from app.core.security import get_current_active_user
 from app.core.logging import get_logger
 from app.models.staff import Staff
@@ -58,7 +62,9 @@ async def create_qa_pair(
         extra={
             "project_id": project_id,
             "collection_id": str(collection_id),
-            "question_preview": qa_data.question[:50] if qa_data.question else None,
+            "question_preview": qa_data.question[:50]
+            if qa_data.question
+            else None,
         },
     )
 
@@ -82,7 +88,9 @@ async def list_qa_pairs(
     limit: int = Query(20, ge=1, le=100, description="Page size"),
     offset: int = Query(0, ge=0, description="Page offset"),
     category: Optional[str] = Query(None, description="Filter by category"),
-    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
+    status_filter: Optional[str] = Query(
+        None, alias="status", description="Filter by status"
+    ),
     current_user: Staff = Depends(get_current_active_user),
 ) -> QAPairListResponse:
     """List QA pairs in a collection."""
@@ -260,7 +268,9 @@ async def delete_qa_pair(
     description="Get distinct QA pair categories for the project, optionally filtered by collection.",
 )
 async def list_qa_categories(
-    collection_id: Optional[UUID] = Query(None, description="Optional collection ID to filter"),
+    collection_id: Optional[UUID] = Query(
+        None, description="Optional collection ID to filter"
+    ),
     current_user: Staff = Depends(get_current_active_user),
 ) -> QACategoryListResponse:
     """List distinct QA categories."""
@@ -279,4 +289,3 @@ async def list_qa_categories(
         collection_id=str(collection_id) if collection_id else None,
     )
     return QACategoryListResponse.model_validate(result)
-

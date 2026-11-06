@@ -49,7 +49,9 @@ def preview_authorization(
     if unpaid_fulfillment is not None:
         raise conflict("该商家有已付款但尚未完成授权的订单，请先处理订单异常")
     previous_plan = (
-        db.get(BillingPlan, account.plan_id) if account and account.plan_id else None
+        db.get(BillingPlan, account.plan_id)
+        if account and account.plan_id
+        else None
     )
     before = AuthorizationSnapshot(
         plan_id=account.plan_id if account else None,
@@ -64,7 +66,9 @@ def preview_authorization(
     after = AuthorizationSnapshot(
         plan_id=plan.id,
         plan_name=PlanDefinition.model_validate(plan.definition).name,
-        status="suspended" if account and account.status == "suspended" else "active",
+        status="suspended"
+        if account and account.status == "suspended"
+        else "active",
         expires_at=payload.expires_at,
         seats=payload.seats,
         version=version + 1,
@@ -134,7 +138,9 @@ def change_authorization(
     db.flush()
 
 
-def operator_authorization_active(account: CompanyAccount, now: datetime) -> bool:
+def operator_authorization_active(
+    account: CompanyAccount, now: datetime
+) -> bool:
     return (
         account.operator_override_until is not None
         and utc(account.operator_override_until) > now

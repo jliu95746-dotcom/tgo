@@ -12,19 +12,38 @@ from app.schemas.agent_activation import (
     AgentActivationRequirementsQuery,
 )
 from app.services.agent_activation_requirements import current_requirements
-from app.schemas.agent_activation_models import AgentActivationModel, AgentActivationModelQuery
+from app.schemas.agent_activation_models import (
+    AgentActivationModel,
+    AgentActivationModelQuery,
+)
 from app.services.agent_activation_models import current_model
-from app.schemas.agent_configuration_actor import AgentConfigurationActor, AgentConfigurationActorQuery
+from app.schemas.agent_configuration_actor import (
+    AgentConfigurationActor,
+    AgentConfigurationActorQuery,
+)
 from app.services.agent_configuration_actor import current_configuration_actor
-from app.schemas.agent_business_connections import BusinessConnectionOwner, ConnectionOwnerQuery
-from app.services.agent_business_connection_owner import current_business_connection
-from app.schemas.agent_business_reviews import BusinessTestEvidenceQuery, BusinessTestEvidence
+from app.schemas.agent_business_connections import (
+    BusinessConnectionOwner,
+    ConnectionOwnerQuery,
+)
+from app.services.agent_business_connection_owner import (
+    current_business_connection,
+)
+from app.schemas.agent_business_reviews import (
+    BusinessTestEvidenceQuery,
+    BusinessTestEvidence,
+)
 from app.services.agent_business_evidence import current_evidence
-from app.schemas.agent_business_execution import BusinessRuntimeQuery, BusinessRuntimeReadiness
+from app.schemas.agent_business_execution import (
+    BusinessRuntimeQuery,
+    BusinessRuntimeReadiness,
+)
 from app.services.business_runtime_readiness import current_business_runtime
 
 
-def require_activation_service(x_internal_api_key: str | None = Header(None)) -> None:
+def require_activation_service(
+    x_internal_api_key: str | None = Header(None),
+) -> None:
     if (
         not settings.SECRET_KEY
         or not x_internal_api_key
@@ -40,22 +59,30 @@ router = APIRouter(dependencies=[Depends(require_activation_service)])
 
 
 @router.post("/business-runtime", response_model=BusinessRuntimeReadiness)
-async def business_runtime(query: BusinessRuntimeQuery, db: Session = Depends(get_db)) -> BusinessRuntimeReadiness:
+async def business_runtime(
+    query: BusinessRuntimeQuery, db: Session = Depends(get_db)
+) -> BusinessRuntimeReadiness:
     return await current_business_runtime(db, query)
 
 
 @router.post("/business-test-evidence", response_model=BusinessTestEvidence)
-def business_test_evidence(query: BusinessTestEvidenceQuery, db: Session = Depends(get_db)) -> BusinessTestEvidence:
-    return current_evidence(db,query)
+def business_test_evidence(
+    query: BusinessTestEvidenceQuery, db: Session = Depends(get_db)
+) -> BusinessTestEvidence:
+    return current_evidence(db, query)
 
 
 @router.post("/business-connection", response_model=BusinessConnectionOwner)
-def business_connection(query: ConnectionOwnerQuery, db: Session = Depends(get_db)) -> BusinessConnectionOwner:
+def business_connection(
+    query: ConnectionOwnerQuery, db: Session = Depends(get_db)
+) -> BusinessConnectionOwner:
     return current_business_connection(db, query)
 
 
 @router.post("/actor", response_model=AgentConfigurationActor)
-def configuration_actor(query: AgentConfigurationActorQuery, db: Session = Depends(get_db)) -> AgentConfigurationActor:
+def configuration_actor(
+    query: AgentConfigurationActorQuery, db: Session = Depends(get_db)
+) -> AgentConfigurationActor:
     return current_configuration_actor(db, query)
 
 

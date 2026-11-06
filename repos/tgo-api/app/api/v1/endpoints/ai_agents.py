@@ -7,9 +7,17 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError as SchemaValidationError
 
-from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES, UPDATE_RESPONSES
+from app.api.common_responses import (
+    CREATE_RESPONSES,
+    CRUD_RESPONSES,
+    LIST_RESPONSES,
+    UPDATE_RESPONSES,
+)
 from app.core.logging import get_logger
-from app.core.security import get_authenticated_project, get_current_active_user
+from app.core.security import (
+    get_authenticated_project,
+    get_current_active_user,
+)
 from app.core.security import AuthenticatedProject
 from app.core.database import get_db
 from sqlalchemy.orm import Session
@@ -29,7 +37,9 @@ from app.schemas.ai import (
 from app.models.ai_provider import AIProvider
 from app.models.project import Project
 from app.models.staff import Staff
-from app.api.agent_configuration_access import require_agent_configuration_actor
+from app.api.agent_configuration_access import (
+    require_agent_configuration_actor,
+)
 from app.services.ai_client import ai_client
 from app.services.device_control_client import device_control_client
 
@@ -49,7 +59,6 @@ async def _enrich_agent_with_device(
     device_id = agent_data.get("bound_device_id")
     if not device_id:
         return
-
     try:
         device = await device_control_client.get_device(
             device_id=str(device_id),
@@ -82,13 +91,17 @@ async def _enrich_agents_with_devices(
 async def get_workflow_release_audit(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    project_and_api_key: tuple[Project, str] = Depends(get_authenticated_project),
+    project_and_api_key: tuple[Project, str] = Depends(
+        get_authenticated_project
+    ),
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> WorkflowReleaseAuditResponse:
     """Admin-only, project-scoped impact report; this endpoint never changes pins."""
     project, _ = project_and_api_key
     return await ai_client.get_workflow_release_audit(
-        project_id=str(project.id), limit=limit, offset=offset,
+        project_id=str(project.id),
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -101,13 +114,17 @@ async def pin_legacy_agent_workflow(
     agent_id: UUID,
     workflow_id: str,
     command: WorkflowPinTransitionCommand,
-    project_and_api_key: tuple[Project, str] = Depends(get_authenticated_project),
+    project_and_api_key: tuple[Project, str] = Depends(
+        get_authenticated_project
+    ),
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> WorkflowPinTransitionReceipt:
     project, _ = project_and_api_key
     result = await ai_client.pin_legacy_workflow(
-        project_id=str(project.id), agent_id=str(agent_id),
-        workflow_id=workflow_id, command=command.model_dump(mode="json"),
+        project_id=str(project.id),
+        agent_id=str(agent_id),
+        workflow_id=workflow_id,
+        command=command.model_dump(mode="json"),
         requested_by=actor.id,
     )
     return WorkflowPinTransitionReceipt.model_validate(result)
@@ -122,13 +139,18 @@ async def get_workflow_pin_transitions(
     agent_id: UUID,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    project_and_api_key: tuple[Project, str] = Depends(get_authenticated_project),
+    project_and_api_key: tuple[Project, str] = Depends(
+        get_authenticated_project
+    ),
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> WorkflowPinTransitionHistory:
     project, _ = project_and_api_key
     result = await ai_client.get_workflow_pin_transitions(
-        project_id=str(project.id), agent_id=str(agent_id),
-        requested_by=actor.id, limit=limit, offset=offset,
+        project_id=str(project.id),
+        agent_id=str(agent_id),
+        requested_by=actor.id,
+        limit=limit,
+        offset=offset,
     )
     return WorkflowPinTransitionHistory.model_validate(result)
 
@@ -152,19 +174,16 @@ async def list_agents(
     is_default: Optional[bool] = Query(
         None, description="Filter by default agent status"
     ),
-    bound_device_id: UUID | None = Query(
-        None, description="Filter by bound device ID"
-    ),
+    bound_device_id: UUID
+    | None = Query(None, description="Filter by bound device ID"),
     limit: int = Query(
         20, ge=1, le=100, description="Number of agents to return"
     ),
-    offset: int = Query(
-        0, ge=0, description="Number of agents to skip"
-    ),
+    offset: int = Query(0, ge=0, description="Number of agents to skip"),
     project_and_api_key: AuthenticatedProject = Depends(
         get_authenticated_project
     ),
-    ) -> AgentListResponse:
+) -> AgentListResponse:
     """List agents from AI service.
 
     Returns raw JSON to tolerate upstream schema changes while preserving docs.
@@ -175,10 +194,12 @@ async def list_agents(
         extra={
             "model": model,
             "is_default": is_default,
-            "bound_device_id": str(bound_device_id) if bound_device_id else None,
+            "bound_device_id": str(bound_device_id)
+            if bound_device_id
+            else None,
             "limit": limit,
             "offset": offset,
-        }
+        },
     )
 
     result = await ai_client.list_agents(
@@ -191,6 +212,7 @@ async def list_agents(
     )
 
     # Enrich agents with bound device info from tgo-device-control
+
     if bound_device_id is None and isinstance(result, dict):
         rows = result.get("data")
         if isinstance(rows, list):
@@ -200,8 +222,8 @@ async def list_agents(
                     502, "AI service returned an invalid agent list"
                 )
             await _enrich_agents_with_devices(agent_rows, str(project.id))
-
     # Return raw JSON to avoid strict validation while keeping OpenAPI schema
+
     return JSONResponse(content=result)
 
 
@@ -228,39 +250,47 @@ async def create_agent(
 ) -> AgentResponse:
     """Create agent in AI service."""
     project, _ = project_and_api_key
-    
+
     logger.info(
         "Creating AI agent",
         extra={
             "agent_name": agent_data.name,
             "model": agent_data.model,
             "is_default": agent_data.is_default,
-            "workflow_count": len(agent_data.workflows) if agent_data.workflows else 0,
+            "workflow_count": len(agent_data.workflows)
+            if agent_data.workflows
+            else 0,
             "bound_device_id": agent_data.bound_device_id,
-        }
+        },
     )
 
     payload = agent_data.model_dump(exclude_none=True)
     # Normalize model to pure name (strip provider prefix if present)
+
     model_val = payload.get("model")
     if isinstance(model_val, str) and ":" in model_val:
         payload["model"] = model_val.split(":", 1)[1]
-
     # Map ai_provider_id -> llm_provider_id and validate ownership
+
     ai_provider_id = payload.pop("ai_provider_id", None)
     if ai_provider_id is not None:
-        provider = db.query(AIProvider).filter(
-            AIProvider.id == ai_provider_id,
-            AIProvider.project_id == project.id,
-            AIProvider.deleted_at.is_(None),
-        ).first()
+        provider = (
+            db.query(AIProvider)
+            .filter(
+                AIProvider.id == ai_provider_id,
+                AIProvider.project_id == project.id,
+                AIProvider.deleted_at.is_(None),
+            )
+            .first()
+        )
         if not provider:
-            raise HTTPException(status_code=404, detail="AIProvider not found for current project")
+            raise HTTPException(
+                status_code=404,
+                detail="AIProvider not found for current project",
+            )
         payload["llm_provider_id"] = str(ai_provider_id)
-
     if payload.get("model") == "__system_default__":
         payload["llm_provider_id"] = None
-
     result = await ai_client.create_agent(
         project_id=str(project.id),
         agent_data=payload,
@@ -276,14 +306,18 @@ async def create_agent(
 )
 async def get_device_action_readiness(
     agent_id: UUID,
-    project_and_api_key: tuple[Project, str] = Depends(get_authenticated_project),
+    project_and_api_key: tuple[Project, str] = Depends(
+        get_authenticated_project
+    ),
     current_user: Staff = Depends(get_current_active_user),
 ) -> AgentDeviceActionReadiness:
     project, _ = project_and_api_key
     if current_user.project_id != project.id:
         raise HTTPException(403, "设备动作核验的企业身份不一致")
     result = await ai_client.get_device_action_readiness(
-        str(project.id), str(agent_id), requested_by=current_user.id,
+        str(project.id),
+        str(agent_id),
+        requested_by=current_user.id,
     )
     try:
         readiness = AgentDeviceActionReadiness.model_validate(result)
@@ -331,9 +365,9 @@ async def get_agent(
             "include_tools": include_tools,
             "include_collections": include_collections,
             "include_workflows": include_workflows,
-        }
+        },
     )
-    
+
     project, _ = project_and_api_key
     result = await ai_client.get_agent(
         project_id=str(project.id),
@@ -344,10 +378,11 @@ async def get_agent(
     )
 
     # Enrich with bound device info from tgo-device-control
+
     if isinstance(result, dict):
         await _enrich_agent_with_device(result, str(project.id))
-
     # Return raw JSON to avoid strict validation, while keeping docs via response_model
+
     return JSONResponse(content=result)
 
 
@@ -374,7 +409,7 @@ async def update_agent(
 ) -> AgentResponse:
     """Update agent in AI service."""
     project, _ = project_and_api_key
-    
+
     logger.info(
         "Updating AI agent",
         extra={
@@ -382,35 +417,44 @@ async def update_agent(
             "agent_name": agent_data.name,
             "model": agent_data.model,
             "is_default": agent_data.is_default,
-            "workflow_count": len(agent_data.workflows) if agent_data.workflows else 0,
+            "workflow_count": len(agent_data.workflows)
+            if agent_data.workflows
+            else 0,
             "bound_device_id": agent_data.bound_device_id,
-        }
+        },
     )
 
     # Use exclude_unset so that fields explicitly set to None (e.g.
     # bound_device_id=null for unbinding a device) are preserved in the
     # payload, while fields the client did not provide are omitted.
+
     payload = agent_data.model_dump(exclude_unset=True)
     # Normalize model to pure name (strip provider prefix if present)
+
     model_val = payload.get("model")
     if isinstance(model_val, str) and ":" in model_val:
         payload["model"] = model_val.split(":", 1)[1]
-
     # Map ai_provider_id -> llm_provider_id and validate ownership if provided
+
     ai_provider_id = payload.pop("ai_provider_id", None)
     if ai_provider_id is not None:
-        provider = db.query(AIProvider).filter(
-            AIProvider.id == ai_provider_id,
-            AIProvider.project_id == project.id,
-            AIProvider.deleted_at.is_(None),
-        ).first()
+        provider = (
+            db.query(AIProvider)
+            .filter(
+                AIProvider.id == ai_provider_id,
+                AIProvider.project_id == project.id,
+                AIProvider.deleted_at.is_(None),
+            )
+            .first()
+        )
         if not provider:
-            raise HTTPException(status_code=404, detail="AIProvider not found for current project")
+            raise HTTPException(
+                status_code=404,
+                detail="AIProvider not found for current project",
+            )
         payload["llm_provider_id"] = str(ai_provider_id)
-
     if payload.get("model") == "__system_default__":
         payload["llm_provider_id"] = None
-
     result = await ai_client.update_agent(
         project_id=str(project.id),
         agent_id=str(agent_id),
@@ -439,10 +483,7 @@ async def delete_agent(
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> None:
     """Delete agent from AI service."""
-    logger.info(
-        "Deleting AI agent",
-        extra={"agent_id": str(agent_id)}
-    )
+    logger.info("Deleting AI agent", extra={"agent_id": str(agent_id)})
 
     project, _ = project_and_api_key
     await ai_client.delete_agent(
@@ -479,7 +520,7 @@ async def set_agent_tool_enabled(
             "agent_id": str(agent_id),
             "tool_id": str(tool_id),
             "enabled": toggle_data.enabled,
-        }
+        },
     )
 
     project, _ = project_and_api_key
@@ -519,7 +560,7 @@ async def set_agent_collection_enabled(
             "agent_id": str(agent_id),
             "collection_id": collection_id,
             "enabled": toggle_data.enabled,
-        }
+        },
     )
 
     project, _ = project_and_api_key
@@ -559,7 +600,7 @@ async def set_agent_workflow_enabled(
             "agent_id": str(agent_id),
             "workflow_id": workflow_id,
             "enabled": toggle_data.enabled,
-        }
+        },
     )
 
     project, _ = project_and_api_key

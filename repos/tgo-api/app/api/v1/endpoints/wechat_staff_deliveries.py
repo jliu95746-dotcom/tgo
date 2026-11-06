@@ -62,9 +62,12 @@ async def authorize(
         )
     else:
         # Revocation stops new sends, but cannot erase an already performed send.
+
         if credentials is None:
             raise HTTPException(401, "缺少访客回执凭据")
-        proof_actor = authenticate_im_actor(db, body.channel_id, credentials.credentials)
+        proof_actor = authenticate_im_actor(
+            db, body.channel_id, credentials.credentials
+        )
         if proof_actor.id != visitor.id:
             raise HTTPException(403, "个人微信访客身份不一致")
         actor = visitor
@@ -121,8 +124,16 @@ async def receipt(
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
 ) -> WeChatDeliveryAccepted:
-    platform, visitor = await authorize(db, body, credentials, check_scope=False)
+    platform, visitor = await authorize(
+        db, body, credentials, check_scope=False
+    )
     await service.confirm(
-        db, delivery_id, platform.id, visitor, body.claim_id, body.result, body.receipt
+        db,
+        delivery_id,
+        platform.id,
+        visitor,
+        body.claim_id,
+        body.result,
+        body.receipt,
     )
     return WeChatDeliveryAccepted()

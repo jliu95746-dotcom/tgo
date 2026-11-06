@@ -49,7 +49,11 @@ async def publish(turn_id: UUID) -> None:
         result = await forward_ai_event_to_wukongim(
             event_type="workflow_completed",
             event_data={
-                "data": {"success": True, "final_content": reply, "total_chunks": 0}
+                "data": {
+                    "success": True,
+                    "final_content": reply,
+                    "total_chunks": 0,
+                }
             },
             channel_id=channel_id,
             channel_type=channel_type,
@@ -57,11 +61,13 @@ async def publish(turn_id: UUID) -> None:
             from_uid=from_uid,
         )
         if result != reply:
-            raise RuntimeError("Staff history did not acknowledge the final reply")
-        with SessionLocal() as db:
-            TurnStore(db).get(turn_id, lock=True).im_published_at = datetime.now(
-                timezone.utc
+            raise RuntimeError(
+                "Staff history did not acknowledge the final reply"
             )
+        with SessionLocal() as db:
+            TurnStore(db).get(
+                turn_id, lock=True
+            ).im_published_at = datetime.now(timezone.utc)
             db.commit()
     except Exception:
         with SessionLocal() as db:

@@ -55,6 +55,7 @@ def gateway_urls() -> tuple[str, str]:
             ):
                 raise ValueError("Invalid gateway URL")
             # Accessing port also validates its integer value and range.
+
             _ = parsed.port
         except ValueError as exc:
             raise HTTPException(503, "实时消息入口尚未配置") from exc
@@ -108,16 +109,27 @@ class MessageRelay:
         self.pending: set[str] = set()
         self.delivered: set[tuple[str, int]] = set()
 
-    async def verify(self, channel: tuple[str, int] | None = None, *, sending: bool = False) -> None:
+    async def verify(
+        self, channel: tuple[str, int] | None = None, *, sending: bool = False
+    ) -> None:
         # A short session prevents a socket from retaining stale ORM records.
+
         with SessionLocal() as db:
             actor = authenticate_im_actor(db, self.uid, self.token)
             if channel is not None:
                 await authorize_im_channel(db, actor, *channel)
                 if sending:
-                    from app.services.company_entitlements import require_human_service, require_new_service
+                    from app.services.company_entitlements import (
+                        require_human_service,
+                        require_new_service,
+                    )
+
                     if channel[1] == 251:
-                        require_human_service(db, actor.project_id, UUID(channel[0].removesuffix("-vtr")))
+                        require_human_service(
+                            db,
+                            actor.project_id,
+                            UUID(channel[0].removesuffix("-vtr")),
+                        )
                     else:
                         require_new_service(db, actor.project_id)
 
@@ -196,6 +208,7 @@ class MessageRelay:
                     continue
                 except ValueError:
                     # Events without verifiable channel context stay private.
+
                     continue
                 if frame.get("method") == "recv":
                     if len(self.delivered) >= MAX_PENDING:
@@ -292,6 +305,7 @@ async def serve_im_gateway(browser: WebSocket) -> None:
         ) as upstream:
             stage = "upstream_auth"
             # Never forward a client-selected privileged device identifier.
+
             await upstream.send(
                 json.dumps(
                     {
@@ -342,6 +356,7 @@ async def serve_im_gateway(browser: WebSocket) -> None:
     finally:
         if not established and failure_type:
             # Operational diagnosis must never include credentials or frames.
+
             logger.warning(
                 "Realtime handshake failed",
                 extra={

@@ -98,7 +98,9 @@ def resolve_staff_message_target(
         channel_id=channel_id,
         channel_type=channel_type,
         service_mode=getattr(visitor, "service_mode", None),
-        humanization_skill_name=getattr(visitor, "humanization_skill_name", None),
+        humanization_skill_name=getattr(
+            visitor, "humanization_skill_name", None
+        ),
         humanization_skill_enabled=getattr(
             visitor, "humanization_skill_enabled", False
         ),

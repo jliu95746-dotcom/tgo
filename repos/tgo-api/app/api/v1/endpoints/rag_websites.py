@@ -8,7 +8,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES
+from app.api.common_responses import (
+    CREATE_RESPONSES,
+    CRUD_RESPONSES,
+    LIST_RESPONSES,
+)
 from app.core.security import get_current_active_user
 from app.core.logging import get_logger
 from app.models.staff import Staff
@@ -61,14 +65,18 @@ async def list_pages(
         None, alias="status", description="Filter by page status"
     ),
     depth: Optional[int] = Query(None, description="Filter by depth"),
-    parent_page_id: Optional[UUID] = Query(None, description="Filter by parent page ID"),
+    parent_page_id: Optional[UUID] = Query(
+        None, description="Filter by parent page ID"
+    ),
     tree_depth: Optional[int] = Query(
         None,
         ge=-1,
         le=10,
-        description="Number of child levels to include. 0/None=no children, 1=direct children, -1=unlimited"
+        description="Number of child levels to include. 0/None=no children, 1=direct children, -1=unlimited",
     ),
-    limit: int = Query(20, ge=1, le=100, description="Number of pages to return"),
+    limit: int = Query(
+        20, ge=1, le=100, description="Number of pages to return"
+    ),
     offset: int = Query(0, ge=0, description="Number of pages to skip"),
     current_user: Staff = Depends(get_current_active_user),
 ) -> WebsitePageListResponse:
@@ -161,11 +169,14 @@ async def add_page(
             "collection_id": str(collection_id),
             "url": page_data.url,
             "max_depth": page_data.max_depth,
-            "parent_page_id": str(page_data.parent_page_id) if page_data.parent_page_id else None,
+            "parent_page_id": str(page_data.parent_page_id)
+            if page_data.parent_page_id
+            else None,
         },
     )
 
     # Convert to dict and ensure UUIDs are serialized as strings
+
     request_data = page_data.model_dump(exclude_none=True, mode="json")
 
     result = await rag_client.add_website_page(

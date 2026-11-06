@@ -31,7 +31,9 @@ def fingerprint(project: UUID, connection: UUID, customer_id: str) -> str:
     ).hexdigest()
 
 
-def scopes(db: Session, project: UUID, visitor: UUID) -> list[VisitorBusinessScope]:
+def scopes(
+    db: Session, project: UUID, visitor: UUID
+) -> list[VisitorBusinessScope]:
     return list(
         db.scalars(
             select(VisitorBusinessScope)
@@ -46,7 +48,11 @@ def scopes(db: Session, project: UUID, visitor: UUID) -> list[VisitorBusinessSco
 
 
 def ensure_owner(
-    db: Session, project: UUID, visitor: UUID, connection: UUID, customer_id: str
+    db: Session,
+    project: UUID,
+    visitor: UUID,
+    connection: UUID,
+    customer_id: str,
 ) -> VisitorBusinessScope:
     # The caller locks the connection and the current visitor before creating a binding.
     expected = fingerprint(project, connection, customer_id)
@@ -83,11 +89,12 @@ def ensure_owner(
                 .token
             )
             if original is None or not hmac.compare_digest(
-                fingerprint(project, connection, original.get_secret_value()), expected
+                fingerprint(project, connection, original.get_secret_value()),
+                expected,
             ):
                 raise ConflictError(
                     "不能将其他客户的旧访客会话重新绑定，请建立新的访客会话",
-                    details={"reason":"visitor_owner_changed"},
+                    details={"reason": "visitor_owner_changed"},
                 )
         row = VisitorBusinessScope(
             project_id=project,
@@ -98,14 +105,22 @@ def ensure_owner(
         db.add(row)
         db.flush()
     if row.retired_at is not None:
-        raise ConflictError("原客户会话已结束，请建立新的访客会话", details={"reason":"visitor_access_ended"})
+        raise ConflictError(
+            "原客户会话已结束，请建立新的访客会话", details={"reason": "visitor_access_ended"}
+        )
     if not hmac.compare_digest(row.owner_fingerprint, expected):
-        raise ConflictError("客户已改变，请建立新的访客会话", details={"reason":"visitor_owner_changed"})
+        raise ConflictError(
+            "客户已改变，请建立新的访客会话", details={"reason": "visitor_owner_changed"}
+        )
     return row
 
 
 def require_owner(
-    db: Session, project: UUID, visitor: UUID, connection: UUID, customer_id: str
+    db: Session,
+    project: UUID,
+    visitor: UUID,
+    connection: UUID,
+    customer_id: str,
 ) -> VisitorBusinessScope:
     row: VisitorBusinessScope | None = db.scalar(
         select(VisitorBusinessScope)
@@ -120,7 +135,8 @@ def require_owner(
         row is None
         or row.retired_at is not None
         or not hmac.compare_digest(
-            row.owner_fingerprint, fingerprint(project, connection, customer_id)
+            row.owner_fingerprint,
+            fingerprint(project, connection, customer_id),
         )
     ):
         raise ConflictError("客户会话归属尚未核验或已结束，请重新建立访客会话")

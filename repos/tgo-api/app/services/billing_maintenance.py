@@ -31,13 +31,19 @@ def maintain_subscriptions() -> None:
             account = lock_company(db, project_id)
             if account is None or account.status not in {"trial", "active"}:
                 continue
-            if account.expires_at is not None and utc(account.expires_at) <= now:
+            if (
+                account.expires_at is not None
+                and utc(account.expires_at) <= now
+            ):
                 account.status = "expired"
                 # Expiry itself does not change quote basis: a previously paid order
                 # remains fulfillable after an outage. API gates use actual timestamps.
             elif account.status == "active":
                 operator_override = operator_authorization_active(account, now)
-                if account.operator_override_until is not None and not operator_override:
+                if (
+                    account.operator_override_until is not None
+                    and not operator_override
+                ):
                     account.operator_override_until = None
                 period = db.scalar(
                     select(SubscriptionPeriod).where(
@@ -47,7 +53,9 @@ def maintain_subscriptions() -> None:
                     )
                 )
                 if period is not None:
-                    definition = PlanDefinition.model_validate(period.definition)
+                    definition = PlanDefinition.model_validate(
+                        period.definition
+                    )
                     extras = (
                         db.scalar(
                             select(
@@ -74,6 +82,7 @@ def maintain_subscriptions() -> None:
 def reconcile_one() -> bool:
     now = datetime.now(timezone.utc)
     # Closed orders remain eligible for query to catch delayed provider settlement.
+
     with SessionLocal() as db:
         order = db.scalar(
             select(BillingOrder)
@@ -87,7 +96,8 @@ def reconcile_one() -> bool:
                 ),
             )
             .order_by(
-                BillingOrder.last_checked_at.asc().nullsfirst(), BillingOrder.created_at
+                BillingOrder.last_checked_at.asc().nullsfirst(),
+                BillingOrder.created_at,
             )
             .with_for_update(skip_locked=True)
             .limit(1)

@@ -19,21 +19,30 @@ from app.schemas.model_usage import ModelUsageResponse
 from app.services.model_usage import list_model_usage
 from app.schemas.trial_policy import TrialPolicyChange, TrialPolicyResponse
 from app.services.trial_policy import read_policy, change_policy
-from app.schemas.platform_models import PlatformModelChange, PlatformModelPolicy
+from app.schemas.platform_models import (
+    PlatformModelChange,
+    PlatformModelPolicy,
+)
 from app.services.platform_models import read_model_policy, update_model_policy
 from app.schemas.commercial_health import CommercialHealthReport
 from app.services.commercial_health import inspect_commercial_health
 from app.schemas.session_command_monitoring import (
-    ReconcileSessionNotice, SessionCommandAlertItem, SessionCommandAlertReport,
+    ReconcileSessionNotice,
+    SessionCommandAlertItem,
+    SessionCommandAlertReport,
 )
 from app.services.session_command_monitoring import (
-    inspect_session_command_alerts, reconcile_stale_notice,
+    inspect_session_command_alerts,
+    reconcile_stale_notice,
 )
 from app.schemas.wecom_durable_status import WeComDurableStatus
 from app.services.platform_message_client import read_wecom_durable_status
 
 router = APIRouter(
-    dependencies=[Depends(require_commercial_operations), Depends(require_operator)]
+    dependencies=[
+        Depends(require_commercial_operations),
+        Depends(require_operator),
+    ]
 )
 
 
@@ -48,7 +57,9 @@ async def wecom_durable_status(response: Response) -> WeComDurableStatus:
     return await read_wecom_durable_status()
 
 
-@router.get("/session-command-alerts", response_model=SessionCommandAlertReport)
+@router.get(
+    "/session-command-alerts", response_model=SessionCommandAlertReport
+)
 def session_command_alerts(
     response: Response,
     stale_after_seconds: int = Query(300, ge=60, le=86400),
@@ -58,7 +69,10 @@ def session_command_alerts(
 ) -> SessionCommandAlertReport:
     response.headers["Cache-Control"] = "no-store"
     return inspect_session_command_alerts(
-        db, stale_after_seconds=stale_after_seconds, offset=offset, limit=limit,
+        db,
+        stale_after_seconds=stale_after_seconds,
+        offset=offset,
+        limit=limit,
     )
 
 

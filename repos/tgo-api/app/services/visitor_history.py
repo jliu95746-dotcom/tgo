@@ -12,10 +12,14 @@ def require_owned_history_batch(
     channel_type: int,
     result: WuKongIMChannelMessageSyncResponse,
 ) -> None:
-    authorize_visitor_data_channel(access,channel_id,channel_type)
-    if any(message.channel_id != channel_id or message.channel_type != channel_type
-           for message in result.messages):
+    authorize_visitor_data_channel(access, channel_id, channel_type)
+    if any(
+        message.channel_id != channel_id
+        or message.channel_type != channel_type
+        for message in result.messages
+    ):
         raise TGOAPIException(
             "历史消息来源未通过核验，请稍后重试。",
-            "HISTORY_SCOPE_MISMATCH",status_code=502,
+            "HISTORY_SCOPE_MISMATCH",
+            status_code=502,
         )

@@ -21,10 +21,16 @@ from app.core.exceptions import TGOAPIException
 
 
 def utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return (
+        value.replace(tzinfo=UTC)
+        if value.tzinfo is None
+        else value.astimezone(UTC)
+    )
 
 
-def parsed_receipt(row: BusinessConnectionTest) -> ConnectionTestReceipt | None:
+def parsed_receipt(
+    row: BusinessConnectionTest,
+) -> ConnectionTestReceipt | None:
     if row.receipt is None:
         return None
     try:
@@ -45,7 +51,9 @@ def parsed_receipt(row: BusinessConnectionTest) -> ConnectionTestReceipt | None:
     )
     return (
         result
-        if all(getattr(result, field) == getattr(row, field) for field in identity)
+        if all(
+            getattr(result, field) == getattr(row, field) for field in identity
+        )
         else None
     )
 
@@ -61,7 +69,10 @@ def assess_report(
     receipt = parsed_receipt(row)
     if row.mode == "demo":
         return BusinessConnectionTestApplicability(
-            status="not_passed", checked_at=now, valid_until=None, issues=["demo_only"]
+            status="not_passed",
+            checked_at=now,
+            valid_until=None,
+            issues=["demo_only"],
         )
     if row.status != "completed" or (
         receipt is not None and receipt.outcome != "passed"
@@ -124,7 +135,10 @@ def assess_report(
     actor = (
         db.scalar(
             select(Staff)
-            .where(Staff.id == row.actor_id, Staff.project_id == connection.project_id)
+            .where(
+                Staff.id == row.actor_id,
+                Staff.project_id == connection.project_id,
+            )
             .execution_options(populate_existing=True)
         )
         if row.actor_id is not None
@@ -143,7 +157,9 @@ def assess_report(
     if connection.credential_ciphertext:
         try:
             CredentialVault().decrypt(
-                connection.credential_ciphertext, connection.project_id, connection.id
+                connection.credential_ciphertext,
+                connection.project_id,
+                connection.id,
             )
         except TGOAPIException:
             issues.append("credential_unavailable")
@@ -159,7 +175,9 @@ def assess_report(
     )
 
 
-def current_capabilities(db: Session, connection: BusinessConnection) -> list[str]:
+def current_capabilities(
+    db: Session, connection: BusinessConnection
+) -> list[str]:
     if connection.mode != "http":
         return []
     verified = []
@@ -187,6 +205,9 @@ def current_capabilities(db: Session, connection: BusinessConnection) -> list[st
             or row.completed_at is None
         ):
             continue
-        if assess_report(db, row, connection, latest_checked=True).status == "current":
+        if (
+            assess_report(db, row, connection, latest_checked=True).status
+            == "current"
+        ):
             verified.append(operation)
     return verified

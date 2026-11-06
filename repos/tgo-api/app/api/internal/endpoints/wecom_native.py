@@ -20,7 +20,9 @@ from app.services.wecom_native_context import (
 )
 
 
-def require_native_service(x_saas_service_token: str | None = Header(None)) -> None:
+def require_native_service(
+    x_saas_service_token: str | None = Header(None),
+) -> None:
     expected = settings.SAAS_INTERNAL_TOKEN
     if (
         expected is None

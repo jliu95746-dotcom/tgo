@@ -23,9 +23,8 @@ def get_project_credential(
     )
     if not credential:
         return None
-    
     return {
         "api_key": decrypt_str(credential.api_key_encrypted),
         "store_user_id": credential.store_user_id,
-        "store_email": credential.store_email
+        "store_email": credential.store_email,
     }

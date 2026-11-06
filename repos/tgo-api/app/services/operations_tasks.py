@@ -14,7 +14,10 @@ from app.services.company_email import utc
 
 
 def retry_task(
-    db: Session, operator: PlatformOperator, identifier: UUID, payload: RetryTask
+    db: Session,
+    operator: PlatformOperator,
+    identifier: UUID,
+    payload: RetryTask,
 ) -> BillingJob:
     job = db.scalar(
         select(BillingJob).where(BillingJob.id == identifier).with_for_update()
@@ -31,7 +34,11 @@ def retry_task(
             project_id=job.project_id,
             action="task_retry",
             reason=payload.reason,
-            detail={"task_id": str(job.id), "kind": job.kind, "attempts": job.attempts},
+            detail={
+                "task_id": str(job.id),
+                "kind": job.kind,
+                "attempts": job.attempts,
+            },
         )
     )
     db.flush()

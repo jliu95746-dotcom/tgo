@@ -25,13 +25,17 @@ from app.services.business_connection_vault import CredentialVault
 class CustomerIssuerVault(CredentialVault):
     @staticmethod
     def _scope(project: UUID, connection: UUID) -> bytes:
-        return f"tgo-business-customer-issuer-v1:{project}:{connection}".encode()
+        return (
+            f"tgo-business-customer-issuer-v1:{project}:{connection}".encode()
+        )
 
 
 class CustomerBindingVault(CredentialVault):
     @staticmethod
     def _scope(project: UUID, connection: UUID) -> bytes:
-        return f"tgo-business-customer-binding-v1:{project}:{connection}".encode()
+        return (
+            f"tgo-business-customer-binding-v1:{project}:{connection}".encode()
+        )
 
 
 def identity_denied() -> TGOAPIException:
@@ -51,7 +55,9 @@ def unique_object(pairs: list[tuple[str, JsonValue]]) -> dict[str, JsonValue]:
     return result
 
 
-def parse_assertion(value: SecretStr) -> tuple[MerchantCustomerAssertion, str, str]:
+def parse_assertion(
+    value: SecretStr,
+) -> tuple[MerchantCustomerAssertion, str, str]:
     try:
         version, payload, signature = value.get_secret_value().split(".")
         if (
@@ -87,7 +93,11 @@ def verify_signature(key: SecretStr, payload: str, signature: str) -> None:
 
 
 def utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return (
+        value.replace(tzinfo=UTC)
+        if value.tzinfo is None
+        else value.astimezone(UTC)
+    )
 
 
 def session_signing_key() -> bytes:
@@ -113,7 +123,9 @@ def issue_session(row: BusinessCustomerBinding) -> CustomerIdentitySession:
         exp=int(utc(row.expires_at).timestamp()),
     )
     token = jwt.encode(
-        claims.model_dump(mode="json"), session_signing_key(), algorithm="HS256"
+        claims.model_dump(mode="json"),
+        session_signing_key(),
+        algorithm="HS256",
     )
     return CustomerIdentitySession(
         binding_id=row.id,

@@ -14,8 +14,12 @@ router = APIRouter()
 
 
 @router.post("/ended", response_model=ReplyPhaseAcknowledgment)
-async def confirm_ended_phase(receipt: ReplyPhaseReceipt) -> ReplyPhaseAcknowledgment:
-    identity = ReplyPhaseIdentity.model_validate(receipt.model_dump(exclude={"status"}))
+async def confirm_ended_phase(
+    receipt: ReplyPhaseReceipt,
+) -> ReplyPhaseAcknowledgment:
+    identity = ReplyPhaseIdentity.model_validate(
+        receipt.model_dump(exclude={"status"})
+    )
     try:
         result = await control.run_registry.end_phase(identity)
     except RegistryUnavailable as exc:

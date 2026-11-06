@@ -19,6 +19,7 @@ logger = get_logger("docs")
 router = APIRouter(prefix="/docs", tags=["Documentation"])
 
 # Service configuration mapping
+
 SERVICES = {
     "api": {
         "name": "TGO API Service",
@@ -121,10 +122,16 @@ async def docs_index():
 """
 
 
-@router.get("/api", response_class=HTMLResponse, summary="TGO API Documentation")
+@router.get(
+    "/api", response_class=HTMLResponse, summary="TGO API Documentation"
+)
 async def docs_api():
     """Swagger UI for the current TGO API service."""
-    return HTMLResponse(_swagger_ui_html("TGO API Service", f"{settings.API_V1_STR}/openapi.json"))
+    return HTMLResponse(
+        _swagger_ui_html(
+            "TGO API Service", f"{settings.API_V1_STR}/openapi.json"
+        )
+    )
 
 
 @router.get("/{service}/openapi.json", summary="Proxy OpenAPI JSON")
@@ -132,10 +139,9 @@ async def proxy_openapi_json(service: str):
     """Proxy OpenAPI JSON from remote service."""
     if service not in SERVICES or service == "api":
         raise HTTPException(status_code=404, detail="Service not found")
-    
     svc = SERVICES[service]
     url = f"{svc['url'].rstrip('/')}{svc['openapi_path']}"
-    
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url)
@@ -143,20 +149,29 @@ async def proxy_openapi_json(service: str):
             return resp.json()
     except Exception as e:
         logger.warning(f"Failed to fetch OpenAPI from {service}: {e}")
-        raise HTTPException(status_code=503, detail=f"Service unavailable: {svc['name']}")
+        raise HTTPException(
+            status_code=503, detail=f"Service unavailable: {svc['name']}"
+        )
 
 
-@router.get("/{service}", response_class=HTMLResponse, summary="Service Documentation")
+@router.get(
+    "/{service}", response_class=HTMLResponse, summary="Service Documentation"
+)
 async def docs_service(service: str):
     """Swagger UI for a remote microservice."""
     if service not in SERVICES:
-        return HTMLResponse(_error_html("Not Found", f"Service '{service}' not found."), status_code=404)
-    
+        return HTMLResponse(
+            _error_html("Not Found", f"Service '{service}' not found."),
+            status_code=404,
+        )
     if service == "api":
-        return HTMLResponse(_swagger_ui_html("TGO API Service", f"{settings.API_V1_STR}/openapi.json"))
-    
+        return HTMLResponse(
+            _swagger_ui_html(
+                "TGO API Service", f"{settings.API_V1_STR}/openapi.json"
+            )
+        )
     svc = SERVICES[service]
     # Use proxied openapi.json to avoid CORS issues
+
     openapi_url = f"/v1/docs/{service}/openapi.json"
     return HTMLResponse(_swagger_ui_html(svc["name"], openapi_url))
-

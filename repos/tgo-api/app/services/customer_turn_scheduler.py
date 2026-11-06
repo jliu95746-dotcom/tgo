@@ -12,8 +12,12 @@ class TurnScheduler:
 
     def __init__(self) -> None:
         self.redis = (
-            Redis.from_url(settings.REDIS_URL, decode_responses=True,
-                           socket_connect_timeout=1, socket_timeout=1)
+            Redis.from_url(
+                settings.REDIS_URL,
+                decode_responses=True,
+                socket_connect_timeout=1,
+                socket_timeout=1,
+            )
             if settings.REDIS_URL
             else None
         )
@@ -35,7 +39,9 @@ class TurnScheduler:
                 )
             ]
         return [
-            UUID(key) for key, due in list(self.memory.items()) if due <= time.time()
+            UUID(key)
+            for key, due in list(self.memory.items())
+            if due <= time.time()
         ][:32]
 
     async def acquire(self, turn_id: UUID, owner: str) -> bool:

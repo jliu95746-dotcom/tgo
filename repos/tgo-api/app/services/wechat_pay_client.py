@@ -34,7 +34,9 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 class WeChatPayError(TGOAPIException):
     def __init__(self, provider_code: str) -> None:
         super().__init__(
-            "微信支付暂不可用，请稍后重试或联系平台", code="WECHAT_PAY_UNAVAILABLE", status_code=503
+            "微信支付暂不可用，请稍后重试或联系平台",
+            code="WECHAT_PAY_UNAVAILABLE",
+            status_code=503,
         )
         self.provider_code = provider_code
 
@@ -94,31 +96,44 @@ class WeChatPayClient:
             raise unavailable()
         try:
             private = serialization.load_pem_private_key(
-                Path(settings.WECHAT_PAY_PRIVATE_KEY_FILE).read_bytes(), password=None
+                Path(settings.WECHAT_PAY_PRIVATE_KEY_FILE).read_bytes(),
+                password=None,
             )
-            if not isinstance(private, rsa.RSAPrivateKey) or private.key_size < 2048:
+            if (
+                not isinstance(private, rsa.RSAPrivateKey)
+                or private.key_size < 2048
+            ):
                 raise ValueError("Invalid merchant private key")
             self.private_key = private
             self.keys = {
                 serial: load_public_key(Path(path).read_bytes())
                 for serial, path in settings.WECHAT_PAY_TRUSTED_KEYS.items()
             }
-            self.api_key = settings.WECHAT_PAY_API_V3_KEY.get_secret_value().encode()
+            self.api_key = (
+                settings.WECHAT_PAY_API_V3_KEY.get_secret_value().encode()
+            )
             if len(self.api_key) != 32:
                 raise ValueError("Invalid API v3 key")
         except (ValueError, OSError) as exc:
             raise unavailable() from exc
 
     def request(
-        self, method: str, path: str, payload: dict[str, JsonValue] | None = None
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, JsonValue] | None = None,
     ) -> dict[str, JsonValue]:
         body = (
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+            json.dumps(
+                payload, ensure_ascii=False, separators=(",", ":")
+            ).encode()
             if payload is not None
             else b""
         )
         timestamp, nonce = str(int(time.time())), token_hex(16)
-        signature = sign_request(self.private_key, method, path, body, timestamp, nonce)
+        signature = sign_request(
+            self.private_key, method, path, body, timestamp, nonce
+        )
         authorization = (
             "WECHATPAY2-SHA256-RSA2048 "
             f'mchid="{settings.WECHAT_PAY_MCH_ID}",nonce_str="{nonce}",'
@@ -148,16 +163,20 @@ class WeChatPayClient:
                 code = error.get("code")
                 raise WeChatPayError(
                     code
-                    if isinstance(code, str) and re.fullmatch(r"[A-Z_]{1,60}", code)
+                    if isinstance(code, str)
+                    and re.fullmatch(r"[A-Z_]{1,60}", code)
                     else "UNKNOWN"
                 )
             if not response.content:
                 return {}
-            return TypeAdapter(dict[str, JsonValue]).validate_json(response.content)
+            return TypeAdapter(dict[str, JsonValue]).validate_json(
+                response.content
+            )
         except TGOAPIException:
             raise
         except Exception as exc:
             # Never expose provider bodies, signatures or credential paths to customers.
+
             raise unavailable() from exc
 
     def native(self, number: str, amount: int, expires_at: datetime) -> str:
@@ -265,7 +284,11 @@ class WeChatPayClient:
                 "out_refund_no": refund_number,
                 "reason": reason.encode()[:80].decode(errors="ignore"),
                 "notify_url": settings.WECHAT_PAY_REFUND_NOTIFY_URL,
-                "amount": {"refund": refund, "total": total, "currency": "CNY"},
+                "amount": {
+                    "refund": refund,
+                    "total": total,
+                    "currency": "CNY",
+                },
             },
         )
         return ProviderRefund.model_validate(result)
@@ -273,7 +296,8 @@ class WeChatPayClient:
     def query_refund(self, refund_number: str) -> ProviderRefund:
         return ProviderRefund.model_validate(
             self.request(
-                "GET", f"/v3/refund/domestic/refunds/{quote(refund_number, safe='')}"
+                "GET",
+                f"/v3/refund/domestic/refunds/{quote(refund_number, safe='')}",
             )
         )
 
@@ -302,9 +326,13 @@ class WeChatPayClient:
         result = self.request(
             "GET",
             "/v3/bill/tradebill?"
-            + urlencode({"bill_date": bill_date.isoformat(), "bill_type": "ALL"}),
+            + urlencode(
+                {"bill_date": bill_date.isoformat(), "bill_type": "ALL"}
+            ),
         )
-        url, expected_hash = result.get("download_url"), result.get("hash_value")
+        url, expected_hash = result.get("download_url"), result.get(
+            "hash_value"
+        )
         if (
             not isinstance(url, str)
             or not isinstance(expected_hash, str)
@@ -318,12 +346,15 @@ class WeChatPayClient:
             or location.port not in {None, 443}
             or location.username
             or location.fragment
-            or location.path not in {"/v3/billdownload/file", "/v3/bill/downloadurl"}
+            or location.path
+            not in {"/v3/billdownload/file", "/v3/bill/downloadurl"}
         ):
             raise unavailable()
         path = location.path + ("?" + location.query if location.query else "")
         timestamp, nonce = str(int(time.time())), token_hex(16)
-        signature = sign_request(self.private_key, "GET", path, b"", timestamp, nonce)
+        signature = sign_request(
+            self.private_key, "GET", path, b"", timestamp, nonce
+        )
         authorization = (
             "WECHATPAY2-SHA256-RSA2048 "
             f'mchid="{settings.WECHAT_PAY_MCH_ID}",nonce_str="{nonce}",signature="{signature}",'
@@ -345,9 +376,12 @@ class WeChatPayClient:
                 for chunk in response.iter_bytes():
                     content.extend(chunk)
                     if len(content) > 50 * 1024 * 1024:
-                        raise ValueError("Trade statement exceeds processing limit")
+                        raise ValueError(
+                            "Trade statement exceeds processing limit"
+                        )
         # Bill downloads intentionally have no Wechatpay-Signature header.
         # Integrity comes from the hash in the verified bill application response.
+
         digest = sha1(content).hexdigest()
         if digest != expected_hash.lower():
             raise ValueError("Trade statement hash mismatch")

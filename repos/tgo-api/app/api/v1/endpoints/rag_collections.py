@@ -5,7 +5,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, LIST_RESPONSES, UPDATE_RESPONSES
+from app.api.common_responses import (
+    CREATE_RESPONSES,
+    CRUD_RESPONSES,
+    LIST_RESPONSES,
+    UPDATE_RESPONSES,
+)
 from app.core.logging import get_logger
 from app.core.security import get_authenticated_project
 from app.core.security import AuthenticatedProject
@@ -52,9 +57,7 @@ async def list_collections(
     limit: int = Query(
         20, ge=1, le=100, description="Number of collections to return"
     ),
-    offset: int = Query(
-        0, ge=0, description="Number of collections to skip"
-    ),
+    offset: int = Query(0, ge=0, description="Number of collections to skip"),
     project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> CollectionListResponse:
     """List collections from RAG service."""
@@ -62,11 +65,13 @@ async def list_collections(
         "Listing RAG collections",
         extra={
             "display_name": display_name,
-            "collection_type": collection_type.value if collection_type else None,
+            "collection_type": collection_type.value
+            if collection_type
+            else None,
             "tags": tags,
             "limit": limit,
             "offset": offset,
-        }
+        },
     )
     project, _api_key = project_and_key
     project_id = str(project.id)
@@ -105,7 +110,7 @@ async def create_collection(
         extra={
             "display_name": collection_data.display_name,
             "tags": collection_data.tags,
-        }
+        },
     )
     project, _api_key = project_and_key
     project_id = str(project.id)
@@ -141,7 +146,7 @@ async def get_collection(
         extra={
             "collection_id": str(collection_id),
             "include_stats": include_stats,
-        }
+        },
     )
 
     project, _api_key = project_and_key
@@ -182,11 +187,10 @@ async def update_collection(
             "collection_id": str(collection_id),
             "display_name": collection_data.display_name,
             "tags": collection_data.tags,
-        }
+        },
     )
     project, _api_key = project_and_key
     project_id = str(project.id)
-
 
     result = await rag_client.update_collection(
         project_id=project_id,
@@ -213,12 +217,10 @@ async def delete_collection(
 ) -> None:
     """Delete collection from RAG service."""
     logger.info(
-        "Deleting RAG collection",
-        extra={"collection_id": str(collection_id)}
+        "Deleting RAG collection", extra={"collection_id": str(collection_id)}
     )
     project, _api_key = project_and_key
     project_id = str(project.id)
-
 
     await rag_client.delete_collection(
         project_id=project_id,
@@ -251,7 +253,7 @@ async def search_collection_documents(
             "query": search_request.query,
             "limit": search_request.limit,
             "search_mode": getattr(search_request, "search_mode", "N/A"),
-        }
+        },
     )
     project, _api_key = project_and_key
     project_id = str(project.id)
@@ -281,14 +283,13 @@ async def search_collection_documents(
 async def list_collection_pages(
     collection_id: UUID,
     status: Optional[str] = Query(
-        None, description="Filter by page status (pending, processing, completed, failed)"
+        None,
+        description="Filter by page status (pending, processing, completed, failed)",
     ),
     limit: int = Query(
         20, ge=1, le=100, description="Number of pages to return"
     ),
-    offset: int = Query(
-        0, ge=0, description="Number of pages to skip"
-    ),
+    offset: int = Query(0, ge=0, description="Number of pages to skip"),
     project_and_key: AuthenticatedProject = Depends(get_authenticated_project),
 ) -> WebsitePageListResponse:
     """List crawled pages for a website collection."""
@@ -299,7 +300,7 @@ async def list_collection_pages(
             "status": status,
             "limit": limit,
             "offset": offset,
-        }
+        },
     )
     project, _api_key = project_and_key
     project_id = str(project.id)

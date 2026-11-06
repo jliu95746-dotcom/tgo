@@ -31,19 +31,26 @@ async def register_project_account(
         if not settings.SAAS_BILLING_ENABLED:
             raise HTTPException(503, "企业试用权限尚未配置")
         from app.services.company_email import require_mail_configuration
+
         require_mail_configuration()
         from app.services.platform_models import runtime_model
+
         if runtime_model(db) is None:
             raise HTTPException(503, "平台客服模型尚未配置，请联系平台开通试用")
-    setup = db.query(SystemSetup).order_by(SystemSetup.created_at.asc()).first()
+    setup = (
+        db.query(SystemSetup).order_by(SystemSetup.created_at.asc()).first()
+    )
     if not setup or not setup.is_installed:
-        raise HTTPException(409, "Complete system installation before registering")
+        raise HTTPException(
+            409, "Complete system installation before registering"
+        )
     existing = (
-        db.query(Staff.id).filter(func.lower(Staff.username) == data.username).first()
+        db.query(Staff.id)
+        .filter(func.lower(Staff.username) == data.username)
+        .first()
     )
     if existing:
         raise HTTPException(409, "An account with this email already exists")
-
     try:
         project = Project(
             name=data.project_name or f"{data.username.split('@')[0]} 的工作空间",
@@ -52,6 +59,7 @@ async def register_project_account(
         db.add(project)
         db.flush()
         from app.services.shared_models import apply_shared_models_to_project
+
         apply_shared_models_to_project(db, project.id)
         owner = Staff(
             project_id=project.id,
@@ -61,10 +69,13 @@ async def register_project_account(
             role="admin",
             status="offline",
             account_enabled=email_verified or not settings.SAAS_ENABLED,
-            email_verified_at=datetime.now(timezone.utc) if email_verified else None,
+            email_verified_at=datetime.now(timezone.utc)
+            if email_verified
+            else None,
         )
         db.add(owner)
         # No model keys, customers, skills or third-party channel settings are copied.
+
         db.add(
             Platform(
                 project_id=project.id,
@@ -84,12 +95,14 @@ async def register_project_account(
         if settings.SAAS_ENABLED:
             from app.models.company_account import CompanyAccount
             from app.services.company_email import enqueue_action
+
             db.add(CompanyAccount(project_id=project.id))
             if not email_verified:
                 enqueue_action(db, owner, "verify")
         result = StaffResponse.model_validate(owner)
         # Commit before external I/O: concurrent signup must not hold a unique-index
         # lock while waiting for IM. Login reconciles the project notification channel.
+
         db.commit()
         return result
     except IntegrityError as exc:

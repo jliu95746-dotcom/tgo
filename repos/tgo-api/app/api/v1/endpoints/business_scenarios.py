@@ -32,25 +32,40 @@ from app.schemas.scenario_agents import ScenarioAgentReceipt, ScenarioAgentSave
 router = APIRouter()
 
 
-@router.get("/knowledge-review-cases", response_model=list[KnowledgeReviewCase])
-def knowledge_review_cases(current_user: Staff = Depends(require_admin())) -> list[KnowledgeReviewCase]:
+@router.get(
+    "/knowledge-review-cases", response_model=list[KnowledgeReviewCase]
+)
+def knowledge_review_cases(
+    current_user: Staff = Depends(require_admin()),
+) -> list[KnowledgeReviewCase]:
     return list_cases()
 
 
 @router.post("/drafts/{draft_id}/agent", response_model=ScenarioAgentReceipt)
 async def save_agent(
-    draft_id: UUID, request: ScenarioAgentSave,
-    current_user: Staff = Depends(require_admin()), db: Session = Depends(get_db),
+    draft_id: UUID,
+    request: ScenarioAgentSave,
+    current_user: Staff = Depends(require_admin()),
+    db: Session = Depends(get_db),
 ) -> ScenarioAgentReceipt:
-    return await scenario_agents.save(db, current_user.project_id, current_user.id,
-                                     draft_id, request.expected_revision)
+    return await scenario_agents.save(
+        db,
+        current_user.project_id,
+        current_user.id,
+        draft_id,
+        request.expected_revision,
+    )
 
 
 @router.get("/drafts/{draft_id}/agent", response_model=ScenarioAgentReceipt)
 async def get_agent(
-    draft_id: UUID, current_user: Staff = Depends(require_admin()), db: Session = Depends(get_db),
+    draft_id: UUID,
+    current_user: Staff = Depends(require_admin()),
+    db: Session = Depends(get_db),
 ) -> ScenarioAgentReceipt:
-    return await scenario_agents.get(db, current_user.project_id, current_user.id, draft_id)
+    return await scenario_agents.get(
+        db, current_user.project_id, current_user.id, draft_id
+    )
 
 
 @router.get("/templates", response_model=list[ScenarioTemplate])

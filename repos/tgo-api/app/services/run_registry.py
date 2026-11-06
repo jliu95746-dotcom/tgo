@@ -29,7 +29,9 @@ class RegistryUnavailable(Exception):
 
 
 class RunRegistry:
-    async def get(self, project_id: str, client_msg_no: str) -> ReplyRun | None:
+    async def get(
+        self, project_id: str, client_msg_no: str
+    ) -> ReplyRun | None:
         raise NotImplementedError
 
     async def _mutate(
@@ -43,11 +45,15 @@ class RunRegistry:
                 raise RegistryConflict("Reply already registered")
             return item
 
-        result = await self._mutate(item.project_id, item.client_msg_no, change)
+        result = await self._mutate(
+            item.project_id, item.client_msg_no, change
+        )
         assert result is not None
         return result
 
-    async def _owned(self, item: ReplyRun, change: Mutation) -> ReplyRun | None:
+    async def _owned(
+        self, item: ReplyRun, change: Mutation
+    ) -> ReplyRun | None:
         def guarded(previous: ReplyRun | None) -> ReplyRun | None:
             if previous is None or previous.generation != item.generation:
                 return None
@@ -75,7 +81,9 @@ class RunRegistry:
                 if previous.phase == phase:
                     return previous
                 raise RegistryConflict("Another AI phase is still running")
-            return previous.model_copy(update={"phase": phase, "phase_ended": False})
+            return previous.model_copy(
+                update={"phase": phase, "phase_ended": False}
+            )
 
         return await self._owned(item, change)
 
@@ -97,12 +105,16 @@ class RunRegistry:
                 )
             return result
 
-        return await self._mutate(phase.project_id, phase.client_msg_no, change)
+        return await self._mutate(
+            phase.project_id, phase.client_msg_no, change
+        )
 
     async def request_cancel(self, item: ReplyRun) -> ReplyRun | None:
         def change(previous: ReplyRun | None) -> ReplyRun | None:
             if previous is not None and previous.status == "active":
-                return previous.model_copy(update={"status": "cancel_requested"})
+                return previous.model_copy(
+                    update={"status": "cancel_requested"}
+                )
             return previous
 
         return await self._owned(item, change)
@@ -131,14 +143,17 @@ class RunRegistry:
             if status == "cancelled" and previous.status != "cancel_requested":
                 return previous
             if (
-                preserve_cancel and status == "failed"
+                preserve_cancel
+                and status == "failed"
                 and previous.status == "cancel_requested"
             ):
                 if previous.phase is not None and not previous.phase_ended:
-                    return previous.model_copy(update={
-                        "status": "failed",
-                        "failure_reason": "upstream_stop_unconfirmed",
-                    })
+                    return previous.model_copy(
+                        update={
+                            "status": "failed",
+                            "failure_reason": "upstream_stop_unconfirmed",
+                        }
+                    )
                 return previous.model_copy(
                     update={"status": "cancelled", "failure_reason": None}
                 )
@@ -173,7 +188,9 @@ class InMemoryRunRegistry(RunRegistry):
             if expiry <= now:
                 self._entries.pop(key, None)
 
-    async def get(self, project_id: str, client_msg_no: str) -> ReplyRun | None:
+    async def get(
+        self, project_id: str, client_msg_no: str
+    ) -> ReplyRun | None:
         async with self._lock:
             self._prune()
             stored = self._entries.get((project_id, client_msg_no))
@@ -211,7 +228,9 @@ class RedisRunRegistry(RunRegistry):
         return "tgo:reply_runs:v2:" + hashlib.sha256(identity).hexdigest()
 
     @staticmethod
-    def _decode(raw: object, project_id: str, client_msg_no: str) -> ReplyRun | None:
+    def _decode(
+        raw: object, project_id: str, client_msg_no: str
+    ) -> ReplyRun | None:
         if raw is None:
             return None
         if not isinstance(raw, (str, bytes)):
@@ -219,12 +238,19 @@ class RedisRunRegistry(RunRegistry):
         try:
             item = ReplyRun.model_validate_json(raw)
         except ValueError as exc:
-            raise RegistryUnavailable("Invalid reply registry payload") from exc
-        if item.project_id != project_id or item.client_msg_no != client_msg_no:
+            raise RegistryUnavailable(
+                "Invalid reply registry payload"
+            ) from exc
+        if (
+            item.project_id != project_id
+            or item.client_msg_no != client_msg_no
+        ):
             raise RegistryUnavailable("Reply registry identity mismatch")
         return item
 
-    async def get(self, project_id: str, client_msg_no: str) -> ReplyRun | None:
+    async def get(
+        self, project_id: str, client_msg_no: str
+    ) -> ReplyRun | None:
         try:
             raw = await self._redis.get(self._key(project_id, client_msg_no))
             return self._decode(raw, project_id, client_msg_no)

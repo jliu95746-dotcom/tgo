@@ -81,7 +81,9 @@ def reserve(
     )
     if running >= settings.SAAS_AI_MAX_CONCURRENT_REPLIES:
         raise TGOAPIException(
-            "同时处理的 AI 回复已达上限，请稍后重试", code="AI_CONCURRENCY_EXCEEDED", status_code=429
+            "同时处理的 AI 回复已达上限，请稍后重试",
+            code="AI_CONCURRENCY_EXCEEDED",
+            status_code=429,
         )
     if account.status == "active":
         period = db.scalar(
@@ -110,7 +112,9 @@ def reserve(
     )
     if batch is None:
         raise TGOAPIException(
-            "AI 回复次数已用尽，可继续人工接待或由管理员加购", code="AI_QUOTA_EXHAUSTED", status_code=402
+            "AI 回复次数已用尽，可继续人工接待或由管理员加购",
+            code="AI_QUOTA_EXHAUSTED",
+            status_code=402,
         )
     batch.remaining -= 1
     if existing is None:
@@ -162,8 +166,12 @@ def begin_publication(
     receipt: dict[str, JsonValue],
 ) -> None:
     row = owned(db, project_id, reservation_id, lease_id)
-    require_service(db.get(CompanyAccount, project_id), datetime.now(timezone.utc))
-    if row.status != "reserved" or utc(row.expires_at) <= datetime.now(timezone.utc):
+    require_service(
+        db.get(CompanyAccount, project_id), datetime.now(timezone.utc)
+    )
+    if row.status != "reserved" or utc(row.expires_at) <= datetime.now(
+        timezone.utc
+    ):
         raise TGOAPIException(
             "AI 任务授权已失效", code="AI_RESERVATION_STALE", status_code=409
         )
@@ -173,7 +181,9 @@ def begin_publication(
     db.flush()
 
 
-def settle(db: Session, project_id: UUID, reservation_id: UUID, lease_id: UUID) -> None:
+def settle(
+    db: Session, project_id: UUID, reservation_id: UUID, lease_id: UUID
+) -> None:
     row = owned(db, project_id, reservation_id, lease_id)
     if row.status == "settled":
         return
@@ -199,9 +209,7 @@ def release(
     if row.status in {"released", "settled"}:
         return
     if row.status != "reserved" and not delivery_rejected:
-        row.status = (
-            "review"  # Ambiguous sends need channel lookup, never blind refund.
-        )
+        row.status = "review"  # Ambiguous sends need channel lookup, never blind refund.
         return
     batch = db.get(AICreditBatch, row.batch_id)
     assert batch is not None

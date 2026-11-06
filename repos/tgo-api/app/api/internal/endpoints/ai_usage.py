@@ -20,7 +20,9 @@ from app.services.platform_models import runtime_model
 from app.services.workflow_ai_usage import require_current_owner
 
 
-def require_quota_service(x_saas_service_token: str | None = Header(None)) -> None:
+def require_quota_service(
+    x_saas_service_token: str | None = Header(None),
+) -> None:
     require_internal_service_token(x_saas_service_token)
 
 

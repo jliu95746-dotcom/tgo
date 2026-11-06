@@ -64,10 +64,11 @@ async def register_channel_visitor(
         ):
             raise ConflictError("此渠道访客存在已结束或浏览器访问记录，需要核对后继续")
         if payload.nickname is not None:
-            visitor.nickname, visitor.nickname_zh = (
-                visitor_service.resolve_visitor_nickname(
-                    payload.nickname, payload.nickname, payload.platform_open_id
-                )
+            (
+                visitor.nickname,
+                visitor.nickname_zh,
+            ) = visitor_service.resolve_visitor_nickname(
+                payload.nickname, payload.nickname, payload.platform_open_id
             )
         if payload.avatar_url is not None:
             visitor.avatar_url = payload.avatar_url

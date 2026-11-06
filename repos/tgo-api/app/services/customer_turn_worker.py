@@ -43,11 +43,13 @@ def recover() -> list[tuple[UUID, float]]:
                         ),
                         and_(
                             CustomerTurn.state == "ready",
-                            CustomerTurn.ready_at < now - timedelta(seconds=900),
+                            CustomerTurn.ready_at
+                            < now - timedelta(seconds=900),
                         ),
                         and_(
                             CustomerTurn.state == "sending",
-                            CustomerTurn.updated_at < now - timedelta(seconds=120),
+                            CustomerTurn.updated_at
+                            < now - timedelta(seconds=120),
                         ),
                     )
                 )
@@ -65,7 +67,8 @@ def recover() -> list[tuple[UUID, float]]:
                 row.failure = "发送结果待核对，停止自动重试"
             elif (
                 row.state == "ready"
-                and (now - utc(row.ready_at or row.updated_at)).total_seconds() > 900
+                and (now - utc(row.ready_at or row.updated_at)).total_seconds()
+                > 900
             ):
                 TurnStore(db).release_permit(row)
                 row.state, row.failure = "failed", "回复等待过久，请结合最新消息重新处理"
@@ -76,9 +79,14 @@ def recover() -> list[tuple[UUID, float]]:
             ):
                 TurnStore(db).release_permit(row)
                 # Old workers retain their version and fail the final fence.
+
                 row.version += 1
                 row.client_msg_no = "ai_" + uuid4().hex
-                row.state, row.due_at, row.lease_owner = "collecting", now, None
+                row.state, row.due_at, row.lease_owner = (
+                    "collecting",
+                    now,
+                    None,
+                )
             if row.state == "collecting":
                 due.append((row.id, utc(row.due_at).timestamp()))
         db.commit()
@@ -149,6 +157,7 @@ def begin(
             turn.failure = media_failure
         turn.lease_until = now + timedelta(seconds=30)
         # A lease expiry cannot replay the old AI identity or its publication.
+
         db.commit()
         context = TurnExecution(
             turn.id,
@@ -164,7 +173,8 @@ def begin(
         extra = parts[-1].payload.get("extra") or {}
         extra = extra if isinstance(extra, dict) else {}
         context.isolated_history = bool(
-            extra.get("wechat_local_group") or extra.get("reception_conversation")
+            extra.get("wechat_local_group")
+            or extra.get("reception_conversation")
         )
         return context, ChatCompletionRequest.model_validate(payload)
 
@@ -178,9 +188,14 @@ async def renew(context: TurnExecution, owner: UUID) -> None:
         def heartbeat() -> bool:
             with SessionLocal() as db:
                 turn = TurnStore(db).get(context.turn_id, lock=True)
-                if turn.version != context.version or turn.lease_owner != owner:
+                if (
+                    turn.version != context.version
+                    or turn.lease_owner != owner
+                ):
                     return False
-                turn.lease_until = datetime.now(timezone.utc) + timedelta(seconds=30)
+                turn.lease_until = datetime.now(timezone.utc) + timedelta(
+                    seconds=30
+                )
                 db.commit()
                 return True
 
@@ -204,6 +219,7 @@ async def execute(turn_id: UUID, owner: UUID) -> None:
             from app.api.v1.endpoints.chat import chat_completion
 
             # Use the same scoped visitor proof as the channel; never skip auth.
+
             from app.services.im_access import issue_visitor_im_token
 
             with SessionLocal() as db:
@@ -212,22 +228,31 @@ async def execute(turn_id: UUID, owner: UUID) -> None:
                     raise RuntimeError("Customer missing")
                 proof = HTTPAuthorizationCredentials(
                     scheme="Bearer",
-                    credentials=issue_visitor_im_token(visitor, timedelta(minutes=5)),
+                    credentials=issue_visitor_im_token(
+                        visitor, timedelta(minutes=5)
+                    ),
                 )
 
             async def invoke() -> None:
                 with SessionLocal() as db:
-                    http_request = Request({
-                        "type": "http", "method": "POST",
-                        "path": "/v1/chat/completion", "headers": [],
-                        "query_string": b"",
-                    })
+                    http_request = Request(
+                        {
+                            "type": "http",
+                            "method": "POST",
+                            "path": "/v1/chat/completion",
+                            "headers": [],
+                            "query_string": b"",
+                        }
+                    )
                     await chat_completion(
-                        req=request, request=http_request, db=db,
+                        req=request,
+                        request=http_request,
+                        db=db,
                         credentials=proof,
                         x_saas_service_token=(
                             settings.SAAS_INTERNAL_TOKEN.get_secret_value()
-                            if settings.SAAS_INTERNAL_TOKEN is not None else None
+                            if settings.SAAS_INTERNAL_TOKEN is not None
+                            else None
                         ),
                     )
 
@@ -240,16 +265,23 @@ async def execute(turn_id: UUID, owner: UUID) -> None:
                 await asyncio.gather(invocation, return_exceptions=True)
                 raise RuntimeError("Customer turn lease lost")
             await invocation
-            if context.media_failure and context.sender_uid and not context.staged:
+            if (
+                context.media_failure
+                and context.sender_uid
+                and not context.staged
+            ):
                 from app.services.customer_turn_context import ensure_current
 
                 await ensure_current()
-                from app.services.chat_service import forward_ai_event_to_wukongim
+                from app.services.chat_service import (
+                    forward_ai_event_to_wukongim,
+                )
 
                 await forward_ai_event_to_wukongim(
                     event_type="agent_execution_started",
                     event_data={"data": {}},
-                    channel_id=request.channel_id or f"{context.visitor_id}-vtr",
+                    channel_id=request.channel_id
+                    or f"{context.visitor_id}-vtr",
                     channel_type=251,
                     client_msg_no=context.client_msg_no,
                     from_uid=context.sender_uid,
@@ -270,7 +302,9 @@ async def execute(turn_id: UUID, owner: UUID) -> None:
                     db.commit()
                 context.staged = True
                 if not context.external:
-                    from app.services.chat_service import forward_ai_event_to_wukongim
+                    from app.services.chat_service import (
+                        forward_ai_event_to_wukongim,
+                    )
                     from app.services.customer_turn_context import confirm_im
 
                     await forward_ai_event_to_wukongim(
@@ -282,7 +316,8 @@ async def execute(turn_id: UUID, owner: UUID) -> None:
                                 "total_chunks": 0,
                             }
                         },
-                        channel_id=request.channel_id or f"{context.visitor_id}-vtr",
+                        channel_id=request.channel_id
+                        or f"{context.visitor_id}-vtr",
                         channel_type=251,
                         client_msg_no=row.client_msg_no,
                         from_uid=context.sender_uid,
@@ -295,7 +330,10 @@ async def execute(turn_id: UUID, owner: UUID) -> None:
             def failed() -> None:
                 with SessionLocal() as db:
                     row = TurnStore(db).get(turn_id, lock=True)
-                    if row.version == context.version and row.state == "processing":
+                    if (
+                        row.version == context.version
+                        and row.state == "processing"
+                    ):
                         row.state = "failed"
                         row.failure = "本轮未生成可发送答复，请人工核对"
                         db.commit()
@@ -318,7 +356,10 @@ async def execute(turn_id: UUID, owner: UUID) -> None:
         if context is not None:
             with SessionLocal() as db:
                 row = TurnStore(db).get(turn_id, lock=True)
-                if row.version == context.version and row.state == "processing":
+                if (
+                    row.version == context.version
+                    and row.state == "processing"
+                ):
                     row.state, row.failure = "failed", "回复未完成，请人工核对"
                     db.commit()
     finally:
@@ -331,7 +372,11 @@ async def execute(turn_id: UUID, owner: UUID) -> None:
         await scheduler.release(turn_id, str(owner))
         with SessionLocal() as db:
             row = TurnStore(db).get(turn_id)
-            due = utc(row.due_at).timestamp() if row.state == "collecting" else None
+            due = (
+                utc(row.due_at).timestamp()
+                if row.state == "collecting"
+                else None
+            )
         if due is not None:
             await scheduler.enqueue(turn_id, due)
         else:
@@ -362,7 +407,9 @@ async def run() -> None:
                 if await scheduler.acquire(identity, str(owner)):
 
                     async def history(
-                        key: UUID = turn_id, lock: UUID = identity, lease: UUID = owner
+                        key: UUID = turn_id,
+                        lock: UUID = identity,
+                        lease: UUID = owner,
                     ) -> None:
                         try:
                             await publish_history(key)
@@ -372,7 +419,10 @@ async def run() -> None:
                     task = asyncio.create_task(history())
                     _history_jobs.add(task)
                     task.add_done_callback(_history_jobs.discard)
-            from app.services.customer_turn_originals import pending_actors, forward
+            from app.services.customer_turn_originals import (
+                pending_actors,
+                forward,
+            )
 
             for actor in await asyncio.to_thread(pending_actors):
                 if len(_original_jobs) >= 8:
@@ -384,7 +434,9 @@ async def run() -> None:
                 if await scheduler.acquire(identity, str(owner)):
 
                     async def originals(
-                        key: str = actor, lock: UUID = identity, lease: UUID = owner
+                        key: str = actor,
+                        lock: UUID = identity,
+                        lease: UUID = owner,
                     ) -> None:
                         try:
                             await forward(key)

@@ -41,7 +41,7 @@ async def authorize(
     body: TurnPollRequest | TurnDeliveryRequest,
     credentials: HTTPAuthorizationCredentials | None,
     *,
-    check_scope: bool = True
+    check_scope: bool = True,
 ) -> tuple[Platform, Visitor]:
     platform, _ = validate_platform_and_project(body.platform_api_key, db)
     try:
@@ -228,7 +228,9 @@ async def receipt(
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
 ) -> TurnState:
-    platform, visitor = await authorize(db, body, credentials, check_scope=False)
+    platform, visitor = await authorize(
+        db, body, credentials, check_scope=False
+    )
     turn = TurnStore(db).get(turn_id, lock=True)
     if (
         turn.platform_id != platform.id
@@ -238,6 +240,7 @@ async def receipt(
         raise HTTPException(403, "发送回执不属于当前渠道")
     # Revoked reception can report an already observed receipt, but cannot claim
     # another send. Acknowledging a receipt never performs an external send.
+
     turn = TurnStore(db).confirm(
         turn.id, body.version, body.claim_id, body.result, body.receipt
     )

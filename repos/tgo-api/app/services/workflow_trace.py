@@ -21,47 +21,68 @@ def find_business_request_for_message(
 ) -> UUID | None:
     """Use persisted tenant, visitor, platform and message scope, not caller identity claims."""
 
-    session = db.scalar(select(VisitorSession).where(
-        VisitorSession.id == visitor_session_id,
-        VisitorSession.project_id == project_id,
-    ))
+    session = db.scalar(
+        select(VisitorSession).where(
+            VisitorSession.id == visitor_session_id,
+            VisitorSession.project_id == project_id,
+        )
+    )
     if session is None or session.platform_id is None:
         return None
-    return db.scalar(select(AIInteractionRun.id).where(
-        AIInteractionRun.project_id == project_id,
-        AIInteractionRun.platform_id == session.platform_id,
-        AIInteractionRun.visitor_id == session.visitor_id,
-        AIInteractionRun.channel_id == build_visitor_channel_id(session.visitor_id),
-        AIInteractionRun.channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE,
-        AIInteractionRun.source_message_id == source_message_id,
-    ))
+    return db.scalar(
+        select(AIInteractionRun.id).where(
+            AIInteractionRun.project_id == project_id,
+            AIInteractionRun.platform_id == session.platform_id,
+            AIInteractionRun.visitor_id == session.visitor_id,
+            AIInteractionRun.channel_id
+            == build_visitor_channel_id(session.visitor_id),
+            AIInteractionRun.channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE,
+            AIInteractionRun.source_message_id == source_message_id,
+        )
+    )
 
 
 def find_ai_request_for_channel_message(
-    db: Session, project_id: UUID, channel_id: str, source_message_id: str,
+    db: Session,
+    project_id: UUID,
+    channel_id: str,
+    source_message_id: str,
 ) -> AIInteractionRun | None:
     """Require one unambiguous persisted request in this tenant and channel."""
 
-    runs = list(db.scalars(select(AIInteractionRun).where(
-        AIInteractionRun.project_id == project_id,
-        AIInteractionRun.channel_id == channel_id,
-        AIInteractionRun.channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE,
-        AIInteractionRun.source_message_id == source_message_id,
-    ).limit(2)))
-    if len(runs) != 1 or channel_id != build_visitor_channel_id(runs[0].visitor_id):
+    runs = list(
+        db.scalars(
+            select(AIInteractionRun)
+            .where(
+                AIInteractionRun.project_id == project_id,
+                AIInteractionRun.channel_id == channel_id,
+                AIInteractionRun.channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE,
+                AIInteractionRun.source_message_id == source_message_id,
+            )
+            .limit(2)
+        )
+    )
+    if len(runs) != 1 or channel_id != build_visitor_channel_id(
+        runs[0].visitor_id
+    ):
         return None
     return runs[0]
 
 
 def workflow_records_for_ai_request(
-    db: Session, run: AIInteractionRun, records: list[WorkflowExecution],
+    db: Session,
+    run: AIInteractionRun,
+    records: list[WorkflowExecution],
 ) -> list[WorkflowExecution]:
     """Exclude workflow rows whose saved session does not belong to this request's customer."""
 
     candidates: list[tuple[WorkflowExecution, UUID]] = []
     session_ids: set[UUID] = set()
     for record in records:
-        if record.business_request_id != str(run.id) or not record.visitor_session_id:
+        if (
+            record.business_request_id != str(run.id)
+            or not record.visitor_session_id
+        ):
             continue
         try:
             session_id = UUID(record.visitor_session_id)
@@ -71,13 +92,19 @@ def workflow_records_for_ai_request(
         candidates.append((record, session_id))
     if not session_ids:
         return []
-    owned_ids = set(db.scalars(select(VisitorSession.id).where(
-        VisitorSession.id.in_(session_ids),
-        VisitorSession.project_id == run.project_id,
-        VisitorSession.platform_id == run.platform_id,
-        VisitorSession.visitor_id == run.visitor_id,
-    )))
-    return [record for record, session_id in candidates if session_id in owned_ids]
+    owned_ids = set(
+        db.scalars(
+            select(VisitorSession.id).where(
+                VisitorSession.id.in_(session_ids),
+                VisitorSession.project_id == run.project_id,
+                VisitorSession.platform_id == run.platform_id,
+                VisitorSession.visitor_id == run.visitor_id,
+            )
+        )
+    )
+    return [
+        record for record, session_id in candidates if session_id in owned_ids
+    ]
 
 
 async def page_workflow_records_for_ai_request(
@@ -112,7 +139,9 @@ async def page_workflow_records_for_ai_request_after(
     limit: int,
     before_started_at: str | None,
     before_id: str | None,
-    fetch_page: Callable[[str | None, str | None, int], Awaitable[list[WorkflowExecution]]],
+    fetch_page: Callable[
+        [str | None, str | None, int], Awaitable[list[WorkflowExecution]]
+    ],
 ) -> list[WorkflowExecution]:
     """Read verified message runs through stable raw execution pages."""
     selected: list[WorkflowExecution] = []
@@ -121,7 +150,11 @@ async def page_workflow_records_for_ai_request_after(
         raw = await fetch_page(cursor_at, cursor_id, limit)
         if not raw:
             break
-        selected.extend(workflow_records_for_ai_request(db, run, raw)[:limit - len(selected)])
+        selected.extend(
+            workflow_records_for_ai_request(db, run, raw)[
+                : limit - len(selected)
+            ]
+        )
         last = raw[-1]
         next_at, next_id = last.started_at.isoformat(), last.id
         if (next_at, next_id) == (cursor_at, cursor_id):

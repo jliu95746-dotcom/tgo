@@ -9,21 +9,34 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.billing import plan_response
-from app.api.v1.endpoints.operations import require_operator, require_commercial_operations
+from app.api.v1.endpoints.operations import (
+    require_operator,
+    require_commercial_operations,
+)
 from app.core.database import get_db
 from app.models.billing import BillingOrder, BillingPlan
 from app.models.platform_operator import PlatformOperator
 from app.schemas.billing import (
-    STANDARD_PLAN_RANKS, OrderResponse, PlanCreate, PlanResponse,
-    StandardPlanDrafts, StandardPlanPublication,
+    STANDARD_PLAN_RANKS,
+    OrderResponse,
+    PlanCreate,
+    PlanResponse,
+    StandardPlanDrafts,
+    StandardPlanPublication,
 )
 from app.services.billing_plans import (
-    change_plan_state, create_plan, create_standard_drafts, publish_standard_drafts,
+    change_plan_state,
+    create_plan,
+    create_standard_drafts,
+    publish_standard_drafts,
 )
 from app.services.billing_quotes import conflict
 
 router = APIRouter(
-    dependencies=[Depends(require_commercial_operations), Depends(require_operator)]
+    dependencies=[
+        Depends(require_commercial_operations),
+        Depends(require_operator),
+    ]
 )
 
 
@@ -40,12 +53,13 @@ def plans(
     if target_project_id is not None:
         query = query.where(target == str(target_project_id))
     elif standard_only:
-        query = query.where(target.is_(None), BillingPlan.code.in_(STANDARD_PLAN_RANKS))
+        query = query.where(
+            target.is_(None), BillingPlan.code.in_(STANDARD_PLAN_RANKS)
+        )
     return [
         plan_response(p)
         for p in db.scalars(
-            query
-            .order_by(BillingPlan.created_at.desc())
+            query.order_by(BillingPlan.created_at.desc())
             .offset(offset)
             .limit(limit)
         )
@@ -84,7 +98,9 @@ def standard_drafts(
     return [plan_response(draft) for draft in drafts]
 
 
-@router.post("/plans/standard-drafts/publish", response_model=list[PlanResponse])
+@router.post(
+    "/plans/standard-drafts/publish", response_model=list[PlanResponse]
+)
 def standard_publication(
     payload: StandardPlanPublication,
     db: Session = Depends(get_db),
@@ -122,6 +138,8 @@ def orders(
         query = query.where(BillingOrder.project_id == project_id)
     return list(
         db.scalars(
-            query.order_by(BillingOrder.created_at.desc()).offset(offset).limit(limit)
+            query.order_by(BillingOrder.created_at.desc())
+            .offset(offset)
+            .limit(limit)
         )
     )

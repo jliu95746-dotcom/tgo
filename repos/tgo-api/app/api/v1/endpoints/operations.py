@@ -39,7 +39,8 @@ def require_commercial_operations() -> None:
 
 
 def require_operator(
-    credentials: HTTPAuthorizationCredentials | None = Depends(
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(
         operator_bearer,
     ),
     db: Session = Depends(get_db),
@@ -60,7 +61,11 @@ def operations_status() -> OperationsStatus:
     )
 
 
-@router.get("/commercial-readiness", response_model=CommercialReadiness, dependencies=[Depends(require_operator)])
+@router.get(
+    "/commercial-readiness",
+    response_model=CommercialReadiness,
+    dependencies=[Depends(require_operator)],
+)
 def commercial_readiness(db: Session = Depends(get_db)) -> CommercialReadiness:
     return readiness(db)
 

@@ -28,7 +28,9 @@ class ReplyPermit:
     external: bool
 
 
-_permit: ContextVar[ReplyPermit | None] = ContextVar("ai_reply_quota", default=None)
+_permit: ContextVar[ReplyPermit | None] = ContextVar(
+    "ai_reply_quota", default=None
+)
 _deferred: ContextVar[bool] = ContextVar("deferred_reply_quota", default=False)
 
 
@@ -70,8 +72,13 @@ def _reserve(
 ) -> ReplyPermit | None:
     with SessionLocal() as db:
         from app.services.customer_turn_context import current_execution
+
         turn = current_execution.get()
-        row = ai_usage.reserve(db, project_id, f"turn:{turn.turn_id}" if turn else f"reply:{client_msg_no}")
+        row = ai_usage.reserve(
+            db,
+            project_id,
+            f"turn:{turn.turn_id}" if turn else f"reply:{client_msg_no}",
+        )
         if row is None:
             db.commit()
             return None
@@ -84,8 +91,14 @@ def _reserve(
         }
         if channel_type == 251:
             visitor = db.get(Visitor, UUID(channel_id.removesuffix("-vtr")))
-            platform = db.get(Platform, visitor.platform_id) if visitor else None
-            if visitor is None or visitor.project_id != project_id or platform is None:
+            platform = (
+                db.get(Platform, visitor.platform_id) if visitor else None
+            )
+            if (
+                visitor is None
+                or visitor.project_id != project_id
+                or platform is None
+            ):
                 raise ValueError("Invalid quota channel")
             external = (
                 platform.type not in DIRECT_VISITOR_PLATFORM_TYPES
@@ -98,7 +111,8 @@ def _reserve(
                 run = db.scalar(
                     select(AIInteractionRun).where(
                         AIInteractionRun.project_id == project_id,
-                        AIInteractionRun.response_client_msg_no == client_msg_no,
+                        AIInteractionRun.response_client_msg_no
+                        == client_msg_no,
                     )
                 )
                 if run is None or platform.type != "wecom":
@@ -113,8 +127,14 @@ def _reserve(
         row.receipt = receipt
         if turn is not None:
             from app.services.customer_turn_store import TurnStore
-            durable = TurnStore(db).current(turn.turn_id, turn.version, lock=True)
-            durable.permit = {"reservation_id": str(row.id), "lease_id": str(row.lease_id)}
+
+            durable = TurnStore(db).current(
+                turn.turn_id, turn.version, lock=True
+            )
+            durable.permit = {
+                "reservation_id": str(row.id),
+                "lease_id": str(row.lease_id),
+            }
         result = ReplyPermit(project_id, row.id, row.lease_id, external)
         db.commit()
         return result
@@ -146,7 +166,9 @@ async def metered_reply(
 
 def _release(permit: ReplyPermit) -> None:
     with SessionLocal() as db:
-        ai_usage.release(db, permit.project_id, permit.reservation_id, permit.lease_id)
+        ai_usage.release(
+            db, permit.project_id, permit.reservation_id, permit.lease_id
+        )
         db.commit()
 
 

@@ -11,14 +11,22 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.core.config import settings
-from app.models import MessageIntentResult, Platform, Project, ProjectAIConfig, Visitor
+from app.models import (
+    MessageIntentResult,
+    Platform,
+    Project,
+    ProjectAIConfig,
+    Visitor,
+)
 from app.schemas.contextual_reply import ContextualReply
 from app.schemas.humanization import ConversationTurn
 from app.schemas.message_analysis import IntentResultUpsertRequest
 from app.services.ai_client import AIServiceClient
 from app.services.ai_transport import JsonObject
 from app.services.customer_logistics_service import CustomerLogisticsService
-from app.services.customer_intelligence_service import CustomerIntelligenceService
+from app.services.customer_intelligence_service import (
+    CustomerIntelligenceService,
+)
 from app.services.human_handoff_service import request_human_handoff
 from app.services.humanization_service import recent_customer_messages
 from app.services.message_analysis_service import MessageAnalysisService
@@ -31,6 +39,8 @@ logger = get_logger("services.message_intent_orchestrator")
 
 CLASSIFIER_VERSION = "tgo-ai-intent-v1"
 POLICY_VERSION = "customer-service-routing-v1"
+
+
 @dataclass(frozen=True)
 class MessageIntentRoutingOutcome:
     """Persisted classification paired with the enforced workflow target."""
@@ -60,7 +70,9 @@ class MessageIntentOrchestrator:
         self._ai_client = ai_client or AIServiceClient()
         self._workflow_client = workflow_client or WorkflowServiceClient()
         self._plugin_client = plugin_client or PluginRuntimeClient()
-        self._logistics_service = logistics_service or CustomerLogisticsService(db)
+        self._logistics_service = (
+            logistics_service or CustomerLogisticsService(db)
+        )
         self._intelligence_service = CustomerIntelligenceService(db)
 
     async def analyze_text_message(
@@ -87,35 +99,43 @@ class MessageIntentOrchestrator:
         dependency: object = None
         faqs = settings.CONTEXTUAL_REPLY_CHANNELS.get(platform.id)
         if reuse_existing:
-            persisted = self._db.query(MessageIntentResult).filter(
-                MessageIntentResult.project_id == project.id,
-                MessageIntentResult.platform_id == platform.id,
-                MessageIntentResult.visitor_id == visitor.id,
-                MessageIntentResult.source_message_id == source_message_id,
-            ).first()
+            persisted = (
+                self._db.query(MessageIntentResult)
+                .filter(
+                    MessageIntentResult.project_id == project.id,
+                    MessageIntentResult.platform_id == platform.id,
+                    MessageIntentResult.visitor_id == visitor.id,
+                    MessageIntentResult.source_message_id == source_message_id,
+                )
+                .first()
+            )
         if persisted is not None:
-            request = IntentResultUpsertRequest.model_validate({
-                "visitor_id": persisted.visitor_id,
-                "media_analysis_result_id": persisted.media_analysis_result_id,
-                "intent": persisted.intent,
-                "confidence": persisted.confidence,
-                "entities": persisted.entities,
-                "risk_level": persisted.risk_level,
-                "recommended_route": persisted.recommended_route,
-                "need_human": persisted.need_human,
-                "taxonomy_version": persisted.taxonomy_version,
-                "routing_reason": persisted.routing_reason,
-                "classification_source": persisted.classification_source,
-                "classifier_version": persisted.classifier_version,
-                "policy_version": persisted.policy_version,
-                "request_id": persisted.request_id,
-            })
+            request = IntentResultUpsertRequest.model_validate(
+                {
+                    "visitor_id": persisted.visitor_id,
+                    "media_analysis_result_id": persisted.media_analysis_result_id,
+                    "intent": persisted.intent,
+                    "confidence": persisted.confidence,
+                    "entities": persisted.entities,
+                    "risk_level": persisted.risk_level,
+                    "recommended_route": persisted.recommended_route,
+                    "need_human": persisted.need_human,
+                    "taxonomy_version": persisted.taxonomy_version,
+                    "routing_reason": persisted.routing_reason,
+                    "classification_source": persisted.classification_source,
+                    "classifier_version": persisted.classifier_version,
+                    "policy_version": persisted.policy_version,
+                    "request_id": persisted.request_id,
+                }
+            )
         else:
             if faqs is not None:
                 channel_id = build_visitor_channel_id(visitor.id)
                 try:
                     prior_turns = await recent_customer_messages(
-                        channel_id, CHANNEL_TYPE_CUSTOMER_SERVICE, channel_id,
+                        channel_id,
+                        CHANNEL_TYPE_CUSTOMER_SERVICE,
+                        channel_id,
                         before_source_message_id=source_message_id,
                     )
                 except Exception as exc:
@@ -131,14 +151,18 @@ class MessageIntentOrchestrator:
                 media_input=media_input,
             )
             dependency = result_payload.pop("context_dependency", None)
-            request = IntentResultUpsertRequest.model_validate({
-                **result_payload,
-                "visitor_id": visitor.id,
-                "classifier_version": CLASSIFIER_VERSION,
-                "policy_version": POLICY_VERSION,
-                "request_id": source_message_id,
-            })
-            persisted = MessageAnalysisService(self._db).upsert_intent_result_for_platform(
+            request = IntentResultUpsertRequest.model_validate(
+                {
+                    **result_payload,
+                    "visitor_id": visitor.id,
+                    "classifier_version": CLASSIFIER_VERSION,
+                    "policy_version": POLICY_VERSION,
+                    "request_id": source_message_id,
+                }
+            )
+            persisted = MessageAnalysisService(
+                self._db
+            ).upsert_intent_result_for_platform(
                 platform=platform,
                 source_message_id=source_message_id,
                 request=request,
@@ -175,7 +199,8 @@ class MessageIntentOrchestrator:
             elif dependency == "follow_up" and summary:
                 contextual_reply = ContextualReply(lookup_question=summary)
             elif (
-                dependency == "standalone" and route["target"] == "rag"
+                dependency == "standalone"
+                and route["target"] == "rag"
                 and request.intent.value == "product_inquiry"
                 and request.risk_level.value == "low"
                 and request.confidence >= 0.85
@@ -190,24 +215,34 @@ class MessageIntentOrchestrator:
                 ]
                 if len(matches) == 1:
                     contextual_reply = ContextualReply(reviewed_faq=matches[0])
-            logger.info("Contextual reply classified", extra={
-                "source_message_id": source_message_id,
-                "context_dependency": dependency,
-                "prior_turns": (
-                    len(prior_turns) if prior_turns is not None else None
-                ),
-                "reviewed_faq_candidate": bool(
-                    contextual_reply and contextual_reply.reviewed_faq
-                ),
-            })
+            logger.info(
+                "Contextual reply classified",
+                extra={
+                    "source_message_id": source_message_id,
+                    "context_dependency": dependency,
+                    "prior_turns": (
+                        len(prior_turns) if prior_turns is not None else None
+                    ),
+                    "reviewed_faq_candidate": bool(
+                        contextual_reply and contextual_reply.reviewed_faq
+                    ),
+                },
+            )
         tool_context: str | None = None
         excluded_tool_ids: tuple[str, ...] = ()
         if route["target"] == "read_only_tool" and defer_business_tools:
             # Presence only defers classification's legacy lookup. The signed
             # context and employee permission are checked by the formal run.
-            route = {"target": "auto_reply", "reason": "employee_business_execution"}
+            route = {
+                "target": "auto_reply",
+                "reason": "employee_business_execution",
+            }
         elif route["target"] == "read_only_tool":
-            route, tool_context, excluded_tool_ids = await self._query_read_only_tool(
+            (
+                route,
+                tool_context,
+                excluded_tool_ids,
+            ) = await self._query_read_only_tool(
                 project=project,
                 visitor=visitor,
                 source_message_id=source_message_id,
@@ -264,7 +299,11 @@ class MessageIntentOrchestrator:
             return self._fail_closed_payload()
 
         try:
-            classification_input: dict[str, object] = {"user_text": user_text, **(media_input or {}), "conversation_context": (conversation_context or [])[-12:]}
+            classification_input: dict[str, object] = {
+                "user_text": user_text,
+                **(media_input or {}),
+                "conversation_context": (conversation_context or [])[-12:],
+            }
             if prior_turns is not None:
                 classification_input["prior_turns"] = [
                     {"role": turn.role, "content": turn.content[:600]}
@@ -304,7 +343,9 @@ class MessageIntentOrchestrator:
             "content_trust_boundary": "untrusted_customer_content",
         }
         try:
-            return await self._workflow_client.route_customer_service(routing_payload)
+            return await self._workflow_client.route_customer_service(
+                routing_payload
+            )
         except Exception as exc:
             logger.warning(
                 "Workflow routing failed closed",
@@ -346,14 +387,20 @@ class MessageIntentOrchestrator:
         order_no = request.entities.order_no
         if not order_no:
             return (
-                {"target": "clarify", "reason": "missing_order_or_tracking_number"},
+                {
+                    "target": "clarify",
+                    "reason": "missing_order_or_tracking_number",
+                },
                 None,
                 (),
             )
         # A platform visitor key or an editable customer attribute cannot prove
         # merchant identity or employee permission. Formal tools own that path.
         return (
-            {"target": "clarify", "reason": "verified_business_context_required"},
+            {
+                "target": "clarify",
+                "reason": "verified_business_context_required",
+            },
             None,
             (),
         )
@@ -372,7 +419,10 @@ class MessageIntentOrchestrator:
             settings_row = self._logistics_service.get_settings(project.id)
             if not settings_row.enabled:
                 return (
-                    {"target": "clarify", "reason": "logistics_tool_not_configured"},
+                    {
+                        "target": "clarify",
+                        "reason": "logistics_tool_not_configured",
+                    },
                     "物流查询暂未启用，请保留快递单号并稍后再试。",
                     (),
                 )
@@ -416,13 +466,19 @@ class MessageIntentOrchestrator:
         except HTTPException as exc:
             if exc.status_code == 409 and "尚未" in str(exc.detail):
                 return (
-                    {"target": "clarify", "reason": "logistics_tool_not_configured"},
+                    {
+                        "target": "clarify",
+                        "reason": "logistics_tool_not_configured",
+                    },
                     "已找到顾客的物流档案，但还没有在物流设置中选择实时快递查询工具。",
                     (),
                 )
             logger.warning(
                 "Customer logistics archive query failed",
-                extra={"project_id": str(project.id), "error_type": type(exc).__name__},
+                extra={
+                    "project_id": str(project.id),
+                    "error_type": type(exc).__name__,
+                },
             )
             return (
                 {"target": "clarify", "reason": "logistics_query_failed"},
@@ -432,7 +488,10 @@ class MessageIntentOrchestrator:
         except Exception as exc:
             logger.warning(
                 "Customer logistics archive query failed",
-                extra={"project_id": str(project.id), "error_type": type(exc).__name__},
+                extra={
+                    "project_id": str(project.id),
+                    "error_type": type(exc).__name__,
+                },
             )
             return (
                 {"target": "clarify", "reason": "logistics_query_failed"},
@@ -455,7 +514,10 @@ class MessageIntentOrchestrator:
             ],
         }
         return (
-            {"target": "read_only_tool", "reason": "logistics_archive_query_completed"},
+            {
+                "target": "read_only_tool",
+                "reason": "logistics_archive_query_completed",
+            },
             "以下是顾客物流档案实时查询返回的可信数据，只能据此回答，不得编造："
             + json.dumps(context, ensure_ascii=False, separators=(",", ":")),
             (str(settings_row.query_tool_id),)

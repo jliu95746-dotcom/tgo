@@ -10,7 +10,14 @@ from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
 from app.core.security import resolve_staff_token
-from app.models import ChannelMember, Platform, Project, Staff, Visitor, VisitorSession
+from app.models import (
+    ChannelMember,
+    Platform,
+    Project,
+    Staff,
+    Visitor,
+    VisitorSession,
+)
 from app.schemas.staff_data_access import StaffDataAccess
 from app.schemas.visitor_data_access import VisitorDataAccess
 from app.services import visitor_chat_access
@@ -23,7 +30,10 @@ from app.services.visitor_data_access import (
 )
 from app.core.exceptions import TGOAPIException
 from app.utils.const import MEMBER_TYPE_STAFF
-from app.utils.encoding import build_visitor_channel_id, parse_visitor_channel_id
+from app.utils.encoding import (
+    build_visitor_channel_id,
+    parse_visitor_channel_id,
+)
 
 ProfileAccess: TypeAlias = StaffDataAccess | VisitorDataAccess
 
@@ -82,14 +92,21 @@ def require_profile_access(
     return require_visitor_data_access(db, platform, credentials)
 
 
-def check_profile_access(db: Session, access: ProfileAccess) -> Staff | Visitor:
+def check_profile_access(
+    db: Session, access: ProfileAccess
+) -> Staff | Visitor:
     if isinstance(access, VisitorDataAccess):
         return reauthorize_visitor_data(db, access)
     # Refresh the original member before resolving its original token again.
     staff = (
-        db.query(Staff).filter(Staff.id == access.staff_id).populate_existing().first()
+        db.query(Staff)
+        .filter(Staff.id == access.staff_id)
+        .populate_existing()
+        .first()
     )
-    actor: Staff | None = resolve_staff_token(db, access.token.get_secret_value())
+    actor: Staff | None = resolve_staff_token(
+        db, access.token.get_secret_value()
+    )
     if (
         staff is None
         or actor is None
@@ -155,7 +172,8 @@ def require_visible_visitor_channel(
             db.query(ChannelMember.id)
             .filter(
                 ChannelMember.project_id == access.project_id,
-                ChannelMember.channel_id == build_visitor_channel_id(visitor.id),
+                ChannelMember.channel_id
+                == build_visitor_channel_id(visitor.id),
                 ChannelMember.channel_type == 251,
                 ChannelMember.member_id == identifier,
                 ChannelMember.member_type == MEMBER_TYPE_STAFF,

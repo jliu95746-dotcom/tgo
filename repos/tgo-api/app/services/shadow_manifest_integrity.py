@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import TGOAPIException
 from app.models.assist_draft_record import AssistDraftRecord
-from app.models.shadow_review_batch import ShadowReviewBatch, ShadowReviewBatchItem
+from app.models.shadow_review_batch import (
+    ShadowReviewBatch,
+    ShadowReviewBatchItem,
+)
 from app.models.shadow_review_protocol import (
     ShadowReviewProtocol,
     ShadowReviewProtocolCandidate,
@@ -105,7 +108,8 @@ def verify_shadow_manifest(
             )
             sample_valid = (
                 tuple(
-                    (item.position, item.draft_id, item.visitor_id) for item in actual
+                    (item.position, item.draft_id, item.visitor_id)
+                    for item in actual
                 )
                 == expected
             )
@@ -128,7 +132,8 @@ def verify_shadow_manifest(
             .outerjoin(
                 AssistDraftRecord,
                 and_(
-                    AssistDraftRecord.id == ShadowReviewProtocolCandidate.draft_id,
+                    AssistDraftRecord.id
+                    == ShadowReviewProtocolCandidate.draft_id,
                     AssistDraftRecord.project_id == project_id,
                 ),
             )
@@ -153,7 +158,10 @@ def verify_shadow_manifest(
     return ShadowProtocolIntegrityResponse(
         protocol_id=protocol.id,
         consistent=(
-            population_valid and manifest_valid and sample_valid and metadata_valid
+            population_valid
+            and manifest_valid
+            and sample_valid
+            and metadata_valid
         ),
         population_valid=population_valid,
         manifest_valid=manifest_valid,

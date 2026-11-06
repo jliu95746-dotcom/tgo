@@ -21,7 +21,8 @@ def credit_summary(
                 func.sum(
                     case(
                         (
-                            AICreditBatch.expires_at <= now + timedelta(days=7),
+                            AICreditBatch.expires_at
+                            <= now + timedelta(days=7),
                             AICreditBatch.remaining,
                         ),
                         else_=0,

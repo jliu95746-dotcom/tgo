@@ -6,7 +6,10 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.models import AIProvider
-from app.schemas.shared_models import SharedConnectionRequest, SharedConnectionResult
+from app.schemas.shared_models import (
+    SharedConnectionRequest,
+    SharedConnectionResult,
+)
 from app.services.billing_quotes import conflict
 from app.services.provider_connection import build_test_request
 from app.services.shared_models import stored_shared_models
@@ -20,7 +23,12 @@ async def test_connection(
     if catalogue is None or catalogue.version != payload.expected_version:
         raise conflict("模型配置已变化，请刷新后测试")
     provider = next(
-        (item for item in catalogue.providers if item.id == payload.provider_id), None
+        (
+            item
+            for item in catalogue.providers
+            if item.id == payload.provider_id
+        ),
+        None,
     )
     if provider is None or not provider.is_active:
         raise conflict("统一模型服务不存在或未启用")
@@ -34,7 +42,9 @@ async def test_connection(
     )
     status: int | None = None
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=10.0, follow_redirects=False
+        ) as client:
             response = await client.request(method, url, headers=headers)
             status = response.status_code
         success = 200 <= status < 300

@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session
 from app.models import Platform, Project, Visitor
 from app.models.platform import DIRECT_VISITOR_PLATFORM_TYPES, PlatformType
 from app.schemas.visitor_data_access import VisitorDataAccess
-from app.services.im_access import authenticate_im_actor, read_visitor_im_access
+from app.services.im_access import (
+    authenticate_im_actor,
+    read_visitor_im_access,
+)
 from app.services.visitor_access import denied
 from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 from app.utils.encoding import parse_visitor_channel_id
@@ -58,7 +61,10 @@ def require_visitor_data_access(
         or actor.project_id != platform.project_id
         or (
             platform.type == PlatformType.WECHAT_LOCAL.value
-            and not (is_filehelper_identity(actor.platform_open_id) or is_scoped_identity(actor.platform_open_id))
+            and not (
+                is_filehelper_identity(actor.platform_open_id)
+                or is_scoped_identity(actor.platform_open_id)
+            )
         )
     ):
         raise denied()
@@ -71,14 +77,13 @@ def require_visitor_data_access(
     )
 
 
-def reauthorize_visitor_data(db: Session, access: VisitorDataAccess) -> Visitor:
+def reauthorize_visitor_data(
+    db: Session, access: VisitorDataAccess
+) -> Visitor:
     """Check the original proof again after an await, without adopting a new owner."""
     platform = _current_platform(db, access.platform_id)
-    if (
-        platform.project_id != access.project_id
-        or not hmac.compare_digest(
-            platform.api_key, access.platform_api_key.get_secret_value()
-        )
+    if platform.project_id != access.project_id or not hmac.compare_digest(
+        platform.api_key, access.platform_api_key.get_secret_value()
     ):
         raise denied()
     actor = authenticate_im_actor(
@@ -91,7 +96,10 @@ def reauthorize_visitor_data(db: Session, access: VisitorDataAccess) -> Visitor:
         or actor.project_id != access.project_id
         or (
             platform.type == PlatformType.WECHAT_LOCAL.value
-            and not (is_filehelper_identity(actor.platform_open_id) or is_scoped_identity(actor.platform_open_id))
+            and not (
+                is_filehelper_identity(actor.platform_open_id)
+                or is_scoped_identity(actor.platform_open_id)
+            )
         )
     ):
         raise denied()
@@ -104,7 +112,9 @@ def authorize_visitor_data_channel(
     authorize_visitor_channel_id(access.visitor_id, channel_id, channel_type)
 
 
-def authorize_visitor_channel_id(visitor_id: UUID, channel_id: str, channel_type: int) -> None:
+def authorize_visitor_channel_id(
+    visitor_id: UUID, channel_id: str, channel_type: int
+) -> None:
     if channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE:
         try:
             requested_id = parse_visitor_channel_id(channel_id)

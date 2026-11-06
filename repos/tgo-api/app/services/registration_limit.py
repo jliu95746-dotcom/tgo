@@ -36,7 +36,9 @@ async def limit_registration(client_host: str) -> None:
                 )
             )
     except RedisError as exc:
-        raise HTTPException(503, "Registration is temporarily unavailable") from exc
+        raise HTTPException(
+            503, "Registration is temporarily unavailable"
+        ) from exc
     if count > REGISTRATION_MAX_ATTEMPTS:
         raise HTTPException(
             429,

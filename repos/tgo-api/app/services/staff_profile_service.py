@@ -16,7 +16,9 @@ from app.utils.const import STAFF_AVATAR_MAX_BYTES
 logger = get_logger("services.staff_profile")
 
 
-def update_profile(db: Session, staff: Staff, data: StaffProfileUpdate) -> Staff:
+def update_profile(
+    db: Session, staff: Staff, data: StaffProfileUpdate
+) -> Staff:
     """Keep credentials, role, tenant and reception settings untouched."""
     staff.nickname = data.nickname
     staff.updated_at = datetime.now(timezone.utc)
@@ -99,7 +101,9 @@ async def save_avatar(
     db.refresh(staff)
     if old_url and old_url.startswith(prefix):
         try:
-            avatar_path(staff, old_url.removeprefix(prefix)).unlink(missing_ok=True)
+            avatar_path(staff, old_url.removeprefix(prefix)).unlink(
+                missing_ok=True
+            )
         except (OSError, HTTPException):
             logger.warning(
                 "Could not remove previous staff avatar",

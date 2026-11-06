@@ -18,7 +18,9 @@ class IntentEvaluationExportService:
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    def export(self, project_id: UUID, request: IntentEvaluationExportRequest) -> str:
+    def export(
+        self, project_id: UUID, request: IntentEvaluationExportRequest
+    ) -> str:
         """Return all requested rows or none, in the caller's case order."""
         rows = self._db.execute(
             select(
@@ -67,7 +69,9 @@ class IntentEvaluationExportService:
                         "recommended_route": by_id[case_id].recommended_route,
                         "need_human": by_id[case_id].need_human,
                         "taxonomy_version": by_id[case_id].taxonomy_version,
-                        "classifier_version": by_id[case_id].classifier_version,
+                        "classifier_version": by_id[
+                            case_id
+                        ].classifier_version,
                         "policy_version": by_id[case_id].policy_version,
                     }
                 )
@@ -81,7 +85,10 @@ class IntentEvaluationExportService:
             ) from exc
         if (
             len(
-                {(item.classifier_version, item.policy_version) for item in predictions}
+                {
+                    (item.classifier_version, item.policy_version)
+                    for item in predictions
+                }
             )
             != 1
         ):

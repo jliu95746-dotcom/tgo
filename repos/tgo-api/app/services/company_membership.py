@@ -83,7 +83,10 @@ def ensure_seat(
     ):
         raise HTTPException(402, "套餐已过期或尚未启用")
     used, reserved = seat_usage(db, account.project_id)
-    if used + reserved + (0 if consume_reservation else 1) > account.seat_limit:
+    if (
+        used + reserved + (0 if consume_reservation else 1)
+        > account.seat_limit
+    ):
         raise HTTPException(409, "人工席位不足，请先加购或停用其他账号")
 
 
@@ -125,7 +128,9 @@ def invite_member(
         raise HTTPException(409, "请先为企业配置套餐")
     ensure_seat(db, account)
     normalized = email.strip().lower()
-    existing = db.scalar(select(Staff).where(func.lower(Staff.username) == normalized))
+    existing = db.scalar(
+        select(Staff).where(func.lower(Staff.username) == normalized)
+    )
     if existing is not None:
         pending = db.scalar(
             select(CompanyInvitation.id).where(

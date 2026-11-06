@@ -42,7 +42,8 @@ from app.services.plugin_runtime_client import plugin_runtime_client
 class TestAdapter(Protocol):
     async def test_business_connection(
         self, command: ConnectionTestCommand
-    ) -> ConnectionTestReceipt: ...
+    ) -> ConnectionTestReceipt:
+        ...
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,9 @@ def view(
 
 
 class BusinessConnectionTestService:
-    def __init__(self, db: Session, *, adapter: TestAdapter = plugin_runtime_client):
+    def __init__(
+        self, db: Session, *, adapter: TestAdapter = plugin_runtime_client
+    ):
         self.db, self.adapter = db, adapter
 
     def _row(
@@ -97,13 +100,19 @@ class BusinessConnectionTestService:
 
     def _cache(self, connection: BusinessConnection) -> None:
         # These fields are only a cache; reads validate persisted reports again.
-        connection.verified_configuration_revision = connection.configuration_revision
-        connection.verified_capabilities = current_capabilities(self.db, connection)
+        connection.verified_configuration_revision = (
+            connection.configuration_revision
+        )
+        connection.verified_capabilities = current_capabilities(
+            self.db, connection
+        )
 
     def _expire(
         self, row: BusinessConnectionTest, connection: BusinessConnection
     ) -> None:
-        if row.status == "running" and utc(row.expires_at) <= datetime.now(UTC):
+        if row.status == "running" and utc(row.expires_at) <= datetime.now(
+            UTC
+        ):
             row.status, row.error_code, row.completed_at = (
                 "failed",
                 "timeout",
@@ -210,7 +219,9 @@ class BusinessConnectionTestService:
         self.db.add(row)
         self.db.flush()
         self._cache(owned)
-        row.resource_revision = connections._view(self.db, owned).resource_revision
+        row.resource_revision = connections._view(
+            self.db, owned
+        ).resource_revision
         command = ConnectionTestCommand(
             project_id=project,
             actor_id=actor,
@@ -280,12 +291,15 @@ class BusinessConnectionTestService:
                         for field in fields
                     )
                     or owned.revision != row.expected_revision
-                    or owned.configuration_revision != row.configuration_revision
-                    or owned.authorization_revision != row.authorization_revision
+                    or owned.configuration_revision
+                    != row.configuration_revision
+                    or owned.authorization_revision
+                    != row.authorization_revision
                     or owned.mode != row.mode
                     or connections._view(self.db, owned).resource_revision
                     != row.resource_revision
-                    or receipt.checked_at < utc(row.created_at) - timedelta(seconds=5)
+                    or receipt.checked_at
+                    < utc(row.created_at) - timedelta(seconds=5)
                     or receipt.checked_at > now + timedelta(seconds=5)
                 ):
                     raise HTTPException(409, "原配置或测试回执已改变")
@@ -293,8 +307,12 @@ class BusinessConnectionTestService:
                 receipt, error_code = None, "authority_changed"
         row.completed_at = now
         if receipt is not None:
-            row.receipt = cast(dict[str, JsonValue], receipt.model_dump(mode="json"))
-            row.status = "failed" if receipt.outcome == "failed" else "completed"
+            row.receipt = cast(
+                dict[str, JsonValue], receipt.model_dump(mode="json")
+            )
+            row.status = (
+                "failed" if receipt.outcome == "failed" else "completed"
+            )
             row.error_code = receipt.error_code
             owned.last_tested_at, owned.last_tested_by = now, row.actor_id
         else:
@@ -337,7 +355,9 @@ class BusinessConnectionTestService:
         if claim.command is None:
             return claim.report
         try:
-            receipt = await self.adapter.test_business_connection(claim.command)
+            receipt = await self.adapter.test_business_connection(
+                claim.command
+            )
         except asyncio.CancelledError:
             self.db.rollback()
             self.finish(
@@ -358,5 +378,9 @@ class BusinessConnectionTestService:
                 error_code="provider_unavailable",
             )
         return self.finish(
-            project, connection, claim.report.id, claim.attempt_id, receipt=receipt
+            project,
+            connection,
+            claim.report.id,
+            claim.attempt_id,
+            receipt=receipt,
         )

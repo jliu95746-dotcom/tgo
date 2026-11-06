@@ -80,8 +80,13 @@ def apply_native_state(
     if state in {2, 3}:
         visitor.service_mode = "manual"
         visitor.ai_disabled = True
-    elif state in {0, 1, 4} and visitor.service_mode == "manual" and (
-        previous_state in {2, 3} or getattr(visitor, "service_status", None) == "closed"
+    elif (
+        state in {0, 1, 4}
+        and visitor.service_mode == "manual"
+        and (
+            previous_state in {2, 3}
+            or getattr(visitor, "service_status", None) == "closed"
+        )
     ):
         # Human ownership belongs to one consultation; the next one starts with AI.
         visitor.service_mode = "auto"
@@ -116,7 +121,8 @@ def conversation_context(
     system_message: str | None, turns: Sequence[ContextTurn]
 ) -> str:
     context = [
-        {"role": turn.role, "content": turn.content[:2000]} for turn in turns[-12:]
+        {"role": turn.role, "content": turn.content[:2000]}
+        for turn in turns[-12:]
     ]
     if not context:
         return system_message or ""
@@ -179,7 +185,9 @@ async def mirror_native_event(
         )
     except (RedisError, ValueError, HTTPException):
         if event.service_state in {2, 3}:
-            apply_native_state(visitor, event.service_state, event.servicer_userid)
+            apply_native_state(
+                visitor, event.service_state, event.servicer_userid
+            )
             db.commit()
         raise HTTPException(503, "企微接待状态暂未同步，将自动重试") from None
     apply_native_state(
@@ -246,18 +254,27 @@ async def mirror_native_event(
     )
 
 
-def pending_native_visitors(db: Session, platform_id: UUID) -> NativePendingResult:
+def pending_native_visitors(
+    db: Session, platform_id: UUID
+) -> NativePendingResult:
     from sqlalchemy import or_
 
     from app.models.visitor import Visitor
-    from app.schemas.wecom_native import NativePendingResult, NativePendingVisitor
-    from app.services.wecom_app_notifications import pending_assist_notifications
+    from app.schemas.wecom_native import (
+        NativePendingResult,
+        NativePendingVisitor,
+    )
+    from app.services.wecom_app_notifications import (
+        pending_assist_notifications,
+    )
 
     platform = native_platform(db, platform_id)
     enabled = (platform.config or {}).get("native_enabled_at")
     try:
         since = (
-            datetime.fromisoformat(str(enabled)).astimezone(UTC).replace(tzinfo=None)
+            datetime.fromisoformat(str(enabled))
+            .astimezone(UTC)
+            .replace(tzinfo=None)
         )
     except (ValueError, TypeError):
         raise HTTPException(409, "企微原生接待缺少启用时间") from None

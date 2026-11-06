@@ -14,7 +14,10 @@ from app.schemas.humanization import (
     HumanizationTryResponse,
 )
 from app.services.ai_client import ai_client
-from app.services.humanization_service import context_prompt, rewrite_assist_draft
+from app.services.humanization_service import (
+    context_prompt,
+    rewrite_assist_draft,
+)
 
 logger = get_logger("services.humanization_review")
 
@@ -66,12 +69,16 @@ CLARIFICATION_LIMIT = re.compile(
 
 
 async def analyze_training(project_id: str, skill_name: str) -> TrainingReview:
-    review = await ai_client.review_humanization_training(project_id, skill_name)
+    review = await ai_client.review_humanization_training(
+        project_id, skill_name
+    )
     semaphore = asyncio.Semaphore(3)
 
     async def analyze_sample(sample: TrainingExample) -> TrainingExample:
         try:
-            message = json.dumps({"samples": [sample.model_dump()]}, ensure_ascii=False)
+            message = json.dumps(
+                {"samples": [sample.model_dump()]}, ensure_ascii=False
+            )
             if len(message) > 10000:
                 return sample.model_copy(
                     update={
@@ -103,16 +110,24 @@ async def analyze_training(project_id: str, skill_name: str) -> TrainingReview:
                     )
                     content = str(result.get("content") or "").strip()
                     content = re.sub(
-                        r"^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$", "", content
+                        r"^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$",
+                        "",
+                        content,
                     )
                     try:
                         analysis = AnalysisResult.model_validate_json(content)
                         match = next(
-                            (item for item in analysis.samples if item.id == sample.id),
+                            (
+                                item
+                                for item in analysis.samples
+                                if item.id == sample.id
+                            ),
                             None,
                         )
                         if match is None:
-                            raise ValueError("Analysis sample identity mismatch")
+                            raise ValueError(
+                                "Analysis sample identity mismatch"
+                            )
                         break
                     except ValueError:
                         if attempt == 1:
@@ -143,12 +158,19 @@ async def analyze_training(project_id: str, skill_name: str) -> TrainingReview:
             error_kind = type(exc).__name__
             if isinstance(exc, ValidationError):
                 fields = [
-                    ".".join(str(part) for part in error["loc"]) + ":" + error["type"]
-                    for error in exc.errors(include_input=False, include_url=False)
+                    ".".join(str(part) for part in error["loc"])
+                    + ":"
+                    + error["type"]
+                    for error in exc.errors(
+                        include_input=False, include_url=False
+                    )
                 ]
                 error_kind += " " + ",".join(fields)
             # Never write customer messages, model output or credentials to this log.
-            logger.warning("Humanization sample analysis failed: %s", error_kind)
+
+            logger.warning(
+                "Humanization sample analysis failed: %s", error_kind
+            )
             return sample.model_copy(
                 update={
                     "selected": False,

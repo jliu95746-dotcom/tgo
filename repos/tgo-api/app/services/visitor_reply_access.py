@@ -25,6 +25,8 @@ def require_visitor_reply_access(
     ):
         raise TGOAPIException("回复不存在", "NOT_FOUND", status_code=404)
     try:
-        authorize_visitor_data_channel(access, item.channel_id, item.channel_type)
+        authorize_visitor_data_channel(
+            access, item.channel_id, item.channel_type
+        )
     except TGOAPIException:
         raise TGOAPIException("回复不存在", "NOT_FOUND", status_code=404) from None

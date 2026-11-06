@@ -21,12 +21,16 @@ def pending_assist_notifications(
     if not config.get("app_notification_enabled"):
         return []
     try:
-        enabled = datetime.fromisoformat(str(config["app_notification_enabled_at"]))
+        enabled = datetime.fromisoformat(
+            str(config["app_notification_enabled_at"])
+        )
         since = max(
             enabled.astimezone(UTC), datetime.now(UTC) - timedelta(days=1)
         ).replace(tzinfo=None)
     except (KeyError, ValueError, TypeError):
-        return []  # Never replay old conversations when enablement is incomplete.
+        return (
+            []
+        )  # Never replay old conversations when enablement is incomplete.
     rows = (
         db.query(Visitor)
         .filter(

@@ -37,9 +37,9 @@ def checkout(
     order = order_detail(order_id, db, actor)
     if order.payment_status == "paid" or order.code_url:
         return order
-    if order.payment_status != "pending" or utc(order.expires_at) <= datetime.now(
-        timezone.utc
-    ):
+    if order.payment_status != "pending" or utc(
+        order.expires_at
+    ) <= datetime.now(timezone.utc):
         raise conflict("订单已过期，请重新购买", "ORDER_EXPIRED")
     number, amount, expires = order.number, order.amount, utc(order.expires_at)
     db.commit()

@@ -17,16 +17,22 @@ class CurrentAccessResponse(Response):
         self.response = response
         self.guard = guard
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
         async def checked_send(message: Message) -> None:
-            if message["type"] in ("http.response.start", "http.response.body"):
+            if message["type"] in (
+                "http.response.start",
+                "http.response.body",
+            ):
                 self.guard.check()
             await send(message)
 
         # File transfer shortcuts bypass the body boundary guard.
         safe_scope = dict(scope)
         safe_scope["extensions"] = {
-            key: value for key, value in scope.get("extensions", {}).items()
+            key: value
+            for key, value in scope.get("extensions", {}).items()
             if key != "http.response.pathsend"
         }
         await self.response(safe_scope, receive, checked_send)

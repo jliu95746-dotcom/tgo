@@ -10,14 +10,19 @@ from app.services.company_entitlements import require_new_service
 
 
 def require_knowledge_write(
-    request: Request, db: Session = Depends(get_db),
+    request: Request,
+    db: Session = Depends(get_db),
 ) -> None:
     if not settings.SAAS_ENABLED or not settings.SAAS_BILLING_ENABLED:
         return
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
-    actor = resolve_staff_token(db, token) if scheme.lower() == "bearer" and token else None
+    actor = (
+        resolve_staff_token(db, token)
+        if scheme.lower() == "bearer" and token
+        else None
+    )
     if actor is None:
         raise HTTPException(401, "请先登录企业工作台")
     if actor.role != "admin":

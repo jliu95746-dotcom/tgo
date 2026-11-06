@@ -40,7 +40,8 @@ class ShadowBlindReviewAccess:
                     .where(
                         ShadowDraftReview.project_id == project_id,
                         ShadowDraftReview.reviewer_id == viewer_id,
-                        ShadowDraftReview.draft_id == ShadowReviewBatchItem.draft_id,
+                        ShadowDraftReview.draft_id
+                        == ShadowReviewBatchItem.draft_id,
                     )
                     .exists(),
                 )
@@ -67,13 +68,16 @@ class ShadowBlindReviewAccess:
         for protocol in protocols:
             if protocol.finalized_at is None:
                 in_cohort = (
-                    protocol.window_start <= draft.created_at < protocol.window_end
+                    protocol.window_start
+                    <= draft.created_at
+                    < protocol.window_end
                 )
             elif protocol.batch_id is not None:
                 in_cohort = (
                     self._db.scalar(
                         select(ShadowReviewBatchItem.draft_id).where(
-                            ShadowReviewBatchItem.batch_id == protocol.batch_id,
+                            ShadowReviewBatchItem.batch_id
+                            == protocol.batch_id,
                             ShadowReviewBatchItem.draft_id == draft.id,
                         )
                     )

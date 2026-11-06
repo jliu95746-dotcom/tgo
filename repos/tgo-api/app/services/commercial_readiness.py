@@ -35,7 +35,8 @@ def readiness(db: Session | None = None) -> CommercialReadiness:
         refund_ready = False
     token = settings.SAAS_INTERNAL_TOKEN
     result = CommercialReadiness(
-        billing_enabled=settings.SAAS_ENABLED and settings.SAAS_BILLING_ENABLED,
+        billing_enabled=settings.SAAS_ENABLED
+        and settings.SAAS_BILLING_ENABLED,
         purchases_enabled=settings.SAAS_ENABLED
         and settings.SAAS_BILLING_ENABLED
         and settings.SAAS_NEW_PURCHASES_ENABLED,

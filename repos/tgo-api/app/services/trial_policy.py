@@ -18,7 +18,9 @@ def read_policy(db: Session) -> TrialPolicyResponse:
     )
     return TrialPolicyResponse(
         version=latest.version if latest else 0,
-        ai_replies=latest.ai_replies if latest else settings.SAAS_TRIAL_AI_REPLIES,
+        ai_replies=latest.ai_replies
+        if latest
+        else settings.SAAS_TRIAL_AI_REPLIES,
         days=settings.SAAS_TRIAL_DAYS,
         seats=settings.SAAS_TRIAL_SEATS,
     )

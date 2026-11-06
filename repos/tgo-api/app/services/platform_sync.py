@@ -49,7 +49,14 @@ def _to_aware(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def _mark_status(db: Session, platform: Platform, status: str, *, error: Optional[str] = None, inc_retry: bool = False) -> None:
+def _mark_status(
+    db: Session,
+    platform: Platform,
+    status: str,
+    *,
+    error: Optional[str] = None,
+    inc_retry: bool = False,
+) -> None:
     platform.sync_status = status
     if status == "synced":
         platform.last_synced_at = _now()
@@ -66,16 +73,26 @@ def _mark_status(db: Session, platform: Platform, status: str, *, error: Optiona
 
 def trigger_platform_sync(platform_id: str) -> None:
     try:
-        _queue.put_nowait(PlatformSyncJob(platform_id=platform_id, action="upsert"))
+        _queue.put_nowait(
+            PlatformSyncJob(platform_id=platform_id, action="upsert")
+        )
     except Exception:
-        logger.exception("Failed to enqueue platform sync", extra={"platform_id": platform_id})
+        logger.exception(
+            "Failed to enqueue platform sync",
+            extra={"platform_id": platform_id},
+        )
 
 
 def trigger_platform_delete(platform_id: str) -> None:
     try:
-        _queue.put_nowait(PlatformSyncJob(platform_id=platform_id, action="delete"))
+        _queue.put_nowait(
+            PlatformSyncJob(platform_id=platform_id, action="delete")
+        )
     except Exception:
-        logger.exception("Failed to enqueue platform delete", extra={"platform_id": platform_id})
+        logger.exception(
+            "Failed to enqueue platform delete",
+            extra={"platform_id": platform_id},
+        )
 
 
 async def _process_job(job: PlatformSyncJob) -> None:
@@ -83,29 +100,36 @@ async def _process_job(job: PlatformSyncJob) -> None:
     try:
         platform: Optional[Platform] = db.get(Platform, job.platform_id)
         # For delete jobs, platform may be None if already hard-deleted locally
+
         if job.action == "delete":
             if platform is None:
                 # attempt remote delete if possible
+
                 try:
                     await platform_sync_client.delete_platform(job.platform_id)
                 except Exception as exc:
-                    logger.warning("Remote delete failed", extra={"platform_id": job.platform_id, "error": str(exc)})
+                    logger.warning(
+                        "Remote delete failed",
+                        extra={
+                            "platform_id": job.platform_id,
+                            "error": str(exc),
+                        },
+                    )
                 return
-
         if not platform:
             return
-
         if platform.type == PlatformType.WECHAT_LOCAL.value:
             _mark_status(db, platform, "synced")
             return
-
         # Mark pending (avoid infinite loops by only changing sync fields)
+
         platform.sync_status = "pending"
         platform.sync_error = None
         db.add(platform)
         db.commit()
 
         # Prepare record data
+
         data = {
             "id": str(platform.id),
             "project_id": str(platform.project_id),
@@ -120,20 +144,32 @@ async def _process_job(job: PlatformSyncJob) -> None:
         }
 
         # Upsert via Platform Service
+
         resp = await platform_sync_client.upsert_platform(data)
         ok = 200 <= resp.status_code < 300
         if ok:
             _mark_status(db, platform, "synced")
         else:
-            _mark_status(db, platform, "failed", error=f"HTTP {resp.status_code}: {resp.text}", inc_retry=True)
+            _mark_status(
+                db,
+                platform,
+                "failed",
+                error=f"HTTP {resp.status_code}: {resp.text}",
+                inc_retry=True,
+            )
     except Exception as exc:
-        logger.exception("Sync job failed", extra={"platform_id": job.platform_id})
+        logger.exception(
+            "Sync job failed", extra={"platform_id": job.platform_id}
+        )
         # Best-effort mark failed when possible
+
         try:
             if 'db' in locals():
                 platform = locals().get('platform')
                 if platform is not None:
-                    _mark_status(db, platform, "failed", error=str(exc), inc_retry=True)
+                    _mark_status(
+                        db, platform, "failed", error=str(exc), inc_retry=True
+                    )
         except Exception:
             pass
     finally:
@@ -157,6 +193,7 @@ async def _retry_loop() -> None:
         db: Session = SessionLocal()
         try:
             # fetch a limited batch to avoid long scans
+
             rows = (
                 db.query(Platform)
                 .filter(Platform.sync_status != "synced")
@@ -165,8 +202,10 @@ async def _retry_loop() -> None:
             )
             for p in rows:
                 # backoff check
+
                 retry_count = p.sync_retry_count or 0
                 # exponential backoff base interval
+
                 base = settings.PLATFORM_SYNC_RETRY_INTERVAL_SECONDS
                 delay = base * (2 ** min(retry_count, 5))
                 last = p.last_synced_at or p.updated_at or p.created_at
@@ -175,6 +214,7 @@ async def _retry_loop() -> None:
                 else:
                     last = _to_aware(last)
                 # If enough time passed, enqueue
+
                 if (_now() - last).total_seconds() >= delay:
                     trigger_platform_sync(str(p.id))
         except Exception:
@@ -191,4 +231,3 @@ def start_sync_monitor() -> None:
     if _retry_task is None or _retry_task.done():
         _retry_task = asyncio.create_task(_retry_loop())
         logger.info("Platform sync retry started")
-

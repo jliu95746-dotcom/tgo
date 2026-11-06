@@ -36,14 +36,19 @@ def request_invoice(
     )
     if existing is not None:
         return existing
-    result = InvoiceRequest(project_id=actor.project_id, **payload.model_dump())
+    result = InvoiceRequest(
+        project_id=actor.project_id, **payload.model_dump()
+    )
     db.add(result)
     db.flush()
     return result
 
 
 def process_invoice(
-    db: Session, operator: PlatformOperator, invoice_id: UUID, payload: InvoiceProcess
+    db: Session,
+    operator: PlatformOperator,
+    invoice_id: UUID,
+    payload: InvoiceProcess,
 ) -> InvoiceRequest:
     preview = db.get(InvoiceRequest, invoice_id)
     if preview is None:
@@ -112,7 +117,10 @@ def change_company_state(
 
 
 def resolve_quota(
-    db: Session, operator: PlatformOperator, identifier: UUID, payload: QuotaResolve
+    db: Session,
+    operator: PlatformOperator,
+    identifier: UUID,
+    payload: QuotaResolve,
 ) -> None:
     row = db.get(AIUsageReservation, identifier)
     if row is None:

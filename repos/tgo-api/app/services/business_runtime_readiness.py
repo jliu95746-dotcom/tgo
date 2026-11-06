@@ -28,13 +28,18 @@ async def current_business_runtime(
     if token is not None and len(token.get_secret_value()) >= 32:
         try:
             async with httpx.AsyncClient(
-                timeout=2, transport=transport, follow_redirects=False, trust_env=False
+                timeout=2,
+                transport=transport,
+                follow_redirects=False,
+                trust_env=False,
             ) as client:
                 async with client.stream(
                     "GET",
                     settings.PLUGIN_RUNTIME_URL.rstrip("/")
                     + "/business/execution/capabilities",
-                    headers={"X-Business-Service-Token": token.get_secret_value()},
+                    headers={
+                        "X-Business-Service-Token": token.get_secret_value()
+                    },
                 ) as response:
                     if response.status_code != 200:
                         raise ValueError("Runtime protocol unavailable")
@@ -51,7 +56,9 @@ async def current_business_runtime(
                 capabilities.model_fields_set
                 == set(BusinessRuntimeCapabilities.model_fields)
                 and -5
-                <= (datetime.now(UTC) - capabilities.checked_at).total_seconds()
+                <= (
+                    datetime.now(UTC) - capabilities.checked_at
+                ).total_seconds()
                 <= 30
             )
         except (httpx.HTTPError, ValueError):
@@ -60,7 +67,13 @@ async def current_business_runtime(
     return BusinessRuntimeReadiness(
         **query.model_dump(),
         available=available,
-        operations=["order_query", "logistics_query", "customer_profile_query", "membership_query"]
-        if available else [],
+        operations=[
+            "order_query",
+            "logistics_query",
+            "customer_profile_query",
+            "membership_query",
+        ]
+        if available
+        else [],
         checked_at=datetime.now(UTC),
     )

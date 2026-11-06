@@ -25,7 +25,9 @@ from app.services.logistics_result_parser import (
 from app.utils.crypto import decrypt_str, encrypt_str
 
 
-_TRACKING_CANDIDATE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z0-9]{8,32}(?![A-Za-z0-9])")
+_TRACKING_CANDIDATE = re.compile(
+    r"(?<![A-Za-z0-9])[A-Za-z0-9]{8,32}(?![A-Za-z0-9])"
+)
 _KNOWN_PREFIXES = ("SF", "YT", "JD", "ZTO", "STO", "YTO", "EMS", "JT", "DB")
 
 
@@ -53,7 +55,9 @@ def mask_tracking_no(value: str) -> str:
 
 
 def tracking_hash(value: str) -> str:
-    return hashlib.sha256(normalize_tracking_no(value).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        normalize_tracking_no(value).encode("utf-8")
+    ).hexdigest()
 
 
 def detect_tracking_numbers(text: str) -> tuple[str, ...]:
@@ -64,7 +68,9 @@ def detect_tracking_numbers(text: str) -> tuple[str, ...]:
         digit_count = sum(character.isdigit() for character in candidate)
         looks_known = candidate.startswith(_KNOWN_PREFIXES)
         looks_numeric = candidate.isdigit() and 10 <= len(candidate) <= 20
-        if digit_count >= 8 and (looks_known or looks_numeric or digit_count >= 10):
+        if digit_count >= 8 and (
+            looks_known or looks_numeric or digit_count >= 10
+        ):
             try:
                 normalized = normalize_tracking_no(candidate)
             except ValueError:
@@ -80,7 +86,9 @@ class CustomerLogisticsService:
 
     def get_settings(self, project_id: UUID) -> LogisticsSettings:
         settings_row = (
-            self.db.query(LogisticsSettings).filter(LogisticsSettings.project_id == project_id).one_or_none()
+            self.db.query(LogisticsSettings)
+            .filter(LogisticsSettings.project_id == project_id)
+            .one_or_none()
         )
         if settings_row is None:
             settings_row = LogisticsSettings(project_id=project_id)
@@ -89,7 +97,9 @@ class CustomerLogisticsService:
             self.db.refresh(settings_row)
         return settings_row
 
-    def update_settings(self, project_id: UUID, update: LogisticsSettingsUpdate) -> LogisticsSettings:
+    def update_settings(
+        self, project_id: UUID, update: LogisticsSettingsUpdate
+    ) -> LogisticsSettings:
         settings_row = self.get_settings(project_id)
         for field, value in update.model_dump().items():
             setattr(settings_row, field, value)
@@ -97,16 +107,23 @@ class CustomerLogisticsService:
         self.db.refresh(settings_row)
         return settings_row
 
-    def list_shipments(self, project_id: UUID, visitor_id: UUID) -> tuple[CustomerShipment, ...]:
+    def list_shipments(
+        self, project_id: UUID, visitor_id: UUID
+    ) -> tuple[CustomerShipment, ...]:
         settings_row = self.get_settings(project_id)
-        archive_cutoff = datetime.now(timezone.utc) - timedelta(days=settings_row.archive_after_days)
+        archive_cutoff = datetime.now(timezone.utc) - timedelta(
+            days=settings_row.archive_after_days
+        )
         return tuple(
             self.db.query(CustomerShipment)
             .filter(
                 CustomerShipment.project_id == project_id,
                 CustomerShipment.visitor_id == visitor_id,
                 CustomerShipment.archived_at.is_(None),
-                (CustomerShipment.delivered_at.is_(None) | (CustomerShipment.delivered_at >= archive_cutoff)),
+                (
+                    CustomerShipment.delivered_at.is_(None)
+                    | (CustomerShipment.delivered_at >= archive_cutoff)
+                ),
             )
             .order_by(CustomerShipment.updated_at.desc())
             .all()
@@ -150,7 +167,6 @@ class CustomerLogisticsService:
             self.db.commit()
             self.db.refresh(existing)
             return existing
-
         settings_row = self.get_settings(project_id)
         shipment = CustomerShipment(
             project_id=project_id,
@@ -164,7 +180,8 @@ class CustomerLogisticsService:
             source=source,
             verification_state=(
                 "verified"
-                if source in {"staff_message", "manual", "order_sync"} or not settings_row.verify_before_binding
+                if source in {"staff_message", "manual", "order_sync"}
+                or not settings_row.verify_before_binding
                 else "pending"
             ),
             last_source_message_id=source_message_id,
@@ -189,11 +206,16 @@ class CustomerLogisticsService:
         settings_row = self.get_settings(project_id)
         if not settings_row.enabled:
             return ()
-        if source == "visitor_message" and not settings_row.auto_capture_visitor_messages:
+        if (
+            source == "visitor_message"
+            and not settings_row.auto_capture_visitor_messages
+        ):
             return ()
-        if source == "staff_message" and not settings_row.auto_capture_staff_messages:
+        if (
+            source == "staff_message"
+            and not settings_row.auto_capture_staff_messages
+        ):
             return ()
-
         captured: list[CustomerShipment] = []
         for tracking_no in detected_numbers:
             try:
@@ -211,7 +233,9 @@ class CustomerLogisticsService:
                     raise
         return tuple(captured)
 
-    def get_shipment(self, project_id: UUID, shipment_id: UUID, *, for_update: bool = False) -> CustomerShipment:
+    def get_shipment(
+        self, project_id: UUID, shipment_id: UUID, *, for_update: bool = False
+    ) -> CustomerShipment:
         query = self.db.query(CustomerShipment).filter(
             CustomerShipment.project_id == project_id,
             CustomerShipment.id == shipment_id,
@@ -223,7 +247,9 @@ class CustomerLogisticsService:
             raise HTTPException(status_code=404, detail="物流档案不存在")
         return shipment
 
-    def list_events(self, project_id: UUID, shipment_id: UUID) -> tuple[ShipmentTrackingEvent, ...]:
+    def list_events(
+        self, project_id: UUID, shipment_id: UUID
+    ) -> tuple[ShipmentTrackingEvent, ...]:
         self.get_shipment(project_id, shipment_id)
         return tuple(
             self.db.query(ShipmentTrackingEvent)
@@ -265,9 +291,13 @@ class CustomerLogisticsService:
         if not isinstance(result, dict) or result.get("success") is not True:
             raise HTTPException(status_code=502, detail="快递查询工具执行失败")
         try:
-            return parse_tracking_result(result, expected_tracking_no=normalized)
+            return parse_tracking_result(
+                result, expected_tracking_no=normalized
+            )
         except ValueError as exc:
-            raise HTTPException(status_code=502, detail="快递查询未返回有效轨迹，请稍后重试。") from exc
+            raise HTTPException(
+                status_code=502, detail="快递查询未返回有效轨迹，请稍后重试。"
+            ) from exc
 
     async def query_shipment(
         self, project_id: UUID, shipment_id: UUID
@@ -279,15 +309,22 @@ class CustomerLogisticsService:
         tracking_no = decrypt_str(shipment.tracking_no_ciphertext)
         if tracking_no is None:
             raise HTTPException(status_code=500, detail="物流单号无法解密")
-        parsed = await self.execute_live_query(project_id, tracking_no, shipment.visitor_id)
+        parsed = await self.execute_live_query(
+            project_id, tracking_no, shipment.visitor_id
+        )
         # A slower request cannot overwrite a newer completed query or erase a
         # conflict detected while the provider request was in flight.
+
         shipment = self.get_shipment(project_id, shipment_id, for_update=True)
         if shipment.verification_state == "conflict":
             raise HTTPException(status_code=409, detail="物流单号归属有冲突，请先人工核对。")
         checked_at = shipment.last_checked_at
         if checked_at is not None:
-            checked_at = checked_at if checked_at.tzinfo else checked_at.replace(tzinfo=timezone.utc)
+            checked_at = (
+                checked_at
+                if checked_at.tzinfo
+                else checked_at.replace(tzinfo=timezone.utc)
+            )
             if checked_at >= started_at:
                 self.db.commit()
                 return shipment, self.list_events(project_id, shipment.id)
@@ -298,13 +335,17 @@ class CustomerLogisticsService:
         shipment.verification_state = "verified"
         # Use query start time as the ordering fence: the latest started query
         # wins regardless of which HTTP response completes first.
+
         shipment.last_checked_at = started_at
         if parsed.status == "delivered":
             carrier_delivered_at = next(
                 (
                     event.event_time
                     for event in parsed.events
-                    if normalize_tracking_status(f"{event.status or ''} {event.description}") == "delivered"
+                    if normalize_tracking_status(
+                        f"{event.status or ''} {event.description}"
+                    )
+                    == "delivered"
                 ),
                 None,
             )

@@ -10,17 +10,24 @@ from app.schemas.wukongim import (
     WuKongIMChannelMessageSyncResponse,
     WuKongIMMessage,
 )
-from app.services.run_registry import RegistryUnavailable, TERMINAL, run_registry
+from app.services.run_registry import (
+    RegistryUnavailable,
+    TERMINAL,
+    run_registry,
+)
 
 logger = get_logger("services.reply_history")
 OWNED_REPLY_ID = re.compile(r"ai_[0-9a-f]{32}")
 # The normal active lease lasts 60s and is refreshed throughout generation.
 # Leave room for an anchor/registry visibility race; age alone is never proof.
+
 ORPHAN_GRACE_SECONDS = 120
 LOOKUP_TIMEOUT_SECONDS = 3
 
 
-def _incomplete_copy(message: WuKongIMMessage, run: ReplyRun | None) -> WuKongIMMessage:
+def _incomplete_copy(
+    message: WuKongIMMessage, run: ReplyRun | None
+) -> WuKongIMMessage:
     notice = "这条回复未正常完成，请重新发送消息。"
     if run is not None:
         if run.status == "cancelled":
@@ -79,11 +86,14 @@ async def reconcile_reply_history(
 
     try:
         async with asyncio.timeout(LOOKUP_TIMEOUT_SECONDS):
-            runs = await asyncio.gather(*(lookup(message) for message in candidates))
+            runs = await asyncio.gather(
+                *(lookup(message) for message in candidates)
+            )
     except (RegistryUnavailable, TimeoutError):
-        logger.warning("Reply history ownership check unavailable; kept original state")
+        logger.warning(
+            "Reply history ownership check unavailable; kept original state"
+        )
         return response
-
     replacements: dict[int, WuKongIMMessage] = {}
     for message, run in zip(candidates, runs):
         if run is not None:
@@ -105,7 +115,8 @@ async def reconcile_reply_history(
     return response.model_copy(
         update={
             "messages": [
-                replacements.get(id(message), message) for message in response.messages
+                replacements.get(id(message), message)
+                for message in response.messages
             ],
         }
     )

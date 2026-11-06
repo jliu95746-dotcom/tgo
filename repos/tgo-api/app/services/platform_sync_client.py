@@ -47,7 +47,9 @@ class PlatformSyncClient:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
-    async def upsert_platform(self, platform_data: Dict[str, Any]) -> httpx.Response:
+    async def upsert_platform(
+        self, platform_data: Dict[str, Any]
+    ) -> httpx.Response:
         """Create or upsert a platform via POST /v1/platforms.
 
         The remote service auto-generates id if omitted; we include id to keep
@@ -56,10 +58,14 @@ class PlatformSyncClient:
         url = f"{self.base_url}/v1/platforms"
         payload = _platform_to_payload(platform_data)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(url, json=payload, headers=self._headers())
+            resp = await client.post(
+                url, json=payload, headers=self._headers()
+            )
         return resp
 
-    async def delete_platform(self, platform_id: str) -> Optional[httpx.Response]:
+    async def delete_platform(
+        self, platform_id: str
+    ) -> Optional[httpx.Response]:
         """Attempt to delete a platform. If DELETE is unsupported, return None.
 
         We try DELETE /v1/platforms/{id}. If the endpoint doesn't exist, callers
@@ -77,4 +83,3 @@ class PlatformSyncClient:
 
 
 platform_sync_client = PlatformSyncClient()
-

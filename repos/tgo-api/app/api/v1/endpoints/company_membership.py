@@ -77,7 +77,9 @@ def invitations(
     )
 
 
-@router.post("/invitations", response_model=InvitationResponse, status_code=201)
+@router.post(
+    "/invitations", response_model=InvitationResponse, status_code=201
+)
 def invite(
     payload: InvitationCreate,
     db: Session = Depends(get_db),

@@ -123,7 +123,9 @@ class ShadowSampleService:
             return self.get_batch(project_id, existing.id)
         return self.get_batch(project_id, batch.id)
 
-    def get_batch(self, project_id: UUID, batch_id: UUID) -> ShadowSampleBatchResponse:
+    def get_batch(
+        self, project_id: UUID, batch_id: UUID
+    ) -> ShadowSampleBatchResponse:
         batch = self._db.scalar(
             select(ShadowReviewBatch).where(
                 ShadowReviewBatch.id == batch_id,
@@ -131,7 +133,9 @@ class ShadowSampleService:
             )
         )
         if batch is None:
-            raise TGOAPIException("抽样批次不存在", "SHADOW_SAMPLE_NOT_FOUND", status_code=404)
+            raise TGOAPIException(
+                "抽样批次不存在", "SHADOW_SAMPLE_NOT_FOUND", status_code=404
+            )
         items = self._db.scalars(
             select(ShadowReviewBatchItem)
             .where(ShadowReviewBatchItem.batch_id == batch.id)
@@ -167,7 +171,9 @@ class ShadowSampleService:
             .subquery()
         )
         latest_verdicts = self._db.execute(
-            select(ranked.c.draft_id, ranked.c.verdict).where(ranked.c.rank == 1)
+            select(ranked.c.draft_id, ranked.c.verdict).where(
+                ranked.c.rank == 1
+            )
         ).all()
         reviewed_count = sum(
             row.verdict in ("acceptable", "minor_issue", "severe_error")
@@ -213,7 +219,9 @@ class ShadowSampleService:
             )
             .subquery()
         )
-        reviewer_verdicts: dict[UUID, list[tuple[UUID, UUID, str]]] = defaultdict(list)
+        reviewer_verdicts: dict[
+            UUID, list[tuple[UUID, UUID, str]]
+        ] = defaultdict(list)
         for row in self._db.execute(
             select(
                 reviewer_ranked.c.draft_id,
@@ -229,7 +237,9 @@ class ShadowSampleService:
         adjudication_ranked = (
             select(
                 ShadowReviewAdjudication.draft_id.label("draft_id"),
-                ShadowReviewAdjudication.review_set_sha256.label("review_set_sha256"),
+                ShadowReviewAdjudication.review_set_sha256.label(
+                    "review_set_sha256"
+                ),
                 ShadowReviewAdjudication.verdict.label("verdict"),
                 func.row_number()
                 .over(
@@ -250,7 +260,9 @@ class ShadowSampleService:
         latest_adjudications = {
             row.draft_id: row
             for row in self._db.execute(
-                select(adjudication_ranked).where(adjudication_ranked.c.rank == 1)
+                select(adjudication_ranked).where(
+                    adjudication_ranked.c.rank == 1
+                )
             )
         }
         severe_ids.update(
@@ -277,7 +289,9 @@ class ShadowSampleService:
                 return None
             return review_set_digest(reviews)
 
-        digests = {draft_id: conflict_digest(draft_id) for draft_id in draft_ids}
+        digests = {
+            draft_id: conflict_digest(draft_id) for draft_id in draft_ids
+        }
         current_adjudications = {
             draft_id: adjudication
             for draft_id, adjudication in latest_adjudications.items()
@@ -285,7 +299,9 @@ class ShadowSampleService:
             and adjudication.review_set_sha256 == digests[draft_id]
         }
         current_severe_ids = {
-            row.draft_id for row in latest_verdicts if row.verdict == "severe_error"
+            row.draft_id
+            for row in latest_verdicts
+            if row.verdict == "severe_error"
         }
         current_severe_ids.update(
             draft_id
@@ -307,9 +323,15 @@ class ShadowSampleService:
                 return "needs_second"
             if len(set(verdicts)) == 1:
                 return "agreed"
-            return "adjudicated" if draft_id in current_adjudications else "disputed"
+            return (
+                "adjudicated"
+                if draft_id in current_adjudications
+                else "disputed"
+            )
 
-        statuses = {draft_id: review_status(draft_id) for draft_id in draft_ids}
+        statuses = {
+            draft_id: review_status(draft_id) for draft_id in draft_ids
+        }
         return ShadowSampleBatchResponse(
             id=batch.id,
             request_id=batch.request_id,
@@ -324,18 +346,23 @@ class ShadowSampleService:
             sample_count=batch.sample_count,
             reviewed_count=reviewed_count,
             insufficient_count=insufficient_count,
-            unreviewed_count=(batch.sample_count - reviewed_count - insufficient_count),
+            unreviewed_count=(
+                batch.sample_count - reviewed_count - insufficient_count
+            ),
             current_severe_count=len(current_severe_ids),
             ever_severe_count=len(severe_ids),
             missing_drafts_count=len(draft_ids) - len(existing_ids),
             ready_count=sum(
-                status in {"agreed", "adjudicated"} for status in statuses.values()
+                status in {"agreed", "adjudicated"}
+                for status in statuses.values()
             ),
             resolved_count=len(current_adjudications),
             needs_second_count=sum(
                 status == "needs_second" for status in statuses.values()
             ),
-            disputed_count=sum(status == "disputed" for status in statuses.values()),
+            disputed_count=sum(
+                status == "disputed" for status in statuses.values()
+            ),
             insufficient_case_count=sum(
                 status == "insufficient" for status in statuses.values()
             ),
@@ -360,7 +387,9 @@ class ShadowSampleService:
             ),
         )
 
-    def list_batches(self, project_id: UUID, *, limit: int) -> ShadowSampleBatchList:
+    def list_batches(
+        self, project_id: UUID, *, limit: int
+    ) -> ShadowSampleBatchList:
         rows = self._db.scalars(
             select(ShadowReviewBatch)
             .where(ShadowReviewBatch.project_id == project_id)

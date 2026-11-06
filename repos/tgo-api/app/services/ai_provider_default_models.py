@@ -48,7 +48,9 @@ def resolve_initial_model_seeds(
     return get_default_model_seeds(db, provider)
 
 
-def get_default_model_seeds(db: Session, provider: str) -> list[ProviderModelSeed]:
+def get_default_model_seeds(
+    db: Session, provider: str
+) -> list[ProviderModelSeed]:
     """Load default model seeds from DB for a provider, with openai-compatible fallback."""
     provider_key = normalize_provider_key(provider)
     rows = _load_default_rows(db, provider_key)
@@ -68,7 +70,9 @@ def infer_model_type(model_id: str) -> str:
     return "embedding" if "embedding" in model_id.lower() else "chat"
 
 
-def _seeds_from_requested_models(models: Iterable[str]) -> list[ProviderModelSeed]:
+def _seeds_from_requested_models(
+    models: Iterable[str],
+) -> list[ProviderModelSeed]:
     ordered_seeds: list[ProviderModelSeed] = []
     seen_model_ids: set[str] = set()
 
@@ -84,17 +88,21 @@ def _seeds_from_requested_models(models: Iterable[str]) -> list[ProviderModelSee
                 model_type=infer_model_type(model_id),
             )
         )
-
     return ordered_seeds
 
 
-def _load_default_rows(db: Session, provider: str) -> list[AIProviderDefaultModel]:
+def _load_default_rows(
+    db: Session, provider: str
+) -> list[AIProviderDefaultModel]:
     stmt = (
         select(AIProviderDefaultModel)
         .where(
             AIProviderDefaultModel.provider == provider,
             AIProviderDefaultModel.is_active.is_(True),
         )
-        .order_by(AIProviderDefaultModel.sort_order.asc(), AIProviderDefaultModel.model_id.asc())
+        .order_by(
+            AIProviderDefaultModel.sort_order.asc(),
+            AIProviderDefaultModel.model_id.asc(),
+        )
     )
     return list(db.scalars(stmt).all())

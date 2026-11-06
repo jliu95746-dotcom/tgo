@@ -60,7 +60,8 @@ class VisitorIdentity(Protocol):
     access_secret_digest: str | None
 
     @property
-    def platform(self) -> VisitorPlatformIdentity: ...
+    def platform(self) -> VisitorPlatformIdentity:
+        ...
 
 
 VisitorIdentityReader = Callable[[UUID, UUID], VisitorIdentity | None]
@@ -125,7 +126,11 @@ class BusinessCustomerIdentityService:
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        return row if row and self.platform_reader(project, row.platform_id) else None
+        return (
+            row
+            if row and self.platform_reader(project, row.platform_id)
+            else None
+        )
 
     def _require_admin(self, project: UUID, actor: UUID) -> None:
         if not self.actor_reader(project, actor):
@@ -165,7 +170,9 @@ class BusinessCustomerIdentityService:
         return self.db.scalar(query.execution_options(populate_existing=True))
 
     @staticmethod
-    def _view(row: BusinessCustomerIdentityPolicy) -> CustomerIdentityPolicyView:
+    def _view(
+        row: BusinessCustomerIdentityPolicy,
+    ) -> CustomerIdentityPolicyView:
         return CustomerIdentityPolicyView(
             id=row.id,
             project_id=row.project_id,
@@ -197,7 +204,8 @@ class BusinessCustomerIdentityService:
         self._require_admin(project, actor)
         current = self._connection(project, connection, lock=True)
         if not all(
-            self.platform_reader(project, platform) for platform in payload.platform_ids
+            self.platform_reader(project, platform)
+            for platform in payload.platform_ids
         ):
             raise identity_denied()
         policy = self._policy(project, connection, lock=True)
@@ -211,7 +219,10 @@ class BusinessCustomerIdentityService:
                     status_code=422,
                 )
             policy = BusinessCustomerIdentityPolicy(
-                id=uuid4(), project_id=project, connection_id=connection, revision=1
+                id=uuid4(),
+                project_id=project,
+                connection_id=connection,
+                revision=1,
             )
             self.db.add(policy)
         else:
@@ -223,7 +234,9 @@ class BusinessCustomerIdentityService:
                 policy.id,
             )
         policy.platform_ids = [str(value) for value in payload.platform_ids]
-        policy.connection_configuration_revision = current.configuration_revision
+        policy.connection_configuration_revision = (
+            current.configuration_revision
+        )
         policy.max_session_seconds = payload.max_session_seconds
         policy.enabled = payload.enabled
         policy.updated_by = actor
@@ -271,7 +284,9 @@ class BusinessCustomerIdentityService:
         claims, payload, signature = parse_assertion(assertion)
         if claims.connection_id != connection_id:
             raise identity_denied()
-        connection = self._connection(claims.project_id, connection_id, lock=True)
+        connection = self._connection(
+            claims.project_id, connection_id, lock=True
+        )
         policy = self._policy(claims.project_id, connection_id, lock=True)
         if policy is None:
             raise identity_denied()
@@ -294,11 +309,15 @@ class BusinessCustomerIdentityService:
         now = int(datetime.now(UTC).timestamp())
         if not (
             claims.issued_at <= now + 30
-            and now < claims.expires_at <= claims.issued_at + policy.max_session_seconds
+            and now
+            < claims.expires_at
+            <= claims.issued_at + policy.max_session_seconds
         ):
             raise identity_denied()
         canonical = json.dumps(
-            claims.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+            claims.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
         ).encode()
         digest = hmac.new(
             session_signing_key(),
@@ -362,7 +381,9 @@ class BusinessCustomerIdentityService:
                 nonce=claims.nonce,
                 proof_digest=digest,
                 customer_ciphertext=CustomerBindingVault().encrypt(
-                    BusinessConnectionCredentials(token=SecretStr(claims.customer_id)),
+                    BusinessConnectionCredentials(
+                        token=SecretStr(claims.customer_id)
+                    ),
                     claims.project_id,
                     identifier,
                 ),
@@ -381,7 +402,11 @@ class BusinessCustomerIdentityService:
         return issue_session(row)
 
     def resolve(
-        self, project: UUID, connection_id: UUID, visitor_id: UUID, token: SecretStr
+        self,
+        project: UUID,
+        connection_id: UUID,
+        visitor_id: UUID,
+        token: SecretStr,
     ) -> VerifiedBusinessCustomer:
         try:
             decoded = jwt.decode(
@@ -448,7 +473,11 @@ class BusinessCustomerIdentityService:
         if customer is None:
             raise identity_denied()
         require_owner(
-            self.db, project, visitor_id, connection_id, customer.get_secret_value()
+            self.db,
+            project,
+            visitor_id,
+            connection_id,
+            customer.get_secret_value(),
         )
         return VerifiedBusinessCustomer(
             project_id=project,
@@ -491,7 +520,9 @@ class BusinessCustomerIdentityService:
             row.revoked_at = datetime.now(UTC)
             row.revision += 1
             self.db.commit()
-        return self._binding_view(row, self._policy(project, connection), current)
+        return self._binding_view(
+            row, self._policy(project, connection), current
+        )
 
     def _binding_view(
         self,

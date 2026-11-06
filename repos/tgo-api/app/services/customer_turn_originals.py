@@ -11,7 +11,10 @@ def pending_actors() -> list[str]:
         return list(
             db.scalars(
                 select(CustomerTurn.actor_key)
-                .join(CustomerTurnPart, CustomerTurnPart.turn_id == CustomerTurn.id)
+                .join(
+                    CustomerTurnPart,
+                    CustomerTurnPart.turn_id == CustomerTurn.id,
+                )
                 .where(CustomerTurnPart.forwarded.is_(False))
                 .distinct()
                 .limit(32)
@@ -26,22 +29,29 @@ async def forward(actor: str) -> None:
         with SessionLocal() as db:
             if db.get_bind().dialect.name == "postgresql":
                 key = int.from_bytes(
-                    hashlib.sha256(("turn-original:" + actor).encode()).digest()[:8],
+                    hashlib.sha256(
+                        ("turn-original:" + actor).encode()
+                    ).digest()[:8],
                     "big",
                     signed=True,
                 )
                 if not db.scalar(
-                    text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": key}
+                    text("SELECT pg_try_advisory_xact_lock(:key)"),
+                    {"key": key},
                 ):
                     return
             result = db.execute(
                 select(CustomerTurnPart, CustomerTurn)
-                .join(CustomerTurn, CustomerTurn.id == CustomerTurnPart.turn_id)
+                .join(
+                    CustomerTurn, CustomerTurn.id == CustomerTurnPart.turn_id
+                )
                 .where(
                     CustomerTurn.actor_key == actor,
                     CustomerTurnPart.forwarded.is_(False),
                 )
-                .order_by(CustomerTurnPart.created_at, CustomerTurnPart.position)
+                .order_by(
+                    CustomerTurnPart.created_at, CustomerTurnPart.position
+                )
                 .with_for_update(of=CustomerTurnPart, skip_locked=True)
                 .limit(1)
             ).first()
@@ -52,7 +62,9 @@ async def forward(actor: str) -> None:
             if part.media_pending and not turn.failure:
                 return
             if payload.get("forward_user_message_to_wukongim", True):
-                if payload.get("visitor_name") or payload.get("visitor_avatar"):
+                if payload.get("visitor_name") or payload.get(
+                    "visitor_avatar"
+                ):
                     from app.services.wukongim_client import wukongim_client
 
                     await wukongim_client.send_visitor_profile_updated(

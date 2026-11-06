@@ -18,13 +18,17 @@ from app.schemas.business_customer_identity import (
     CustomerIdentityRevisionRequest,
     CustomerIdentitySession,
 )
-from app.services.business_customer_identity import BusinessCustomerIdentityService
+from app.services.business_customer_identity import (
+    BusinessCustomerIdentityService,
+)
 from app.api.business_trial_route import BusinessTrialRoute
 
 router = APIRouter(route_class=BusinessTrialRoute)
 
 
-def get_service(db: Session = Depends(get_db)) -> BusinessCustomerIdentityService:
+def get_service(
+    db: Session = Depends(get_db),
+) -> BusinessCustomerIdentityService:
     return BusinessCustomerIdentityService(db)
 
 
@@ -51,7 +55,9 @@ def configure_policy(
     actor: Staff = Depends(require_admin()),
     service: BusinessCustomerIdentityService = Depends(get_service),
 ) -> CustomerIdentityPolicyView:
-    return service.configure(actor.project_id, actor.id, connection_id, payload)
+    return service.configure(
+        actor.project_id, actor.id, connection_id, payload
+    )
 
 
 @router.post(
@@ -66,7 +72,11 @@ def exchange_assertion(
 ) -> CustomerIdentitySession:
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
-    return service.exchange(connection_id, payload.merchant_assertion, visitor_access_token=payload.visitor_access_token)
+    return service.exchange(
+        connection_id,
+        payload.merchant_assertion,
+        visitor_access_token=payload.visitor_access_token,
+    )
 
 
 @router.get(
@@ -97,5 +107,9 @@ def revoke_identity(
     service: BusinessCustomerIdentityService = Depends(get_service),
 ) -> CustomerIdentityBindingView:
     return service.revoke(
-        actor.project_id, actor.id, connection_id, binding_id, payload.expected_revision
+        actor.project_id,
+        actor.id,
+        connection_id,
+        binding_id,
+        payload.expected_revision,
     )

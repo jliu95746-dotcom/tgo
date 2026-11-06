@@ -10,7 +10,6 @@ try:
 except ImportError:
     boto3 = None
     ClientError = Exception
-
 from app.services.storage.base import StorageBackend
 from app.services.storage.urls import resolve_private_chat_file_url
 from app.core.config import settings
@@ -46,12 +45,12 @@ class MinIOBackend(StorageBackend):
                 "The 'boto3' package is required for MinIOBackend. "
                 "Install it with 'pip install boto3'."
             )
-
         self.bucket_name = bucket_name
         self.download_url = (download_url or endpoint_url).rstrip("/")
         self.upload_url = (upload_url or endpoint_url).rstrip("/")
-        
+
         # Initialize boto3 client
+
         self.s3 = boto3.client(
             "s3",
             endpoint_url=self.upload_url,
@@ -62,7 +61,11 @@ class MinIOBackend(StorageBackend):
 
     async def read(self, path: str, *, max_bytes: int) -> bytes:
         def read_bounded() -> bytes:
-            if max_bytes <= 0 or path.startswith("/") or ".." in path.split("/"):
+            if (
+                max_bytes <= 0
+                or path.startswith("/")
+                or ".." in path.split("/")
+            ):
                 raise ValueError("Invalid storage read")
             response = self.s3.get_object(Bucket=self.bucket_name, Key=path)
             stream = response["Body"]
@@ -75,21 +78,24 @@ class MinIOBackend(StorageBackend):
                 return content
             finally:
                 stream.close()
+
         return await asyncio.to_thread(read_bounded)
 
-    async def upload(self, file: BinaryIO, path: str, content_type: str) -> str:
+    async def upload(
+        self, file: BinaryIO, path: str, content_type: str
+    ) -> str:
         """Upload file to MinIO/S3."""
         loop = asyncio.get_event_loop()
         clean_path = path.lstrip("/")
-        
+
         await loop.run_in_executor(
             None,
             lambda: self.s3.put_object(
                 Bucket=self.bucket_name,
                 Key=clean_path,
                 Body=file,
-                ContentType=content_type
-            )
+                ContentType=content_type,
+            ),
         )
         return self.get_public_url(path)
 
@@ -100,9 +106,8 @@ class MinIOBackend(StorageBackend):
             await loop.run_in_executor(
                 None,
                 lambda: self.s3.delete_object(
-                    Bucket=self.bucket_name,
-                    Key=path.lstrip("/")
-                )
+                    Bucket=self.bucket_name, Key=path.lstrip("/")
+                ),
             )
             return True
         except Exception:
@@ -115,6 +120,7 @@ class MinIOBackend(StorageBackend):
         clean_path = path.lstrip("/")
         # If download_url is just a domain, we need to append bucket name if not using virtual-host style
         # For MinIO, usually it's http://domain:port/bucket/path
+
         if self.bucket_name not in self.download_url:
             return f"{self.download_url}/{self.bucket_name}/{clean_path}"
         return f"{self.download_url}/{clean_path}"
@@ -126,9 +132,8 @@ class MinIOBackend(StorageBackend):
             await loop.run_in_executor(
                 None,
                 lambda: self.s3.head_object(
-                    Bucket=self.bucket_name,
-                    Key=path.lstrip("/")
-                )
+                    Bucket=self.bucket_name, Key=path.lstrip("/")
+                ),
             )
             return True
         except ClientError:
@@ -142,19 +147,18 @@ class MinIOBackend(StorageBackend):
         """
         if not url or not isinstance(url, str):
             return url
-
         private_url = resolve_private_chat_file_url(url, settings.API_BASE_URL)
         if private_url is not None:
             return private_url
-            
         # If it's a relative path, resolve it using get_public_url
+
         if url.startswith("/"):
             path = url
             if path.startswith("/api/v1"):
                 path = path[4:]
             return self.get_public_url(path)
-            
         # If it's an absolute URL, check if it's localhost and fix it
+
         if url.startswith("http://") or url.startswith("https://"):
             parsed = urlparse(url)
             if parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
@@ -166,7 +170,6 @@ class MinIOBackend(StorageBackend):
                 if parsed.fragment:
                     p += f"#{parsed.fragment}"
                 return self.get_public_url(p)
-                
         return url
 
     def get_file_access_url(self, file_id: str, storage_url: str) -> str:

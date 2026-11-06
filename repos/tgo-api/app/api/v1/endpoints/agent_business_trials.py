@@ -8,7 +8,10 @@ from app.api.business_trial_route import BusinessTrialRoute
 from app.api.company_configuration_access import require_configuration_write
 from app.core.security import require_admin
 from app.models.staff import Staff
-from app.schemas.agent_business_trials import BusinessTrialRequest, BusinessTrialReport
+from app.schemas.agent_business_trials import (
+    BusinessTrialRequest,
+    BusinessTrialReport,
+)
 from app.schemas.agent_business_requests import (
     BusinessRequestControl,
     BusinessRequestState,
@@ -22,15 +25,19 @@ from app.schemas.agent_business_reviews import (
     BusinessReviewState,
     AgentBusinessCapabilities,
 )
-from app.schemas.agent_business_review_requests import BusinessReviewRequestState
+from app.schemas.agent_business_review_requests import (
+    BusinessReviewRequestState,
+)
 
 router = APIRouter(
-    route_class=BusinessTrialRoute, dependencies=[Depends(require_configuration_write)]
+    route_class=BusinessTrialRoute,
+    dependencies=[Depends(require_configuration_write)],
 )
 
 
 @router.get(
-    "/{agent_id}/business-current-state", response_model=BusinessEmployeeCurrentState
+    "/{agent_id}/business-current-state",
+    response_model=BusinessEmployeeCurrentState,
 )
 async def current_employee(
     agent_id: UUID, actor: Staff = Depends(require_admin())
@@ -63,7 +70,12 @@ async def cancel_request(
     actor: Staff = Depends(require_admin()),
 ) -> BusinessRequestState:
     return await trials.request_state(
-        ai_client, actor.project_id, actor.id, agent_id, request_id, cancel=command
+        ai_client,
+        actor.project_id,
+        actor.id,
+        agent_id,
+        request_id,
+        cancel=command,
     )
 
 
@@ -119,12 +131,15 @@ async def cancel_review_request(
 
 
 @router.get(
-    "/{agent_id}/business-capabilities", response_model=AgentBusinessCapabilities
+    "/{agent_id}/business-capabilities",
+    response_model=AgentBusinessCapabilities,
 )
 async def capabilities(
     agent_id: UUID, actor: Staff = Depends(require_admin())
 ) -> AgentBusinessCapabilities:
-    return await trials.capabilities(ai_client, actor.project_id, actor.id, agent_id)
+    return await trials.capabilities(
+        ai_client, actor.project_id, actor.id, agent_id
+    )
 
 
 @router.get(
@@ -150,7 +165,12 @@ async def review(
     actor: Staff = Depends(require_admin()),
 ) -> BusinessReviewRecord:
     return await trials.review(
-        ai_client, actor.project_id, actor.id, agent_id, report_id, command=command
+        ai_client,
+        actor.project_id,
+        actor.id,
+        agent_id,
+        report_id,
+        command=command,
     )
 
 
@@ -175,7 +195,9 @@ async def recover_review(
 
 
 @router.post(
-    "/{agent_id}/business-trials", response_model=BusinessTrialReport, status_code=202
+    "/{agent_id}/business-trials",
+    response_model=BusinessTrialReport,
+    status_code=202,
 )
 async def start(
     agent_id: UUID,
@@ -200,7 +222,8 @@ async def recover(
 
 
 @router.get(
-    "/{agent_id}/business-trials/{report_id}", response_model=BusinessTrialReport
+    "/{agent_id}/business-trials/{report_id}",
+    response_model=BusinessTrialReport,
 )
 async def read(
     agent_id: UUID, report_id: UUID, actor: Staff = Depends(require_admin())
@@ -211,7 +234,8 @@ async def read(
 
 
 @router.post(
-    "/{agent_id}/business-trials/{report_id}/cancel", response_model=BusinessTrialReport
+    "/{agent_id}/business-trials/{report_id}/cancel",
+    response_model=BusinessTrialReport,
 )
 async def cancel(
     agent_id: UUID, report_id: UUID, actor: Staff = Depends(require_admin())

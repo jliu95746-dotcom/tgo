@@ -27,10 +27,13 @@ from app.schemas.ai_runs import (
     VisitorAIReplyOriginRequest,
 )
 from app.services.ai_interaction_run_service import (
-    list_ai_business_queries, list_ai_tool_events,
+    list_ai_business_queries,
+    list_ai_tool_events,
 )
 from app.services.ai_reply_origin import verify_ai_reply_origins
-from app.services.business_query_audit_client import read_business_message_audits
+from app.services.business_query_audit_client import (
+    read_business_message_audits,
+)
 from app.services.channel_access import require_staff_channel_access
 from app.services.reply_cancellation import cancel_reply, get_reply_run
 from app.services.visitor_data_access import (
@@ -58,12 +61,18 @@ async def verify_reply_origins_for_staff(
     db: Session = Depends(get_db),
 ) -> list[AIReplyOriginEvidence]:
     await require_staff_channel_access(
-        db, current_user, request.channel_id, CHANNEL_TYPE_CUSTOMER_SERVICE,
+        db,
+        current_user,
+        request.channel_id,
+        CHANNEL_TYPE_CUSTOMER_SERVICE,
     )
     response.headers["Cache-Control"] = "no-store"
     return await verify_ai_reply_origins(
-        db, current_user.project_id, request.channel_id,
-        request.client_msg_nos, wukongim_client,
+        db,
+        current_user.project_id,
+        request.channel_id,
+        request.client_msg_nos,
+        wukongim_client,
     )
 
 
@@ -76,25 +85,33 @@ async def verify_reply_origins_for_visitor(
     request: VisitorAIReplyOriginRequest,
     response: Response,
     db: Session = Depends(get_db),
-    credentials: HTTPAuthorizationCredentials | None = Depends(
-        HTTPBearer(auto_error=False)
-    ),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(HTTPBearer(auto_error=False)),
 ) -> list[AIReplyOriginEvidence]:
-    platform = db.query(Platform).filter(
-        Platform.api_key == request.platform_api_key,
-        Platform.type.in_(DIRECT_VISITOR_PLATFORM_TYPES),
-        Platform.is_active.is_(True),
-        Platform.deleted_at.is_(None),
-    ).first()
+    platform = (
+        db.query(Platform)
+        .filter(
+            Platform.api_key == request.platform_api_key,
+            Platform.type.in_(DIRECT_VISITOR_PLATFORM_TYPES),
+            Platform.is_active.is_(True),
+            Platform.deleted_at.is_(None),
+        )
+        .first()
+    )
     if platform is None:
         raise HTTPException(401, "Invalid platform API key")
     access = require_visitor_data_access(db, platform, credentials)
     authorize_visitor_data_channel(
-        access, request.channel_id, CHANNEL_TYPE_CUSTOMER_SERVICE,
+        access,
+        request.channel_id,
+        CHANNEL_TYPE_CUSTOMER_SERVICE,
     )
     evidence = await verify_ai_reply_origins(
-        db, access.project_id, request.channel_id,
-        request.client_msg_nos, wukongim_client,
+        db,
+        access.project_id,
+        request.channel_id,
+        request.client_msg_nos,
+        wukongim_client,
     )
     reauthorize_visitor_data(db, access)
     response.headers["Cache-Control"] = "no-store"
@@ -114,18 +131,26 @@ def lookup_ai_attempts_for_message(
     db: Session = Depends(get_db),
 ) -> list[AIExecutionAttemptSummary]:
     run = find_ai_request_for_channel_message(
-        db, current_user.project_id, request.channel_id,
+        db,
+        current_user.project_id,
+        request.channel_id,
         request.source_message_id,
     )
     if run is None:
         return []
-    attempts = db.scalars(select(AIExecutionAttempt).where(
-        AIExecutionAttempt.project_id == current_user.project_id,
-        AIExecutionAttempt.interaction_run_id == run.id,
-    ).order_by(
-        AIExecutionAttempt.started_at.desc(),
-        AIExecutionAttempt.execution_id.desc(),
-    ).limit(limit).offset(skip)).all()
+    attempts = db.scalars(
+        select(AIExecutionAttempt)
+        .where(
+            AIExecutionAttempt.project_id == current_user.project_id,
+            AIExecutionAttempt.interaction_run_id == run.id,
+        )
+        .order_by(
+            AIExecutionAttempt.started_at.desc(),
+            AIExecutionAttempt.execution_id.desc(),
+        )
+        .limit(limit)
+        .offset(skip)
+    ).all()
     return [AIExecutionAttemptSummary.model_validate(row) for row in attempts]
 
 
@@ -142,7 +167,11 @@ def get_ai_tool_events(
     db: Session = Depends(get_db),
 ) -> list[AIExecutionToolEventSummary]:
     events = list_ai_tool_events(
-        db, current_user.project_id, execution_id, limit, skip,
+        db,
+        current_user.project_id,
+        execution_id,
+        limit,
+        skip,
     )
     return [AIExecutionToolEventSummary.model_validate(row) for row in events]
 
@@ -160,9 +189,15 @@ def get_ai_business_queries(
     db: Session = Depends(get_db),
 ) -> list[AIExecutionBusinessQuerySummary]:
     records = list_ai_business_queries(
-        db, current_user.project_id, execution_id, limit, skip,
+        db,
+        current_user.project_id,
+        execution_id,
+        limit,
+        skip,
     )
-    return [AIExecutionBusinessQuerySummary.model_validate(row) for row in records]
+    return [
+        AIExecutionBusinessQuerySummary.model_validate(row) for row in records
+    ]
 
 
 @router.get(
@@ -180,7 +215,10 @@ async def get_ai_business_audit_observations(
 ) -> BusinessQueryAuditList:
     match = db.execute(
         select(AIExecutionAttempt, AIInteractionRun)
-        .join(AIInteractionRun, AIExecutionAttempt.interaction_run_id == AIInteractionRun.id)
+        .join(
+            AIInteractionRun,
+            AIExecutionAttempt.interaction_run_id == AIInteractionRun.id,
+        )
         .where(
             AIExecutionAttempt.execution_id == execution_id,
             AIExecutionAttempt.project_id == current_user.project_id,
@@ -192,8 +230,11 @@ async def get_ai_business_audit_observations(
     attempt, run = match
     response.headers["Cache-Control"] = "no-store"
     return await read_business_message_audits(
-        current_user.project_id, run.source_message_id,
-        attempt.response_client_msg_no, skip, limit,
+        current_user.project_id,
+        run.source_message_id,
+        attempt.response_client_msg_no,
+        skip,
+        limit,
     )
 
 
@@ -206,9 +247,8 @@ async def get_ai_business_audit_observations(
 async def cancel_by_client_no(
     req: CancelByClientNoRequest,
     db: Session = Depends(get_db),
-    credentials: HTTPAuthorizationCredentials | None = Depends(
-        HTTPBearer(auto_error=False)
-    ),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(HTTPBearer(auto_error=False)),
 ) -> ReplyCancelResponse:
     platform = (
         db.query(Platform)
@@ -242,8 +282,10 @@ async def cancel_run_by_staff(
 ) -> ReplyCancelResponse:
     item = await get_reply_run(str(current_user.project_id), req.client_msg_no)
     from app.services.staff_conversation_scope import restricted_staff
+
     if restricted_staff(current_user):
         from app.services.channel_access import require_staff_channel_access
+
         if item.channel_type != 251:
             raise HTTPException(403, "仅可停止本人负责的客户会话回复")
         await require_staff_channel_access(

@@ -14,7 +14,9 @@ from app.api.current_access_route import CurrentAccessResponse
 
 
 class BusinessContextChatRoute(APIRoute):
-    def get_route_handler(self) -> Callable[[Request], Coroutine[object, object, Response]]:
+    def get_route_handler(
+        self,
+    ) -> Callable[[Request], Coroutine[object, object, Response]]:
         handler = super().get_route_handler()
 
         async def safe(request: Request) -> Response:
@@ -30,11 +32,23 @@ class BusinessContextChatRoute(APIRoute):
                 return response
             except RequestValidationError as error:
                 body = error.body
-                if not ((isinstance(body, dict) and "customer_sessions" in body)
-                        or (isinstance(body, str) and "customer_sessions" in body)):
+                if not (
+                    (isinstance(body, dict) and "customer_sessions" in body)
+                    or (isinstance(body, str) and "customer_sessions" in body)
+                ):
                     raise
-                return JSONResponse(status_code=422, content={"detail": [
-                    {"loc": list(item["loc"]), "type": item["type"], "msg": "客户会话验证信息无效"}
-                    for item in error.errors()]})
+                return JSONResponse(
+                    status_code=422,
+                    content={
+                        "detail": [
+                            {
+                                "loc": list(item["loc"]),
+                                "type": item["type"],
+                                "msg": "客户会话验证信息无效",
+                            }
+                            for item in error.errors()
+                        ]
+                    },
+                )
 
         return safe

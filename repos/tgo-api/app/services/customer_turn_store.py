@@ -19,7 +19,9 @@ MAX_COLLECT_SECONDS = 5
 
 
 def utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    return (
+        value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    )
 
 
 def actor_key(project: UUID, platform: UUID, channel: str, sender: str) -> str:
@@ -28,7 +30,9 @@ def actor_key(project: UUID, platform: UUID, channel: str, sender: str) -> str:
     ).hexdigest()
 
 
-def receipt(turn: CustomerTurn, source: str, duplicate: bool = False) -> TurnReceipt:
+def receipt(
+    turn: CustomerTurn, source: str, duplicate: bool = False
+) -> TurnReceipt:
     return TurnReceipt(
         turn_id=turn.id,
         version=turn.version,
@@ -44,8 +48,12 @@ class TurnStore:
 
     def lock_actor(self, key: str) -> None:
         if self.db.get_bind().dialect.name == "postgresql":
-            number = int.from_bytes(bytes.fromhex(key[:16]), "big", signed=True)
-            self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": number})
+            number = int.from_bytes(
+                bytes.fromhex(key[:16]), "big", signed=True
+            )
+            self.db.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"), {"key": number}
+            )
 
     def get(self, turn_id: UUID, *, lock: bool = False) -> CustomerTurn:
         query = (
@@ -160,7 +168,8 @@ class TurnStore:
             turn = self.db.scalar(
                 select(CustomerTurn)
                 .where(
-                    CustomerTurn.actor_key == key, CustomerTurn.state.in_(OPEN_STATES)
+                    CustomerTurn.actor_key == key,
+                    CustomerTurn.state.in_(OPEN_STATES),
                 )
                 .order_by(CustomerTurn.created_at.desc())
                 .with_for_update()
@@ -175,7 +184,8 @@ class TurnStore:
                 uncertain = self.db.scalar(
                     select(CustomerTurn.id)
                     .where(
-                        CustomerTurn.actor_key == key, CustomerTurn.state == "uncertain"
+                        CustomerTurn.actor_key == key,
+                        CustomerTurn.state == "uncertain",
                     )
                     .limit(1)
                 )
@@ -229,7 +239,8 @@ class TurnStore:
         turn.updated_at = now
         turn.due_at = min(
             now + timedelta(seconds=QUIET_SECONDS),
-            utc(turn.collect_started_at) + timedelta(seconds=MAX_COLLECT_SECONDS),
+            utc(turn.collect_started_at)
+            + timedelta(seconds=MAX_COLLECT_SECONDS),
         )
         self.db.flush()
         return receipt(turn, source), previous_run
@@ -312,17 +323,27 @@ class TurnStore:
         if turn.version != version or turn.claim_id != claim_id:
             raise HTTPException(409, "发送回执不属于当前轮次")
         if turn.state in ("sent", "failed"):
-            if turn.state == "sent" and result == "sent" and turn.receipt == proof:
+            if (
+                turn.state == "sent"
+                and result == "sent"
+                and turn.receipt == proof
+            ):
                 turn.failure = None
                 return turn
             raise HTTPException(409, "发送结果已保存，不能覆盖")
         if turn.state == "uncertain" and result == "unknown":
             return turn
-        if turn.state not in {"sending", "uncertain"} or result == "sent" and not proof:
+        if (
+            turn.state not in {"sending", "uncertain"}
+            or result == "sent"
+            and not proof
+        ):
             raise HTTPException(409, "缺少可核对的发送回执")
-        turn.state = {"sent": "sent", "rejected": "failed", "unknown": "uncertain"}[
-            result
-        ]
+        turn.state = {
+            "sent": "sent",
+            "rejected": "failed",
+            "unknown": "uncertain",
+        }[result]
         turn.receipt = proof
         turn.updated_at = datetime.now(timezone.utc)
         turn.failure = (
@@ -332,7 +353,9 @@ class TurnStore:
             if result == "unknown"
             else "渠道未接受本轮回复"
         )
-        turn.delivered_at = datetime.now(timezone.utc) if result == "sent" else None
+        turn.delivered_at = (
+            datetime.now(timezone.utc) if result == "sent" else None
+        )
         turn.due_at = datetime.now(timezone.utc)
         if turn.permit:
             from app.services import ai_usage

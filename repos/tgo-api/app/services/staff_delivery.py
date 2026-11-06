@@ -28,7 +28,10 @@ from app.schemas.staff_delivery import (
 )
 from app.services.platform_message_client import forward_staff_platform_message
 from app.services.assist_draft_record import resolve_delivery_draft
-from app.services.staff_delivery_training import authorize_training, training_snapshot
+from app.services.staff_delivery_training import (
+    authorize_training,
+    training_snapshot,
+)
 from app.services.employee_style import resolve_employee_style
 from app.services.staff_message_target import StaffMessageTarget
 from app.services.wukongim_client import wukongim_client
@@ -40,8 +43,12 @@ EXTERNAL_RECEIPT_WAIT = timedelta(minutes=5)
 
 def receipt(row: StaffMessageDelivery) -> StaffDeliveryResponse:
     extra = row.payload.get("extra")
-    is_wechat = isinstance(extra, dict) and bool(extra.get("wechat_local_delivery_id"))
-    training_status: Literal["none", "pending", "saved", "unavailable"] = "none"
+    is_wechat = isinstance(extra, dict) and bool(
+        extra.get("wechat_local_delivery_id")
+    )
+    training_status: Literal[
+        "none", "pending", "saved", "unavailable"
+    ] = "none"
     if row.training_status == "pending":
         training_status = "pending"
     elif row.training_status == "saved":
@@ -68,15 +75,18 @@ def receipt(row: StaffMessageDelivery) -> StaffDeliveryResponse:
         )
         delivery_status = (
             "processing"
-            if utc_now() - started < timedelta(seconds=120 if is_wechat else 300)
+            if utc_now() - started
+            < timedelta(seconds=120 if is_wechat else 300)
             else "unknown"
         )
     return StaffDeliveryResponse(
-        delivery_transport="wechat_local" if is_wechat else (
-            "web" if row.external_status == "not_required" else "platform"
-        ),
+        delivery_transport="wechat_local"
+        if is_wechat
+        else ("web" if row.external_status == "not_required" else "platform"),
         training_status=training_status,
-        training_skill_name=training_skill if isinstance(training_skill, str) else None,
+        training_skill_name=training_skill
+        if isinstance(training_skill, str)
+        else None,
         client_msg_no=row.client_msg_no,
         delivery_status=delivery_status,
         history_status="sent" if row.history_status == "sent" else "pending",
@@ -121,7 +131,9 @@ def pending_deliveries(
             StaffMessageDelivery.channel_type == target.channel_type,
             or_(
                 StaffMessageDelivery.history_status == "pending",
-                StaffMessageDelivery.training_status.in_(["pending", "unavailable"]),
+                StaffMessageDelivery.training_status.in_(
+                    ["pending", "unavailable"]
+                ),
             ),
             StaffMessageDelivery.client_msg_no > after,
         )
@@ -138,7 +150,9 @@ def pending_deliveries(
                 payload=row.payload,
                 source_message_id=row.source_message_id,
                 assist_draft_id=row.assist_draft_id,
-                training=AssistTrainingIntent.model_validate(row.training_snapshot)
+                training=AssistTrainingIntent.model_validate(
+                    row.training_snapshot
+                )
                 if row.training_snapshot
                 else None,
             ),
@@ -161,8 +175,16 @@ def _claim(
                 "platform_id": str(target.platform_id),
                 "recipient": target.platform_open_id,
                 "payload": request.payload,
-                **({"source_message_id": request.source_message_id} if request.source_message_id else {}),
-                **({"assist_draft_id": str(request.assist_draft_id)} if request.assist_draft_id else {}),
+                **(
+                    {"source_message_id": request.source_message_id}
+                    if request.source_message_id
+                    else {}
+                ),
+                **(
+                    {"assist_draft_id": str(request.assist_draft_id)}
+                    if request.assist_draft_id
+                    else {}
+                ),
                 **({"training": snapshot} if snapshot else {}),
             },
             sort_keys=True,
@@ -186,13 +208,19 @@ def _claim(
     row = existing()
     if row is None:
         authorize_training(target, snapshot)
-        draft_id = resolve_delivery_draft(
-            db, draft_id=request.assist_draft_id,
-            project_id=target.project_id, staff_id=target.staff_id,
-            visitor_id=target.visitor_id,
-            source_message_id=request.source_message_id,
-            payload_type=request.payload.get("type"),
-        ) if request.assist_draft_id else None
+        draft_id = (
+            resolve_delivery_draft(
+                db,
+                draft_id=request.assist_draft_id,
+                project_id=target.project_id,
+                staff_id=target.staff_id,
+                visitor_id=target.visitor_id,
+                source_message_id=request.source_message_id,
+                payload_type=request.payload.get("type"),
+            )
+            if request.assist_draft_id
+            else None
+        )
         row = StaffMessageDelivery(
             project_id=target.project_id,
             staff_id=target.staff_id,
@@ -328,7 +356,9 @@ async def recover_pending_history(
             db.query(StaffMessageDelivery)
             .filter(
                 StaffMessageDelivery.id == delivery_id,
-                StaffMessageDelivery.external_status.in_(["sent", "not_required"]),
+                StaffMessageDelivery.external_status.in_(
+                    ["sent", "not_required"]
+                ),
                 StaffMessageDelivery.history_status == "pending",
                 StaffMessageDelivery.next_retry_at <= utc_now(),
             )
@@ -345,7 +375,8 @@ async def recover_pending_history(
 
 
 async def recover_stale_external_deliveries(
-    db: Session, limit: int = 20,
+    db: Session,
+    limit: int = 20,
 ) -> int:
     """Persist uncertain external attempts without ever resending them."""
     now = utc_now()
@@ -372,7 +403,9 @@ async def recover_stale_external_deliveries(
     return len(rows)
 
 
-def _rejection(response: httpx.Response, target: StaffMessageTarget) -> tuple[str, str]:
+def _rejection(
+    response: httpx.Response, target: StaffMessageTarget
+) -> tuple[str, str]:
     code = f"PLATFORM_HTTP_{response.status_code}"
     message = "渠道未接受这条消息，请检查渠道配置与消息内容后重试。"
     try:
@@ -393,10 +426,14 @@ async def deliver(
     db: Session, target: StaffMessageTarget, request: StaffDeliveryRequest
 ) -> StaffDeliveryResponse:
     from app.services.company_entitlements import require_human_service
+
     require_human_service(db, target.project_id, target.visitor_id)
     if target.platform_type == "wechat_personal":
         raise HTTPException(410, "该渠道已下线，无法发送消息")
-    if target.platform_type == PlatformType.WECHAT_LOCAL.value and request.payload.get("type") != 1:
+    if (
+        target.platform_type == PlatformType.WECHAT_LOCAL.value
+        and request.payload.get("type") != 1
+    ):
         raise HTTPException(400, "个人微信人工接待目前支持文字回复")
     if (request.channel_id, request.channel_type) != (
         target.channel_id,
@@ -404,22 +441,33 @@ async def deliver(
     ):
         raise HTTPException(400, "发送目标与已授权会话不一致")
     needs_employee_style = (
-        target.service_mode == "assist" and not target.humanization_skill_name
+        target.service_mode == "assist"
+        and not target.humanization_skill_name
         and training_snapshot(request) is not None
     )
     # A retry uses the immutable saved intent; it must not depend on today's
     # employee setting or AI service availability to recover its delivery status.
-    existing_delivery = db.query(StaffMessageDelivery.id).filter(
-        StaffMessageDelivery.project_id == target.project_id,
-        StaffMessageDelivery.staff_id == target.staff_id,
-        StaffMessageDelivery.client_msg_no == request.client_msg_no,
-    ).first() if needs_employee_style else None
+    existing_delivery = (
+        db.query(StaffMessageDelivery.id)
+        .filter(
+            StaffMessageDelivery.project_id == target.project_id,
+            StaffMessageDelivery.staff_id == target.staff_id,
+            StaffMessageDelivery.client_msg_no == request.client_msg_no,
+        )
+        .first()
+        if needs_employee_style
+        else None
+    )
     if needs_employee_style and existing_delivery is None:
-        style = await resolve_employee_style(str(target.project_id), target.agent_id)
-        target = target.model_copy(update={
-            "humanization_skill_name": style.skill_name,
-            "humanization_skill_enabled": style.enabled,
-        })
+        style = await resolve_employee_style(
+            str(target.project_id), target.agent_id
+        )
+        target = target.model_copy(
+            update={
+                "humanization_skill_name": style.skill_name,
+                "humanization_skill_enabled": style.enabled,
+            }
+        )
     if target.platform_type == PlatformType.WECHAT_LOCAL.value:
         from app.models.visitor import Visitor
         from app.services.customer_turn_ingress import cancel_customer_turns
@@ -436,11 +484,16 @@ async def deliver(
             response = await forward_staff_platform_message(
                 target, request.payload, request.client_msg_no
             )
-            if 200 <= response.status_code < 300 and response.json().get("ok") is True:
+            if (
+                200 <= response.status_code < 300
+                and response.json().get("ok") is True
+            ):
                 row.external_status = "sent"
             elif response.status_code in DEFINITE_REJECTIONS:
                 row.external_status = "failed"
-                row.error_code, row.error_message = _rejection(response, target)
+                row.error_code, row.error_message = _rejection(
+                    response, target
+                )
             else:
                 row.external_status = "unknown"
                 row.error_code = f"PLATFORM_HTTP_{response.status_code}"

@@ -22,19 +22,24 @@ CHINA = ZoneInfo("Asia/Shanghai")
 
 def schedule_statements() -> None:
     local_now = datetime.now(CHINA)
-    last_day = local_now.date() - timedelta(days=1 if local_now.hour >= 10 else 2)
+    last_day = local_now.date() - timedelta(
+        days=1 if local_now.hour >= 10 else 2
+    )
     with SessionLocal() as db:
         earliest = db.scalar(select(func.min(BillingOrder.created_at)))
         if earliest is None:
             return
         first_day = max(
-            utc(earliest).astimezone(CHINA).date(), last_day - timedelta(days=89)
+            utc(earliest).astimezone(CHINA).date(),
+            last_day - timedelta(days=89),
         )
         for day_offset in range((last_day - first_day).days + 1):
             day = first_day + timedelta(days=day_offset)
             key = f"tradebill:{day.isoformat()}"
             if (
-                db.scalar(select(BillingJob.id).where(BillingJob.business_key == key))
+                db.scalar(
+                    select(BillingJob.id).where(BillingJob.business_key == key)
+                )
                 is None
             ):
                 try:
@@ -73,7 +78,9 @@ def reconcile_statement(day: date) -> str:
         nonlocal issue_count
         issue_count += 1
         if len(issues) < 200:
-            issues.append({"code": code, "order_number": number, "project_id": project})
+            issues.append(
+                {"code": code, "order_number": number, "project_id": project}
+            )
 
     for entry in entries:
         seen.add(entry.number)

@@ -16,7 +16,11 @@ from app.services.staff_record_access import (
     require_staff_record_access,
 )
 from app.services.visitor_chat_access import authority_database
-from app.services.visitor_mutation_access import changed, lock_permission, timestamp
+from app.services.visitor_mutation_access import (
+    changed,
+    lock_permission,
+    timestamp,
+)
 
 
 @dataclass(frozen=True)
@@ -30,7 +34,11 @@ class StaffSessionScope:
     original_version: datetime
 
     def check(
-        self, db: Session, *, lock: bool = False, target_staff_id: UUID | None = None
+        self,
+        db: Session,
+        *,
+        lock: bool = False,
+        target_staff_id: UUID | None = None,
     ) -> VisitorSession:
         with db.no_autoflush:
             if lock:
@@ -58,7 +66,10 @@ class StaffSessionScope:
             if lock:
                 visitor_query = visitor_query.with_for_update()
             visitor = visitor_query.first()
-            if visitor is None or visitor.platform_id != self.visitor_platform_id:
+            if (
+                visitor is None
+                or visitor.platform_id != self.visitor_platform_id
+            ):
                 raise not_found()
             platform_query = db.query(Platform.id).filter(
                 Platform.id == self.visitor_platform_id,
@@ -92,7 +103,9 @@ class StaffSessionScope:
                     VisitorSession.visitor_id == self.visitor_id,
                     VisitorSession.status == "open",
                 )
-                .order_by(VisitorSession.created_at.desc(), VisitorSession.id.desc())
+                .order_by(
+                    VisitorSession.created_at.desc(), VisitorSession.id.desc()
+                )
                 .first()
             )
             if latest is None or latest[0] != self.session_id:
@@ -147,7 +160,9 @@ class StaffSessionScope:
 
         def check() -> None:
             with authority_database() as db:
-                check_staff_record_permission(db, self.access, "visitors:update")
+                check_staff_record_permission(
+                    db, self.access, "visitors:update"
+                )
                 current = (
                     db.query(VisitorSession)
                     .filter(
@@ -219,7 +234,9 @@ def begin_staff_session_change(
     session_id: UUID | None = None,
     visitor_id: UUID | None = None,
 ) -> tuple[VisitorSession, StaffSessionScope]:
-    access = require_staff_record_access(db, credentials, actor, "visitors:update")
+    access = require_staff_record_access(
+        db, credentials, actor, "visitors:update"
+    )
     query = db.query(VisitorSession).filter(
         VisitorSession.project_id == access.project_id,
         VisitorSession.status == "open",

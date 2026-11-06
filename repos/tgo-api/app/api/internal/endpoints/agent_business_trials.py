@@ -6,8 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.business_trial_route import BusinessTrialRoute
-from app.api.internal.endpoints.agent_activation import require_activation_service
-from app.api.internal.endpoints.business_connections import require_business_adapter
+from app.api.internal.endpoints.agent_activation import (
+    require_activation_service,
+)
+from app.api.internal.endpoints.business_connections import (
+    require_business_adapter,
+)
 from app.core.database import get_db
 from app.schemas.agent_configuration_actor import AgentConfigurationActorQuery
 from app.schemas.agent_business_trials import (
@@ -19,7 +23,9 @@ from app.schemas.agent_business_trials import (
 from app.schemas.business_connections import BusinessConnectionPrivateSnapshot
 from app.schemas.business_trial_resolution import BusinessTrialResolution
 from app.services.agent_configuration_actor import current_configuration_actor
-from app.services.business_customer_identity import BusinessCustomerIdentityService
+from app.services.business_customer_identity import (
+    BusinessCustomerIdentityService,
+)
 from app.services import (
     business_connections,
     agent_business_trial_client,
@@ -63,7 +69,9 @@ async def query(
     dependencies=[Depends(require_business_adapter)],
 )
 async def resolve(
-    connection_id: UUID, check: BusinessTrialCheck, db: Session = Depends(get_db)
+    connection_id: UUID,
+    check: BusinessTrialCheck,
+    db: Session = Depends(get_db),
 ) -> BusinessTrialResolution:
     command = check.command
     if connection_id != command.connection_id:
@@ -85,7 +93,10 @@ async def resolve(
     ):
         raise HTTPException(409, "原业务测试连接或授权已改变")
     identity = BusinessCustomerIdentityService(db).resolve(
-        command.project_id, connection_id, command.visitor_id, command.customer_session
+        command.project_id,
+        connection_id,
+        command.visitor_id,
+        command.customer_session,
     )
     authority = await agent_business_trial_client.authorize(ai_client, check)
     # Re-read after the awaited employee check. No private credential is released
@@ -98,7 +109,10 @@ async def resolve(
         expected_revision=command.expected_revision,
     )
     current = BusinessCustomerIdentityService(db).resolve(
-        command.project_id, connection_id, command.visitor_id, command.customer_session
+        command.project_id,
+        connection_id,
+        command.visitor_id,
+        command.customer_session,
     )
     if current != identity:
         raise HTTPException(409, "原业务测试客户身份已改变")

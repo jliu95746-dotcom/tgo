@@ -4,15 +4,21 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.api.business_trial_route import BusinessTrialRoute
-from app.api.internal.endpoints.agent_activation import require_activation_service
-from app.api.internal.endpoints.business_connections import require_business_adapter
+from app.api.internal.endpoints.agent_activation import (
+    require_activation_service,
+)
+from app.api.internal.endpoints.business_connections import (
+    require_business_adapter,
+)
 from app.core.database import get_db
 from app.schemas.agent_business_execution import (
     BusinessExecutionCommand,
     BusinessExecutionCheck,
     BusinessExecutionReceipt,
 )
-from app.schemas.business_execution_resolution import BusinessExecutionResolution
+from app.schemas.business_execution_resolution import (
+    BusinessExecutionResolution,
+)
 from app.services.agent_business_execution_resolution import (
     query_execution,
     resolve_execution,
@@ -38,6 +44,8 @@ async def query(
     dependencies=[Depends(require_business_adapter)],
 )
 async def resolve(
-    connection_id: UUID, check: BusinessExecutionCheck, db: Session = Depends(get_db)
+    connection_id: UUID,
+    check: BusinessExecutionCheck,
+    db: Session = Depends(get_db),
 ) -> BusinessExecutionResolution:
     return await resolve_execution(db, connection_id, check)

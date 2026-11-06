@@ -10,7 +10,10 @@ from app.models import Project
 from app.models.billing import BillingAudit, BillingOrder, BillingPlan
 from app.models.company_account import AICreditBatch, CompanyAccount
 from app.models.platform_operator import PlatformOperator
-from app.schemas.operations_companies import CreditAdjustment, OperationsCompany
+from app.schemas.operations_companies import (
+    CreditAdjustment,
+    OperationsCompany,
+)
 from app.schemas.billing import PlanDefinition
 from app.services.billing_credit_summary import credit_summary
 from app.services.billing_quotes import conflict
@@ -27,10 +30,7 @@ def companies(
     if project_id is not None:
         query = query.where(Project.id == project_id)
     for project in db.scalars(
-        query
-        .order_by(Project.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+        query.order_by(Project.created_at.desc()).offset(offset).limit(limit)
     ):
         account = db.get(CompanyAccount, project.id)
         plan = (
@@ -82,7 +82,10 @@ def companies(
 
 
 def adjust_credit(
-    db: Session, operator: PlatformOperator, project_id: UUID, payload: CreditAdjustment
+    db: Session,
+    operator: PlatformOperator,
+    project_id: UUID,
+    payload: CreditAdjustment,
 ) -> None:
     if lock_company(db, project_id) is None:
         raise conflict("现有企业尚未迁入订阅管理，不能调整次数")

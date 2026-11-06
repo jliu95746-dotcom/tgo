@@ -28,6 +28,8 @@ async def list_model_usage(
                 headers={"X-SaaS-Service-Token": token.get_secret_value()},
             )
         response.raise_for_status()
-        return TypeAdapter(list[ModelUsageResponse]).validate_json(response.content)
+        return TypeAdapter(list[ModelUsageResponse]).validate_json(
+            response.content
+        )
     except (httpx.HTTPError, ValidationError) as exc:
         raise HTTPException(503, "模型用量暂不可用，请稍后重试") from exc

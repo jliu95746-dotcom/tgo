@@ -29,7 +29,8 @@ def release_abandoned() -> None:
                     AIUsageReservation.status == "reserved",
                     AIUsageReservation.expires_at <= now,
                     func.coalesce(
-                        AIUsageReservation.receipt["kind"].as_string(), "",
+                        AIUsageReservation.receipt["kind"].as_string(),
+                        "",
                     ).notin_(["agent_trial", "workflow"]),
                 )
                 .limit(100)
@@ -58,7 +59,8 @@ async def reconcile_deliveries() -> None:
                     AIUsageReservation.status.in_(["publishing", "review"]),
                     AIUsageReservation.expires_at <= now,
                     func.coalesce(
-                        AIUsageReservation.receipt["kind"].as_string(), "",
+                        AIUsageReservation.receipt["kind"].as_string(),
+                        "",
                     ).notin_(["agent_trial", "workflow"]),
                 )
                 .order_by(AIUsageReservation.expires_at)
@@ -66,7 +68,8 @@ async def reconcile_deliveries() -> None:
             )
         )
         candidates = [
-            (row.id, row.project_id, row.lease_id, row.receipt or {}) for row in rows
+            (row.id, row.project_id, row.lease_id, row.receipt or {})
+            for row in rows
         ]
     for identifier, project_id, lease, receipt in candidates:
         try:
@@ -74,15 +77,28 @@ async def reconcile_deliveries() -> None:
             rejected = False
             if receipt.get("kind") == "customer_turn":
                 from app.models.customer_turn import CustomerTurn
+
                 with SessionLocal() as lookup:
-                    turn = lookup.get(CustomerTurn, UUID(str(receipt.get("turn_id"))))
-                    accepted = bool(turn and turn.project_id == project_id and turn.state == "sent")
-                    rejected = bool(turn and turn.project_id == project_id and turn.state in {"failed", "cancelled"})
+                    turn = lookup.get(
+                        CustomerTurn, UUID(str(receipt.get("turn_id")))
+                    )
+                    accepted = bool(
+                        turn
+                        and turn.project_id == project_id
+                        and turn.state == "sent"
+                    )
+                    rejected = bool(
+                        turn
+                        and turn.project_id == project_id
+                        and turn.state in {"failed", "cancelled"}
+                    )
             elif receipt.get("kind") == "wecom":
                 platform_id, source = receipt.get("platform_id"), receipt.get(
                     "source_message_id"
                 )
-                if not isinstance(platform_id, str) or not isinstance(source, str):
+                if not isinstance(platform_id, str) or not isinstance(
+                    source, str
+                ):
                     raise ValueError("Missing platform receipt identity")
                 result = await get_ai_delivery_receipt(
                     project_id, UUID(platform_id), source
@@ -121,26 +137,34 @@ async def reconcile_deliveries() -> None:
                     ai_usage.settle(db, project_id, identifier, lease)
                 elif rejected:
                     ai_usage.release(
-                        db, project_id, identifier, lease, delivery_rejected=True
+                        db,
+                        project_id,
+                        identifier,
+                        lease,
+                        delivery_rejected=True,
                     )
                 else:
                     row.status = "review"
                     row.expires_at = now + timedelta(minutes=5)
                 db.commit()
         except Exception as exc:
-            logger.warning("AI quota receipt recovery failed: %s", type(exc).__name__)
+            logger.warning(
+                "AI quota receipt recovery failed: %s", type(exc).__name__
+            )
             # Give newer receipts a chance on the next bounded sweep. Never assume
             # that a transport failure means the original reply was not delivered.
+
             try:
                 with SessionLocal() as db:
                     row = ai_usage.owned(db, project_id, identifier, lease)
                     if row.status in {"publishing", "review"}:
                         row.status = "review"
-                        row.expires_at = datetime.now(timezone.utc) + timedelta(
-                            minutes=5
-                        )
+                        row.expires_at = datetime.now(
+                            timezone.utc
+                        ) + timedelta(minutes=5)
                         db.commit()
             except Exception as retry_exc:
                 logger.warning(
-                    "AI quota recovery deferral failed: %s", type(retry_exc).__name__
+                    "AI quota recovery deferral failed: %s",
+                    type(retry_exc).__name__,
                 )

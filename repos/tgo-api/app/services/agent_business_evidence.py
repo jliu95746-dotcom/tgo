@@ -11,7 +11,9 @@ from app.schemas.agent_business_reviews import (
     BusinessTestEvidence,
     BusinessTestEvidenceQuery,
 )
-from app.services.business_customer_identity import BusinessCustomerIdentityService
+from app.services.business_customer_identity import (
+    BusinessCustomerIdentityService,
+)
 from app.services.business_customer_identity_crypto import (
     CustomerBindingVault,
     CustomerIssuerVault,
@@ -49,10 +51,14 @@ def current_evidence(
             or binding.revision != original.binding_revision
             or binding.policy_revision != original.policy_revision
             or binding.policy_id != policy.id
-            or binding.connection_configuration_revision != query.configuration_revision
-            or connection.configuration_revision != query.configuration_revision
+            or binding.connection_configuration_revision
+            != query.configuration_revision
+            or connection.configuration_revision
+            != query.configuration_revision
             or utc(binding.expires_at) != original.expires_at
-            or not utc(binding.issued_at) <= query.observed_at < utc(binding.expires_at)
+            or not utc(binding.issued_at)
+            <= query.observed_at
+            < utc(binding.expires_at)
             or query.observed_at > datetime.now(UTC)
         ):
             issue = "identity_changed"
@@ -69,11 +75,15 @@ def current_evidence(
             # customer value is returned, and expired sessions are not renewed.
             if (
                 CustomerBindingVault()
-                .decrypt(binding.customer_ciphertext, query.project_id, binding.id)
+                .decrypt(
+                    binding.customer_ciphertext, query.project_id, binding.id
+                )
                 .token
                 is None
                 or CustomerIssuerVault()
-                .decrypt(policy.signing_ciphertext, query.project_id, policy.id)
+                .decrypt(
+                    policy.signing_ciphertext, query.project_id, policy.id
+                )
                 .token
                 is None
             ):

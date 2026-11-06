@@ -13,7 +13,9 @@ from app.schemas.channel_visitor_registration import (
     ChannelVisitorRegistrationResult,
 )
 from app.services.channel_visitor_registration import register_channel_visitor
-from app.services.business_customer_identity import BusinessCustomerIdentityService
+from app.services.business_customer_identity import (
+    BusinessCustomerIdentityService,
+)
 from app.schemas.business_customer_identity import (
     CustomerIdentityExchangeRequest,
     CustomerIdentitySession,
@@ -23,7 +25,9 @@ router = APIRouter(dependencies=[Depends(require_channel_service)])
 
 
 @router.post(
-    "/register", response_model=ChannelVisitorRegistrationResult, status_code=201
+    "/register",
+    response_model=ChannelVisitorRegistrationResult,
+    status_code=201,
 )
 async def register(
     payload: ChannelVisitorRegistrationInput,

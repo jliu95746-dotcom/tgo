@@ -51,7 +51,9 @@ class ReplyControl:
     finishing: bool = False
 
 
-_current: ContextVar[ReplyControl | None] = ContextVar("reply_control", default=None)
+_current: ContextVar[ReplyControl | None] = ContextVar(
+    "reply_control", default=None
+)
 
 
 async def begin_ai_phase() -> ReplyPhaseIdentity | None:
@@ -94,6 +96,7 @@ async def tracked_ai_request() -> AsyncIterator[ReplyPhaseIdentity | None]:
     phase = await begin_ai_phase()
     yield phase
     # Not a finally: disconnected requests require a private server receipt.
+
     await finish_ai_phase(phase)
 
 
@@ -141,7 +144,7 @@ async def begin_reply_publication() -> None:
 async def tracked_ai_stream(
     source_factory: Callable[
         [ReplyPhaseIdentity | None],
-        AsyncGenerator[tuple[str, JsonValue], None]
+        AsyncGenerator[tuple[str, JsonValue], None],
     ],
 ) -> AsyncGenerator[tuple[str, ReplyEvent], None]:
     phase = await begin_ai_phase()
@@ -169,6 +172,7 @@ async def tracked_ai_stream(
                         control.upstream_run_id = run_id
             if terminal:
                 # Callers may break immediately after receiving this event.
+
                 await source.aclose()
                 await finish_ai_phase(phase)
             yield event, data
@@ -189,9 +193,11 @@ async def controlled_reply(
     except (RegistryUnavailable, RegistryConflict):
         message = "回复任务暂时无法启动，请稍后重试。"
         await publish_error(message)
-        yield {"event_type": "workflow_failed", "data": {"error_message": message}}
+        yield {
+            "event_type": "workflow_failed",
+            "data": {"error_message": message},
+        }
         return
-
     check_current_chat_access()
 
     observe_control_start(identity)
@@ -212,12 +218,17 @@ async def controlled_reply(
             async with aclosing(source):
                 async for event in source:
                     check_current_chat_access()
-                    completed |= event.get("event_type") in {"workflow_completed", "human_handoff"}
+                    completed |= event.get("event_type") in {
+                        "workflow_completed",
+                        "human_handoff",
+                    }
                     failed |= event.get("event_type") == "workflow_failed"
                     queue.put_nowait(event)
         except asyncio.CancelledError:
             failure_reason = (
-                "control_unavailable" if control.control_failed else "generation_failed"
+                "control_unavailable"
+                if control.control_failed
+                else "generation_failed"
             )
         except Exception as exc:
             failure_reason = "generation_failed"
@@ -242,10 +253,14 @@ async def controlled_reply(
                         except (Exception, asyncio.CancelledError):
                             # A cancelled HTTP stop request must not abort cleanup.
                             # Only the private phase receipt can confirm termination.
+
                             pass
                     # An accepted cancel signal is not proof of task cleanup.
+
                     upstream_confirmed = await wait_for_phase_end(control)
-                    outcome: Literal["cancelled", "completed", "failed"] = "failed"
+                    outcome: Literal[
+                        "cancelled", "completed", "failed"
+                    ] = "failed"
                     if control.cancel_requested and upstream_confirmed:
                         message = "本次回复已停止"
                         outcome = "cancelled"
@@ -260,7 +275,9 @@ async def controlled_reply(
                     try:
                         if has_fallback_attempt():
                             saved = await run_registry.finish(
-                                identity, outcome, failure_reason,
+                                identity,
+                                outcome,
+                                failure_reason,
                                 preserve_cancel=True,
                             )
                         else:
@@ -268,7 +285,8 @@ async def controlled_reply(
                                 identity, outcome, failure_reason
                             )
                         observe_control_outcome(
-                            identity, saved,
+                            identity,
+                            saved,
                             upstream_closed=upstream_confirmed,
                             cancelled=control.cancel_requested,
                             control_failed=control.control_failed,
@@ -280,14 +298,17 @@ async def controlled_reply(
                         ):
                             message = "本次回复已停止"
                     except RegistryUnavailable:
-                        logger.warning("Reply final status could not be recorded")
+                        logger.warning(
+                            "Reply final status could not be recorded"
+                        )
                     if not completed and not failed:
                         try:
                             async with asyncio.timeout(5):
                                 await publish_error(message)
                         except Exception as exc:
                             logger.warning(
-                                "Reply stop notice failed: %s", type(exc).__name__
+                                "Reply stop notice failed: %s",
+                                type(exc).__name__,
                             )
                         queue.put_nowait(
                             {
@@ -314,7 +335,9 @@ async def controlled_reply(
                     return
                 await asyncio.sleep(POLL_SECONDS)
         except Exception as exc:
-            logger.warning("Reply control heartbeat failed: %s", type(exc).__name__)
+            logger.warning(
+                "Reply control heartbeat failed: %s", type(exc).__name__
+            )
             control.control_failed = True
             if not task.done() and not task.cancelling():
                 task.cancel()
@@ -337,13 +360,16 @@ async def controlled_reply(
                 producer.cancel()
             cleanup = await asyncio.gather(producer, return_exceptions=True)
             observe_control_end(
-                identity, clean=producer_started
+                identity,
+                clean=producer_started
                 and not any(
                     isinstance(item, BaseException) for item in cleanup
                 ),
             )
             if not producer_started:
                 try:
-                    await run_registry.finish(identity, "failed", "generation_failed")
+                    await run_registry.finish(
+                        identity, "failed", "generation_failed"
+                    )
                 except RegistryUnavailable:
                     pass

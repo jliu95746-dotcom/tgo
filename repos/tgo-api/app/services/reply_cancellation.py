@@ -29,7 +29,9 @@ async def cancel_reply(item: ReplyRun) -> ReplyCancelResponse:
                 if current is None or current.generation != item.generation:
                     raise HTTPException(404, "回复任务已变化，请刷新后确认。")
                 if current.status == "cancelled":
-                    return ReplyCancelResponse(client_msg_no=item.client_msg_no)
+                    return ReplyCancelResponse(
+                        client_msg_no=item.client_msg_no
+                    )
                 if current.status in {"publishing", "completed"}:
                     raise HTTPException(409, "回复已开始发送，无法通过停止按钮撤回。")
                 if current.status == "failed":

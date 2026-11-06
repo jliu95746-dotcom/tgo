@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models import Project, Staff, VisitorSession
-from app.models.billing import BillingAudit, BillingJob, BillingOrder, InvoiceRequest
+from app.models.billing import (
+    BillingAudit,
+    BillingJob,
+    BillingOrder,
+    InvoiceRequest,
+)
 from app.models.company_account import CompanyAccount
 from app.models.platform_operator import PlatformOperator
 from app.schemas.operations_management import (
@@ -75,7 +80,8 @@ def directory(
     if expiring:
         query = query.where(
             effective_status().in_(["active", "trial"]),
-            CompanyAccount.expires_at <= datetime.now(timezone.utc) + timedelta(days=7),
+            CompanyAccount.expires_at
+            <= datetime.now(timezone.utc) + timedelta(days=7),
         )
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     ids = db.scalars(
@@ -84,7 +90,9 @@ def directory(
         .limit(limit)
     )
     rows = [
-        row for identifier in ids for row in companies(db, 0, 1, project_id=identifier)
+        row
+        for identifier in ids
+        for row in companies(db, 0, 1, project_id=identifier)
     ]
     return CompanyDirectory(data=rows, total=total, offset=offset, limit=limit)
 
@@ -147,7 +155,9 @@ def audit_log(
 
 def company_detail(db: Session, project_id: UUID) -> CompanyDetail:
     project = db.scalar(
-        select(Project).where(Project.id == project_id, Project.deleted_at.is_(None))
+        select(Project).where(
+            Project.id == project_id, Project.deleted_at.is_(None)
+        )
     )
     if project is None:
         raise HTTPException(404, "企业不存在")
@@ -166,7 +176,9 @@ def company_detail(db: Session, project_id: UUID) -> CompanyDetail:
         created_at=project.created_at,
         plan_id=account.plan_id if account else None,
         version=account.version if account else 0,
-        operator_override_until=account.operator_override_until if account else None,
+        operator_override_until=account.operator_override_until
+        if account
+        else None,
         members=[member_view(db, target) for target in members],
         audits=audit_log(db, 0, 20, project_id),
     )
@@ -272,7 +284,9 @@ def overview(db: Session) -> OperationsOverview:
     )
 
     def count(query: Select[tuple[UUID]]) -> int:
-        return db.scalar(select(func.count()).select_from(query.subquery())) or 0
+        return (
+            db.scalar(select(func.count()).select_from(query.subquery())) or 0
+        )
 
     return OperationsOverview(
         total_companies=count(merchant),
@@ -298,7 +312,9 @@ def overview(db: Session) -> OperationsOverview:
             )
         ),
         pending_invoices=count(
-            select(InvoiceRequest.id).where(InvoiceRequest.status == "requested")
+            select(InvoiceRequest.id).where(
+                InvoiceRequest.status == "requested"
+            )
         ),
         checked_at=now,
     )

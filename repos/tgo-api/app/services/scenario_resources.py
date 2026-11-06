@@ -158,7 +158,9 @@ async def _workflow_catalog(project: UUID) -> ResourceSection:
                 status="configured"
                 if row.status == "active" and row.published_version is not None
                 else "not_ready",
-                details=ResourceDetails(workflow_version=row.published_version),
+                details=ResourceDetails(
+                    workflow_version=row.published_version
+                ),
             )
             for row in page.data
         ],
@@ -210,14 +212,34 @@ async def _capture(
 
 def connection_catalog(db: Session, project_id: UUID) -> ResourceSection:
     rows = business_connections.list_connections(db, project_id, limit=101)
-    return ResourceSection(kind="connection", status="partial" if len(rows) > 100 else "available", items=[
-        ScenarioResource(id=str(row.id), kind="connection", name=row.name,
-            status="unknown" if row.test_status == "unavailable" else "configured" if row.enabled and row.test_status == "passed"
-                else "disabled" if row.test_status == "passed" and not row.enabled else "not_ready",
-            details=ResourceDetails(purpose="order_logistics", resource_revision=row.resource_revision,
-                blocked_reasons=["demo_only"] if row.mode == "demo" else ["connection_test_required"] if row.test_status != "passed" else []))
-        for row in rows[:100]
-    ])
+    return ResourceSection(
+        kind="connection",
+        status="partial" if len(rows) > 100 else "available",
+        items=[
+            ScenarioResource(
+                id=str(row.id),
+                kind="connection",
+                name=row.name,
+                status="unknown"
+                if row.test_status == "unavailable"
+                else "configured"
+                if row.enabled and row.test_status == "passed"
+                else "disabled"
+                if row.test_status == "passed" and not row.enabled
+                else "not_ready",
+                details=ResourceDetails(
+                    purpose="order_logistics",
+                    resource_revision=row.resource_revision,
+                    blocked_reasons=["demo_only"]
+                    if row.mode == "demo"
+                    else ["connection_test_required"]
+                    if row.test_status != "passed"
+                    else [],
+                ),
+            )
+            for row in rows[:100]
+        ],
+    )
 
 
 async def load_catalog(
@@ -240,8 +262,15 @@ async def load_catalog(
         connections = connection_catalog(db, project_id)
     except Exception as error:
         db.rollback()
-        logger.warning("Resource catalogue source failed: connection %s", type(error).__name__)
-        connections = ResourceSection(kind="connection", status="unavailable", message="暂时无法读取企业业务连接，请重试。")
+        logger.warning(
+            "Resource catalogue source failed: connection %s",
+            type(error).__name__,
+        )
+        connections = ResourceSection(
+            kind="connection",
+            status="unavailable",
+            message="暂时无法读取企业业务连接，请重试。",
+        )
     sections = await asyncio.gather(
         _capture("knowledge", lambda: _knowledge_catalog(project_id, channel)),
         _capture("tool", lambda: _tool_catalog(project_id)),

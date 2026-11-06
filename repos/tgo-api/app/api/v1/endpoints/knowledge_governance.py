@@ -31,7 +31,9 @@ async def update_knowledge_channels(
     current_user: Staff = Depends(get_current_active_user),
 ) -> KnowledgeGovernanceRecordResponse:
     if current_user.role != "admin":
-        raise HTTPException(403, "Admin permission required for knowledge review")
+        raise HTTPException(
+            403, "Admin permission required for knowledge review"
+        )
     result = await rag_client.update_knowledge_channels(
         project_id=str(current_user.project_id),
         record_id=str(record_id),
@@ -61,7 +63,9 @@ async def list_governance_records(
     return KnowledgeGovernanceListResponse.model_validate(result)
 
 
-@router.put("/files/{file_id}", response_model=KnowledgeGovernanceRecordResponse)
+@router.put(
+    "/files/{file_id}", response_model=KnowledgeGovernanceRecordResponse
+)
 async def save_file_governance_draft(
     file_id: UUID,
     request: KnowledgeGovernanceDraftRequest,
@@ -75,20 +79,25 @@ async def save_file_governance_draft(
     return KnowledgeGovernanceRecordResponse.model_validate(result)
 
 
-@router.put("/qa-pairs/{qa_pair_id}", response_model=KnowledgeGovernanceRecordResponse)
+@router.put(
+    "/qa-pairs/{qa_pair_id}", response_model=KnowledgeGovernanceRecordResponse
+)
 async def save_qa_governance_draft(
     qa_pair_id: UUID,
     request: KnowledgeGovernanceDraftRequest,
     current_user: Staff = Depends(get_current_active_user),
 ) -> KnowledgeGovernanceRecordResponse:
     result = await rag_client.save_qa_knowledge_governance(
-        project_id=str(current_user.project_id), qa_pair_id=str(qa_pair_id),
+        project_id=str(current_user.project_id),
+        qa_pair_id=str(qa_pair_id),
         data=request.model_dump(mode="json", exclude_none=True),
     )
     return KnowledgeGovernanceRecordResponse.model_validate(result)
 
 
-@router.post("/{record_id}/submit", response_model=KnowledgeGovernanceRecordResponse)
+@router.post(
+    "/{record_id}/submit", response_model=KnowledgeGovernanceRecordResponse
+)
 async def submit_governance_record(
     record_id: UUID,
     current_user: Staff = Depends(get_current_active_user),
@@ -100,7 +109,9 @@ async def submit_governance_record(
     return KnowledgeGovernanceRecordResponse.model_validate(result)
 
 
-@router.post("/{record_id}/review", response_model=KnowledgeGovernanceRecordResponse)
+@router.post(
+    "/{record_id}/review", response_model=KnowledgeGovernanceRecordResponse
+)
 async def review_governance_record(
     record_id: UUID,
     request: KnowledgeGovernanceReviewRequest,

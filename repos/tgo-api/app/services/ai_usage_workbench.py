@@ -38,10 +38,14 @@ def prepare(
         if previous is not None and previous.receipt:
             if previous.receipt.get("fingerprint") != fingerprint:
                 raise TGOAPIException(
-                    "同一请求编号不能用于不同内容", code="AI_REQUEST_CONFLICT", status_code=409
+                    "同一请求编号不能用于不同内容",
+                    code="AI_REQUEST_CONFLICT",
+                    status_code=409,
                 )
             if previous.status == "settled":
-                return result_type.model_validate(previous.receipt.get("result"))
+                return result_type.model_validate(
+                    previous.receipt.get("result")
+                )
         row = ai_usage.reserve(db, project_id, key)
         assert row is not None
         row.receipt = {"kind": "workbench", "fingerprint": fingerprint}
@@ -63,7 +67,9 @@ def complete(permit: ReplyPermit, fingerprint: str, result: BaseModel) -> None:
                 "result": result.model_dump(mode="json"),
             },
         )
-        ai_usage.settle(db, permit.project_id, permit.reservation_id, permit.lease_id)
+        ai_usage.settle(
+            db, permit.project_id, permit.reservation_id, permit.lease_id
+        )
         db.commit()
 
 
@@ -86,7 +92,9 @@ async def generate_workbench(
         result = await generate()
         if prepared is not None:
             with CancelScope(shield=True):
-                await asyncio.to_thread(complete, prepared, fingerprint, result)
+                await asyncio.to_thread(
+                    complete, prepared, fingerprint, result
+                )
         return result
     finally:
         try:

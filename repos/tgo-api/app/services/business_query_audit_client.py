@@ -19,14 +19,17 @@ def audit_unavailable() -> TGOAPIException:
 
 
 async def read_business_query_audits(
-    project_id: UUID, query_id: UUID,
+    project_id: UUID,
+    query_id: UUID,
 ) -> BusinessQueryAuditList:
     token = settings.BUSINESS_CONNECTION_SERVICE_TOKEN
     if token is None or len(token.get_secret_value()) < 32:
         raise audit_unavailable()
     try:
         async with httpx.AsyncClient(
-            timeout=10, trust_env=False, follow_redirects=False,
+            timeout=10,
+            trust_env=False,
+            follow_redirects=False,
         ) as client:
             async with client.stream(
                 "GET",
@@ -68,7 +71,9 @@ async def read_business_message_audits(
         raise audit_unavailable()
     try:
         async with httpx.AsyncClient(
-            timeout=10, trust_env=False, follow_redirects=False,
+            timeout=10,
+            trust_env=False,
+            follow_redirects=False,
         ) as client:
             async with client.stream(
                 "POST",
@@ -93,8 +98,10 @@ async def read_business_message_audits(
                         raise audit_unavailable()
                     chunks.append(chunk)
         result = BusinessQueryAuditList.model_validate_json(b"".join(chunks))
-        if result.total < len(result.events) or len(result.events) > limit or any(
-            event.project_id != project_id for event in result.events
+        if (
+            result.total < len(result.events)
+            or len(result.events) > limit
+            or any(event.project_id != project_id for event in result.events)
         ):
             raise audit_unavailable()
         return result

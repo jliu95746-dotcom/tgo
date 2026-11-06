@@ -30,7 +30,9 @@ class MailPayload(BaseModel):
 
 
 def utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    return (
+        value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    )
 
 
 def require_mail_configuration() -> None:
@@ -42,7 +44,10 @@ def require_mail_configuration() -> None:
         or target.password
         or target.query
         or target.fragment
-        or (target.scheme != "https" and not (local and target.scheme == "http"))
+        or (
+            target.scheme != "https"
+            and not (local and target.scheme == "http")
+        )
         or not settings.SAAS_SMTP_HOST
         or not settings.SAAS_SMTP_FROM
     ):
@@ -51,7 +56,9 @@ def require_mail_configuration() -> None:
 
 def verification_code_hash(staff_id: object, code: str) -> str:
     message = f"verify-code:{staff_id}:{code}".encode("utf-8")
-    return hmac_new(settings.SECRET_KEY.encode("utf-8"), message, sha256).hexdigest()
+    return hmac_new(
+        settings.SECRET_KEY.encode("utf-8"), message, sha256
+    ).hexdigest()
 
 
 def enqueue_action(
@@ -72,8 +79,13 @@ def enqueue_action(
             if code is not None
             else sha256(token.encode()).hexdigest()
         ),
-        expires_at=now + timedelta(
-            minutes=15 if code is not None else 30 if purpose == "reset" else 1440
+        expires_at=now
+        + timedelta(
+            minutes=15
+            if code is not None
+            else 30
+            if purpose == "reset"
+            else 1440
         ),
     )
     db.add(action)
@@ -84,9 +96,7 @@ def enqueue_action(
         route, subject = "accept-invitation", "域见企业成员邀请"
     if code is not None:
         body = (
-            f"您的企业注册验证码是：{code}\n\n"
-            "验证码 15 分钟内有效，请勿告知他人。\n"
-            "如非本人申请，请忽略此邮件。"
+            f"您的企业注册验证码是：{code}\n\n" "验证码 15 分钟内有效，请勿告知他人。\n" "如非本人申请，请忽略此邮件。"
         )
     else:
         link = f"{settings.SAAS_WEB_BASE_URL.rstrip('/')}/auth/{route}#token={token}"
@@ -113,6 +123,7 @@ def lock_action(db: Session, token: str, purpose: str) -> EmailAction:
 
 def lock_action_digest(db: Session, digest: str, purpose: str) -> EmailAction:
     # All account changes lock the company first to serialize grants and members.
+
     action = db.scalar(
         select(EmailAction).where(
             EmailAction.token_hash == digest,
@@ -132,7 +143,9 @@ def lock_action_digest(db: Session, digest: str, purpose: str) -> EmailAction:
     if project is None:
         raise HTTPException(400, "验证链接无效或已过期")
     db.refresh(action, with_for_update=True)
-    if action.used_at is None and utc(action.expires_at) <= datetime.now(timezone.utc):
+    if action.used_at is None and utc(action.expires_at) <= datetime.now(
+        timezone.utc
+    ):
         raise HTTPException(400, "验证链接无效或已过期")
     return action
 
@@ -196,6 +209,7 @@ def complete_password_reset(db: Session, token: str, password: str) -> None:
     staff.password_hash = get_password_hash(password)
     staff.token_version += 1
     # Invalidate every outstanding recovery link; reset never enables an account.
+
     for pending in db.scalars(
         select(EmailAction).where(
             EmailAction.staff_id == staff.id,

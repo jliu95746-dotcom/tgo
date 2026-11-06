@@ -28,7 +28,10 @@ from app.schemas.billing_support import (
 )
 from app.services import billing_support as service
 from app.services import operations_companies
-from app.schemas.operations_companies import CreditAdjustment, OperationsCompany
+from app.schemas.operations_companies import (
+    CreditAdjustment,
+    OperationsCompany,
+)
 
 router = APIRouter(dependencies=[Depends(require_company_features)])
 ops_router = APIRouter(
@@ -57,7 +60,9 @@ def adjust_company_credits(
     return Response(status_code=204)
 
 
-@ops_router.get("/reconciliations", response_model=list[ReconciliationResponse])
+@ops_router.get(
+    "/reconciliations", response_model=list[ReconciliationResponse]
+)
 def reconciliations(
     offset: int = Query(0, ge=0), db: Session = Depends(get_db)
 ) -> list[BillingReconciliation]:

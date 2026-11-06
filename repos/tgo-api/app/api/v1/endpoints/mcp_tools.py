@@ -6,7 +6,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.common_responses import CREATE_RESPONSES, CRUD_RESPONSES, DELETE_RESPONSES, UPDATE_RESPONSES
+from app.api.common_responses import (
+    CREATE_RESPONSES,
+    CRUD_RESPONSES,
+    DELETE_RESPONSES,
+    UPDATE_RESPONSES,
+)
 from app.core.security import get_authenticated_project
 from app.core.security import AuthenticatedProject
 from app.schemas.mcp import (
@@ -68,17 +73,14 @@ async def list_tools(
         None, description="Filter by tool source type (MCP_SERVER, CUSTOM)"
     ),
     status: Optional[str] = Query(
-        None, description="Filter by tool status (ACTIVE, INACTIVE, DEPRECATED)"
+        None,
+        description="Filter by tool status (ACTIVE, INACTIVE, DEPRECATED)",
     ),
     search: Optional[str] = Query(
         None, description="Search term for tool name or description"
     ),
-    page: int = Query(
-        1, ge=1, description="Page number"
-    ),
-    per_page: int = Query(
-        20, ge=1, le=100, description="Items per page"
-    ),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     project_and_api_key: AuthenticatedProject = Depends(
         get_authenticated_project
     ),
@@ -92,7 +94,7 @@ async def list_tools(
             "search": search,
             "page": page,
             "per_page": per_page,
-        }
+        },
     )
     project, _ = project_and_api_key
 
@@ -127,10 +129,7 @@ async def get_tool(
     ),
 ) -> ToolResponse:
     """Get tool from AI service MCP integration."""
-    logger.info(
-        "Getting MCP tool",
-        extra={"tool_id": str(tool_id)}
-    )
+    logger.info("Getting MCP tool", extra={"tool_id": str(tool_id)})
 
     project, _ = project_and_api_key
     result = await ai_client.get_mcp_tool(
@@ -168,7 +167,7 @@ async def create_custom_tool(
             "tool_name": tool_data.name,
             "tool_title": tool_data.title,
             "webhook_url": tool_data.webhook_url,
-        }
+        },
     )
 
     project, _ = project_and_api_key
@@ -206,7 +205,7 @@ async def update_custom_tool(
             "tool_id": str(tool_id),
             "tool_title": tool_data.title,
             "webhook_url": tool_data.webhook_url,
-        }
+        },
     )
 
     project, _ = project_and_api_key
@@ -238,10 +237,7 @@ async def delete_custom_tool(
     ),
 ) -> None:
     """Delete custom tool from AI service MCP integration."""
-    logger.info(
-        "Deleting custom MCP tool",
-        extra={"tool_id": str(tool_id)}
-    )
+    logger.info("Deleting custom MCP tool", extra={"tool_id": str(tool_id)})
 
     project, _ = project_and_api_key
     await ai_client.delete_custom_tool(
@@ -276,8 +272,10 @@ async def execute_tool(
         "Executing MCP tool",
         extra={
             "tool_id": str(tool_id),
-            "input_data_keys": list(execution_data.input_data.keys()) if execution_data.input_data else [],
-        }
+            "input_data_keys": list(execution_data.input_data.keys())
+            if execution_data.input_data
+            else [],
+        },
     )
 
     project, _ = project_and_api_key

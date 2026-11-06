@@ -2,7 +2,10 @@
 
 from fastapi import APIRouter, Depends
 from app.api.company_knowledge_access import require_knowledge_write
-from app.api.company_configuration_access import require_configuration_write, require_operator_model_management
+from app.api.company_configuration_access import (
+    require_configuration_write,
+    require_operator_model_management,
+)
 from app.api.v1.endpoints import billing, operations_billing, wechat_payments
 from app.api.v1.endpoints import billing_support
 from app.api.v1.endpoints import operations_tasks
@@ -82,10 +85,19 @@ from app.api.v1.endpoints import (
 )
 
 api_router = APIRouter()
-api_router.include_router(workflow_webhook_ingress.router,
-                          prefix="/workflow-webhooks", tags=["Webhook ingress"])
-api_router.include_router(visitor_access.router, prefix="/visitors", tags=["Visitors"])
-api_router.include_router(agent_business_connections.router, prefix="/ai/agents", tags=["AI business configuration"])
+api_router.include_router(
+    workflow_webhook_ingress.router,
+    prefix="/workflow-webhooks",
+    tags=["Webhook ingress"],
+)
+api_router.include_router(
+    visitor_access.router, prefix="/visitors", tags=["Visitors"]
+)
+api_router.include_router(
+    agent_business_connections.router,
+    prefix="/ai/agents",
+    tags=["AI business configuration"],
+)
 api_router.include_router(
     agent_device_script_bindings.router, prefix="/ai/agents", tags=["员工脚本配置"]
 )
@@ -100,103 +112,141 @@ api_router.include_router(
 )
 api_router.include_router(
     agent_device_script_selection.router,
-    prefix="/ai/agents", tags=["员工脚本固定审批"],
+    prefix="/ai/agents",
+    tags=["员工脚本固定审批"],
 )
-api_router.include_router(agent_business_trials.router, prefix="/ai/agents", tags=["AI business trials"])
-api_router.include_router(business_connections.router, prefix="/business-connections", tags=["企业业务连接"])
-api_router.include_router(business_customer_identity.router, prefix="/business-connections", tags=["商户客户身份"])
-api_router.include_router(agent_trials.router, prefix="/ai/agents", tags=["Agent trials"])
-api_router.include_router(agent_activation_policies.router, prefix="/ai/agents", tags=["Agent activation policies"])
-api_router.include_router(agent_activation_requests.router, prefix="/ai/agents", tags=["Agent activation requests"])
-api_router.include_router(business_scenarios.router, prefix="/business-scenarios", tags=["Business scenarios"])
-api_router.include_router(customer_turns.router, prefix="/chat/turns", tags=["Chat turns"])
-api_router.include_router(wechat_staff_deliveries.router, prefix="/chat/wechat-local-deliveries", tags=["WeChat staff delivery"])
+api_router.include_router(
+    agent_business_trials.router,
+    prefix="/ai/agents",
+    tags=["AI business trials"],
+)
+api_router.include_router(
+    business_connections.router,
+    prefix="/business-connections",
+    tags=["企业业务连接"],
+)
+api_router.include_router(
+    business_customer_identity.router,
+    prefix="/business-connections",
+    tags=["商户客户身份"],
+)
+api_router.include_router(
+    agent_trials.router, prefix="/ai/agents", tags=["Agent trials"]
+)
+api_router.include_router(
+    agent_activation_policies.router,
+    prefix="/ai/agents",
+    tags=["Agent activation policies"],
+)
+api_router.include_router(
+    agent_activation_requests.router,
+    prefix="/ai/agents",
+    tags=["Agent activation requests"],
+)
+api_router.include_router(
+    business_scenarios.router,
+    prefix="/business-scenarios",
+    tags=["Business scenarios"],
+)
+api_router.include_router(
+    customer_turns.router, prefix="/chat/turns", tags=["Chat turns"]
+)
+api_router.include_router(
+    wechat_staff_deliveries.router,
+    prefix="/chat/wechat-local-deliveries",
+    tags=["WeChat staff delivery"],
+)
 api_router.include_router(billing.router, prefix="/billing", tags=["Billing"])
-api_router.include_router(operations_billing.router, prefix="/ops", tags=["Operations billing"])
-api_router.include_router(operations_tasks.router, prefix="/ops", tags=["Operations tasks"])
-api_router.include_router(operations_shared_models.router, prefix="/ops", tags=["Operations models"])
-api_router.include_router(operations_management.router, prefix="/ops", tags=["Operations management"])
-api_router.include_router(trial_activation.ops_router, prefix="/ops", tags=["Trial activation"])
-api_router.include_router(trial_activation.company_router, prefix="/company", tags=["Trial activation"])
+api_router.include_router(
+    operations_billing.router, prefix="/ops", tags=["Operations billing"]
+)
+api_router.include_router(
+    operations_tasks.router, prefix="/ops", tags=["Operations tasks"]
+)
+api_router.include_router(
+    operations_shared_models.router, prefix="/ops", tags=["Operations models"]
+)
+api_router.include_router(
+    operations_management.router, prefix="/ops", tags=["Operations management"]
+)
+api_router.include_router(
+    trial_activation.ops_router, prefix="/ops", tags=["Trial activation"]
+)
+api_router.include_router(
+    trial_activation.company_router,
+    prefix="/company",
+    tags=["Trial activation"],
+)
 api_router.include_router(wechat_payments.router, tags=["WeChat payments"])
-api_router.include_router(billing_support.router, prefix="/billing", tags=["Billing support"])
-api_router.include_router(billing_support.ops_router, prefix="/ops", tags=["Operations support"])
-api_router.include_router(billing_refunds.router, prefix="/ops", tags=["Operations refunds"])
-api_router.include_router(billing_refunds.callback_router, tags=["Refund notification"])
+api_router.include_router(
+    billing_support.router, prefix="/billing", tags=["Billing support"]
+)
+api_router.include_router(
+    billing_support.ops_router, prefix="/ops", tags=["Operations support"]
+)
+api_router.include_router(
+    billing_refunds.router, prefix="/ops", tags=["Operations refunds"]
+)
+api_router.include_router(
+    billing_refunds.callback_router, tags=["Refund notification"]
+)
 
 api_router.include_router(operations.router, prefix="/ops", tags=["域见运营"])
 api_router.include_router(company_email.router, prefix="/staff", tags=["企业邮箱"])
-api_router.include_router(company_membership.router, prefix="/company", tags=["企业成员"])
-api_router.include_router(company_membership.public_router, prefix="/company", tags=["企业成员"])
+api_router.include_router(
+    company_membership.router, prefix="/company", tags=["企业成员"]
+)
+api_router.include_router(
+    company_membership.public_router, prefix="/company", tags=["企业成员"]
+)
 
 # Setup endpoints (no authentication required)
-api_router.include_router(
-    setup.router,
-    prefix="/setup",
-    tags=["Setup"]
-)
+api_router.include_router(setup.router, prefix="/setup", tags=["Setup"])
 
 # Include all endpoint routers
 api_router.include_router(
-    projects.router,
-    prefix="/projects",
-    tags=["Projects"]
+    projects.router, prefix="/projects", tags=["Projects"]
 )
 
 # Onboarding endpoints (JWT auth, project_id from current_user)
 api_router.include_router(
-    onboarding.router,
-    prefix="/onboarding",
-    tags=["Onboarding"]
+    onboarding.router, prefix="/onboarding", tags=["Onboarding"]
 )
 
-api_router.include_router(
-    registration.router,
-    prefix="/staff",
-    tags=["Staff"]
-)
+api_router.include_router(registration.router, prefix="/staff", tags=["Staff"])
+
+api_router.include_router(staff.router, prefix="/staff", tags=["Staff"])
 
 api_router.include_router(
-    staff.router,
-    prefix="/staff",
-    tags=["Staff"]
-)
-
-api_router.include_router(
-    visitors.router,
-    prefix="/visitors",
-    tags=["Visitors"]
+    visitors.router, prefix="/visitors", tags=["Visitors"]
 )
 
 api_router.include_router(
     visitor_assignment_rules.router,
     prefix="/visitor-assignment-rules",
-    tags=["Visitor Assignment Rules"]
+    tags=["Visitor Assignment Rules"],
 )
 
 api_router.include_router(
     visitor_waiting_queue.router,
     prefix="/visitor-waiting-queue",
-    tags=["Visitor Waiting Queue"]
+    tags=["Visitor Waiting Queue"],
 )
 
-api_router.include_router(
-    tags.router,
-    prefix="/tags",
-    tags=["Tags"]
-)
+api_router.include_router(tags.router, prefix="/tags", tags=["Tags"])
 
 api_router.include_router(
-    platforms.router,
-    prefix="/platforms",
-    tags=["Platforms"]
+    platforms.router, prefix="/platforms", tags=["Platforms"]
 )
 
 api_router.include_router(
     ai_providers.router,
-    dependencies=[Depends(require_configuration_write), Depends(require_operator_model_management)],
+    dependencies=[
+        Depends(require_configuration_write),
+        Depends(require_operator_model_management),
+    ],
     prefix="/ai/providers",
-    tags=["AI Providers"]
+    tags=["AI Providers"],
 )
 
 # RAG Service Proxy Endpoints
@@ -204,28 +254,28 @@ api_router.include_router(
     rag_collections.router,
     dependencies=[Depends(require_knowledge_write)],
     prefix="/rag/collections",
-    tags=["RAG Collections"]
+    tags=["RAG Collections"],
 )
 
 api_router.include_router(
     rag_files.router,
     dependencies=[Depends(require_knowledge_write)],
     prefix="/rag/files",
-    tags=["RAG Files"]
+    tags=["RAG Files"],
 )
 
 api_router.include_router(
     rag_websites.router,
     dependencies=[Depends(require_knowledge_write)],
     prefix="/rag/websites",
-    tags=["RAG Websites"]
+    tags=["RAG Websites"],
 )
 
 api_router.include_router(
     rag_qa_pairs.router,
     dependencies=[Depends(require_knowledge_write)],
     prefix="/rag",
-    tags=["RAG QA Pairs"]
+    tags=["RAG QA Pairs"],
 )
 
 api_router.include_router(
@@ -235,36 +285,37 @@ api_router.include_router(
     tags=["Knowledge Governance"],
 )
 
-api_router.include_router(knowledge_versions.router, prefix="/rag/knowledge-versions", tags=["Knowledge Versions"], dependencies=[Depends(require_knowledge_write)])
+api_router.include_router(
+    knowledge_versions.router,
+    prefix="/rag/knowledge-versions",
+    tags=["Knowledge Versions"],
+    dependencies=[Depends(require_knowledge_write)],
+)
 
 
 api_router.include_router(
     ai_models.router,
     dependencies=[Depends(require_configuration_write)],
     prefix="/ai-models",
-    tags=["AI Models"]
+    tags=["AI Models"],
 )
 
 api_router.include_router(
     ai_agents.router,
     dependencies=[Depends(require_configuration_write)],
     prefix="/ai/agents",
-    tags=["AI Agents"]
+    tags=["AI Agents"],
 )
 
 # AI Runs helper endpoints
-api_router.include_router(
-    ai_runs.router,
-    prefix="/ai/runs",
-    tags=["AI Runs"]
-)
+api_router.include_router(ai_runs.router, prefix="/ai/runs", tags=["AI Runs"])
 
 # AI Tools endpoints
 api_router.include_router(
     ai_tools.router,
     dependencies=[Depends(require_configuration_write)],
     prefix="/ai/tools",
-    tags=["AI Tools"]
+    tags=["AI Tools"],
 )
 
 # AI Skills endpoints
@@ -272,7 +323,7 @@ api_router.include_router(
     ai_skills.router,
     dependencies=[Depends(require_configuration_write)],
     prefix="/ai/skills",
-    tags=["AI Skills"]
+    tags=["AI Skills"],
 )
 
 # AI Workflows endpoints
@@ -280,13 +331,13 @@ api_router.include_router(
     workflow_events.router,
     dependencies=[Depends(require_configuration_write)],
     prefix="/ai/workflows",
-    tags=["AI Workflows"]
+    tags=["AI Workflows"],
 )
 api_router.include_router(
     ai_workflows.router,
     dependencies=[Depends(require_configuration_write)],
     prefix="/ai/workflows",
-    tags=["AI Workflows"]
+    tags=["AI Workflows"],
 )
 api_router.include_router(
     workflow_schedules.router,
@@ -305,22 +356,14 @@ api_router.include_router(
 )
 
 api_router.include_router(
-    wukongim.router,
-    prefix="/wukongim",
-    tags=["WuKongIM"]
+    wukongim.router, prefix="/wukongim", tags=["WuKongIM"]
 )
 
 
-api_router.include_router(
-    wukongim_webhook.router
-)
+api_router.include_router(wukongim_webhook.router)
 
 # Email endpoints
-api_router.include_router(
-    email.router,
-    prefix="/email",
-    tags=["Email"]
-)
+api_router.include_router(email.router, prefix="/email", tags=["Email"])
 
 api_router.include_router(
     chat.router,
@@ -398,7 +441,11 @@ api_router.include_router(
     prefix="/device-control",
     tags=["Device Control"],
 )
-api_router.include_router(device_screen_policies.router, prefix="/device-control", tags=["Device Control"])
+api_router.include_router(
+    device_screen_policies.router,
+    prefix="/device-control",
+    tags=["Device Control"],
+)
 api_router.include_router(
     device_control.router,
     prefix="/device-control",

@@ -35,7 +35,9 @@ _current: ContextVar[ChatAccess | None] = ContextVar(
 Result = TypeVar("Result")
 
 
-def check_chat_access(db: Session, access: ChatAccess) -> Visitor | Staff | None:
+def check_chat_access(
+    db: Session, access: ChatAccess
+) -> Visitor | Staff | None:
     if isinstance(access, StaffDataAccess):
         from app.services.profile_access import check_profile_access
 
@@ -235,9 +237,14 @@ class AuthorizedChatResponse(Response):
         self.response = response
         self.access = access
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
         async def checked_send(message: Message) -> None:
-            if message["type"] in ("http.response.start", "http.response.body"):
+            if message["type"] in (
+                "http.response.start",
+                "http.response.body",
+            ):
                 check_current_chat_access(self.access)
             await send(message)
 

@@ -22,7 +22,9 @@ from app.schemas.agent_business_reviews import (
     BusinessReviewState,
     AgentBusinessCapabilities,
 )
-from app.schemas.agent_business_review_requests import BusinessReviewRequestState
+from app.schemas.agent_business_review_requests import (
+    BusinessReviewRequestState,
+)
 
 
 async def current_employee(
@@ -44,8 +46,11 @@ async def current_employee(
         or result.project_id != project
         or result.actor_id != actor
         or result.agent_id != agent
-        or result.model_fields_set != set(BusinessEmployeeCurrentState.model_fields)
-        or not -30 <= (datetime.now(UTC) - result.checked_at).total_seconds() <= 60
+        or result.model_fields_set
+        != set(BusinessEmployeeCurrentState.model_fields)
+        or not -30
+        <= (datetime.now(UTC) - result.checked_at).total_seconds()
+        <= 60
     ):
         raise HTTPException(502, "当前员工状态范围不一致或已失效")
     return result
@@ -64,7 +69,8 @@ def record_scope(
         and record.agent_id == agent
         and record.report_id == report_id
         and record.model_fields_set == set(BusinessReviewRecord.model_fields)
-        and record.checks.model_fields_set == set(type(record.checks).model_fields)
+        and record.checks.model_fields_set
+        == set(type(record.checks).model_fields)
     )
 
 
@@ -88,7 +94,9 @@ async def review(
         extra_headers=client._trial_headers(project, actor),
         timeout=30,
     )
-    result = BusinessReviewRecord.model_validate(decode(response, BusinessReviewRecord))
+    result = BusinessReviewRecord.model_validate(
+        decode(response, BusinessReviewRecord)
+    )
     if (
         len(response.content) > 65_536
         or not record_scope(result, project, actor, agent, report_id)
@@ -107,7 +115,11 @@ async def review(
 
 
 async def review_state(
-    client: PolicyTransport, project: UUID, actor: UUID, agent: UUID, report_id: UUID
+    client: PolicyTransport,
+    project: UUID,
+    actor: UUID,
+    agent: UUID,
+    report_id: UUID,
 ) -> BusinessReviewState:
     from datetime import UTC, datetime
 
@@ -117,7 +129,9 @@ async def review_state(
         extra_headers=client._trial_headers(project, actor),
         timeout=30,
     )
-    result = BusinessReviewState.model_validate(decode(response, BusinessReviewState))
+    result = BusinessReviewState.model_validate(
+        decode(response, BusinessReviewState)
+    )
     if (
         len(response.content) > 256 * 1024
         or result.project_id != project
@@ -125,7 +139,9 @@ async def review_state(
         or result.report_id != report_id
         or result.checked_by != actor
         or result.model_fields_set != set(BusinessReviewState.model_fields)
-        or not -30 <= (datetime.now(UTC) - result.checked_at).total_seconds() <= 60
+        or not -30
+        <= (datetime.now(UTC) - result.checked_at).total_seconds()
+        <= 60
         or any(
             not record_scope(row, project, actor, agent, report_id)
             for row in result.reviews
@@ -164,13 +180,17 @@ async def review_request_state(
         or result.agent_id != agent
         or result.report_id != report_id
         or result.request_id != request_id
-        or result.model_fields_set != set(BusinessReviewRequestState.model_fields)
-        or not -30 <= (datetime.now(UTC) - result.checked_at).total_seconds() <= 60
+        or result.model_fields_set
+        != set(BusinessReviewRequestState.model_fields)
+        or not -30
+        <= (datetime.now(UTC) - result.checked_at).total_seconds()
+        <= 60
         or result.result is not None
         and not record_scope(result.result, project, actor, agent, report_id)
         or result.command is not None
         and (
-            result.command.model_fields_set != set(BusinessReviewRequest.model_fields)
+            result.command.model_fields_set
+            != set(BusinessReviewRequest.model_fields)
             or result.command.checks.model_fields_set
             != set(type(result.command.checks).model_fields)
         )
@@ -195,7 +215,9 @@ async def resume_review(
         extra_headers=client._trial_headers(project, actor),
         timeout=35,
     )
-    result = BusinessReviewRecord.model_validate(decode(response, BusinessReviewRecord))
+    result = BusinessReviewRecord.model_validate(
+        decode(response, BusinessReviewRecord)
+    )
     if (
         len(response.content) > 65_536
         or not record_scope(result, project, actor, agent, report_id)
@@ -224,8 +246,11 @@ async def capabilities(
         or result.project_id != project
         or result.agent_id != agent
         or result.checked_by != actor
-        or result.model_fields_set != set(AgentBusinessCapabilities.model_fields)
-        or not -30 <= (datetime.now(UTC) - result.checked_at).total_seconds() <= 60
+        or result.model_fields_set
+        != set(AgentBusinessCapabilities.model_fields)
+        or not -30
+        <= (datetime.now(UTC) - result.checked_at).total_seconds()
+        <= 60
         or any(
             row.model_fields_set != set(type(row).model_fields)
             for row in result.capabilities
@@ -258,7 +283,9 @@ async def report(
         extra_headers=client._trial_headers(project, actor),
         timeout=20,
     )
-    result = BusinessTrialReport.model_validate(decode(response, BusinessTrialReport))
+    result = BusinessTrialReport.model_validate(
+        decode(response, BusinessTrialReport)
+    )
     if (
         len(response.content) > 65_536
         or result.project_id != project
@@ -298,7 +325,9 @@ async def request_state(
         extra_headers=client._trial_headers(project, actor),
         timeout=20,
     )
-    result = BusinessRequestState.model_validate(decode(response, BusinessRequestState))
+    result = BusinessRequestState.model_validate(
+        decode(response, BusinessRequestState)
+    )
     if (
         len(response.content) > 128 * 1024
         or result.project_id != project
@@ -307,7 +336,8 @@ async def request_state(
         or result.request_id != request_id
         or result.model_fields_set != set(BusinessRequestState.model_fields)
         or result.report is not None
-        and result.report.model_fields_set != set(BusinessTrialReport.model_fields)
+        and result.report.model_fields_set
+        != set(BusinessTrialReport.model_fields)
         or cancel is not None
         and (
             result.connection_id != cancel.connection_id
@@ -327,7 +357,9 @@ async def authorize(
         "POST",
         f"/api/v1/agents/{command.agent_id}/business-trials/authorize",
         json_data=check.private_payload(),
-        extra_headers=client._trial_headers(command.project_id, command.actor_id),
+        extra_headers=client._trial_headers(
+            command.project_id, command.actor_id
+        ),
         timeout=20,
     )
     result = BusinessTrialAuthority.model_validate(
@@ -340,7 +372,9 @@ async def authorize(
         or not result.matches(command)
         or result.phase != check.phase
         or result.model_fields_set != set(BusinessTrialAuthority.model_fields)
-        or not -5 <= (datetime.now(UTC) - result.checked_at).total_seconds() <= 30
+        or not -5
+        <= (datetime.now(UTC) - result.checked_at).total_seconds()
+        <= 30
         or result.expires_at <= datetime.now(UTC)
     ):
         raise HTTPException(502, "业务测试授权与原请求不一致或已失效")

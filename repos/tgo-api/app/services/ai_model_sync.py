@@ -32,12 +32,18 @@ def _build_headers() -> dict[str, str]:
     return headers
 
 
-async def sync_models(items: Sequence[AIModel]) -> tuple[bool, Optional[str], Optional[dict]]:
+async def sync_models(
+    items: Sequence[AIModel],
+) -> tuple[bool, Optional[str], Optional[dict]]:
     url = f"{settings.AI_SERVICE_URL.rstrip('/')}/api/v1/llm-models/sync"
     payload = {"models": [_model_to_upsert(x) for x in items]}
     try:
-        async with httpx.AsyncClient(timeout=settings.AI_SERVICE_TIMEOUT) as client:
-            resp = await client.post(url, json=payload, headers=_build_headers())
+        async with httpx.AsyncClient(
+            timeout=settings.AI_SERVICE_TIMEOUT
+        ) as client:
+            resp = await client.post(
+                url, json=payload, headers=_build_headers()
+            )
         if resp.status_code >= 400:
             return False, f"{resp.status_code} {resp.text}", None
         try:
@@ -53,5 +59,7 @@ async def sync_models(items: Sequence[AIModel]) -> tuple[bool, Optional[str], Op
         return False, f"unexpected_error: {e}", None
 
 
-async def sync_model(item: AIModel) -> tuple[bool, Optional[str], Optional[dict]]:
+async def sync_model(
+    item: AIModel,
+) -> tuple[bool, Optional[str], Optional[dict]]:
     return await sync_models([item])

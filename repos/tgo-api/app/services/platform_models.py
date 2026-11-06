@@ -24,7 +24,9 @@ def stored_policy(
     db: Session, *, lock: bool = False
 ) -> tuple[SystemSetup | None, StoredPlatformModel | None]:
     statement = (
-        select(SystemSetup).order_by(SystemSetup.created_at, SystemSetup.id).limit(1)
+        select(SystemSetup)
+        .order_by(SystemSetup.created_at, SystemSetup.id)
+        .limit(1)
     )
     if lock:
         statement = statement.with_for_update().execution_options(
@@ -34,7 +36,9 @@ def stored_policy(
     value = setup.config.get(POLICY_KEY) if setup and setup.config else None
     return (
         setup,
-        StoredPlatformModel.model_validate(value) if value is not None else None,
+        StoredPlatformModel.model_validate(value)
+        if value is not None
+        else None,
     )
 
 
@@ -52,21 +56,36 @@ def update_model_policy(
 ) -> PlatformModelPolicy:
     setup, previous = stored_policy(db, lock=True)
     if setup is None or not setup.is_installed:
-        raise TGOAPIException("请先完成系统初始化", code="SETUP_REQUIRED", status_code=409)
+        raise TGOAPIException(
+            "请先完成系统初始化", code="SETUP_REQUIRED", status_code=409
+        )
     version = previous.version if previous else 0
     if payload.expected_version != version:
         raise TGOAPIException(
             "模型配置已被修改，请刷新后重试", code="MODEL_POLICY_CONFLICT", status_code=409
         )
-    if payload.provider_kind == "openai_compatible" and not payload.api_base_url:
+    if (
+        payload.provider_kind == "openai_compatible"
+        and not payload.api_base_url
+    ):
         raise TGOAPIException(
-            "兼容接口需要填写模型 API 地址", code="MODEL_ENDPOINT_REQUIRED", status_code=422
+            "兼容接口需要填写模型 API 地址",
+            code="MODEL_ENDPOINT_REQUIRED",
+            status_code=422,
         )
-    key = payload.api_key.get_secret_value().strip() if payload.api_key else None
+    key = (
+        payload.api_key.get_secret_value().strip() if payload.api_key else None
+    )
     if key is not None and (len(key) < 8 or len(key) > 4096):
-        raise TGOAPIException("模型凭据格式无效", code="MODEL_KEY_INVALID", status_code=422)
+        raise TGOAPIException(
+            "模型凭据格式无效", code="MODEL_KEY_INVALID", status_code=422
+        )
     encrypted = (
-        encrypt_str(key) if key else previous.encrypted_api_key if previous else ""
+        encrypt_str(key)
+        if key
+        else previous.encrypted_api_key
+        if previous
+        else ""
     )
     if payload.active and not encrypted:
         raise TGOAPIException(
@@ -78,7 +97,10 @@ def update_model_policy(
     stored = StoredPlatformModel(
         version=version + 1, definition=definition, encrypted_api_key=encrypted
     )
-    setup.config = {**(setup.config or {}), POLICY_KEY: stored.model_dump(mode="json")}
+    setup.config = {
+        **(setup.config or {}),
+        POLICY_KEY: stored.model_dump(mode="json"),
+    }
     db.add(
         BillingAudit(
             operator_id=operator.id,
@@ -94,7 +116,9 @@ def update_model_policy(
     )
     db.flush()
     return PlatformModelPolicy(
-        version=stored.version, definition=definition, has_api_key=bool(encrypted)
+        version=stored.version,
+        definition=definition,
+        has_api_key=bool(encrypted),
     )
 
 
@@ -114,9 +138,16 @@ def runtime_model(db: Session) -> PlatformModelRuntime | None:
     from app.services.shared_models import stored_shared_models
 
     shared = stored_shared_models(db)
-    media = ({purpose: shared.defaults[purpose].model_id
-              for purpose in ("asr", "ocr", "vlm")} if shared else None)
+    media = (
+        {
+            purpose: shared.defaults[purpose].model_id
+            for purpose in ("asr", "ocr", "vlm")
+        }
+        if shared
+        else None
+    )
     return PlatformModelRuntime(
-        **stored.definition.model_dump(), api_key=SecretStr(key),
+        **stored.definition.model_dump(),
+        api_key=SecretStr(key),
         approved_media_models=media,
     )

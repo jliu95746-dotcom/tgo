@@ -25,7 +25,10 @@ from app.schemas.staff_delivery import StaffDeliveryRequest
 from app.schemas.wechat_staff_delivery import WeChatDeliveryReply
 from app.schemas.wukongim import WuKongIMChannelMessageSyncResponse
 from app.services.company_entitlements import require_human_service
-from app.services.staff_delivery_training import authorize_training, training_snapshot
+from app.services.staff_delivery_training import (
+    authorize_training,
+    training_snapshot,
+)
 from app.services.staff_message_target import StaffMessageTarget
 
 CLAIM_SECONDS = 120
@@ -76,6 +79,7 @@ def lock_context(
     db: Session, project: UUID, visitor_id: UUID, staff_id: UUID
 ) -> Ownership:
     # Transfer/close operations also lock the visitor first.
+
     visitor = db.scalar(
         select(Visitor)
         .where(
@@ -155,7 +159,9 @@ def enqueue(
         or not 0 < len(text.strip()) <= 8000
     ):
         raise HTTPException(400, "个人微信人工回复须为 1 到 8000 字文字")
-    owner = lock_context(db, target.project_id, target.visitor_id, target.staff_id)
+    owner = lock_context(
+        db, target.project_id, target.visitor_id, target.staff_id
+    )
     if (owner.visitor.platform_id, owner.visitor.platform_open_id) != (
         target.platform_id,
         target.platform_open_id,
@@ -166,7 +172,9 @@ def enqueue(
             {
                 "platform_id": str(target.platform_id),
                 "recipient": target.platform_open_id,
-                "request": request.model_dump(mode="json", exclude={"retry_failed"}),
+                "request": request.model_dump(
+                    mode="json", exclude={"retry_failed"}
+                ),
             },
             sort_keys=True,
             ensure_ascii=False,
@@ -185,6 +193,7 @@ def enqueue(
         if existing.request_fingerprint != fingerprint:
             raise HTTPException(409, "相同消息编号对应的内容或收件人不一致")
         # Even definitive cancellation needs a newly reviewed human message.
+
         return existing
     snapshot = training_snapshot(request)
     authorize_training(target, snapshot)
@@ -213,6 +222,7 @@ def enqueue(
     db.add(row)
     try:
         # The child queue references this row; flush before adding the child.
+
         db.flush()
     except IntegrityError:
         db.rollback()
@@ -232,6 +242,7 @@ def enqueue(
         )
     )
     # Keep assist mode; an ordinary manual send takes ownership from auto AI.
+
     if owner.visitor.service_mode != "assist":
         owner.visitor.service_mode = "manual"
     owner.visitor.ai_disabled = True
@@ -245,7 +256,12 @@ def scoped_row(
     row = db.get(WeChatStaffDelivery, delivery_id)
     if row is None:
         raise HTTPException(404, "未找到个人微信发送任务")
-    if (row.project_id, row.platform_id, row.visitor_id, row.platform_open_id) != (
+    if (
+        row.project_id,
+        row.platform_id,
+        row.visitor_id,
+        row.platform_open_id,
+    ) != (
         visitor.project_id,
         platform_id,
         visitor.id,
@@ -253,8 +269,13 @@ def scoped_row(
     ):
         raise HTTPException(403, "发送任务不属于当前微信会话")
     # Serializes claims with transfer/close/new submissions before locking queue.
+
     if (
-        db.scalar(select(Visitor.id).where(Visitor.id == visitor.id).with_for_update())
+        db.scalar(
+            select(Visitor.id)
+            .where(Visitor.id == visitor.id)
+            .with_for_update()
+        )
         is None
     ):
         raise HTTPException(409, "原微信会话已不可用")
@@ -291,7 +312,9 @@ def expire(db: Session, row: WeChatStaffDelivery) -> None:
 
 def checked_owner(db: Session, row: WeChatStaffDelivery) -> None:
     try:
-        current = lock_context(db, row.project_id, row.visitor_id, row.owner_staff_id)
+        current = lock_context(
+            db, row.project_id, row.visitor_id, row.owner_staff_id
+        )
         if (current.session_id, current.staff_id, current.revision) != (
             row.owner_session_id,
             row.owner_staff_id,
@@ -305,6 +328,7 @@ def checked_owner(db: Session, row: WeChatStaffDelivery) -> None:
             raise HTTPException(409, "原微信接入渠道已变化")
     except HTTPException:
         # A claim may already have caused an external send; never mark it failed.
+
         if row.state == "queued":
             row.state = "cancelled"
             delivery = delivery_record(db, row.id)
@@ -354,7 +378,9 @@ def ready(
                 WeChatStaffDelivery.platform_id == platform_id,
                 WeChatStaffDelivery.visitor_id == visitor.id,
                 WeChatStaffDelivery.project_id == visitor.project_id,
-                WeChatStaffDelivery.state.in_(["queued", "sending", "unknown"]),
+                WeChatStaffDelivery.state.in_(
+                    ["queued", "sending", "unknown"]
+                ),
             )
             .order_by(WeChatStaffDelivery.created_at, WeChatStaffDelivery.id)
             .limit(50)
@@ -422,7 +448,11 @@ async def confirm(
     proof: str | None,
 ) -> None:
     row = scoped_row(db, delivery_id, platform_id, visitor)
-    if row.claim_id != claim_id or row.state not in {"sending", "unknown", "sent"}:
+    if row.claim_id != claim_id or row.state not in {
+        "sending",
+        "unknown",
+        "sent",
+    }:
         raise HTTPException(409, "发送回执与原任务不一致")
     if result == "sent" and not proof:
         raise HTTPException(422, "缺少微信实际发送回执")

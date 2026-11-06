@@ -39,7 +39,10 @@ from app.services.ai_client import ai_client
 from app.services.ai_transport import response_objects
 from app.services.ai_provider_default_models import resolve_initial_model_seeds
 from app.services.wukongim_client import wukongim_client
-from app.utils.const import CHANNEL_TYPE_PROJECT_STAFF, SETUP_DEFAULT_AGENT_MODEL
+from app.utils.const import (
+    CHANNEL_TYPE_PROJECT_STAFF,
+    SETUP_DEFAULT_AGENT_MODEL,
+)
 from app.utils.crypto import encrypt_str
 from app.utils.encoding import build_project_staff_channel_id
 
@@ -53,10 +56,13 @@ def _get_or_create_system_setup(db: Session) -> SystemSetup:
 
     This ensures there's always exactly one row representing installation state.
     """
-    setup = db.query(SystemSetup).order_by(SystemSetup.created_at.asc()).first()
+    setup = (
+        db.query(SystemSetup).order_by(SystemSetup.created_at.asc()).first()
+    )
     if setup is None:
         # Ensure required timestamps are populated explicitly to satisfy
         # NOT NULL constraints even if the database column lacks a default.
+
         now = datetime.now(timezone.utc)
         setup = SystemSetup(
             is_installed=False,
@@ -79,14 +85,18 @@ def _recalculate_install_flags(setup: SystemSetup) -> None:
     Installation is considered complete when:
         admin_created AND (llm_configured OR skip_llm_config)
     """
-    is_installed = setup.admin_created and (setup.llm_configured or setup.skip_llm_config)
+    is_installed = setup.admin_created and (
+        setup.llm_configured or setup.skip_llm_config
+    )
     if setup.is_installed != is_installed:
         setup.is_installed = is_installed
         if is_installed and setup.setup_completed_at is None:
             setup.setup_completed_at = datetime.now(timezone.utc)
 
 
-def _check_system_installed(db: Session) -> tuple[bool, bool, bool, bool, bool]:
+def _check_system_installed(
+    db: Session,
+) -> tuple[bool, bool, bool, bool, bool]:
     """Check installation state from the SystemSetup table.
 
     Returns:
@@ -97,19 +107,33 @@ def _check_system_installed(db: Session) -> tuple[bool, bool, bool, bool, bool]:
     _recalculate_install_flags(setup)
     db.commit()
     db.refresh(setup)
-    
+
     # Check if any non-admin staff (user role) exists
-    has_user_staff = db.query(Staff).filter(
-        Staff.role == StaffRole.USER.value,
-        Staff.deleted_at.is_(None),
-    ).first() is not None
-    
-    return setup.is_installed, setup.admin_created, has_user_staff, setup.llm_configured, setup.skip_llm_config
+
+    has_user_staff = (
+        db.query(Staff)
+        .filter(
+            Staff.role == StaffRole.USER.value,
+            Staff.deleted_at.is_(None),
+        )
+        .first()
+        is not None
+    )
+
+    return (
+        setup.is_installed,
+        setup.admin_created,
+        has_user_staff,
+        setup.llm_configured,
+        setup.skip_llm_config,
+    )
 
 
 def _get_setup_completed_time(db: Session) -> Optional[datetime]:
     """Get the timestamp when setup was completed from SystemSetup row."""
-    setup = db.query(SystemSetup).order_by(SystemSetup.created_at.asc()).first()
+    setup = (
+        db.query(SystemSetup).order_by(SystemSetup.created_at.asc()).first()
+    )
     if not setup:
         return None
     return setup.setup_completed_at
@@ -119,7 +143,7 @@ def _get_setup_completed_time(db: Session) -> Optional[datetime]:
     "/status",
     response_model=SetupStatusResponse,
     summary="Check system installation status",
-    description="Check whether the system has completed initial installation and return setup progress."
+    description="Check whether the system has completed initial installation and return setup progress.",
 )
 async def get_setup_status(
     db: Session = Depends(get_db),
@@ -133,8 +157,16 @@ async def get_setup_status(
     - Whether LLM provider is configured
     - When setup was completed (if applicable)
     """
-    is_installed, has_admin, has_user_staff, has_llm_config, skip_llm_config = _check_system_installed(db)
-    setup_completed_at = _get_setup_completed_time(db) if is_installed else None
+    (
+        is_installed,
+        has_admin,
+        has_user_staff,
+        has_llm_config,
+        skip_llm_config,
+    ) = _check_system_installed(db)
+    setup_completed_at = (
+        _get_setup_completed_time(db) if is_installed else None
+    )
 
     logger.info(
         f"Setup status check: installed={is_installed}, "
@@ -153,6 +185,7 @@ async def get_setup_status(
 
 
 # Fixed admin username
+
 ADMIN_USERNAME = "admin"
 
 
@@ -162,7 +195,7 @@ ADMIN_USERNAME = "admin"
     status_code=status.HTTP_201_CREATED,
     summary="Create first admin account",
     description="Create the system's first administrator account and default project. "
-                "Username is fixed as 'admin'. This endpoint can only be called once during initial setup."
+    "Username is fixed as 'admin'. This endpoint can only be called once during initial setup.",
 )
 async def create_admin(
     admin_data: CreateAdminRequest,
@@ -181,16 +214,20 @@ async def create_admin(
     Can only be called once. Returns 403 if system is already installed.
     """
     # Ensure we have a SystemSetup row and check admin state
+
     setup = _get_or_create_system_setup(db)
 
     # Check if admin already exists (idempotent behavior)
-    existing_admin = db.query(Staff).filter(
-        Staff.username == ADMIN_USERNAME,
-        Staff.deleted_at.is_(None)
-    ).first()
+
+    existing_admin = (
+        db.query(Staff)
+        .filter(Staff.username == ADMIN_USERNAME, Staff.deleted_at.is_(None))
+        .first()
+    )
 
     if existing_admin:
         # Return existing admin info for idempotency
+
         project = existing_admin.project
         logger.info(
             f"Admin already exists, returning existing info for idempotency: {ADMIN_USERNAME}"
@@ -203,7 +240,6 @@ async def create_admin(
             project_name=project.name if project else "Unknown",
             created_at=existing_admin.created_at,
         )
-
     if setup.is_installed:
         logger.warning(
             f"Attempt to call setup endpoint after installation is complete: {request.url.path}"
@@ -215,8 +251,8 @@ async def create_admin(
                 "Setup endpoints are disabled for security reasons."
             ),
         )
-
     # Create default project
+
     api_key = generate_api_key()
     project = Project(
         name=admin_data.project_name,
@@ -229,6 +265,7 @@ async def create_admin(
 
     # Create the bootstrap default AI agent for this project (required, will rollback on failure).
     # The placeholder model is replaced after LLM setup selects a concrete default model.
+
     try:
         agent_data = {
             "name": "Tgo AI Agent",
@@ -259,11 +296,12 @@ async def create_admin(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Failed to create default AI agent: {e}. Please retry.",
         )
-
     # Hash password
+
     password_hash = get_password_hash(admin_data.password)
 
     # Create admin staff member (username is fixed as 'admin')
+
     admin = Staff(
         project_id=project.id,
         username=ADMIN_USERNAME,
@@ -276,6 +314,7 @@ async def create_admin(
     db.add(admin)
 
     # Create one platform per platform type definition for this project
+
     platform_type_definitions = db.query(PlatformTypeDefinition).all()
     platforms: list[Platform] = []
     website_platform: Optional[Platform] = None
@@ -294,7 +333,7 @@ async def create_admin(
                 config={},
                 is_active=False,
             )
-            
+
             if pt_def.type == PlatformType.WEBSITE.value:
                 platform.config = {
                     "position": "bottom-right",
@@ -303,12 +342,8 @@ async def create_admin(
                 }
                 platform.is_active = True
                 website_platform = platform
-            
             db.add(platform)
             platforms.append(platform)
-
-            
-
         db.flush()  # Ensure platform IDs are available
 
         logger.info(
@@ -318,11 +353,12 @@ async def create_admin(
                 "platform_count": len(platforms),
             },
         )
-
     # Flush to ensure admin.id is available for WuKongIM
+
     db.flush()
 
     # Create project staff channel and add admin as first subscriber
+
     try:
         channel_id = build_project_staff_channel_id(project.id)
         admin_uid = f"{admin.id}-staff"
@@ -344,10 +380,10 @@ async def create_admin(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create project staff channel"
+            detail="Failed to create project staff channel",
         )
-
     # Update system setup flags
+
     setup.admin_created = True
     if admin_data.skip_llm_config:
         setup.skip_llm_config = True
@@ -379,7 +415,7 @@ async def create_admin(
     status_code=status.HTTP_201_CREATED,
     summary="Configure LLM provider",
     description="Configure a Large Language Model provider for the system. "
-                "Requires that an admin account has been created first."
+    "Requires that an admin account has been created first.",
 )
 async def configure_llm(
     llm_data: ConfigureLLMRequest,
@@ -398,6 +434,7 @@ async def configure_llm(
     The API key is encrypted before storage for security.
     """
     # Check if admin exists (required before LLM config)
+
     setup = _get_or_create_system_setup(db)
 
     if setup.is_installed:
@@ -411,49 +448,55 @@ async def configure_llm(
                 "Setup endpoints are disabled for security reasons."
             ),
         )
-
     has_admin = setup.admin_created
 
     if not has_admin:
         logger.warning("Attempt to configure LLM before creating admin")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Admin account must be created before configuring LLM provider"
+            detail="Admin account must be created before configuring LLM provider",
         )
-
     # Get the first project (created during admin setup)
+
     project = db.query(Project).filter(Project.deleted_at.is_(None)).first()
 
     if not project:
         logger.error("No project found despite admin existing")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="System error: No project found"
+            detail="System error: No project found",
         )
-
-    initial_model_seeds = resolve_initial_model_seeds(db, llm_data.provider, llm_data.available_models)
+    initial_model_seeds = resolve_initial_model_seeds(
+        db, llm_data.provider, llm_data.available_models
+    )
     initial_model_ids = [seed.model_id for seed in initial_model_seeds]
 
-    if llm_data.default_model and llm_data.default_model not in initial_model_ids:
+    if (
+        llm_data.default_model
+        and llm_data.default_model not in initial_model_ids
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="default_model must be in available_models list"
+            detail="default_model must be in available_models list",
         )
-
     # Create AI Provider configuration
+
     ai_provider = AIProvider(
         project_id=project.id,
         provider=llm_data.provider,
         name=llm_data.name,
         api_key=encrypt_str(llm_data.api_key),  # Encrypt API key
         api_base_url=llm_data.api_base_url,
-        default_model=llm_data.default_model or (initial_model_ids[0] if initial_model_ids else None),
+        default_model=llm_data.default_model
+        or (initial_model_ids[0] if initial_model_ids else None),
         config=llm_data.config,
         is_active=llm_data.is_active,
     )
 
     # Sync initial models (request payload or DB-backed provider defaults) to AIModel records.
+
     from app.models import AIModel
+
     for seed in initial_model_seeds:
         m = AIModel(
             provider_id=ai_provider.id,
@@ -461,13 +504,13 @@ async def configure_llm(
             model_id=seed.model_id,
             model_name=seed.model_name,
             model_type=seed.model_type,
-            is_active=True
+            is_active=True,
         )
         ai_provider.models.append(m)
-
     db.add(ai_provider)
 
     # Update system setup flags
+
     setup.llm_configured = True
     setup.skip_llm_config = False
     _recalculate_install_flags(setup)
@@ -486,12 +529,16 @@ async def configure_llm(
             )
             agents = (
                 response_objects(agents_result.get("data", []))
-                if isinstance(agents_result, dict) else []
+                if isinstance(agents_result, dict)
+                else []
             )
             if agents:
                 default_agent = agents[0]
                 default_agent_id = default_agent.get("id")
-                if default_agent_id and default_agent.get("model") == SETUP_DEFAULT_AGENT_MODEL:
+                if (
+                    default_agent_id
+                    and default_agent.get("model") == SETUP_DEFAULT_AGENT_MODEL
+                ):
                     await ai_client.update_agent(
                         project_id=str(project.id),
                         agent_id=str(default_agent_id),
@@ -510,7 +557,6 @@ async def configure_llm(
                 "Failed to update bootstrap default agent model after LLM setup",
                 extra={"project_id": str(project.id), "error": str(exc)},
             )
-
     logger.info(
         f"Created LLM provider: {ai_provider.provider}/{ai_provider.name} "
         f"(ID: {ai_provider.id}) for project {project.id}"
@@ -568,30 +614,30 @@ async def skip_llm_configuration(
                 "Setup endpoints are disabled for security reasons."
             ),
         )
-
     # Preconditions
+
     if not setup.admin_created:
         logger.warning("Attempt to skip LLM config before admin is created")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Admin account must be created first",
         )
-
     if setup.llm_configured:
-        logger.warning("Attempt to skip LLM config after provider already configured")
+        logger.warning(
+            "Attempt to skip LLM config after provider already configured"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="LLM provider already configured",
         )
-
     if setup.skip_llm_config:
         logger.warning("Attempt to skip LLM config which was already skipped")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="LLM configuration already skipped",
         )
-
     # Perform skip operation
+
     setup.skip_llm_config = True
     _recalculate_install_flags(setup)
     db.commit()
@@ -614,7 +660,7 @@ async def skip_llm_configuration(
     "/verify",
     response_model=VerifySetupResponse,
     summary="Verify installation completeness",
-    description="Verify that the system installation is complete and all components are properly configured."
+    description="Verify that the system installation is complete and all components are properly configured.",
 )
 async def verify_setup(
     db: Session = Depends(get_db),
@@ -635,24 +681,31 @@ async def verify_setup(
     warnings = []
 
     # Check 1: Database connection
+
     try:
         db.execute(text("SELECT 1"))
         checks["database_connected"] = SetupCheckResult(
-            passed=True,
-            message="Database connection is healthy"
+            passed=True, message="Database connection is healthy"
         )
     except Exception as e:
         checks["database_connected"] = SetupCheckResult(
-            passed=False,
-            message=f"Database connection failed: {str(e)}"
+            passed=False, message=f"Database connection failed: {str(e)}"
         )
         errors.append(f"Database connection error: {str(e)}")
-
     # Check 2: Admin / LLM / skip flags from SystemSetup
-    is_installed, has_admin, has_user_staff, has_llm_config, skip_llm_config = _check_system_installed(db)
+
+    (
+        is_installed,
+        has_admin,
+        has_user_staff,
+        has_llm_config,
+        skip_llm_config,
+    ) = _check_system_installed(db)
 
     if has_admin:
-        admin_count = db.query(Staff).filter(Staff.deleted_at.is_(None)).count()
+        admin_count = (
+            db.query(Staff).filter(Staff.deleted_at.is_(None)).count()
+        )
         checks["admin_exists"] = SetupCheckResult(
             passed=True,
             message=f"Admin account exists ({admin_count} staff member(s) found)",
@@ -663,8 +716,8 @@ async def verify_setup(
             message="No admin account found",
         )
         errors.append("Admin account has not been created")
-
     # Check 3: LLM configured or explicitly skipped
+
     if has_llm_config:
         llm_count = (
             db.query(AIProvider)
@@ -692,9 +745,11 @@ async def verify_setup(
             message="No active LLM provider found",
         )
         errors.append("LLM provider has not been configured")
-
     # Check 4: Project exists
-    project_count = db.query(Project).filter(Project.deleted_at.is_(None)).count()
+
+    project_count = (
+        db.query(Project).filter(Project.deleted_at.is_(None)).count()
+    )
     if project_count > 0:
         checks["project_exists"] = SetupCheckResult(
             passed=True,
@@ -706,8 +761,8 @@ async def verify_setup(
             message="No project found",
         )
         errors.append("No project has been created")
-
     # Check 5: Installation status in SystemSetup
+
     if is_installed:
         checks["installation_status"] = SetupCheckResult(
             passed=True,
@@ -718,21 +773,25 @@ async def verify_setup(
             passed=False,
             message="Installation is not marked as complete in system_setup table",
         )
-        errors.append("System installation has not been completed in setup wizard")
-
+        errors.append(
+            "System installation has not been completed in setup wizard"
+        )
     # Overall validity
+
     is_valid = all(check.passed for check in checks.values())
 
     # Add warnings if partially configured
+
     if has_admin and not has_llm_config and not skip_llm_config:
         warnings.append("Admin created but LLM provider not configured yet")
     elif has_llm_config and not has_admin:
         warnings.append("LLM provider configured but no admin account exists")
-    
     # Warning if no user staff exists
-    if has_admin and not has_user_staff:
-        warnings.append("No user staff members found; consider adding customer service staff")
 
+    if has_admin and not has_user_staff:
+        warnings.append(
+            "No user staff members found; consider adding customer service staff"
+        )
     logger.info(
         f"Setup verification: valid={is_valid}, "
         f"errors={len(errors)}, warnings={len(warnings)}",
@@ -780,9 +839,11 @@ async def batch_create_staff(
     After installation, use the authenticated staff management endpoints instead.
     """
     # Ensure we have a SystemSetup row and check installation state
+
     setup = _get_or_create_system_setup(db)
 
     # CRITICAL: Block this endpoint after installation for security
+
     if setup.is_installed:
         logger.warning(
             f"SECURITY: Attempt to call batch staff creation after installation: {request.url.path}"
@@ -795,40 +856,46 @@ async def batch_create_staff(
                 "Please use the authenticated staff management endpoints instead."
             ),
         )
-
     # Check if admin exists (required before creating staff)
+
     if not setup.admin_created:
         logger.warning("Attempt to create staff before admin account exists")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Admin account must be created before adding staff members"
+            detail="Admin account must be created before adding staff members",
         )
-
     # Get the project (created during admin setup)
+
     project = db.query(Project).filter(Project.deleted_at.is_(None)).first()
     if not project:
         logger.error("No project found despite admin existing")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="System error: No project found"
+            detail="System error: No project found",
         )
-
     created_staff = []
     skipped_usernames = []
 
     for item in staff_data.staff_list:
         # Check if username already exists
-        existing = db.query(Staff).filter(
-            Staff.username == item.username,
-            Staff.deleted_at.is_(None),
-        ).first()
+
+        existing = (
+            db.query(Staff)
+            .filter(
+                Staff.username == item.username,
+                Staff.deleted_at.is_(None),
+            )
+            .first()
+        )
 
         if existing:
-            logger.info(f"Staff username already exists, skipping: {item.username}")
+            logger.info(
+                f"Staff username already exists, skipping: {item.username}"
+            )
             skipped_usernames.append(item.username)
             continue
-
         # Create staff with user role (NOT admin)
+
         password_hash = get_password_hash(item.password)
         staff = Staff(
             project_id=project.id,
@@ -842,22 +909,26 @@ async def batch_create_staff(
         )
         db.add(staff)
         created_staff.append(staff)
-
     if created_staff:
         # Check if VisitorAssignmentRule exists for this project, create default if not
-        existing_rule = db.query(VisitorAssignmentRule).filter(
-            VisitorAssignmentRule.project_id == project.id
-        ).first()
-        
+
+        existing_rule = (
+            db.query(VisitorAssignmentRule)
+            .filter(VisitorAssignmentRule.project_id == project.id)
+            .first()
+        )
+
         if not existing_rule:
             # Parse default weekdays from config (comma-separated string to list of ints)
+
             default_weekdays = [
-                int(d.strip()) 
-                for d in settings.ASSIGNMENT_RULE_DEFAULT_WEEKDAYS.split(",") 
+                int(d.strip())
+                for d in settings.ASSIGNMENT_RULE_DEFAULT_WEEKDAYS.split(",")
                 if d.strip().isdigit()
             ]
-            
+
             # Create default visitor assignment rule
+
             default_rule = VisitorAssignmentRule(
                 project_id=project.id,
                 llm_assignment_enabled=False,  # Disable LLM by default, use load balancing
@@ -872,11 +943,12 @@ async def batch_create_staff(
             logger.info(
                 f"Created default visitor assignment rule for project {project.id}"
             )
-        
         # Flush to ensure staff IDs are available
+
         db.flush()
-        
+
         # Add all new staff to project staff channel
+
         try:
             channel_id = build_project_staff_channel_id(project.id)
             staff_uids = [f"{staff.id}-staff" for staff in created_staff]
@@ -898,18 +970,15 @@ async def batch_create_staff(
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to add staff to project channel"
+                detail="Failed to add staff to project channel",
             )
-        
         db.commit()
         for staff in created_staff:
             db.refresh(staff)
-
         logger.info(
             f"Batch created {len(created_staff)} staff members during setup, "
             f"skipped {len(skipped_usernames)} existing usernames"
         )
-
     return BatchCreateStaffResponse(
         created_count=len(created_staff),
         staff_list=[

@@ -25,20 +25,30 @@ from app.schemas.business_connections import (
     BusinessCapability,
     ConnectionMode,
 )
-from app.services.business_connection_vault import CredentialVault, credential_values
+from app.services.business_connection_vault import (
+    CredentialVault,
+    credential_values,
+)
 from app.services.business_connection_proofs import current_capabilities
 
-_CUSTOMER_READ_FIELDS = frozenset({
-    "customer_profile_path", "membership_path", "customer_segment_field",
-    "customer_tags_field", "membership_tier_field", "membership_points_field",
-})
+_CUSTOMER_READ_FIELDS = frozenset(
+    {
+        "customer_profile_path",
+        "membership_path",
+        "customer_segment_field",
+        "customer_tags_field",
+        "membership_tier_field",
+        "membership_points_field",
+    }
+)
 
 
 def _find(
     db: Session, project: UUID, connection: UUID, *, lock: bool = False
 ) -> BusinessConnection:
     statement = select(BusinessConnection).where(
-        BusinessConnection.id == connection, BusinessConnection.project_id == project
+        BusinessConnection.id == connection,
+        BusinessConnection.project_id == project,
     )
     if lock:
         statement = statement.with_for_update()
@@ -66,7 +76,9 @@ def _view(db: Session, row: BusinessConnection) -> BusinessConnectionResponse:
     readable = True
     if row.credential_ciphertext:
         try:
-            CredentialVault().decrypt(row.credential_ciphertext, row.project_id, row.id)
+            CredentialVault().decrypt(
+                row.credential_ciphertext, row.project_id, row.id
+            )
         except TGOAPIException:
             readable = False
     tested = _proof_current(db, row)
@@ -90,7 +102,9 @@ def _view(db: Session, row: BusinessConnection) -> BusinessConnectionResponse:
         name=row.name,
         mode=cast(ConnectionMode, row.mode),
         capabilities=cast(list[BusinessCapability], list(row.capabilities)),
-        configuration=BusinessHTTPConfiguration.model_validate(row.configuration)
+        configuration=BusinessHTTPConfiguration.model_validate(
+            row.configuration
+        )
         if row.configuration is not None
         else None,
         credentials_configured=row.credential_ciphertext is not None,
@@ -109,7 +123,9 @@ def _view(db: Session, row: BusinessConnection) -> BusinessConnectionResponse:
     )
 
 
-def get(db: Session, project: UUID, connection: UUID) -> BusinessConnectionResponse:
+def get(
+    db: Session, project: UUID, connection: UUID
+) -> BusinessConnectionResponse:
     return _view(db, _find(db, project, connection))
 
 
@@ -147,7 +163,9 @@ def list_connections(
 
 
 def _request_digest(
-    request: BusinessConnectionCreate, *, legacy_mapping: bool = False,
+    request: BusinessConnectionCreate,
+    *,
+    legacy_mapping: bool = False,
     legacy_customer: bool = False,
 ) -> str:
     data = request.model_dump(mode="json", exclude={"credentials"})
@@ -221,7 +239,9 @@ def create(
         )
     ).scalar_one_or_none()
     if previous is not None:
-        if not _matches_creation_digest(previous.request_digest, request, digest):
+        if not _matches_creation_digest(
+            previous.request_digest, request, digest
+        ):
             raise ConflictError("原创建请求内容已经变化，请使用新的请求编号")
         return _view(db, previous)
     connection_id = uuid4()
@@ -283,12 +303,22 @@ def update(
     if row.revision != request.expected_revision:
         raise ConflictError("连接已被修改，请读取当前版本后再操作")
     for required in ("name", "mode", "capabilities", "enabled"):
-        if required in request.model_fields_set and getattr(request, required) is None:
+        if (
+            required in request.model_fields_set
+            and getattr(request, required) is None
+        ):
             raise TGOAPIException(
                 "此配置字段不能设为空", code="VALIDATION_ERROR", status_code=422
             )
-    configuration_fields = {"mode", "configuration", "capabilities", "credentials"}
-    changed_configuration = bool(request.model_fields_set & configuration_fields)
+    configuration_fields = {
+        "mode",
+        "configuration",
+        "capabilities",
+        "credentials",
+    }
+    changed_configuration = bool(
+        request.model_fields_set & configuration_fields
+    )
     next_ciphertext = row.credential_ciphertext
     next_configuration = row.configuration
     next_capabilities = row.capabilities
@@ -323,9 +353,12 @@ def update(
                 name=request.name or row.name,
                 mode=cast(ConnectionMode, next_mode),
                 capabilities=cast(
-                    list[BusinessCapability], request.capabilities or row.capabilities
+                    list[BusinessCapability],
+                    request.capabilities or row.capabilities,
                 ),
-                configuration=BusinessHTTPConfiguration.model_validate(configured)
+                configuration=BusinessHTTPConfiguration.model_validate(
+                    configured
+                )
                 if configured is not None
                 else None,
                 credentials=supplied,
@@ -337,7 +370,10 @@ def update(
                 status_code=422,
             ) from None
         next_configuration = (
-            cast(dict[str, JsonValue], validated.configuration.model_dump(mode="json"))
+            cast(
+                dict[str, JsonValue],
+                validated.configuration.model_dump(mode="json"),
+            )
             if validated.configuration is not None
             else None
         )
@@ -350,7 +386,9 @@ def update(
         )
         if "credentials" in request.model_fields_set or next_mode != row.mode:
             next_ciphertext = (
-                CredentialVault().encrypt(validated.credentials, project, connection)
+                CredentialVault().encrypt(
+                    validated.credentials, project, connection
+                )
                 if validated.credentials is not None
                 else None
             )
@@ -362,7 +400,9 @@ def update(
         ):
             raise ConflictError("请先完成当前连接全部业务能力的真实测试，再启用")
     name_changed = request.name is not None and request.name != row.name
-    enabled_changed = request.enabled is not None and request.enabled != row.enabled
+    enabled_changed = (
+        request.enabled is not None and request.enabled != row.enabled
+    )
     if not (name_changed or enabled_changed or business_changed):
         db.rollback()
         return get(db, project, connection)
@@ -398,7 +438,9 @@ def resolve(
     if row.revision != expected_revision:
         raise ConflictError("原连接配置已变化，请重新读取")
     credentials = (
-        CredentialVault().decrypt(row.credential_ciphertext, project, connection)
+        CredentialVault().decrypt(
+            row.credential_ciphertext, project, connection
+        )
         if row.credential_ciphertext
         else None
     )

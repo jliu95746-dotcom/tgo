@@ -27,7 +27,9 @@ def schedule_queue_update(
     transaction = db.get_nested_transaction() or db.get_transaction()
     if transaction is None:
         raise RuntimeError("Queue update requires a database transaction")
-    pending = cast(dict[SessionTransaction, QueueChanges], db.info.setdefault(_KEY, {}))
+    pending = cast(
+        dict[SessionTransaction, QueueChanges], db.info.setdefault(_KEY, {})
+    )
     changes = pending.setdefault(transaction, {})
     if reason == "entered" or project_id not in changes:
         changes[project_id] = reason
@@ -64,7 +66,9 @@ async def publish_queue_updates(changes: QueueChanges) -> None:
 
 @event.listens_for(Session, "after_commit")
 def _after_commit(db: Session) -> None:
-    pending = cast(dict[SessionTransaction, QueueChanges], db.info.get(_KEY, {}))
+    pending = cast(
+        dict[SessionTransaction, QueueChanges], db.info.get(_KEY, {})
+    )
     transaction = db.get_nested_transaction() or db.get_transaction()
     changes = pending.pop(transaction, {}) if transaction is not None else {}
     if not changes:
@@ -92,7 +96,10 @@ def _after_commit(db: Session) -> None:
 def _after_rollback(db: Session, transaction: SessionTransaction) -> None:
     # after_commit has already consumed committed changes. This also handles
     # Session.close(), which does not dispatch after_soft_rollback.
-    pending = cast(dict[SessionTransaction, QueueChanges], db.info.get(_KEY, {}))
+
+    pending = cast(
+        dict[SessionTransaction, QueueChanges], db.info.get(_KEY, {})
+    )
     pending.pop(transaction, None)
     if transaction.parent is None:
         db.info.pop(_KEY, None)

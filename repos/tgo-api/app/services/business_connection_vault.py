@@ -15,7 +15,9 @@ from app.core.exceptions import TGOAPIException
 from app.schemas.business_connections import BusinessConnectionCredentials
 
 
-def credential_values(credentials: BusinessConnectionCredentials) -> dict[str, str]:
+def credential_values(
+    credentials: BusinessConnectionCredentials,
+) -> dict[str, str]:
     return {
         name: value.get_secret_value()
         for name, value in (
@@ -74,7 +76,9 @@ class CredentialVault:
         try:
             if not ciphertext.startswith("v1."):
                 raise ValueError
-            payload = base64.b64decode(ciphertext[3:], altchars=b"-_", validate=True)
+            payload = base64.b64decode(
+                ciphertext[3:], altchars=b"-_", validate=True
+            )
             raw = self._cipher().decrypt(
                 payload[:12], payload[12:], self._scope(project, connection)
             )

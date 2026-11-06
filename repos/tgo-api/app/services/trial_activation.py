@@ -40,7 +40,8 @@ def redeem_code(db: Session, actor: Staff, code: str) -> CompanyAccount:
     record = db.scalar(
         select(TrialActivationCode)
         .where(
-            TrialActivationCode.code_hash == sha256(code.encode("utf-8")).hexdigest()
+            TrialActivationCode.code_hash
+            == sha256(code.encode("utf-8")).hexdigest()
         )
         .with_for_update()
     )

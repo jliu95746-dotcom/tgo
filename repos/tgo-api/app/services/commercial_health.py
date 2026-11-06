@@ -37,7 +37,10 @@ def inspect_commercial_health(
         .where(
             BillingJob.status == "pending",
             BillingJob.available_at <= now - timedelta(minutes=30),
-            or_(BillingJob.locked_until.is_(None), BillingJob.locked_until <= now),
+            or_(
+                BillingJob.locked_until.is_(None),
+                BillingJob.locked_until <= now,
+            ),
         ),
         "expired_job_leases": select(func.count())
         .select_from(BillingJob)
@@ -66,7 +69,9 @@ def inspect_commercial_health(
         ).where(BillingReconciliation.status == "review"),
     }
     with db.no_autoflush:
-        counts = {name: int(db.scalar(query) or 0) for name, query in checks.items()}
+        counts = {
+            name: int(db.scalar(query) or 0) for name, query in checks.items()
+        }
     return CommercialHealthReport(
         checked_at=now,
         counts=counts,

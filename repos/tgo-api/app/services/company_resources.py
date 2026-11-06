@@ -24,7 +24,10 @@ def resources(db: Session, project_id: UUID) -> CompanyResources:
     require_service(account, now)
     if account is None:
         return CompanyResources(
-            metered=False, knowledge_bytes=None, channel_limit=None, expires_at=None
+            metered=False,
+            knowledge_bytes=None,
+            channel_limit=None,
+            expires_at=None,
         )
     if account.status == "trial":
         return CompanyResources(
@@ -41,13 +44,19 @@ def resources(db: Session, project_id: UUID) -> CompanyResources:
         )
     )
     snapshot = period.definition if period is not None else None
-    if snapshot is None and account.plan_id and operator_authorization_active(account, now):
+    if (
+        snapshot is None
+        and account.plan_id
+        and operator_authorization_active(account, now)
+    ):
         plan = db.get(BillingPlan, account.plan_id)
         if plan is not None:
             snapshot = plan.definition
     if snapshot is None:
         raise TGOAPIException(
-            "订阅权益记录异常，请联系平台处理", code="SUBSCRIPTION_INCONSISTENT", status_code=409
+            "订阅权益记录异常，请联系平台处理",
+            code="SUBSCRIPTION_INCONSISTENT",
+            status_code=409,
         )
     definition = PlanDefinition.model_validate(snapshot)
     return CompanyResources(
@@ -69,11 +78,16 @@ def reserve_channel_creation(db: Session, project_id: UUID) -> None:
         db.scalar(
             select(func.count())
             .select_from(Platform)
-            .where(Platform.project_id == project_id, Platform.deleted_at.is_(None))
+            .where(
+                Platform.project_id == project_id,
+                Platform.deleted_at.is_(None),
+            )
         )
         or 0
     )
     if used >= limits.channel_limit:
         raise TGOAPIException(
-            "渠道数量已达到套餐上限，请先升级套餐", code="CHANNEL_LIMIT_EXCEEDED", status_code=409
+            "渠道数量已达到套餐上限，请先升级套餐",
+            code="CHANNEL_LIMIT_EXCEEDED",
+            status_code=409,
         )

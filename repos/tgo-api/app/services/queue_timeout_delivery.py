@@ -25,7 +25,9 @@ logger = get_logger("services.queue_timeout_delivery")
 DEFINITE_REJECTIONS = {400, 401, 403, 404, 409, 413, 415, 422}
 
 
-def _save(db: Session, entry: VisitorWaitingQueue, notice: QueueTimeoutNotice) -> None:
+def _save(
+    db: Session, entry: VisitorWaitingQueue, notice: QueueTimeoutNotice
+) -> None:
     entry.extra_metadata = {
         **(entry.extra_metadata or {}),
         QUEUE_TIMEOUT_NOTICE_KEY: notice.model_dump(mode="json"),
@@ -102,7 +104,8 @@ async def deliver_timeout_notice(db: Session, entry_id: UUID) -> None:
     entry: VisitorWaitingQueue | None = (
         db.query(VisitorWaitingQueue)
         .filter(
-            VisitorWaitingQueue.id == entry_id, VisitorWaitingQueue.status == "expired"
+            VisitorWaitingQueue.id == entry_id,
+            VisitorWaitingQueue.status == "expired",
         )
         .populate_existing()
         .with_for_update(skip_locked=True)
@@ -121,7 +124,6 @@ async def deliver_timeout_notice(db: Session, entry_id: UUID) -> None:
     if notice.next_retry_at > datetime.utcnow():
         db.rollback()
         return
-
     target, current = _current_target(db, entry, notice)
     if target is None:
         notice.history_error = "TARGET_UNAVAILABLE"
@@ -132,10 +134,12 @@ async def deliver_timeout_notice(db: Session, entry_id: UUID) -> None:
         if notice.external_status == "pending":
             notice.external_status = "cancelled"
             notice.external_error = "CONVERSATION_CHANGED"
-        if notice.history_status == "pending" and notice.external_status != "sent":
+        if (
+            notice.history_status == "pending"
+            and notice.external_status != "sent"
+        ):
             notice.history_status = "cancelled"
             notice.history_error = "CONVERSATION_CHANGED"
-
     client_msg_no = f"queue-timeout-{entry.id.hex}"
     notice.next_retry_at = datetime.utcnow() + timedelta(minutes=5)
     if notice.external_status == "sending":
@@ -168,14 +172,17 @@ async def deliver_timeout_notice(db: Session, entry_id: UUID) -> None:
                 if notice.external_status == "sent"
                 else f"PLATFORM_HTTP_{response.status_code}"
             )
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+        except (
+            httpx.ConnectError,
+            httpx.ConnectTimeout,
+            httpx.PoolTimeout,
+        ) as exc:
             notice.external_status = "pending"
             notice.external_error = type(exc).__name__
         except Exception as exc:
             notice.external_status = "unknown"
             notice.external_error = type(exc).__name__
         _save(db, entry, notice)
-
     if notice.external_status not in ("sent", "not_required"):
         _save(db, entry, notice)
         return
@@ -193,7 +200,10 @@ async def deliver_timeout_notice(db: Session, entry_id: UUID) -> None:
                 raise_on_error=True,
             )
             if existing is not None:
-                if existing.from_uid == "system" and existing.payload == payload:
+                if (
+                    existing.from_uid == "system"
+                    and existing.payload == payload
+                ):
                     notice.history_status = "sent"
                     notice.history_error = None
                 else:
@@ -225,11 +235,17 @@ async def deliver_timeout_notice(db: Session, entry_id: UUID) -> None:
             client_msg_no=client_msg_no,
             payload=payload,
         )
-        notice.history_status = "sent" if history_response is not None else "unknown"
+        notice.history_status = (
+            "sent" if history_response is not None else "unknown"
+        )
         notice.history_error = (
             None if history_response is not None else "IM_RECEIPT_MISSING"
         )
-    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+    except (
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.PoolTimeout,
+    ) as exc:
         notice.history_status = "pending"
         notice.history_error = type(exc).__name__
     except Exception as exc:
@@ -257,7 +273,8 @@ async def recover_timeout_notices(
     if project_id is not None:
         query = query.filter(VisitorWaitingQueue.project_id == project_id)
     ids = [
-        row.id for row in query.order_by(VisitorWaitingQueue.updated_at).limit(limit)
+        row.id
+        for row in query.order_by(VisitorWaitingQueue.updated_at).limit(limit)
     ]
     db.rollback()
     for entry_id in ids:

@@ -17,7 +17,10 @@ from app.models.assist_draft_record import AssistDraftRecord
 from app.models.message_intent_result import MessageIntentResult
 from app.models.shadow_draft_review import ShadowDraftReview
 from app.models.shadow_review_adjudication import ShadowReviewAdjudication
-from app.models.shadow_review_batch import ShadowReviewBatch, ShadowReviewBatchItem
+from app.models.shadow_review_batch import (
+    ShadowReviewBatch,
+    ShadowReviewBatchItem,
+)
 from app.models.staff_message_delivery import StaffMessageDelivery
 from app.schemas.shadow_adjudication import (
     ShadowAdjudicationHistory,
@@ -29,7 +32,9 @@ from app.schemas.shadow_adjudication import (
 def review_set_digest(rows: Iterable[tuple[UUID, UUID, str]]) -> str:
     """Hash each current review identity and verdict in stable reviewer order."""
     digest = hashlib.sha256()
-    for reviewer_id, review_id, verdict in sorted(rows, key=lambda row: row[0].bytes):
+    for reviewer_id, review_id, verdict in sorted(
+        rows, key=lambda row: row[0].bytes
+    ):
         digest.update(reviewer_id.bytes)
         digest.update(review_id.bytes)
         digest.update(verdict.encode("ascii"))
@@ -133,7 +138,8 @@ class ShadowAdjudicationService:
                 or_(
                     ShadowReviewAdjudication.created_at < cursor.created_at,
                     and_(
-                        ShadowReviewAdjudication.created_at == cursor.created_at,
+                        ShadowReviewAdjudication.created_at
+                        == cursor.created_at,
                         ShadowReviewAdjudication.id < cursor.id,
                     ),
                 )
@@ -147,7 +153,9 @@ class ShadowAdjudicationService:
         visible = rows[:limit]
         return ShadowAdjudicationHistory(
             items=tuple(
-                ShadowAdjudicationReceipt.model_validate(row, from_attributes=True)
+                ShadowAdjudicationReceipt.model_validate(
+                    row, from_attributes=True
+                )
                 for row in visible
             ),
             has_more=len(rows) > limit,
@@ -215,7 +223,9 @@ class ShadowAdjudicationService:
                 AssistDraftRecord.visitor_id == request.visitor_id,
             )
         )
-        draft_text = draft.response_data.get("draft") if draft is not None else None
+        draft_text = (
+            draft.response_data.get("draft") if draft is not None else None
+        )
         if (
             draft is None
             or not draft.source_message_id
@@ -232,7 +242,8 @@ class ShadowAdjudicationService:
             select(MessageIntentResult.id).where(
                 MessageIntentResult.project_id == project_id,
                 MessageIntentResult.visitor_id == request.visitor_id,
-                MessageIntentResult.source_message_id == draft.source_message_id,
+                MessageIntentResult.source_message_id
+                == draft.source_message_id,
                 MessageIntentResult.analysis_mode == "shadow",
             )
         )
@@ -241,7 +252,8 @@ class ShadowAdjudicationService:
                 StaffMessageDelivery.project_id == project_id,
                 StaffMessageDelivery.visitor_id == request.visitor_id,
                 StaffMessageDelivery.staff_id == draft.staff_id,
-                StaffMessageDelivery.source_message_id == draft.source_message_id,
+                StaffMessageDelivery.source_message_id
+                == draft.source_message_id,
                 StaffMessageDelivery.assist_draft_id == draft.id,
                 StaffMessageDelivery.created_at >= draft.created_at,
                 or_(
@@ -267,8 +279,13 @@ class ShadowAdjudicationService:
                 "SHADOW_ADJUDICATION_EVIDENCE_MISSING",
                 status_code=409,
             )
-        snapshot = current_review_snapshot(self._db, project_id, request.draft_id)
-        if adjudicator_id == draft.staff_id or adjudicator_id in snapshot.reviewer_ids:
+        snapshot = current_review_snapshot(
+            self._db, project_id, request.draft_id
+        )
+        if (
+            adjudicator_id == draft.staff_id
+            or adjudicator_id in snapshot.reviewer_ids
+        ):
             raise TGOAPIException(
                 "原客服或参与复核者不能裁决自己的案例",
                 "SHADOW_ADJUDICATION_SELF_REVIEW",
@@ -307,7 +324,9 @@ class ShadowAdjudicationService:
         self._db.add(row)
         try:
             self._db.commit()
-            return ShadowAdjudicationReceipt.model_validate(row, from_attributes=True)
+            return ShadowAdjudicationReceipt.model_validate(
+                row, from_attributes=True
+            )
         except IntegrityError:
             self._db.rollback()
             existing = prior()

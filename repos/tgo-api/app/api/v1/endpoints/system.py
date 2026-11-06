@@ -22,6 +22,7 @@ async def get_system_info() -> SystemInfoResponse:
     """
 
     # Prefer explicit environment variable overrides when provided
+
     app_version = os.getenv("APP_VERSION", __version__)
     git_commit = os.getenv("GIT_COMMIT")
     build_time = os.getenv("BUILD_TIME")
@@ -36,4 +37,3 @@ async def get_system_info() -> SystemInfoResponse:
         build_time=build_time,
         git_commit=git_commit,
     )
-

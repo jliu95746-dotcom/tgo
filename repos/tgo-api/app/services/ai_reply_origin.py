@@ -27,7 +27,9 @@ class AIReplyIMLookup(Protocol):
         ...
 
 
-def _matches_anchor(message: WuKongIMMessage, channel_id: str, client_no: str) -> bool:
+def _matches_anchor(
+    message: WuKongIMMessage, channel_id: str, client_no: str
+) -> bool:
     payload = message.payload
     return (
         message.channel_id == channel_id
@@ -104,6 +106,8 @@ async def verify_ai_reply_origins(
             else "mismatch"
         )
     return [
-        AIReplyOriginEvidence(client_msg_no=client_no, status=statuses[client_no])
+        AIReplyOriginEvidence(
+            client_msg_no=client_no, status=statuses[client_no]
+        )
         for client_no in client_msg_nos
     ]

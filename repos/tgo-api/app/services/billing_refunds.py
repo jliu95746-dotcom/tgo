@@ -15,7 +15,11 @@ from app.models.billing import (
 )
 from app.models.company_account import AICreditBatch
 from app.models.platform_operator import PlatformOperator
-from app.schemas.billing_refunds import ProviderRefund, RefundCreate, RefundDisposition
+from app.schemas.billing_refunds import (
+    ProviderRefund,
+    RefundCreate,
+    RefundDisposition,
+)
 from app.services.billing_quotes import conflict
 from app.services.company_email import utc
 from app.services.company_membership import lock_company
@@ -29,7 +33,11 @@ def preview_refund(
         raise conflict("订单不存在")
     account = lock_company(db, order.project_id)
     db.refresh(order)
-    if order.payment_status != "paid" or not order.transaction_id or not order.paid_at:
+    if (
+        order.payment_status != "paid"
+        or not order.transaction_id
+        or not order.paid_at
+    ):
         raise conflict("订单尚未完成微信付款")
     if utc(order.paid_at) < datetime.now(timezone.utc) - timedelta(days=365):
         raise conflict("订单超过微信原路退款期限，请人工处理售后")
@@ -49,12 +57,16 @@ def preview_refund(
             select(func.count())
             .select_from(BillingRefund)
             .where(
-                BillingRefund.order_id == order.id, BillingRefund.status != "cancelled"
+                BillingRefund.order_id == order.id,
+                BillingRefund.status != "cancelled",
             )
         )
         or 0
     )
-    if count >= 50 or payload.amount > order.amount - order.refunded_amount - pending:
+    if (
+        count >= 50
+        or payload.amount > order.amount - order.refunded_amount - pending
+    ):
         raise conflict("可退款金额或退款次数不足，请先核对已有退款")
     quote = db.get(BillingQuote, order.quote_id)
     assert quote is not None
@@ -132,7 +144,9 @@ def confirm_refund(
 
 def record_refund_result(db: Session, result: ProviderRefund) -> BillingRefund:
     refund = db.scalar(
-        select(BillingRefund).where(BillingRefund.number == result.out_refund_no)
+        select(BillingRefund).where(
+            BillingRefund.number == result.out_refund_no
+        )
     )
     if refund is None:
         raise conflict("微信退款流水尚未关联本地退款申请", "REFUND_UNKNOWN")
