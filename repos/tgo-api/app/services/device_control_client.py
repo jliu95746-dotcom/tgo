@@ -1,10 +1,11 @@
 """HTTP client for the device-control service."""
 
-from typing import Any, Dict, Optional, TypeVar
+from collections.abc import Mapping
+from typing import Optional, TypeAlias, TypeVar
 from uuid import UUID
 import httpx
 from fastapi import HTTPException
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -12,7 +13,9 @@ from app.services.device_access import device_service_headers
 from app.core.exceptions import ExternalServiceError, NotFoundError
 from app.schemas.device_session import DeviceSessionDetail, DeviceSessionList
 from app.schemas.device_scenario import (
-    DeviceScenario, DeviceScenarioDraftRead, DeviceScenarioDraftWrite,
+    DeviceScenario,
+    DeviceScenarioDraftRead,
+    DeviceScenarioDraftWrite,
 )
 from app.schemas.device_read_policy import (
     DeviceReadPolicyPublish,
@@ -21,7 +24,10 @@ from app.schemas.device_read_policy import (
     DeviceReadPolicyTest,
 )
 from app.schemas.device_screen_publication import (
-    ScreenLocalGrantRead, ScreenPolicyPublish, ScreenPolicyRead, ScreenPolicyRevoke,
+    ScreenLocalGrantRead,
+    ScreenPolicyPublish,
+    ScreenPolicyRead,
+    ScreenPolicyRevoke,
 )
 from app.schemas.device_script_policy import ScriptCatalog
 from app.schemas.device_script_publication import (
@@ -32,6 +38,9 @@ from app.schemas.device_script_publication import (
 )
 
 SessionRead = TypeVar("SessionRead", bound=BaseModel)
+JsonObject: TypeAlias = dict[str, JsonValue]
+QueryValue: TypeAlias = str | int | float | bool | None
+_json_object: TypeAdapter[JsonObject] = TypeAdapter(JsonObject)
 
 logger = get_logger("services.device_control_client")
 
@@ -39,7 +48,7 @@ logger = get_logger("services.device_control_client")
 class DeviceControlClient:
     """HTTP client for communicating with tgo-device-control service."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.base_url = settings.DEVICE_CONTROL_SERVICE_URL.rstrip("/")
         self.timeout = settings.DEVICE_CONTROL_SERVICE_TIMEOUT
 
@@ -48,11 +57,11 @@ class DeviceControlClient:
         method: str,
         path: str,
         project_id: str,
-        params: Optional[Dict[str, Any]] = None,
-        json: Optional[Dict[str, Any]] = None,
+        params: Mapping[str, QueryValue] | None = None,
+        json: Mapping[str, object] | None = None,
         timeout: float | None = None,
         device_id: UUID | None = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> JsonObject:
         """Make an HTTP request to the device control service."""
         url = f"{self.base_url}{path}"
 
@@ -74,7 +83,14 @@ class DeviceControlClient:
                     ),
                 )
                 response.raise_for_status()
-                return response.json()
+                try:
+                    return _json_object.validate_python(
+                        response.json(), strict=True
+                    )
+                except (ValueError, UnicodeError, ValidationError):
+                    raise ExternalServiceError(
+                        "device-control", "设备服务返回了无效响应，请稍后重试"
+                    ) from None
             except httpx.HTTPStatusError as e:
                 logger.error(
                     f"Device control HTTP error: {e.response.status_code}"
@@ -101,8 +117,7 @@ class DeviceControlClient:
                 f"/v1/devices/{device}/{suffix}",
                 project,
                 json=(
-                    body.model_dump(mode="json")
-                    if body is not None else None
+                    body.model_dump(mode="json") if body is not None else None
                 ),
                 device_id=device,
             )
@@ -127,15 +142,11 @@ class DeviceControlClient:
         try:
             result = schema.model_validate(raw)
         except (ValidationError, ValueError, TypeError):
-            raise ExternalServiceError(
-                "device-control", "脚本管理响应无效"
-            ) from None
+            raise ExternalServiceError("device-control", "脚本管理响应无效") from None
         if isinstance(result, (ScriptLocalStatusRead, ScriptPolicyRead)) and (
             result.device_id != device or result.project_id != UUID(project)
         ):
-            raise ExternalServiceError(
-                "device-control", "脚本配置归属不匹配"
-            )
+            raise ExternalServiceError("device-control", "脚本配置归属不匹配")
         return result
 
     async def get_script_catalog(
@@ -174,26 +185,26 @@ class DeviceControlClient:
             or result.policy.max_runs != request.max_runs
             or result.status == "revoked"
         ):
-            raise ExternalServiceError(
-                "device-control", "脚本发布内容与本次配置不匹配"
-            )
+            raise ExternalServiceError("device-control", "脚本发布内容与本次配置不匹配")
         return result
 
     async def revoke_script_policy(
         self, device: UUID, project: str, request: ScriptPolicyRevoke
     ) -> ScriptPolicyRead:
         result = await self._script_management(
-            "POST", "script-policy/revoke", device, project,
-            ScriptPolicyRead, request,
+            "POST",
+            "script-policy/revoke",
+            device,
+            project,
+            ScriptPolicyRead,
+            request,
         )
         if (
             result.policy.revision != request.expected_policy_revision + 1
             or result.status != "revoked"
             or result.revoked_at is None
         ):
-            raise ExternalServiceError(
-                "device-control", "脚本撤销状态与本次配置不匹配"
-            )
+            raise ExternalServiceError("device-control", "脚本撤销状态与本次配置不匹配")
         return result
 
     async def _read_session_metadata(
@@ -283,8 +294,12 @@ class DeviceControlClient:
         try:
             grant = ScreenLocalGrantRead.model_validate(result)
         except ValidationError:
-            raise ExternalServiceError("device-control", "设备本机授权响应无效") from None
-        if grant.device_id != device_id or grant.project_id != UUID(project_id):
+            raise ExternalServiceError(
+                "device-control", "设备本机授权响应无效"
+            ) from None
+        if grant.device_id != device_id or grant.project_id != UUID(
+            project_id
+        ):
             raise ExternalServiceError("device-control", "设备本机授权归属不匹配")
         return grant
 
@@ -325,8 +340,12 @@ class DeviceControlClient:
         try:
             policy = ScreenPolicyRead.model_validate(result)
         except ValidationError:
-            raise ExternalServiceError("device-control", "设备屏幕策略响应无效") from None
-        if policy.device_id != device_id or policy.project_id != UUID(project_id):
+            raise ExternalServiceError(
+                "device-control", "设备屏幕策略响应无效"
+            ) from None
+        if policy.device_id != device_id or policy.project_id != UUID(
+            project_id
+        ):
             raise ExternalServiceError("device-control", "设备屏幕策略归属不匹配")
         return policy
 
@@ -342,34 +361,50 @@ class DeviceControlClient:
         return self._validate_read_policy(result, device_id, project_id)
 
     async def get_read_policy(
-        self, device_id: UUID, project_id: str,
+        self,
+        device_id: UUID,
+        project_id: str,
     ) -> DeviceReadPolicyRead:
         result = await self._request(
-            "GET", f"/v1/devices/{device_id}/read-policy", project_id,
+            "GET",
+            f"/v1/devices/{device_id}/read-policy",
+            project_id,
         )
         return self._validate_read_policy(result, device_id, project_id)
 
     async def publish_read_policy(
-        self, device_id: UUID, project_id: str, request: DeviceReadPolicyPublish,
+        self,
+        device_id: UUID,
+        project_id: str,
+        request: DeviceReadPolicyPublish,
     ) -> DeviceReadPolicyRead:
         result = await self._request(
-            "PUT", f"/v1/devices/{device_id}/read-policy", project_id,
+            "PUT",
+            f"/v1/devices/{device_id}/read-policy",
+            project_id,
             json=request.model_dump(),
         )
         return self._validate_read_policy(result, device_id, project_id)
 
     async def test_read_policy(
-        self, device_id: UUID, project_id: str, request: DeviceReadPolicyTest,
+        self,
+        device_id: UUID,
+        project_id: str,
+        request: DeviceReadPolicyTest,
     ) -> DeviceReadPolicyRead:
         result = await self._request(
-            "POST", f"/v1/devices/{device_id}/read-policy/test", project_id,
+            "POST",
+            f"/v1/devices/{device_id}/read-policy/test",
+            project_id,
             json=request.model_dump(),
         )
         return self._validate_read_policy(result, device_id, project_id)
 
     @staticmethod
     def _validate_read_policy(
-        result: Optional[Dict[str, Any]], device_id: UUID, project_id: str,
+        result: object,
+        device_id: UUID,
+        project_id: str,
     ) -> DeviceReadPolicyRead:
         try:
             policy = DeviceReadPolicyRead.model_validate(result)
@@ -377,28 +412,40 @@ class DeviceControlClient:
             raise ExternalServiceError(
                 "device-control", "设备只读策略响应无效"
             ) from None
-        if policy.device_id != device_id or policy.project_id != UUID(project_id):
+        if policy.device_id != device_id or policy.project_id != UUID(
+            project_id
+        ):
             raise ExternalServiceError("device-control", "设备只读策略归属不匹配")
         return policy
 
     async def get_scenario_draft(
-        self, device_id: UUID, scenario: DeviceScenario, project_id: str,
+        self,
+        device_id: UUID,
+        scenario: DeviceScenario,
+        project_id: str,
     ) -> DeviceScenarioDraftRead:
         path = f"/v1/devices/{device_id}/scenario-drafts/{scenario.value}"
         result = await self._request(
-            "GET", path, project_id,
+            "GET",
+            path,
+            project_id,
         )
         return self._validate_scenario_draft(
             result, device_id, scenario, project_id
         )
 
     async def save_scenario_draft(
-        self, device_id: UUID, scenario: DeviceScenario, project_id: str,
+        self,
+        device_id: UUID,
+        scenario: DeviceScenario,
+        project_id: str,
         request: DeviceScenarioDraftWrite,
     ) -> DeviceScenarioDraftRead:
         path = f"/v1/devices/{device_id}/scenario-drafts/{scenario.value}"
         result = await self._request(
-            "PUT", path, project_id,
+            "PUT",
+            path,
+            project_id,
             json=request.model_dump(exclude_unset=True),
         )
         return self._validate_scenario_draft(
@@ -407,8 +454,10 @@ class DeviceControlClient:
 
     @staticmethod
     def _validate_scenario_draft(
-        result: Optional[Dict[str, Any]], device_id: UUID,
-        scenario: DeviceScenario, project_id: str,
+        result: object,
+        device_id: UUID,
+        scenario: DeviceScenario,
+        project_id: str,
     ) -> DeviceScenarioDraftRead:
         try:
             draft = DeviceScenarioDraftRead.model_validate(result)
@@ -431,9 +480,9 @@ class DeviceControlClient:
         status: Optional[str] = None,
         skip: int = 0,
         limit: int = 50,
-    ) -> Dict[str, Any]:
+    ) -> JsonObject:
         """List devices for a project."""
-        params = {
+        params: dict[str, str | int] = {
             "project_id": project_id,
             "skip": skip,
             "limit": limit,
@@ -451,14 +500,14 @@ class DeviceControlClient:
         self,
         device_id: str,
         project_id: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> JsonObject | None:
         """Get a specific device."""
         params = {"project_id": project_id}
         return await self._request(
             "GET", f"/v1/devices/{device_id}", project_id, params=params
         )
 
-    async def generate_bind_code(self, project_id: str) -> Dict[str, Any]:
+    async def generate_bind_code(self, project_id: str) -> JsonObject:
         """Generate a bind code for device registration."""
         params = {"project_id": project_id}
         return await self._request(
@@ -469,8 +518,8 @@ class DeviceControlClient:
         self,
         device_id: str,
         project_id: str,
-        data: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
+        data: Mapping[str, object],
+    ) -> JsonObject | None:
         """Update a device."""
         params = {"project_id": project_id}
         return await self._request(
@@ -488,9 +537,11 @@ class DeviceControlClient:
     ) -> bool:
         """Delete a device."""
         params = {"project_id": project_id}
-        await self._request(
+        result = await self._request(
             "DELETE", f"/v1/devices/{device_id}", project_id, params=params
         )
+        if result.get("success") is not True:
+            raise ExternalServiceError("device-control", "设备解绑结果未确认，请刷新设备状态")
         return True
 
     async def disconnect_device(
@@ -500,25 +551,27 @@ class DeviceControlClient:
     ) -> bool:
         """Force disconnect a device."""
         params = {"project_id": project_id}
-        await self._request(
+        result = await self._request(
             "POST",
             f"/v1/devices/{device_id}/disconnect",
             project_id,
             params=params,
         )
+        if result.get("success") is not True:
+            raise ExternalServiceError("device-control", "设备断开结果未确认，请刷新设备状态")
         return True
 
     async def get_device_tools(
         self,
         device_id: str,
         project_id: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> JsonObject | None:
         """Get available tools from a connected device."""
         return await self._request(
             "GET", f"/v1/mcp/tools/{device_id}", project_id
         )
 
-    async def list_connected_devices(self, project_id: str) -> Dict[str, Any]:
+    async def list_connected_devices(self, project_id: str) -> JsonObject:
         """List all connected devices available for agent control."""
         return await self._request("GET", "/v1/devices/connected", project_id)
 

@@ -10,13 +10,18 @@ import httpx
 
 from app.core.logging import get_logger
 from app.core.security import get_current_active_user, require_admin
-from app.services.device_control_client import device_control_client
+from app.services.device_control_client import (
+    JsonObject,
+    device_control_client,
+)
 from app.models import Staff
 from app.core.exceptions import TGOAPIException
 from app.schemas.device_debug_chat import DeviceDebugChatRequest
 from app.schemas.device_session import DeviceSessionDetail, DeviceSessionList
 from app.schemas.device_scenario import (
-    DeviceScenario, DeviceScenarioDraftRead, DeviceScenarioDraftWrite,
+    DeviceScenario,
+    DeviceScenarioDraftRead,
+    DeviceScenarioDraftWrite,
 )
 from app.schemas.device_read_policy import (
     DeviceReadPolicyPublish,
@@ -32,7 +37,9 @@ logger = get_logger("api.device_control")
 router = APIRouter()
 
 
-@router.get("/devices/{device_id}/read-policy", response_model=DeviceReadPolicyRead)
+@router.get(
+    "/devices/{device_id}/read-policy", response_model=DeviceReadPolicyRead
+)
 async def get_device_read_policy(
     device_id: UUID,
     current_user: Staff = Depends(require_admin()),
@@ -45,7 +52,9 @@ async def get_device_read_policy(
         _handle_service_error(error, "get_read_policy")
 
 
-@router.put("/devices/{device_id}/read-policy", response_model=DeviceReadPolicyRead)
+@router.put(
+    "/devices/{device_id}/read-policy", response_model=DeviceReadPolicyRead
+)
 async def publish_device_read_policy(
     device_id: UUID,
     request: DeviceReadPolicyPublish,
@@ -60,7 +69,8 @@ async def publish_device_read_policy(
 
 
 @router.post(
-    "/devices/{device_id}/read-policy/test", response_model=DeviceReadPolicyRead
+    "/devices/{device_id}/read-policy/test",
+    response_model=DeviceReadPolicyRead,
 )
 async def test_device_read_policy(
     device_id: UUID,
@@ -149,42 +159,52 @@ def _handle_service_error(e: Exception, context: str) -> NoReturn:
 
     if isinstance(e, httpx.HTTPStatusError):
         if 400 <= e.response.status_code < 500:
-            try:
-                detail = e.response.json().get("detail", e.response.text)
-            except Exception:
-                detail = e.response.text
+            messages = {
+                400: "设备请求无效，请检查配置",
+                401: "设备服务身份校验失败，请联系管理员",
+                403: "没有访问该设备的权限",
+                404: "设备或配置不存在",
+                409: "设备连接或配置已变化，请刷新后重试",
+                422: "设备配置无效或超出授权范围",
+                429: "设备请求过于频繁，请稍后重试",
+            }
             raise HTTPException(
-                status_code=e.response.status_code, detail=detail
-            )
+                status_code=e.response.status_code,
+                detail=messages.get(e.response.status_code, "设备请求未完成，请检查配置"),
+            ) from None
         logger.error(
             f"Device control error ({e.response.status_code}) during {context}"
         )
         raise HTTPException(
             status_code=502, detail="Device control service error"
-        )
+        ) from None
 
     if isinstance(e, httpx.RequestError):
         logger.error(
-            f"Device control service connection error during {context}: {e}"
+            "Device control service connection error",
+            extra={"context": context, "error_type": type(e).__name__},
         )
         raise HTTPException(
             status_code=502, detail="Device control service unavailable"
-        )
+        ) from None
 
-    logger.error(f"Unexpected error during {context}: {e}")
-    raise HTTPException(
-        status_code=500, detail=f"Internal server error: {str(e)}"
+    logger.error(
+        "Unexpected device control error",
+        extra={"context": context, "error_type": type(e).__name__},
     )
+    raise HTTPException(
+        status_code=500, detail="Internal server error"
+    ) from None
 
 
-@router.get("/devices")
+@router.get("/devices", response_model=None)
 async def list_devices(
     device_type: Optional[str] = None,
     status: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> JsonObject:
     """List all devices for the current project."""
     try:
         return await device_control_client.list_devices(
@@ -198,11 +218,11 @@ async def list_devices(
         _handle_service_error(e, "list_devices")
 
 
-@router.get("/devices/{device_id}")
+@router.get("/devices/{device_id}", response_model=None)
 async def get_device(
     device_id: str,
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> JsonObject:
     """Get a specific device by ID."""
     try:
         result = await device_control_client.get_device(
@@ -216,10 +236,10 @@ async def get_device(
         _handle_service_error(e, "get_device")
 
 
-@router.post("/devices/bind-code")
+@router.post("/devices/bind-code", response_model=None)
 async def generate_bind_code(
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> JsonObject:
     """Generate a new bind code for device registration."""
     try:
         return await device_control_client.generate_bind_code(
@@ -241,12 +261,12 @@ class DeviceUpdateRequest(BaseModel):
     )
 
 
-@router.patch("/devices/{device_id}")
+@router.patch("/devices/{device_id}", response_model=None)
 async def update_device(
     device_id: str,
     request: DeviceUpdateRequest,
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> JsonObject:
     """Update a device."""
     try:
         data = request.model_dump(exclude_unset=True)
@@ -263,11 +283,11 @@ async def update_device(
         _handle_service_error(e, "update_device")
 
 
-@router.delete("/devices/{device_id}")
+@router.delete("/devices/{device_id}", response_model=None)
 async def delete_device(
     device_id: str,
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> JsonObject:
     """Delete (unbind) a device."""
     try:
         success = await device_control_client.delete_device(
@@ -281,11 +301,11 @@ async def delete_device(
         _handle_service_error(e, "delete_device")
 
 
-@router.post("/devices/{device_id}/disconnect")
+@router.post("/devices/{device_id}/disconnect", response_model=None)
 async def disconnect_device(
     device_id: str,
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> JsonObject:
     """Force disconnect a device."""
     try:
         success = await device_control_client.disconnect_device(
@@ -302,11 +322,11 @@ async def disconnect_device(
 # Device Debug Chat Endpoints
 
 
-@router.post("/chat")
+@router.post("/chat", response_model=None)
 async def device_debug_chat(
     request: DeviceDebugChatRequest,
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> StreamingResponse:
     """Debug an explicitly selected, device-bound agent using standard AI SSE.
 
     Requires agent_id. Uses its saved model and tool-call limit unchanged.
@@ -331,10 +351,10 @@ async def device_debug_chat(
     )
 
 
-@router.get("/connected-devices")
+@router.get("/connected-devices", response_model=None)
 async def list_connected_devices(
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> JsonObject:
     """List all connected devices available for agent control.
 
     Returns devices that are currently connected via TCP and can receive
@@ -348,11 +368,11 @@ async def list_connected_devices(
         _handle_service_error(e, "list_connected_devices")
 
 
-@router.get("/devices/{device_id}/tools")
+@router.get("/devices/{device_id}/tools", response_model=None)
 async def get_device_tools(
     device_id: str,
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> JsonObject:
     """Get available tools from a connected device.
 
     Returns the list of MCP tools available on the device for AI agent control.
