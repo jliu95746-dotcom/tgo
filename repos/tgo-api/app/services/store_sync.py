@@ -44,7 +44,8 @@ async def sync_uninstall_models_to_store(
             await store_client.uninstall_model(resource_id, api_key)
         except Exception as e:
             logger.error(
-                f"Failed to sync uninstall to Store for {resource_id}: {str(e)}"
+                "Failed to sync uninstall to Store",
+                extra={"error_type": type(e).__name__},
             )
 
 
@@ -66,6 +67,8 @@ async def sync_uninstall_all_provider_models(
         )
     ).all()
 
-    resource_ids = [m.store_resource_id for m in models]
+    resource_ids = [
+        m.store_resource_id for m in models if m.store_resource_id is not None
+    ]
     if resource_ids:
         await sync_uninstall_models_to_store(db, project_id, resource_ids)

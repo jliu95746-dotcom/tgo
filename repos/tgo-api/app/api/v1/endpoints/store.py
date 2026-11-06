@@ -42,11 +42,11 @@ async def bind_store(
     # 1. 调用商店获取 api_key
     try:
         result = await store_client.get_api_key(bind_in.access_token)
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch API Key from Store: {str(e)}"
-        )
+            detail="Failed to fetch API Key from Store"
+        ) from None
 
     # 2. 检查是否已存在凭证
     credential = db.scalar(
@@ -76,11 +76,11 @@ async def _install_model_internal(resource_id: str, project_id: UUID, api_key: s
     # 1. 调用商店 API 获取模型详情
     try:
         model_detail = await store_client.get_model(resource_id, api_key)
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch model from Store: {str(e)}"
-        )
+            detail="Failed to fetch model from Store"
+        ) from None
 
     # 2. 确保本地有一个 "Store" 类型的 LLMProvider
     from app.models import AIProvider
@@ -156,7 +156,10 @@ async def _install_model_internal(resource_id: str, project_id: UUID, api_key: s
     try:
         await store_client.install_model(resource_id, api_key)
     except Exception as e:
-        logger.warning(f"Failed to record installation in store: {str(e)}")
+        logger.warning(
+            "Failed to record installation in store",
+            extra={"error_type": type(e).__name__},
+        )
     
     db.commit()
     db.refresh(provider)
@@ -233,16 +236,24 @@ async def uninstall_model_from_store(
         model_detail = await store_client.get_model(resource_id, api_key)
         local_model_id = model_detail.name
     except Exception as e:
-        logger.error(f"Failed to fetch model detail from store during uninstall: {str(e)}")
+        logger.error(
+            "Failed to fetch model detail from store during uninstall",
+            extra={"error_type": type(e).__name__},
+        )
         # 如果商店查不到，尝试从 resource_id 推断（这可能不准确，因为我们现在用 name 存）
         # 或者我们可以尝试在本地数据库找有没有前缀匹配的模型，但这不靠谱
-        raise HTTPException(status_code=502, detail="Failed to fetch model info from store")
+        raise HTTPException(
+            status_code=502, detail="Failed to fetch model info from store"
+        ) from None
 
     # 3. 调用商店 API 记录卸载
     try:
         await store_client.uninstall_model(resource_id, api_key)
     except Exception as e:
-        logger.warning(f"Failed to record uninstallation in store: {str(e)}")
+        logger.warning(
+            "Failed to record uninstallation in store",
+            extra={"error_type": type(e).__name__},
+        )
 
     # 4. 从 AIProvider 关联的模型记录中移除
     from app.models import AIProvider, AIModel
@@ -284,7 +295,10 @@ async def uninstall_model_from_store(
             try:
                 await sync_provider_with_retry_and_update(db, provider)
             except Exception as e:
-                logger.warning(f"Failed to sync provider to AI service after model uninstall: {str(e)}")
+                logger.warning(
+                    "Failed to sync provider after model uninstall",
+                    extra={"error_type": type(e).__name__},
+                )
 
     return {"success": True}
 
@@ -315,7 +329,10 @@ async def list_installed_models(
         ).all()
         return [str(mid) for mid in model_ids]
     except Exception as e:
-        logger.error(f"Failed to list installed models: {str(e)}")
+        logger.error(
+            "Failed to list installed models",
+            extra={"error_type": type(e).__name__},
+        )
         return []
 
 
@@ -390,17 +407,23 @@ async def proxy_store_request(
                 headers={k: v for k, v in proxy_response.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding", "content-length")}
             )
         except httpx.RequestError as e:
-            logger.error(f"Store proxy connection error: {str(e)}")
+            logger.error(
+                "Store proxy connection error",
+                extra={"error_type": type(e).__name__},
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to connect to Store service: {str(e)}"
-            )
+                detail="Failed to connect to Store service"
+            ) from None
         except Exception as e:
-            logger.error(f"Store proxy unexpected error: {str(e)}")
+            logger.error(
+                "Store proxy unexpected error",
+                extra={"error_type": type(e).__name__},
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Internal error during Store proxy: {str(e)}"
-            )
+                detail="Internal error during Store proxy"
+            ) from None
 
 
 @router.get("/config")
