@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.models import Platform, Visitor, VisitorSession, VisitorWaitingQueue
 from app.models.platform import DIRECT_VISITOR_PLATFORM_TYPES
-from app.schemas.queue_timeout import QUEUE_TIMEOUT_NOTICE_KEY, QueueTimeoutNotice
+from app.schemas.queue_timeout import (
+    QUEUE_TIMEOUT_NOTICE_KEY,
+    QueueTimeoutNotice,
+)
 from app.services.queue_events import schedule_queue_update
 from app.utils.encoding import build_visitor_channel_id
 
@@ -16,10 +19,17 @@ from app.utils.encoding import build_visitor_channel_id
 def lock_waiting_entry(
     db: Session, visitor: Visitor, entry_id: UUID
 ) -> VisitorWaitingQueue | None:
-    """Caller holds the visitor lock; refresh stale ORM state before deciding."""
+    """Caller holds the visitor lock; refresh current ORM state."""
+    return read_waiting_entry(db, visitor, entry_id, lock=True)
+
+
+def read_waiting_entry(
+    db: Session, visitor: Visitor, entry_id: UUID, *, lock: bool = False
+) -> VisitorWaitingQueue | None:
+    """Preflight shares validation without taking row locks."""
     if visitor.service_status != "queued":
         return None
-    entry: VisitorWaitingQueue | None = (
+    query = (
         db.query(VisitorWaitingQueue)
         .filter(
             VisitorWaitingQueue.id == entry_id,
@@ -32,9 +42,10 @@ def lock_waiting_entry(
             ),
         )
         .populate_existing()
-        .with_for_update()
-        .first()
     )
+    if lock:
+        query = query.with_for_update()
+    entry: VisitorWaitingQueue | None = query.first()
     if entry is None:
         return None
     latest = (
@@ -55,9 +66,11 @@ def lock_waiting_entry(
     return entry
 
 
-def assign_waiting_entries(db: Session, visitor: Visitor, staff_id: UUID) -> None:
-    """Finish pending queue records in the assignment transaction, not afterward."""
-    # SessionLocal disables autoflush. Persist the claimed entry's attempt before
+def assign_waiting_entries(
+    db: Session, visitor: Visitor, staff_id: UUID
+) -> None:
+    """Finish queue records within the assignment transaction."""
+    # Persist this attempt before refreshing with populate_existing.
     # populate_existing refreshes it, while retaining the owning visitor lock.
     db.flush()
     entries = (
@@ -84,7 +97,9 @@ def expire_entry(db: Session, entry_id: UUID) -> bool:
     delivery, so rollback cannot leak a timeout notice to a visitor.
     """
     identity = (
-        db.query(VisitorWaitingQueue.project_id, VisitorWaitingQueue.visitor_id)
+        db.query(
+            VisitorWaitingQueue.project_id, VisitorWaitingQueue.visitor_id
+        )
         .filter(VisitorWaitingQueue.id == entry_id)
         .first()
     )
@@ -228,7 +243,9 @@ def cancel_entry(
         return False
     entry.cancel()
     if reason:
-        entry.reason = f"{entry.reason or ''} | Cancelled: {reason}".strip(" |")[:255]
+        entry.reason = f"{entry.reason or ''} | Cancelled: {reason}".strip(
+            " |"
+        )[:255]
     _close_current_wait(db, entry, visitor)
     schedule_queue_update(db, project_id)
     return True

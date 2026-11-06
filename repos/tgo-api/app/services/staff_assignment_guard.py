@@ -67,24 +67,23 @@ def capture_assignment_configuration(
 def assignment_configuration_is_current(
     db: Session,
     snapshot: AssignmentConfiguration,
+    *,
+    lock: bool = True,
 ) -> bool:
-    """Lock provider then rule only after the external wait has completed."""
-    provider = (
-        db.query(AIProvider)
-        .filter(
-            AIProvider.id == snapshot.selection.provider_id,
-            AIProvider.project_id == snapshot.project_id,
-            AIProvider.is_active.is_(True),
-            AIProvider.deleted_at.is_(None),
-        )
-        .with_for_update(read=True)
-        .populate_existing()
-        .first()
+    """Optionally hold provider then rule through the final write phase."""
+    query = db.query(AIProvider).filter(
+        AIProvider.id == snapshot.selection.provider_id,
+        AIProvider.project_id == snapshot.project_id,
+        AIProvider.is_active.is_(True),
+        AIProvider.deleted_at.is_(None),
     )
+    if lock:
+        query = query.with_for_update(read=True)
+    provider = query.populate_existing().first()
     if provider is None:
         return False
     current = read_assignment_rule(
-        db, snapshot.project_id, rule_id=snapshot.rule_id, lock=True
+        db, snapshot.project_id, rule_id=snapshot.rule_id, lock=lock
     )
     if current is None or not current.llm_assignment_enabled:
         return False

@@ -5,8 +5,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, JsonValue, field_validator
 
+from app.services.staff_assignment_guard import AssignmentConfiguration
+
 
 class LLMStaffAssignmentResult(TypedDict):
+    configuration: AssignmentConfiguration | None
     refresh_candidates: bool
     selected_staff_id: UUID | None
     llm_response: str | None

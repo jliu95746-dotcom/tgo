@@ -490,6 +490,10 @@ async def request_human_handoff(
             ),
         )
 
+    # Stop automatic replies durably, and release this request's visitor writes
+    # before the potentially slow dispatcher. Final assignment is a new stage.
+    handoff_request.status = "pending"
+    db.commit()
     transfer_result = await transfer_to_staff(
         db=db,
         visitor_id=visitor.id,

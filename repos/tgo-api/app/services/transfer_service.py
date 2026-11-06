@@ -40,10 +40,16 @@ from app.services.queue_lifecycle import (
     assign_waiting_entries,
     cancel_entry,
     lock_waiting_entry,
+    read_waiting_entry,
 )
 from app.services.queue_events import schedule_queue_update
+from app.services.staff_assignment_binding import (
+    lock_reception_project,
+    reception_binding,
+)
 from app.services.staff_assignment_capacity import reserve_staff_seat
 from app.services.staff_assignment_guard import (
+    AssignmentConfiguration,
     assignment_configuration_is_current,
     capture_assignment_configuration,
     read_assignment_rule,
@@ -98,6 +104,7 @@ class StaffAssignmentResult:
     candidate_scores: Optional[dict[str, JsonValue]] = None
     model_used: Optional[str] = None
     prompt_used: Optional[str] = None
+    configuration: AssignmentConfiguration | None = None
 
 
 async def transfer_to_staff(
@@ -199,18 +206,16 @@ async def transfer_to_staff(
     
     try:
         if settings.SAAS_BILLING_ENABLED:
-            from app.services.company_membership import lock_company
-            lock_company(db, project_id)
             from app.services.company_entitlements import require_human_service
-            require_human_service(db, project_id, visitor_id)
-        # 1. Validate visitor exists and lock the row to prevent deadlocks
-        # Using FOR UPDATE ensures consistent lock ordering across concurrent transactions
-        visitor = db.query(Visitor).filter(
+            with db.no_autoflush:
+                require_human_service(db, project_id, visitor_id)
+        # Read-only preflight: no visitor/queue write locks across the AI wait.
+        visitor = db.query(Visitor).execution_options(autoflush=False).filter(
             Visitor.id == visitor_id,
             Visitor.project_id == project_id,
             Visitor.deleted_at.is_(None),
             Visitor.access_retired_at.is_(None),
-        ).populate_existing().with_for_update().first()
+        ).populate_existing().first()
         
         if not visitor:
             return TransferResult(
@@ -232,7 +237,10 @@ async def transfer_to_staff(
                 message="Visitor has already been claimed",
             )
         if expected_queue_entry_id is not None:
-            expected_entry = lock_waiting_entry(db, visitor, expected_queue_entry_id)
+            with db.no_autoflush:
+                expected_entry = read_waiting_entry(
+                    db, visitor, expected_queue_entry_id
+                )
             if expected_entry is None:
                 return TransferResult(
                     success=False, session=None, assignment_history=None,
@@ -240,8 +248,6 @@ async def transfer_to_staff(
                     waiting_queue=None, queue_position=None,
                     message="Queue entry is no longer waiting or has expired",
                 )
-            if queue_scope is None:
-                expected_entry.record_attempt()
 
         # 1.5. Check if visitor can enter queue (only for non-direct assignments)
         # Skip this check if:
@@ -262,47 +268,87 @@ async def transfer_to_staff(
                 message=f"Visitor cannot enter queue (current status: {visitor.service_status}). Only NEW or CLOSED status allowed.",
             )
         
-        # Preserve existing internal callers; scoped manual claims defer session
-        # creation until staff selection and current authority have succeeded.
-        session: VisitorSession
-        if mutation_scope is None and session_scope is None:
-            session = await _get_or_create_session(
-                db=db, visitor_id=visitor_id, project_id=project_id,
-                session_id=session_id, platform_id=platform_id or visitor.platform_id,
-            )
+        binding = reception_binding(db, visitor, session_id)
 
         # 3. Get assignment rule for the project
-        assignment_rule = db.query(VisitorAssignmentRule).filter(
+        assignment_rule = db.query(VisitorAssignmentRule).execution_options(
+            autoflush=False
+        ).filter(
             VisitorAssignmentRule.project_id == project_id,
         ).first()
         
         # 4. Determine staff assignment using assign_staff method
         
-        assignment_result = await assign_staff(
-            db=db,
-            visitor_id=visitor_id,
-            project_id=project_id,
-            target_staff_id=target_staff_id,
-            visitor_message=visitor_message,
-            assignment_rule=assignment_rule,
-            strict_target=mutation_scope is not None or session_scope is not None,
-        )
+        with db.no_autoflush:
+            assignment_result = await assign_staff(
+                db=db,
+                visitor_id=visitor_id,
+                project_id=project_id,
+                target_staff_id=target_staff_id,
+                visitor_message=visitor_message,
+                assignment_rule=assignment_rule,
+                strict_target=(
+                    mutation_scope is not None or session_scope is not None
+                ),
+                lock_assignment_configuration=False,
+            )
 
+        # Final writes lock project, visitor, then their resources.
+        if settings.SAAS_BILLING_ENABLED:
+            from app.services.company_membership import lock_company
+            from app.services.company_entitlements import require_human_service
+            lock_company(db, project_id)
+            require_human_service(db, project_id, visitor_id)
+        lock_reception_project(db, project_id)
+        session: VisitorSession
         if mutation_scope is not None:
             visitor = mutation_scope.check(db, lock=True)
             if queue_scope is not None:
                 expected_entry, _ = queue_scope.check(db, lock=True)
-                expected_entry.record_attempt()
             if assignment_result.assigned_staff_id != mutation_scope.access.staff_id:
                 raise changed()
-            session = await _get_or_create_session(
-                db=db, visitor_id=visitor_id, project_id=project_id,
-                session_id=session_id, platform_id=platform_id or visitor.platform_id,
-            )
         elif session_scope is not None:
             session = session_scope.check(db, lock=True, target_staff_id=target_staff_id)
             if assignment_result.assigned_staff_id != target_staff_id:
                 raise changed()
+        else:
+            visitor = db.query(Visitor).filter(
+                Visitor.id == visitor_id,
+                Visitor.project_id == project_id,
+                Visitor.deleted_at.is_(None),
+                Visitor.access_retired_at.is_(None),
+            ).populate_existing().with_for_update().first()
+            if visitor is None:
+                raise changed()
+
+        if binding != reception_binding(db, visitor, session_id, lock=True):
+            raise changed()
+        if expected_queue_entry_id is not None:
+            expected_entry = lock_waiting_entry(
+                db, visitor, expected_queue_entry_id
+            )
+            if expected_entry is None:
+                raise changed()
+            expected_entry.record_attempt()
+        if session_scope is None:
+            session = await _get_or_create_session(
+                db=db, visitor_id=visitor_id, project_id=project_id,
+                session_id=session_id,
+                platform_id=platform_id or visitor.platform_id,
+            )
+
+        configuration = assignment_result.configuration
+        if (
+            configuration is not None
+            and not assignment_configuration_is_current(db, configuration)
+        ):
+            assignment_result.assigned_staff_id = None
+            assignment_result.llm_response = None
+            assignment_result.candidate_scores = None
+            assignment_result.llm_reasoning = (
+                "Configuration changed during assignment; "
+                "fallback to load balancing"
+            )
 
         current_rule = read_assignment_rule(db, project_id, lock=True)
         await _reserve_assignment(
@@ -337,6 +383,15 @@ async def transfer_to_staff(
         # A seat-to-seat transfer hands reception to a person, including assist/auto chats.
         if source == AssignmentSource.TRANSFER:
             ai_disabled = True
+        elif (
+            source == AssignmentSource.RULE
+            and expected_queue_entry_id is not None
+            and target_staff_id is None
+            and visitor.service_mode == "assist"
+            and visitor.ai_disabled
+        ):
+            # Keep the newer assisted-service choice on background retries.
+            ai_disabled = None
         # 6. Update visitor - set AI disabled status (only if explicitly provided)
         if ai_disabled is not None:
             visitor.ai_disabled = ai_disabled
@@ -510,6 +565,7 @@ async def assign_staff(
     visitor_message: Optional[str] = None,
     assignment_rule: Optional[VisitorAssignmentRule] = None,
     strict_target: bool = False,
+    lock_assignment_configuration: bool = True,
 ) -> StaffAssignmentResult:
     """
     Assign a staff member to handle a visitor.
@@ -541,6 +597,7 @@ async def assign_staff(
     candidate_scores: Optional[dict[str, JsonValue]] = None
     model_used: Optional[str] = None
     prompt_used: Optional[str] = None
+    configuration: AssignmentConfiguration | None = None
     
     # Get visitor for LLM context
     visitor = db.query(Visitor).filter(
@@ -636,10 +693,11 @@ async def assign_staff(
                         visitor_message=visitor_message,
                         candidates=candidates,
                         assignment_rule=assignment_rule,
+                        lock_configuration=lock_assignment_configuration,
                     )
                     if result["refresh_candidates"]:
                         current_rule = read_assignment_rule(
-                            db, project_id, lock=True
+                            db, project_id, lock=lock_assignment_configuration
                         )
                         candidates = await _get_available_staff_candidates(
                             db, project_id, current_rule
@@ -655,6 +713,7 @@ async def assign_staff(
                     candidate_scores = result.get("scores")
                     model_used = result.get("model_used")
                     prompt_used = result.get("prompt_used")
+                    configuration = result["configuration"]
                 else:
                     # Use load balancing (select staff with least active chats)
                     logger.info(f"Multiple candidates ({len(candidates)}), using load balancing")
@@ -668,6 +727,7 @@ async def assign_staff(
         candidate_scores=candidate_scores,
         model_used=model_used,
         prompt_used=prompt_used,
+        configuration=configuration,
     )
 
 
@@ -709,9 +769,11 @@ async def _reserve_assignment(
     if selected != preferred:
         result.llm_response = None
         result.candidate_scores = None
-        result.llm_reasoning = (
-            "Selected staff unavailable; fallback to current staff capacity"
-        )
+        if preferred is not None or result.llm_reasoning is None:
+            result.llm_reasoning = (
+                "Selected staff unavailable; "
+                "fallback to current staff capacity"
+            )
 
 
 async def _add_to_waiting_queue(
@@ -1002,9 +1064,12 @@ async def _get_or_create_session(
         session = db.query(VisitorSession).filter(
             VisitorSession.id == session_id,
             VisitorSession.project_id == project_id,
-        ).first()
-        if session:
-            return session
+            VisitorSession.visitor_id == visitor_id,
+            VisitorSession.status == SessionStatus.OPEN.value,
+        ).populate_existing().first()
+        if session is None:
+            raise changed()
+        return session
     
     # Try to find an open session for this visitor
     session = db.query(VisitorSession).filter(
@@ -1181,9 +1246,12 @@ async def _llm_assign_staff(
     visitor_message: Optional[str],
     candidates: List[StaffCandidate],
     assignment_rule: VisitorAssignmentRule,
+    *,
+    lock_configuration: bool = True,
 ) -> LLMStaffAssignmentResult:
     """Select a listed staff member or use a safe load-balancing fallback."""
     result: LLMStaffAssignmentResult = {
+        "configuration": None,
         "refresh_candidates": False,
         "selected_staff_id": None,
         "llm_response": None,
@@ -1268,7 +1336,9 @@ async def _llm_assign_staff(
         )
         had_error = True
 
-    if not assignment_configuration_is_current(db, configuration):
+    if not assignment_configuration_is_current(
+        db, configuration, lock=lock_configuration
+    ):
         result["refresh_candidates"] = True
         result["selected_staff_id"] = await _load_balance_assign(candidates)
         result["reasoning"] = (
@@ -1277,6 +1347,7 @@ async def _llm_assign_staff(
         )
         return result
 
+    result["configuration"] = configuration
     if had_error:
         result["selected_staff_id"] = await _load_balance_assign(candidates)
         result["reasoning"] = (
