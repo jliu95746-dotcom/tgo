@@ -1,6 +1,5 @@
 """Internal workflow approval endpoints; staff identity comes from tgo-api."""
 
-import hmac
 from datetime import datetime
 from typing import Literal, cast
 
@@ -9,7 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
+from app.api.workflow_internal_auth import require_internal_key
+from app.config import settings as settings
+from app.api.reconciliations import router as reconciliation_router
 from app.database import get_db
 from app.models.execution import WorkflowExecution
 from app.services.approval_preview import approval_preview_digest
@@ -33,6 +34,7 @@ from app.services.workflow_dispatch import (
 )
 
 router = APIRouter()
+router.include_router(reconciliation_router)
 
 
 class ApprovalSummary(BaseModel):
@@ -110,14 +112,6 @@ def review_summary(row: WorkflowAfterSalesReview) -> AfterSalesReviewSummary:
         ),
         reviewed_by=row.reviewed_by, reviewed_at=row.reviewed_at,
     )
-
-
-def require_internal_key(key: str | None) -> None:
-    configured = settings.SECRET_KEY
-    if configured is None or not configured.get_secret_value():
-        raise HTTPException(503, "工作流内部审批核验未配置")
-    if not key or not hmac.compare_digest(key, configured.get_secret_value()):
-        raise HTTPException(403, "工作流内部审批身份无法确认")
 
 
 @router.get("/approvals/aftersales-reviews", response_model=list[AfterSalesReviewSummary])

@@ -25,6 +25,7 @@ from app.services.approval_preview import render_approval_preview
 from app.services.approval_resume_recovery import (
     begin_resume_node, finish_resume_node,
 )
+from app.services.approval_resume_progress import save_resume_progress
 from app.services.aftersales_review import (
     ACTION_NAME, create_approved_review, render_review_approval_preview,
 )
@@ -449,7 +450,7 @@ async def _run_workflow(
                     db, project_id, execution_id, receipt_id, resume_segment,
                     status=status, inputs=input, output=output,
                     error=error, duration=duration, completed_at=completed_at,
-                    commit=not (node_type == "approval" and status == "completed"),
+                    commit=status != "completed",
                 )
                 resume_node_receipts.pop(node_id, None)
                 return
@@ -503,6 +504,12 @@ async def _run_workflow(
                 node_id: str, node_type: str, saved: ExecutionCheckpoint,
             ) -> bool:
                 if node_type != "approval":
+                    if (resume_segment is not None
+                            and approved_resume_approval_id is not None):
+                        await save_resume_progress(
+                            db, project_id, execution_id,
+                            approved_resume_approval_id, resume_segment, saved,
+                        )
                     return False
                 config = approval_nodes[node_id]
                 await verify_approval_assignees(project_id, {config.approver_staff_id})

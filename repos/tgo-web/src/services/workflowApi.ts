@@ -26,6 +26,8 @@ import type {
   WorkflowReleaseSummary,
   WorkflowRollbackRequest,
   WorkflowApprovalSummary,
+  WorkflowReconciliationSummary,
+  WorkflowReconciliationDecisionResult,
   WorkflowApprovalDecisionResult,
   WorkflowAfterSalesReviewSummary,
   WorkflowAfterSalesReviewResult,
@@ -296,6 +298,40 @@ export class WorkflowApiService {
   /**
    * Get an execution's status and results
    */
+  static async listReconciliations(
+    cursor: Pick<WorkflowReconciliationSummary, 'id' | 'requested_at'> | null = null,
+  ): Promise<WorkflowReconciliationSummary[]> {
+    const params = new URLSearchParams({ limit: '30' });
+    if (cursor) {
+      params.set('before_requested_at', cursor.requested_at);
+      params.set('before_id', cursor.id);
+    }
+    return apiClient.get<WorkflowReconciliationSummary[]>(`${this.BASE_PATH}/reconciliations?${params}`);
+  }
+
+  static async getReconciliation(approvalId: string): Promise<WorkflowReconciliationSummary> {
+    return apiClient.get<WorkflowReconciliationSummary>(
+      `${this.BASE_PATH}/reconciliations/${encodeURIComponent(approvalId)}`,
+    );
+  }
+
+  static async decideReconciliation(
+    approvalId: string, decision: 'continue' | 'stop', reviewDigest: string,
+  ): Promise<WorkflowReconciliationDecisionResult> {
+    return apiClient.post<WorkflowReconciliationDecisionResult>(
+      `${this.BASE_PATH}/reconciliations/${encodeURIComponent(approvalId)}/decision`,
+      { decision, review_digest: reviewDigest },
+    );
+  }
+
+  static async getReconciliationDecision(
+    approvalId: string, reviewDigest: string,
+  ): Promise<WorkflowReconciliationDecisionResult> {
+    return apiClient.get<WorkflowReconciliationDecisionResult>(
+      `${this.BASE_PATH}/reconciliations/${encodeURIComponent(approvalId)}/decisions/${encodeURIComponent(reviewDigest)}`,
+    );
+  }
+
   static async getExecution(executionId: string, signal?: AbortSignal): Promise<WorkflowExecution> {
     return apiClient.get<WorkflowExecution>(`${this.BASE_PATH}/executions/${executionId}`, { signal });
   }

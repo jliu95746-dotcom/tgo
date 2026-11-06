@@ -19,6 +19,7 @@ from app.services.event_keyring import (
 )
 
 MAX_CHECKPOINT_BYTES = 2 * 1024 * 1024
+VERIFIED_RESUME_CAPTURE = "encrypted_verified_resume"
 EXTERNAL_SOURCES = frozenset({"internal_event", "external_webhook"})
 
 
@@ -154,7 +155,7 @@ def open_checkpoint(
     saved = request.checkpoint
     if not isinstance(saved, dict):
         raise CheckpointCryptoError("审批检查点格式无效。")
-    if saved.get("capture_status") != "encrypted":
+    if saved.get("capture_status") not in ("encrypted", VERIFIED_RESUME_CAPTURE):
         # These sources had no supported pending approvals before encryption.
         if run.source_channel in EXTERNAL_SOURCES:
             raise CheckpointCryptoError("外部来源审批检查点必须加密。")

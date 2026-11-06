@@ -22,8 +22,10 @@ from app.services.approval_retention import scrub_terminal_approval_checkpoints
 from app.services.webhook_lifecycle import scrub_webhook_inputs
 from app.services.approval_checkpoint import (
     ApprovalCheckpointKeyUnavailable, open_checkpoint, seal_checkpoint,
+    CheckpointCryptoError,
 )
 from app.services.approval_inputs import approval_input_digest
+from app.services.approval_resume_progress import selected_resume_checkpoint
 
 
 class ApprovalConflict(RuntimeError):
@@ -432,6 +434,20 @@ async def claim_approved_resume(
         or checkpoint.completed_nodes[-1] != request.node_id
     ):
         raise ApprovalConflict("批准检查点与当前运行不一致。")
+    try:
+        selected = await selected_resume_checkpoint(db, run, request, checkpoint)
+    except ApprovalCheckpointKeyUnavailable:
+        await db.execute(update(WorkflowExecution).where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.project_id == project_id,
+            WorkflowExecution.workflow_id == workflow_id,
+            WorkflowExecution.status == "pending_resume",
+            WorkflowExecution.active_approval_id == expected_approval_id,
+        ).values(error="恢复记录所需历史保管密钥暂不可用，原记录保留等待恢复。"))
+        await db.commit()
+        return None
+    except (CheckpointCryptoError, ValueError):
+        raise ApprovalConflict("已核验的恢复位置已变化，不能继续执行。") from None
     changed = await db.scalar(
         update(WorkflowExecution)
         .where(
@@ -450,7 +466,7 @@ async def claim_approved_resume(
     )
     claimed = changed is not None
     await db.commit()
-    return checkpoint if claimed else None
+    return selected if claimed else None
 
 
 async def approved_resume_assignee(

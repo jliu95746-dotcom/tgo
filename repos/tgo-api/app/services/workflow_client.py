@@ -11,6 +11,13 @@ from fastapi import HTTPException
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas.workflow_capabilities import WorkflowCapabilities
+from app.schemas.workflow_reconciliation import (
+    WorkflowReconciliationDecision, WorkflowReconciliationDecisionResult,
+    WorkflowReconciliationSummary,
+)
+from app.services.workflow_reconciliation_contracts import (
+    reconciliation_contract, reconciliation_list,
+)
 from app.schemas.workflow_ai_usage import (
     WorkflowAICommand, WorkflowAIContext, WorkflowUsageOutcome,
     WorkflowAICacheCommand, WorkflowAICacheWrite, WorkflowAICacheReceipt,
@@ -305,6 +312,107 @@ class WorkflowServiceClient:
                     "limit": limit, "offset": offset},
         )
         return WorkflowDeviceReferences.model_validate(await self._handle_response(response))
+
+    async def list_reconciliations(
+        self,
+        project_id: str,
+        actor_staff_id: str,
+        *,
+        limit: int = 30,
+        before_requested_at: str | None = None,
+        before_id: str | None = None,
+    ) -> list[WorkflowReconciliationSummary]:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        params: dict[str, str | int] = {
+            "project_id": project_id,
+            "actor_staff_id": actor_staff_id,
+            "limit": limit,
+        }
+        if before_requested_at is not None and before_id is not None:
+            params.update(
+                before_requested_at=before_requested_at, before_id=before_id
+            )
+        response = await self._make_request(
+            "GET",
+            "/v1/workflows/approvals/reconciliations",
+            params=params,
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        rows = await self._handle_response(response)
+        return reconciliation_list(rows)
+
+
+    async def get_reconciliation(
+        self,
+        project_id: str,
+        actor_staff_id: str,
+        approval_id: str,
+    ) -> WorkflowReconciliationSummary:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        response = await self._make_request(
+            "GET",
+            f"/v1/workflows/approvals/reconciliations/{approval_id}",
+            params={
+                "project_id": project_id,
+                "actor_staff_id": actor_staff_id,
+            },
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        return reconciliation_contract(
+            await self._handle_response(response),
+            WorkflowReconciliationSummary,
+        )
+
+
+    async def decide_reconciliation(
+        self,
+        project_id: str,
+        actor_staff_id: str,
+        approval_id: str,
+        decision: WorkflowReconciliationDecision,
+    ) -> WorkflowReconciliationDecisionResult:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        response = await self._make_request(
+            "POST",
+            f"/v1/workflows/approvals/reconciliations/{approval_id}/decision",
+            params={
+                "project_id": project_id,
+                "actor_staff_id": actor_staff_id,
+            },
+            json_data=decision.model_dump(mode="json"),
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        return reconciliation_contract(
+            await self._handle_response(response),
+            WorkflowReconciliationDecisionResult,
+        )
+
+
+    async def get_reconciliation_decision(
+        self,
+        project_id: str,
+        actor_staff_id: str,
+        approval_id: str,
+        digest: str,
+    ) -> WorkflowReconciliationDecisionResult:
+        if not settings.SECRET_KEY:
+            raise HTTPException(503, "工作流内部审批核验未配置")
+        response = await self._make_request(
+            "GET",
+            f"/v1/workflows/approvals/reconciliations/{approval_id}/decisions/{digest}",
+            params={
+                "project_id": project_id,
+                "actor_staff_id": actor_staff_id,
+            },
+            extra_headers={"X-Internal-API-Key": settings.SECRET_KEY},
+        )
+        return reconciliation_contract(
+            await self._handle_response(response),
+            WorkflowReconciliationDecisionResult,
+        )
 
     async def list_approvals(
         self, project_id: str, actor_staff_id: str,

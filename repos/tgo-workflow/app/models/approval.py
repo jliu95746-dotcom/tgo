@@ -37,6 +37,12 @@ class WorkflowApprovalRequest(Base):
     approver_staff_id: Mapped[str] = mapped_column(String(36), nullable=False)
     summary: Mapped[str] = mapped_column(String(500), nullable=False)
     checkpoint: Mapped[dict[str, JsonValue]] = mapped_column(JSON, nullable=False)
+    resume_checkpoint: Mapped[dict[str, JsonValue] | None] = mapped_column(
+        JSON, nullable=True,
+    )
+    reconciliation_ledger: Mapped[dict[str, JsonValue] | None] = mapped_column(
+        JSON, nullable=True,
+    )
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     requested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

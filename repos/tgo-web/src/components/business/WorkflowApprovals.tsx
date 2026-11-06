@@ -7,6 +7,7 @@ import { WorkflowApiService } from '@/services/workflowApi';
 import { useAuthStore } from '@/stores/authStore';
 import AfterSalesIntakePanel from './AfterSalesIntakePanel';
 import AfterSalesHandoffPanel from './AfterSalesHandoffPanel';
+import WorkflowReconciliations from './WorkflowReconciliations';
 import type {
   WorkflowAfterSalesEvidenceFile, WorkflowAfterSalesReviewResult,
   WorkflowAfterSalesReviewSummary,
@@ -219,6 +220,7 @@ export default function WorkflowApprovals() {
       {message && <p role="status" className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{message}</p>}
       {error && <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
       {chatTargetError && <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{chatTargetError}</p>}
+      <WorkflowReconciliations refreshToken={refresh} />
       {!loading && items.length === 0 && !error &&
         <p className="rounded-2xl border border-gray-200 bg-white px-5 py-8 text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">{t(`${copy}.empty`)}</p>}
       {items.map(item => (

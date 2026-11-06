@@ -1,4 +1,36 @@
 {
+  "workflowReconciliation": {
+    "title": "待核验流程",
+    "description": "查看执行中断的步骤，核对结果后继续或停止流程。",
+    "refresh": "刷新待核验流程",
+    "empty": "暂无待核验流程",
+    "execution": "运行编号",
+    "savedResult": "步骤结果已保存，核对后可以继续剩余步骤。",
+    "inspectStop": "查看并停止",
+    "inspectContinue": "核对并继续",
+    "previewTitle": "核对中断流程",
+    "stopScope": "停止会结束本次流程，已经发生的业务操作不会撤销。",
+    "continueScope": "系统将沿用已经保存的结果，继续尚未执行的步骤。",
+    "completedNode": "结果已保存",
+    "unknownNode": "步骤结果尚未确定，请核对业务记录。",
+    "detailsUnavailable": "运行详情暂不可用或已变化，请刷新后再继续核对。仍可停止本次流程。",
+    "cancel": "暂不处理",
+    "confirmStop": "确认停止流程",
+    "confirmContinue": "确认继续剩余步骤",
+    "loadMore": "加载更多待核验流程",
+    "loadError": "待核验流程加载失败，请刷新重试。",
+    "previewError": "任务状态已变化或暂不可用，请刷新后重试。",
+    "decisionError": "处理结果暂未确认，请保留当前核对内容并刷新运行记录。",
+    "stopped": "已停止本次流程，处理决定已保存。",
+    "continued": "核验决定已保存，正在继续剩余步骤。",
+    "dispatchUnknown": "核验决定已保存，恢复任务的派发状态暂未确认，请稍后查看运行记录。",
+    "reasons": {
+      "unknown_result": "步骤结果尚未确定，请先核对业务记录。",
+      "progress_missing": "已有步骤记录，但恢复位置未完整保存，需要进一步核验。",
+      "record_changed": "原记录或恢复位置发生变化，需要重新核验。",
+      "key_unavailable": "恢复记录暂时无法读取，请联系管理员恢复保管配置。"
+    }
+  },
   "mobileChat": {
     "workspace": "客服工作台",
     "navigation": "打开功能菜单",

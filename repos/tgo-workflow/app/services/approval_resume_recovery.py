@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.approval import WorkflowApprovalRequest
 from app.models.execution import NodeExecution, WorkflowExecution
+from app.schemas.approval_reconciliation import ReconciliationLedger
 from app.services.execution_lifecycle import ExecutionStopped
 
 RECONCILIATION_REQUIRED = (
@@ -186,6 +187,12 @@ async def recover_interrupted_approval(
         # encrypted checkpoint for review and never replay it automatically.
         run.error = RECONCILIATION_REQUIRED
         run.active_segment_started_at = None
+        ledger = ReconciliationLedger.model_validate(
+            request.reconciliation_ledger or {},
+        )
+        ledger.generation += 1
+        ledger.started_at = datetime.now(UTC)
+        request.reconciliation_ledger = ledger.model_dump(mode="json")
         await db.commit()
         return "reconciliation_required"
     run.status = "pending_resume"

@@ -31,6 +31,9 @@ from app.schemas.ai_workflows import (
     WorkflowVariablesResponse,
 )
 from app.services.workflow_client import workflow_client
+from app.api.v1.endpoints.workflow_reconciliations import (
+    router as reconciliation_router,
+)
 from app.services.aftersales_review_files import (
     list_review_files, require_customer_read, require_intake_evidence_files,
     review_chat_target,
@@ -62,6 +65,7 @@ from app.schemas.workflow_approval import (
 )
 
 router = APIRouter()
+router.include_router(reconciliation_router)
 
 
 @router.get("/aftersales-reviews", response_model=list[WorkflowAfterSalesReviewSummary])

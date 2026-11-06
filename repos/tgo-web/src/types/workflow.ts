@@ -290,6 +290,38 @@ export interface WorkflowApprovalDecisionResult {
   dispatch_status: 'queued' | 'unknown' | 'not_applicable';
 }
 
+export interface WorkflowReconciliationNode {
+  id: string;
+  node_id: string;
+  node_type: string;
+  label: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface WorkflowReconciliationSummary {
+  id: string;
+  execution_id: string;
+  workflow_id: string;
+  summary: string;
+  review_digest: string;
+  created_at: string;
+  requested_at: string;
+  can_continue: boolean;
+  blocked_reason: 'unknown_result' | 'progress_missing' | 'record_changed' | 'key_unavailable' | null;
+  nodes: WorkflowReconciliationNode[];
+}
+
+export interface WorkflowReconciliationDecisionResult {
+  id: string;
+  execution_id: string;
+  decision: 'continue' | 'stop';
+  status: 'pending_resume' | 'cancelled';
+  decided_at: string;
+  dispatch_status: 'queued' | 'unknown' | 'not_applicable';
+}
+
 export interface WorkflowAfterSalesReviewSummary {
   id: string;
   execution_id: string;

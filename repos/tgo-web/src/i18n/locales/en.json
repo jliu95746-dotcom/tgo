@@ -1,4 +1,36 @@
 {
+  "workflowReconciliation": {
+    "title": "Executions awaiting review",
+    "description": "Review interrupted steps, then continue or stop the execution.",
+    "refresh": "Refresh interrupted executions",
+    "empty": "No executions await review",
+    "execution": "Execution",
+    "savedResult": "Step results were saved. Review them before continuing.",
+    "inspectStop": "Review and stop",
+    "inspectContinue": "Review and continue",
+    "previewTitle": "Review interrupted execution",
+    "stopScope": "Stopping ends this execution. Business actions already performed remain in effect.",
+    "continueScope": "Saved results will be reused and only remaining steps will continue.",
+    "completedNode": "Result saved",
+    "unknownNode": "The result is uncertain. Check the business records.",
+    "detailsUnavailable": "Execution details are unavailable or changed. Refresh before continuing. You can still stop this execution.",
+    "cancel": "Decide later",
+    "confirmStop": "Confirm stopping",
+    "confirmContinue": "Confirm continuing",
+    "loadMore": "Load more executions",
+    "loadError": "Could not load interrupted executions. Refresh to retry.",
+    "previewError": "The task changed or is unavailable. Refresh to retry.",
+    "decisionError": "The outcome is not confirmed. Keep this review and refresh the execution records.",
+    "stopped": "Execution stopped. Your decision was saved.",
+    "continued": "Decision saved. Remaining steps are being resumed.",
+    "dispatchUnknown": "Decision saved. Resume dispatch is unconfirmed. Check execution records shortly.",
+    "reasons": {
+      "unknown_result": "The step result is uncertain. Check business records first.",
+      "progress_missing": "Step records exist, but no complete recovery position was saved.",
+      "record_changed": "The original record or recovery position changed and needs review.",
+      "key_unavailable": "Recovery records cannot be opened. Ask an administrator to restore the custody configuration."
+    }
+  },
   "mobileChat": {
     "workspace": "Reception workspace",
     "navigation": "Open navigation",

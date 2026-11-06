@@ -67,3 +67,4 @@ async def scrub_terminal_approval_checkpoints(
             request.status = "cancelled"
             request.decided_at = state[1] or datetime.now(UTC)
         request.checkpoint = terminal_checkpoint_receipt(request)
+        request.resume_checkpoint = None
