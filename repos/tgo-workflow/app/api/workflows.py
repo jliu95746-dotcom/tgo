@@ -35,7 +35,7 @@ from app.services.device_workflow_references import (
     list_device_workflow_references,
 )
 from uuid import UUID
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 router = APIRouter()
 
@@ -220,7 +220,7 @@ async def validate_workflow_generic(
     request: WorkflowValidateRequest,
     project_id: str = Query(..., description="Project ID"),
 ):
-    definition = {
+    definition: dict[str, JsonValue] = {
         "nodes": [node.model_dump() for node in request.nodes],
         "edges": [edge.model_dump() for edge in request.edges],
     }

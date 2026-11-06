@@ -1,5 +1,5 @@
 """Configuration checks for nodes supported by the current execution path."""
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import re
 from typing import cast
 from uuid import UUID
@@ -81,8 +81,8 @@ def workflow_capabilities() -> WorkflowCapabilities:
 
 
 def node_configuration_errors(
-    nodes: list[Mapping[str, object]],
-    edges: list[Mapping[str, object]] | None = None,
+    nodes: Sequence[Mapping[str, object]],
+    edges: Sequence[Mapping[str, object]] | None = None,
     *, allow_timer_preparation: bool = False,
     allow_webhook_preparation: bool = False,
 ) -> list[str]:
