@@ -1,7 +1,8 @@
 from enum import Enum, IntEnum
+from typing import Final
 
 # WuKongIM channel types
-CHANNEL_TYPE_CUSTOMER_SERVICE = 251
+CHANNEL_TYPE_CUSTOMER_SERVICE: Final = 251
 CHANNEL_TYPE_PROJECT_STAFF = 249  # 项目坐席群组频道
 SETUP_DEFAULT_AGENT_MODEL = "default"
 STAFF_AVATAR_MAX_BYTES = 5 * 1024 * 1024

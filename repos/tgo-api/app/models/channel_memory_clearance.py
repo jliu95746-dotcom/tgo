@@ -13,6 +13,7 @@ from sqlalchemy import (
     Index,
 )
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
@@ -47,13 +48,14 @@ class ChannelMemoryClearance(Base):
 
     channel_id = Column(String(255), nullable=False)
     channel_type = Column(Integer, nullable=False)
-    cleared_message_seq = Column(
+    cleared_message_seq: Mapped[int] = mapped_column(
         BigInteger, nullable=False
     )  # message_seq at the time of clearance
 
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+        nullable=True,
     )
 
     # Unique constraint: only one record per user + channel combination

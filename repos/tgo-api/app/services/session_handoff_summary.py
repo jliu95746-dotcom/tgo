@@ -3,7 +3,7 @@
 import re
 from math import ceil
 from datetime import timezone
-from typing import Literal, cast
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -179,7 +179,7 @@ async def load_handoff_summary(
         ChannelMemoryClearance.channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE,
     ).first()
     start_seq = (
-        cast(int, clearance.cleared_message_seq) + 1 if clearance else 0
+        clearance.cleared_message_seq + 1 if clearance else 0
     )
 
     def check() -> None:

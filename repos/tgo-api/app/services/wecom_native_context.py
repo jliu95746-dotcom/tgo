@@ -43,8 +43,11 @@ class NativeVisitorState(Protocol):
 
 
 class ContextTurn(Protocol):
-    role: str
-    content: str
+    @property
+    def role(self) -> str: ...
+
+    @property
+    def content(self) -> str: ...
 
 
 def preserve_native_config(

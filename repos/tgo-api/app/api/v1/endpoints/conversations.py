@@ -1,6 +1,6 @@
 """Conversation management endpoints for WuKongIM."""
 
-from typing import Dict, List, Optional, cast
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -1165,7 +1165,7 @@ async def sync_channel_messages(
     # messages
     effective_start_seq = request.start_message_seq
     if clearance and clearance.cleared_message_seq > effective_start_seq:
-        effective_start_seq = cast(int, clearance.cleared_message_seq) + 1
+        effective_start_seq = clearance.cleared_message_seq + 1
 
     logger.info(
         f"Staff {current_user.username} syncing channel messages",

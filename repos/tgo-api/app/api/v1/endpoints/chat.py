@@ -107,6 +107,11 @@ from app.services.visitor_chat_access import (
     check_chat_channel,
     guarded_chat_call,
 )
+from app.services.channel_access import require_staff_channel_access
+from app.services.staff_record_access import (
+    check_staff_record_permission,
+    require_staff_record_access,
+)
 
 logger = get_logger(__name__)
 from app.models import AssignmentSource
@@ -182,14 +187,14 @@ def _build_platform_agent_kwargs(
     }
     if platform.agent_id is not None:
         runtime_kwargs["agent_id"] = str(platform.agent_id)
-    if (
-        visitor is not None
-        and getattr(visitor, "humanization_skill_enabled", False)
-        and getattr(visitor, "humanization_skill_name", None)
+    if visitor is not None and getattr(
+        visitor, "humanization_skill_enabled", False
     ):
-        runtime_kwargs[
-            "humanization_skill_name"
-        ] = visitor.humanization_skill_name
+        skill_name: str | None = getattr(
+            visitor, "humanization_skill_name", None
+        )
+        if skill_name:
+            runtime_kwargs["humanization_skill_name"] = skill_name
     return runtime_kwargs
 
 
@@ -579,7 +584,9 @@ async def chat_completion(
                         visitor_id=visitor.id,
                         source_message_id=req.source_message_id
                         or "pending-source",
-                        message_type=req.msg_type,
+                        message_type=2
+                        if req.msg_type == MessageType.IMAGE
+                        else 4,
                         reference=req.message,
                         file_id=req.media_file_id,
                     )
@@ -629,7 +636,7 @@ async def chat_completion(
                 platform_id=platform.id,
                 visitor_id=visitor.id,
                 source_message_id=req.source_message_id or "pending-source",
-                message_type=req.msg_type,
+                message_type=2 if req.msg_type == MessageType.IMAGE else 4,
                 reference=req.message,
                 file_id=req.media_file_id,
             )
@@ -1697,7 +1704,7 @@ async def chat_file_upload(
         HTTPBearer(auto_error=False)
     ),
     db: Session = Depends(get_db),
-):
+) -> ChatFileUploadResponse:
     """Upload a file for a chat channel with dual authentication support."""
     # Bind the original staff/visitor before any file reads or storage awaits.
     plat_key = platform_api_key or x_platform_api_key
@@ -1870,7 +1877,7 @@ async def get_chat_file(
     ),
     db: Session = Depends(get_db),
     file_token: Optional[str] = None,
-):
+) -> Response:
     """Require current company authority or a short-lived file capability."""
     file, actor = await authorize_chat_file(
         db,
@@ -2390,12 +2397,27 @@ async def handle_ui_user_action(
     ),
 )
 async def clear_chat_memory(
+    request: Request,
     channel_id: str = Query(..., description="频道 ID"),
     channel_type: int = Query(..., description="频道类型"),
     current_user: Staff = Depends(require_permission("chat:send")),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """清除智能体会话的 AI 记忆。"""
+    credentials = await HTTPBearer()(request)
+    access = require_staff_record_access(
+        db, credentials, current_user, "chat:send"
+    )
+
+    async def require_access() -> None:
+        actor = check_staff_record_permission(db, access, "chat:send")
+        await require_staff_channel_access(
+            db, actor, channel_id, channel_type
+        )
+        # Agent ownership checks may themselves wait for a remote service.
+        check_staff_record_permission(db, access, "chat:send")
+
+    await require_access()
     # 1) Build session_id for AI service
     staff_uid = f"{current_user.id}-staff"
     session_id = get_session_id(staff_uid, channel_id, channel_type)
@@ -2407,12 +2429,13 @@ async def clear_chat_memory(
         channel_type=channel_type,
         login_uid=staff_uid,
     )
-    print("max_seq---->", max_seq)
+    await require_access()
     # 3) Update or create clearance record
     if max_seq is not None:
         existing = (
             db.query(ChannelMemoryClearance)
             .filter(
+                ChannelMemoryClearance.project_id == current_user.project_id,
                 ChannelMemoryClearance.user_id == current_user.id,
                 ChannelMemoryClearance.user_type
                 == ClearanceUserType.STAFF.value,
@@ -2422,7 +2445,6 @@ async def clear_chat_memory(
             .first()
         )
 
-        print("existing---->", existing)
         if existing:
             existing.cleared_message_seq = max_seq
             existing.updated_at = datetime.utcnow()
@@ -2446,6 +2468,7 @@ async def clear_chat_memory(
         session_id=session_id,
         user_id=staff_uid,
     )
+    await require_access()
 
     # 5) Send system message to WuKongIM
     from_uid = staff_uid
@@ -2467,12 +2490,9 @@ async def clear_chat_memory(
             content="Memory cleared, AI will restart the conversation",
             msg_type=MessageType.MEMORY_CLEARED,
         )
-    except Exception as e:
+    except Exception:
         # Log error but don't fail the request if notification fails
-        from app.core.logging import get_logger
-
-        logger = get_logger("chat.api")
-        logger.warning(f"Failed to send memory cleared system message: {e}")
+        logger.warning("Failed to send memory cleared system message")
 
     return {"success": True, "message": "Memory cleared successfully"}
 
