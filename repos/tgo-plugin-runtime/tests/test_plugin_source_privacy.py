@@ -1,6 +1,7 @@
 """Source parsing failures do not record URLs or upstream documents."""
 
 import logging
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -9,7 +10,21 @@ from app.services import url_resolver
 from app.main import app as runtime_app
 
 PRIVATE = "synthetic-private-plugin-source-349"
-URL = f"https://user:{PRIVATE}@source.test/plugin.yaml?token={PRIVATE}"
+URL = f"https://source.test/plugin.yaml?token={PRIVATE}"
+
+
+def source_network(monkeypatch, respond):
+    """Keep the real source guard; only DNS and the network are controlled."""
+    monkeypatch.setattr(
+        url_resolver,
+        "public_addresses",
+        AsyncMock(return_value=["93.184.216.34"]),
+    )
+    monkeypatch.setattr(
+        url_resolver.httpx,
+        "AsyncHTTPTransport",
+        lambda **kwargs: httpx.MockTransport(respond),
+    )
 
 
 @pytest.mark.asyncio
@@ -19,7 +34,10 @@ async def test_source_failure_logs_do_not_contain_private_data(
     caplog,
     kind,
 ):
+    calls = []
+
     def respond(request):
+        calls.append(request)
         if kind == "transport":
             raise httpx.ConnectError(PRIVATE, request=request)
         return httpx.Response(
@@ -27,17 +45,11 @@ async def test_source_failure_logs_do_not_contain_private_data(
             text=f"private: [{PRIVATE}",
         )
 
-    client_type = httpx.AsyncClient
-    monkeypatch.setattr(
-        url_resolver.httpx,
-        "AsyncClient",
-        lambda **kwargs: client_type(
-            transport=httpx.MockTransport(respond), **kwargs
-        ),
-    )
+    source_network(monkeypatch, respond)
     caplog.set_level(logging.INFO, logger="httpx")
     caplog.set_level(logging.DEBUG, logger="services.url_resolver")
     assert await url_resolver.PluginURLResolver()._try_fetch_yaml(URL) is None
+    assert len(calls) == 1
     assert PRIVATE not in "\n".join(
         str(record.__dict__) for record in caplog.records
     )
@@ -49,16 +61,9 @@ async def test_only_an_object_with_string_keys_is_a_plugin_document(
     monkeypatch,
     text,
 ):
-    client_type = httpx.AsyncClient
-    monkeypatch.setattr(
-        url_resolver.httpx,
-        "AsyncClient",
-        lambda **kwargs: client_type(
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(200, text=text)
-            ),
-            **kwargs,
-        ),
+    source_network(
+        monkeypatch,
+        lambda request: httpx.Response(200, text=text),
     )
     assert await url_resolver.PluginURLResolver()._try_fetch_yaml(URL) is None
 
@@ -73,16 +78,9 @@ async def test_valid_relative_source_and_runtime_configuration_are_preserved(
         "source:\n  binary:\n    url: assets/plugin.zip\n"
         f"runtime:\n  env:\n    TOKEN: {PRIVATE}\n"
     )
-    client_type = httpx.AsyncClient
-    monkeypatch.setattr(
-        url_resolver.httpx,
-        "AsyncClient",
-        lambda **kwargs: client_type(
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(200, text=document)
-            ),
-            **kwargs,
-        ),
+    source_network(
+        monkeypatch,
+        lambda request: httpx.Response(200, text=document),
     )
     result = await url_resolver.PluginURLResolver().resolve(
         "https://source.test/releases/plugin.yaml"
@@ -120,21 +118,14 @@ def test_github_source_can_leave_the_optional_binary_empty():
 async def test_invalid_remote_source_returns_client_error_without_its_contents(
     monkeypatch,
 ):
-    client_type = httpx.AsyncClient
-    monkeypatch.setattr(
-        url_resolver.httpx,
-        "AsyncClient",
-        lambda **kwargs: client_type(
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(
-                    200,
-                    text=f"source: null\nprivate: {PRIVATE}\n",
-                )
-            ),
-            **kwargs,
+    source_network(
+        monkeypatch,
+        lambda request: httpx.Response(
+            200,
+            text=f"source: null\nprivate: {PRIVATE}\n",
         ),
     )
-    async with client_type(
+    async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=runtime_app),
         base_url="http://test",
     ) as client:

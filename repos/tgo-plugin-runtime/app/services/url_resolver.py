@@ -7,6 +7,10 @@ from typing import Optional, Dict, Any
 from app.core.logging import get_logger
 from app.services.plugin_failures import log_plugin_failure
 from app.domain.business_tools.target_transport import business_query_log_scope
+from app.domain.business_tools.target_transport import public_addresses
+from app.services.plugin_source_transport import (
+    SOURCE_FETCH_TIMEOUT, fetch_plugin_source,
+)
 
 logger = get_logger("services.url_resolver")
 
@@ -168,19 +172,21 @@ class PluginURLResolver:
 
         try:
             with business_query_log_scope():
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    response = await client.get(
-                        fetch_url, follow_redirects=True,
-                    )
-                    if response.status_code == 200:
-                        try:
-                            config = yaml.safe_load(response.text)
-                            if isinstance(config, dict) and all(
-                                isinstance(key, str) for key in config
-                            ):
-                                return config
-                        except yaml.YAMLError as error:
-                            log_plugin_failure("parse_plugin_source", error)
+                response = await fetch_plugin_source(
+                    httpx.URL(fetch_url), timeout=SOURCE_FETCH_TIMEOUT,
+                    resolver=public_addresses,
+                )
+                if response.status_code == 200:
+                    try:
+                        config = yaml.safe_load(response.text)
+                        if isinstance(config, dict) and all(
+                            isinstance(key, str) for key in config
+                        ):
+                            return self._resolve_relative_urls(
+                                config, urljoin(str(response.url), "."),
+                            )
+                    except yaml.YAMLError as error:
+                        log_plugin_failure("parse_plugin_source", error)
         except Exception as e:
             log_plugin_failure("fetch_plugin_source", e)
         return None
