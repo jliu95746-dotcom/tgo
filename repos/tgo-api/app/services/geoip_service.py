@@ -180,16 +180,12 @@ class GeoIPService:
         return True
 
     def _load_ip2region_db(
-        self, db_path: str, version: int, version_name: str
+        self, db_path: str, version: "xdb_util.Version", version_name: str
     ) -> bool:
         """Load a single ip2region database file."""
         try:
-            # Load entire xdb into memory for best performance and
-            # thread-safety
-            # Note: load_content_from_file is in util module, not searcher
-            searcher = xdb_searcher.new_with_file_only(
-                xdb_util.Version(version), db_path
-            )
+            # The SDK constants already contain the complete Version object.
+            searcher = xdb_searcher.new_with_file_only(version, db_path)
 
             if version == xdb_util.IPv4:
                 self._ip2region_searcher_v4 = searcher

@@ -6,8 +6,10 @@ from urllib.parse import urlparse
 
 try:
     import oss2
+
+    OSS2_AVAILABLE = True
 except ImportError:
-    oss2 = None
+    OSS2_AVAILABLE = False
 from app.services.storage.base import StorageBackend
 from app.services.storage.urls import resolve_private_chat_file_url
 from app.core.config import settings
@@ -37,7 +39,7 @@ class AliyunOSSBackend(StorageBackend):
             '(can be a custom domain)\n'
             '        '
         )
-        if oss2 is None:
+        if not OSS2_AVAILABLE:
             raise ImportError(
                 "The 'oss2' package is required for AliyunOSSBackend. "
                 "Install it with 'pip install oss2'."

@@ -1,14 +1,17 @@
 """MinIO/S3 storage backend."""
 
 import asyncio
-from typing import BinaryIO, Any, Optional
+from typing import BinaryIO, Optional
 from urllib.parse import urlparse
 
 try:
     import boto3
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import ClientError as _ClientError
+
+    ClientError: type[Exception] = _ClientError
+    BOTO3_AVAILABLE = True
 except ImportError:
-    boto3 = None
+    BOTO3_AVAILABLE = False
     ClientError = Exception
 from app.services.storage.base import StorageBackend
 from app.services.storage.urls import resolve_private_chat_file_url
@@ -43,7 +46,7 @@ class MinIOBackend(StorageBackend):
             '            region_name: S3 region name (default us-east-1)\n'
             '        '
         )
-        if boto3 is None:
+        if not BOTO3_AVAILABLE:
             raise ImportError(
                 "The 'boto3' package is required for MinIOBackend. "
                 "Install it with 'pip install boto3'."
