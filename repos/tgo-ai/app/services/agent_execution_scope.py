@@ -1,4 +1,5 @@
-"""Every captured tool and outgoing result remains bound to the exact owned run."""
+"Every captured tool and outgoing result remains bound to the exact \
+owned run."
 import asyncio
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
@@ -37,8 +38,10 @@ class AgentExecutionScope:
     def _revoke(self) -> None:
         was_closed = self.closed
         self.closed = self.revoked = True
-        # Agno gathers tool tasks with return_exceptions=True. Cancel the actual
-        # model owner so a swallowed tool error cannot start another model call.
+        # Agno gathers tool tasks with return_exceptions=True. Cancel the
+        # actual
+        # model owner so a swallowed tool error cannot start another model
+        # call.
         if (
             not was_closed
             and self.owner is not None
@@ -60,7 +63,10 @@ class AgentExecutionScope:
         self.owned_cancel = False
 
     def revoke(self) -> None:
-        """Stop this owner when a trusted tool cannot verify its original grant."""
+        (
+            'Stop this owner when a trusted tool cannot verify its original '
+            'grant.'
+        )
         self._revoke()
 
     async def check(self) -> None:

@@ -1,4 +1,5 @@
-"""Formal query transport has no retries, raw-input logging or test-purpose fallback."""
+"Formal query transport has no retries, raw-input logging or \
+test-purpose fallback."
 
 from datetime import UTC, datetime
 

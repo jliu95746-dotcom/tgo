@@ -1,4 +1,5 @@
-"""Only authenticated API forwarding can supply an employee activation actor."""
+"Only authenticated API forwarding can supply an employee activation \
+actor."
 
 from uuid import UUID
 

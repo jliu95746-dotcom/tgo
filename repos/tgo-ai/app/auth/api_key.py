@@ -39,8 +39,10 @@ async def get_project_from_api_key(api_key: str, db: AsyncSession) -> Project:
             result = await db.execute(stmt)
             project = result.scalar_one_or_none()
         except OperationalError:
-            # In some test/client environments the tables may not be initialized yet.
-            # For development ergonomics, allow a synthetic project without hitting the DB.
+            # In some test/client environments the tables may not be
+            # initialized yet.
+            # For development ergonomics, allow a synthetic project without
+            # hitting the DB.
             project = None
             table_missing = True
         else:
@@ -50,7 +52,8 @@ async def get_project_from_api_key(api_key: str, db: AsyncSession) -> Project:
             return project
 
         if table_missing:
-            # Fallback: synthesize an in-memory project to support dev workflows without seed data
+            # Fallback: synthesize an in-memory project to support dev
+            # workflows without seed data
             return Project(
                 id=uuid.uuid4(),
                 name="Development Project",
@@ -58,7 +61,8 @@ async def get_project_from_api_key(api_key: str, db: AsyncSession) -> Project:
                 synced_at=datetime.utcnow(),
             )
 
-        # If the table exists but the dev project was not found, raise for clarity
+        # If the table exists but the dev project was not found, raise for
+        # clarity
         raise AuthenticationError("Development project not found")
 
     # Validate standard API key format

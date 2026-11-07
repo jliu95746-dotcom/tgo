@@ -1,4 +1,5 @@
-"""Trusted API-only trials of inactive employees; never public auth fallback."""
+"Trusted API-only trials of inactive employees; never public auth \
+fallback."
 
 import hmac
 from collections.abc import Callable, Coroutine

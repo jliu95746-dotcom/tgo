@@ -87,7 +87,8 @@ class LLMProviderService:
             existing.provider_kind = provider_kind
             existing.vendor = vendor
             existing.api_base_url = api_base_url
-            # Only overwrite api_key if provided (allows partial updates without clearing)
+            # Only overwrite api_key if provided (allows partial updates
+            # without clearing)
 
             if api_key is not None:
                 existing.api_key = api_key
@@ -135,11 +136,14 @@ class LLMProviderService:
         self,
         providers: Iterable[dict],
     ) -> List[LLMProvider]:
-        """Bulk upsert providers.
-
-        For each incoming item (must include id, project_id and alias), update if exists else create.
-        Uses provider ID as the primary key for upsert logic.
-        """
+        (
+            'Bulk upsert providers.\n'
+            '\n'
+            '        For each incoming item (must include id, project_id and '
+            'alias), update if exists else create.\n'
+            '        Uses provider ID as the primary key for upsert logic.\n'
+            '        '
+        )
         synced: list[LLMProvider] = []
         try:
             for payload in providers:
@@ -164,11 +168,13 @@ class LLMProviderService:
                     from app.services.llm_model_service import LLMModelService
 
                     model_service = LLMModelService(self.db)
-                    # Ensure each model has the correct provider_id and type conversion
+                    # Ensure each model has the correct provider_id and type
+                    # conversion
 
                     models_to_sync = []
                     for m_payload in payload["models"]:
-                        # m_payload might be a dict or a Pydantic object depending on how it's called
+                        # m_payload might be a dict or a Pydantic object
+                        # depending on how it's called
 
                         m_dict = (
                             m_payload
@@ -181,7 +187,8 @@ class LLMProviderService:
                         models_to_sync, commit=False
                     )
 
-                    # Optional: Deactivate models that are NOT in the sync payload for this provider
+                    # Optional: Deactivate models that are NOT in the sync
+                    # payload for this provider
 
                     synced_model_ids = [m["id"] for m in models_to_sync]
                     await self.db.execute(

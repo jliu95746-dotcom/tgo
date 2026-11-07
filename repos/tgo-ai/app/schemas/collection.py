@@ -73,5 +73,7 @@ class CollectionResponse(BaseSchema):
     )
     enabled: Optional[bool] = Field(
         default=None,
-        description="Whether this collection is enabled for the current agent binding",
+        description=(
+            'Whether this collection is enabled for the current agent binding'
+        ),
     )

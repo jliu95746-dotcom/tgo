@@ -1,4 +1,5 @@
-"""Owner-defined activation requirements; this contract grants no enablement."""
+"Owner-defined activation requirements; this contract grants no \
+enablement."
 
 import hashlib
 import json

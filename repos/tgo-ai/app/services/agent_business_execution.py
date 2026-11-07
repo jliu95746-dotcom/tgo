@@ -119,7 +119,8 @@ class AgentBusinessExecutionService:
             != owner.configuration_revision
         ):
             raise AuthorizationError("原客户与当前连接身份不一致")
-        # Bind to this same run after awaited owner calls, never a newly valid one.
+        # Bind to this same run after awaited owner calls, never a newly valid
+        # one.
         if await read_reference(self.db, project, agent, channel) != reference:
             raise ConflictError("核验期间原员工或业务评审已变化")
         config_test = next(

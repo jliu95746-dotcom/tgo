@@ -1,4 +1,5 @@
-"""One provider adapter shared by tool tests, archive queries and AI employees."""
+"One provider adapter shared by tool tests, archive queries and AI \
+employees."
 import base64
 import hashlib
 import ipaddress
@@ -56,7 +57,8 @@ def prepare_config(
     old = (
         LogisticsProviderConfig.model_validate(previous) if previous else None
     )
-    # Never trust client-supplied ciphertext; only reuse this record's stored key.
+    # Never trust client-supplied ciphertext; only reuse this record's stored
+    # key.
 
     config.credential_encrypted = ""
     if config.auth_type != "none":
@@ -129,7 +131,8 @@ def normalize_result(
         if not description or not valid_time:
             raise ValueError("轨迹时间或内容字段无效，请检查返回字段配置；时间需为 ISO 日期格式")
         events.append({"time": timestamp, "description": description[:4000]})
-    # No raw payload/headers: avoid echoing credentials or unrelated customer data.
+    # No raw payload/headers: avoid echoing credentials or unrelated customer
+    # data.
 
     return {
         "tracking_no": tracking_no,
@@ -176,7 +179,8 @@ async def execute_logistics_provider(
             if config.auth_type == "header"
             else "Authorization"
         ] = (prefix + credential)
-    # Only declared tracking number goes to provider; LLM cannot override credentials.
+    # Only declared tracking number goes to provider; LLM cannot override
+    # credentials.
 
     params = {**config.fixed_params, config.tracking_param: tracking_no}
 

@@ -29,7 +29,8 @@ def configuration_fingerprint(agent: Agent) -> str:
     if agent.device_script_selection is None:
         excluded.add("device_script_selection")
     if agent.model_owner_revision is not None:
-        # The owner revision covers credentials. Read-only SaaS checks need no key.
+        # The owner revision covers credentials. Read-only SaaS checks need no
+        # key.
         excluded.add("llm_provider_credentials")
     snapshot = json_object.validate_python(
         agent.model_dump(mode="json", exclude=excluded)

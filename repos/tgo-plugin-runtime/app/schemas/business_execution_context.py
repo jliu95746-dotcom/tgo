@@ -1,4 +1,5 @@
-"""One request's customer context; neither metadata nor the token activates an employee."""
+"One request's customer context; neither metadata nor the token \
+activates an employee."
 
 from datetime import datetime
 import hashlib

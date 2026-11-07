@@ -1,4 +1,5 @@
-"""Private HTTP identity shared with knowledge service, never exposed to clients."""
+"Private HTTP identity shared with knowledge service, never exposed to \
+clients."
 
 from app.config import settings
 
@@ -16,6 +17,8 @@ def rag_service_headers(base_url: str | None = None) -> dict[str, str]:
                 "SaaS knowledge tools must use the approved RAG endpoint"
             )
         return {
-            "X-SaaS-Service-Token": settings.saas_internal_token.get_secret_value()
+            (
+                'X-SaaS-Service-Token'
+            ): settings.saas_internal_token.get_secret_value()
         }
     return {}

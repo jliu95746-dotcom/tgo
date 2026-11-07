@@ -293,7 +293,12 @@ async def run_cases(
             ) from None
         if response.status_code != 200:
             raise EvaluationRunError(
-                f"evaluation request {index} failed with HTTP {response.status_code}"
+                (
+                    f'evaluation request '
+                    f'{index}'
+                    f' failed with HTTP '
+                    f'{response.status_code}'
+                )
             )
         try:
             predictions.append(
@@ -309,7 +314,10 @@ async def run_cases(
 
 
 def _contains_detectable_personal_data(case: GoldenCase) -> bool:
-    """Reuse the customer-data patterns; this is a guard, not proof of anonymity."""
+    (
+        'Reuse the customer-data patterns; this is a guard, not proof of '
+        'anonymity.'
+    )
     redactor = SensitiveDataRedactor()
     content = case.classification_input
     return any(

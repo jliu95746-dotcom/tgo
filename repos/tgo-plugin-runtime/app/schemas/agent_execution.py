@@ -1,4 +1,5 @@
-"""An immutable run identity is a comparison input, never an execution grant."""
+"An immutable run identity is a comparison input, never an execution \
+grant."
 from datetime import datetime
 from typing import Literal
 from uuid import UUID

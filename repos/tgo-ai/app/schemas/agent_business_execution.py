@@ -1,4 +1,5 @@
-"""Formal customer queries are separate from configuration and employee tests."""
+"Formal customer queries are separate from configuration and employee \
+tests."
 
 from datetime import datetime
 from typing import Literal

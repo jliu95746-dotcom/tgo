@@ -52,7 +52,10 @@ class AgentService:
         project_id: uuid.UUID,
         agent_id: uuid.UUID,
     ) -> AgentDeviceActionReadiness:
-        """Recheck an employee's fixed file action before workflow selection."""
+        (
+            "Recheck an employee's fixed file action before workflow "
+            'selection.'
+        )
         agent = await self.get_agent(
             project_id, agent_id, enrich_resources=False
         )
@@ -490,7 +493,8 @@ class AgentService:
             await self._validate_collections_belong_to_project(
                 agent_data.collections, project_id
             )
-        # Preserve existing pins when the editor resends unchanged workflow IDs.
+        # Preserve existing pins when the editor resends unchanged workflow
+        # IDs.
 
         existing_workflows = {
             binding.workflow_id: binding
@@ -875,11 +879,15 @@ class AgentService:
         project_id: uuid.UUID,
         user_id: Optional[str] = None,
     ) -> None:
-        """Clear all memory and session history for a specific session.
-
-        This deletes records from agno memory and session tables in the 'ai' schema.
-        If user_id is provided, it also clears personal memories for that user from agno_memories.
-        """
+        (
+            'Clear all memory and session history for a specific session.\n'
+            '\n'
+            '        This deletes records from agno memory and session '
+            "tables in the 'ai' schema.\n"
+            '        If user_id is provided, it also clears personal '
+            'memories for that user from agno_memories.\n'
+            '        '
+        )
         try:
             # Delete from agno_memories (user/agent memories)
             # The table may not exist if Agno hasn't created it yet
@@ -888,7 +896,10 @@ class AgentService:
                 try:
                     await self.db.execute(
                         text(
-                            "DELETE FROM ai.agno_memories WHERE user_id = :user_id"
+                            (
+                                'DELETE FROM ai.agno_memories WHERE user_id '
+                                '= :user_id'
+                            )
                         ),
                         {"user_id": user_id},
                     )
@@ -900,7 +911,10 @@ class AgentService:
             try:
                 await self.db.execute(
                     text(
-                        "DELETE FROM ai.agno_sessions WHERE session_id = :session_id"
+                        (
+                            'DELETE FROM ai.agno_sessions WHERE session_id = '
+                            ':session_id'
+                        )
                     ),
                     {"session_id": session_id},
                 )
@@ -918,7 +932,10 @@ class AgentService:
         *,
         requested_by: uuid.UUID | None = None,
     ) -> None:
-        """Keep legacy internal default switching behind the same activation gate."""
+        (
+            'Keep legacy internal default switching behind the same '
+            'activation gate.'
+        )
         await self.update_agent(
             project_id,
             new_default_agent_id,
@@ -932,7 +949,10 @@ class AgentService:
         project_id: uuid.UUID,
         exclude_agent_id: Optional[uuid.UUID] = None,
     ) -> None:
-        """Clear active default agents in a project before promoting another one."""
+        (
+            'Clear active default agents in a project before promoting '
+            'another one.'
+        )
 
         conditions = [
             Agent.project_id == project_id,
@@ -961,7 +981,8 @@ class AgentService:
         """
         if not collection_ids:
             return
-        # Validate collections exist in RAG service (trust project_id; no local project validation)
+        # Validate collections exist in RAG service (trust project_id; no local
+        # project validation)
 
         await rag_service_client.validate_collections_exist(
             collection_ids,
@@ -974,17 +995,20 @@ class AgentService:
         project_id: uuid.UUID,
         release_versions: Optional[Dict[str, int]] = None,
     ) -> Dict[str, WorkflowIntegrationRelease]:
-        """
-        Validate that all workflows exist in the Workflow service for the project.
-
-        Args:
-            workflow_ids: List of workflow ID strings
-            project_id: Project ID
-
-        Raises:
-            NotFoundError: If any workflow not found
-            ValidationError: If validation fails
-        """
+        (
+            '\n'
+            '        Validate that all workflows exist in the Workflow '
+            'service for the project.\n'
+            '\n'
+            '        Args:\n'
+            '            workflow_ids: List of workflow ID strings\n'
+            '            project_id: Project ID\n'
+            '\n'
+            '        Raises:\n'
+            '            NotFoundError: If any workflow not found\n'
+            '            ValidationError: If validation fails\n'
+            '        '
+        )
         if not workflow_ids:
             return {}
         # Validate workflows exist in Workflow service
@@ -1003,17 +1027,21 @@ class AgentService:
     async def _validate_tools_belong_to_project(
         self, tool_ids: List[uuid.UUID], project_id: uuid.UUID
     ) -> None:
-        """
-        Validate that all tools exist in the ai_tools table and belong to the project.
-
-        Args:
-            tool_ids: List of tool IDs
-            project_id: Project ID
-
-        Raises:
-            NotFoundError: If any tool not found
-            ValidationError: If any tool belongs to different project
-        """
+        (
+            '\n'
+            '        Validate that all tools exist in the ai_tools table and '
+            'belong to the project.\n'
+            '\n'
+            '        Args:\n'
+            '            tool_ids: List of tool IDs\n'
+            '            project_id: Project ID\n'
+            '\n'
+            '        Raises:\n'
+            '            NotFoundError: If any tool not found\n'
+            '            ValidationError: If any tool belongs to different '
+            'project\n'
+            '        '
+        )
         if not tool_ids:
             return
         # Query tools from database
@@ -1070,7 +1098,8 @@ class AgentService:
         """
         if not agents:
             return agents
-        # Skip local project existence check; rely on upstream services and use project_id directly
+        # Skip local project existence check; rely on upstream services and use
+        # project_id directly
 
         # Collect all unique collection IDs from all agents
 
@@ -1129,24 +1158,33 @@ class AgentService:
     async def enrich_agents_with_workflow_data(
         self, agents: List[Agent], project_id: uuid.UUID
     ) -> List[Agent]:
-        """Preserve local bindings even if their remote details cannot be loaded."""
+        (
+            'Preserve local bindings even if their remote details cannot be '
+            'loaded.'
+        )
         return await enrich_agent_workflow_bindings(agents, project_id)
 
     async def enrich_agents_with_tool_details(
         self, agents: List[Agent], project_id: uuid.UUID
     ) -> List[Agent]:
-        """
-        Enrich agents with tool details from local database (ai_tools table).
-
-        Flow:
-        - Load agent tool bindings (already present via selectinload in callers)
-        - Build AgentToolDetail objects from Tool entities
-        - Attach enabled state and other association fields from AgentToolAssociation
-        - Set agent._tools_data with enriched tool list
-        """
+        (
+            '\n'
+            '        Enrich agents with tool details from local database '
+            '(ai_tools table).\n'
+            '\n'
+            '        Flow:\n'
+            '        - Load agent tool bindings (already present via '
+            'selectinload in callers)\n'
+            '        - Build AgentToolDetail objects from Tool entities\n'
+            '        - Attach enabled state and other association fields '
+            'from AgentToolAssociation\n'
+            '        - Set agent._tools_data with enriched tool list\n'
+            '        '
+        )
         if not agents:
             return agents
-        # Build association map: (agent_id, tool_id) -> (enabled, permissions, config)
+        # Build association map: (agent_id, tool_id) -> (enabled, permissions,
+        # config)
 
         assoc_stmt = select(
             AgentToolAssociation.agent_id,
@@ -1192,7 +1230,8 @@ class AgentService:
                     continue
                 enabled, permissions, tool_config = assoc_data
 
-                # Build AgentToolDetail from Tool entity with association fields
+                # Build AgentToolDetail from Tool entity with association
+                # fields
 
                 try:
                     # First convert Tool to dict

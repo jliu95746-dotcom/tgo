@@ -5,7 +5,7 @@ Each LLMProvider can have multiple LLMModels.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import JSON as SAJSON
@@ -20,10 +20,12 @@ if TYPE_CHECKING:
 
 
 class LLMModel(BaseModel):
-    """Specific AI model supported by an LLMProvider.
-    
-    Examples: gpt-4, claude-3-opus, qwen-max.
-    """
+    (
+        'Specific AI model supported by an LLMProvider.\n'
+        '    \n'
+        '    Examples: gpt-4, claude-3-opus, qwen-max.\n'
+        '    '
+    )
 
     __tablename__ = "ai_llm_models"
 
@@ -42,60 +44,55 @@ class LLMModel(BaseModel):
     )
 
     model_id: Mapped[str] = mapped_column(
-        String(100), 
-        nullable=False, 
-        comment="Model identifier (e.g., gpt-4, claude-3-opus, qwen-max)"
+        String(100),
+        nullable=False,
+        comment="Model identifier (e.g., gpt-4, claude-3-opus, qwen-max)",
     )
-    
+
     model_name: Mapped[str] = mapped_column(
-        String(100), 
-        nullable=False, 
-        comment="Display name for the model"
+        String(100), nullable=False, comment="Display name for the model"
     )
-    
+
     # chat | embedding | asr | ocr | vlm
     model_type: Mapped[str] = mapped_column(
-        String(20), 
-        nullable=False, 
-        default="chat", 
-        comment="Model type: chat, embedding, ASR, OCR, or VLM"
+        String(20),
+        nullable=False,
+        default="chat",
+        comment="Model type: chat, embedding, ASR, OCR, or VLM",
     )
-    
+
     description: Mapped[Optional[str]] = mapped_column(
-        String(255), 
-        nullable=True, 
-        comment="Optional description of the model"
+        String(255), nullable=True, comment="Optional description of the model"
     )
 
     capabilities: Mapped[Optional[dict]] = mapped_column(
         JSONB().with_variant(SAJSON(), "sqlite"),
-        nullable=True, 
-        comment="Model capabilities JSON, e.g., {vision: true, function_calling: true}"
+        nullable=True,
+        comment=(
+            'Model capabilities JSON, e.g., {vision: true, function_calling: '
+            'true}'
+        ),
     )
-    
+
     context_window: Mapped[Optional[int]] = mapped_column(
-        Integer, 
-        nullable=True, 
-        comment="Context window size (tokens)"
+        Integer, nullable=True, comment="Context window size (tokens)"
     )
-    
+
     max_tokens: Mapped[Optional[int]] = mapped_column(
-        Integer, 
-        nullable=True, 
-        comment="Maximum output tokens"
+        Integer, nullable=True, comment="Maximum output tokens"
     )
 
     is_active: Mapped[bool] = mapped_column(
-        Boolean, 
-        nullable=False, 
-        default=True, 
-        comment="Whether this model is enabled"
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Whether this model is enabled",
     )
-    
+
     store_resource_id: Mapped[Optional[str]] = mapped_column(
-        String(100), 
-        nullable=True, 
-        comment="Store resource ID for models installed from store"
+        String(100),
+        nullable=True,
+        comment="Store resource ID for models installed from store",
     )
 
     # Synchronization timestamp
@@ -107,7 +104,17 @@ class LLMModel(BaseModel):
     )
 
     # Relationships
-    llm_provider: Mapped["LLMProvider"] = relationship("LLMProvider", back_populates="models")
+    llm_provider: Mapped["LLMProvider"] = relationship(
+        "LLMProvider", back_populates="models"
+    )
 
     def __repr__(self) -> str:
-        return f"<LLMModel(id={self.id}, model_id='{self.model_id}', type='{self.model_type}')>"
+        return (
+            f'<LLMModel(id='
+            f'{self.id}'
+            f", model_id='"
+            f'{self.model_id}'
+            f"', type='"
+            f'{self.model_type}'
+            f"')>"
+        )

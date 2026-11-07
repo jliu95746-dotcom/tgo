@@ -32,7 +32,11 @@ def get_llm_provider_service(
     response_model=LLMProviderSyncResponse,
     status_code=status.HTTP_200_OK,
     summary="Bulk upsert LLM Providers",
-    description="Upsert LLM Providers. Each item must include id and project_id; if a provider (project_id, alias) exists it will be updated, otherwise created. The id is provided by tgo-api.",
+    description=(
+        'Upsert LLM Providers. Each item must include id and project_id; if '
+        'a provider (project_id, alias) exists it will be updated, otherwise '
+        'created. The id is provided by tgo-api.'
+    ),
     responses=build_error_responses([400, 500]),
 )
 async def sync_llm_providers(
@@ -57,7 +61,10 @@ async def sync_llm_providers(
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to sync LLM providers: database error - {str(exc)}",
+            detail=(
+                f'Failed to sync LLM providers: database error - '
+                f'{str(exc)}'
+            ),
         )
     except Exception as exc:
         logger.error(
@@ -66,7 +73,10 @@ async def sync_llm_providers(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to sync LLM providers: unexpected error - {str(exc)}",
+            detail=(
+                f'Failed to sync LLM providers: unexpected error - '
+                f'{str(exc)}'
+            ),
         )
     if len(providers) != len(request.providers):
         logger.warning(
@@ -76,7 +86,12 @@ async def sync_llm_providers(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Sync incomplete: expected {len(request.providers)} providers, got {len(providers)}",
+            detail=(
+                f'Sync incomplete: expected '
+                f'{len(request.providers)}'
+                f' providers, got '
+                f'{len(providers)}'
+            ),
         )
     return LLMProviderSyncResponse(
         data=[LLMProviderResponse.from_orm_model(p) for p in providers]

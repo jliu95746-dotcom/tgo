@@ -1,4 +1,5 @@
-"""Model-visible HTTP diagnostics must not include URLs or upstream payloads."""
+"Model-visible HTTP diagnostics must not include URLs or upstream \
+payloads."
 import httpx
 
 

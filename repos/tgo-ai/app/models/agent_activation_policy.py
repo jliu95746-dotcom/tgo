@@ -1,4 +1,5 @@
-"""AI-owned explicit role and channel requirements, independent of activation."""
+"AI-owned explicit role and channel requirements, independent of \
+activation."
 
 from uuid import UUID
 
@@ -28,8 +29,11 @@ class AgentActivationPolicy(BaseModel):
             name="ck_ai_agent_policy_versions",
         ),
         CheckConstraint(
-            "(source_draft_id IS NULL AND source_draft_revision IS NULL) OR "
-            "(source_draft_id IS NOT NULL AND source_draft_revision IS NOT NULL AND source_draft_revision >= 1)",
+            (
+                '(source_draft_id IS NULL AND source_draft_revision IS NULL) '
+                'OR (source_draft_id IS NOT NULL AND source_draft_revision '
+                'IS NOT NULL AND source_draft_revision >= 1)'
+            ),
             name="ck_ai_agent_policy_source",
         ),
     )

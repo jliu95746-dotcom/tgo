@@ -7,7 +7,10 @@ from app.schemas.logistics_provider import LogisticsProviderConfig
 
 
 def workflow_read_only_tool(tool: Tool) -> bool:
-    """The logistics provider adapter performs a query, not a general HTTP action."""
+    (
+        'The logistics provider adapter performs a query, not a general HTTP '
+        'action.'
+    )
     if (
         tool.tool_source_type != ToolSourceType.LOCAL
         or tool.tool_type != ToolType.FUNCTION

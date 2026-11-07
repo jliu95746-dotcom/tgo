@@ -1,4 +1,5 @@
-"""Published style library: review snapshots, atomic releases and scenario retrieval."""
+"Published style library: review snapshots, atomic releases and scenario \
+retrieval."
 
 import hashlib
 import json
@@ -136,7 +137,8 @@ class HumanizationLibrary:
             ):
                 raise ValueError("Training source content cannot be changed")
             consumed.append(candidate.id)
-            # Fact/mixed edits remain review history, never become phrase examples.
+            # Fact/mixed edits remain review history, never become phrase
+            # examples.
 
             if candidate.selected and candidate.change_kind == "expression":
                 examples.append(candidate)

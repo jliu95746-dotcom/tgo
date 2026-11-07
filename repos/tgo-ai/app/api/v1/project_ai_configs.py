@@ -1,7 +1,6 @@
-"""Project AI Config sync API for tgo-api -> tgo-ai (internal).
-
-Internal, unauthenticated endpoint to upsert per-project default AI model configs.
-"""
+"Project AI Config sync API for tgo-api -> tgo-ai \
+(internal).\n\nInternal, unauthenticated endpoint to upsert per-project \
+default AI model configs.\n"
 
 from __future__ import annotations
 
@@ -32,9 +31,12 @@ def get_service(db: AsyncSession = Depends(get_db)) -> ProjectAIConfigService:
     status_code=status.HTTP_200_OK,
     summary="Bulk upsert Project AI Configs",
     description=(
-        "Upsert project-level default AI model configs. Accepts a list of configs; "
-        "each item uses project_id as the primary key. If a config exists it will be "
-        "updated; otherwise created. Intended for internal service-to-service sync from tgo-api."
+        (
+            'Upsert project-level default AI model configs. Accepts a list '
+            'of configs; each item uses project_id as the primary key. If a '
+            'config exists it will be updated; otherwise created. Intended '
+            'for internal service-to-service sync from tgo-api.'
+        )
     ),
     responses=build_error_responses([400]),
 )
@@ -55,8 +57,11 @@ async def sync_project_ai_configs(
     response_model=ProjectAIConfigResponse,
     summary="Upsert a single Project AI Config",
     description=(
-        "Upsert a single project-level default AI model config. Uses project_id as the key. "
-        "Returns 201 if created, 200 if updated. Intended for internal service-to-service sync from tgo-api."
+        (
+            'Upsert a single project-level default AI model config. Uses '
+            'project_id as the key. Returns 201 if created, 200 if updated. '
+            'Intended for internal service-to-service sync from tgo-api.'
+        )
     ),
     responses=build_error_responses([400]),
 )

@@ -1,4 +1,5 @@
-"""Aggregate every current required case without falling back to old success."""
+"Aggregate every current required case without falling back to old \
+success."
 
 from datetime import UTC, datetime
 from typing import Literal

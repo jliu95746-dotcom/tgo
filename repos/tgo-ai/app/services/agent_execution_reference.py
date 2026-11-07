@@ -82,7 +82,8 @@ class AgentExecutionReferenceReader:
     async def __call__(
         self, expected: AgentExecutionReference
     ) -> AgentExecutionReference:
-        # Each action/publication owns a new read transaction, not an old identity map.
+        # Each action/publication owns a new read transaction, not an old
+        # identity map.
         scope = current_execution_scope()
         observation = (
             expected

@@ -136,7 +136,10 @@ class ToolUpdate(BaseSchema):
 
 
 class AgentToolDetail(ToolResponse):
-    """Schema for tool details in agent responses, including agent-specific settings."""
+    (
+        'Schema for tool details in agent responses, including '
+        'agent-specific settings.'
+    )
 
     enabled: bool = Field(
         default=True, description="Whether tool is enabled for this agent"
@@ -146,6 +149,9 @@ class AgentToolDetail(ToolResponse):
     )
     tool_config: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Agent-specific tool configuration (overrides tool's default config)",
+        description=(
+            "Agent-specific tool configuration (overrides tool's default "
+            'config)'
+        ),
         serialization_alias="agent_tool_config",
     )

@@ -1,4 +1,5 @@
-"""Bind a confirmation/run to exact local evidence; a digest is never a grant."""
+"Bind a confirmation/run to exact local evidence; a digest is never a \
+grant."
 
 from datetime import UTC, datetime
 from uuid import UUID
@@ -185,8 +186,12 @@ async def _connection_evidence_revision(
                         "fingerprint": report.configuration_fingerprint,
                         "binding": str(report.binding_id),
                         "binding_revision": report.binding_revision,
-                        "configuration_revision": report.configuration_revision,
-                        "authorization_revision": report.authorization_revision,
+                        (
+                            'configuration_revision'
+                        ): report.configuration_revision,
+                        (
+                            'authorization_revision'
+                        ): report.authorization_revision,
                         "resource_revision": report.resource_revision,
                         "configuration_test": str(
                             report.configuration_test_id
@@ -210,7 +215,8 @@ async def _connection_evidence_revision(
                     },
                 }
             )
-    # Only the opaque HMAC leaves this service. Customer/query data is never returned.
+    # Only the opaque HMAC leaves this service. Customer/query data is never
+    # returned.
     return private_digest(
         {
             "project": str(project),

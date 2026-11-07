@@ -125,7 +125,8 @@ class AgentTrialService:
         ]
 
     async def _expire(self, row: AgentTestReport) -> AgentTestReport:
-        # The loaded entity may already be stale after another request finishes.
+        # The loaded entity may already be stale after another request
+        # finishes.
         await self.db.execute(
             update(AgentTestReport)
             .where(

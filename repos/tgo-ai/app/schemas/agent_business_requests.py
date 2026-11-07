@@ -1,4 +1,5 @@
-"""Metadata-only original request control, including preparation and tombstones."""
+"Metadata-only original request control, including preparation and \
+tombstones."
 
 from datetime import UTC, datetime
 from typing import Literal, Self

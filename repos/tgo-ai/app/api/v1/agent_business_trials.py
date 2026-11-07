@@ -1,4 +1,5 @@
-"""Persist before dispatch; restart recovery reads reports without replaying queries."""
+"Persist before dispatch; restart recovery reads reports without \
+replaying queries."
 
 from uuid import UUID
 
@@ -142,7 +143,10 @@ async def execute(command: BusinessTrialCommand) -> None:
 
 
 @router.get(
-    "/{agent_id}/business-trials/{report_id}/reviews/requests/{request_id}/state",
+    (
+        '/{agent_id}/business-trials/{report_id}/reviews/requests/{request_id'
+        '}/state'
+    ),
     response_model=BusinessReviewRequestState,
 )
 async def review_request_state(
@@ -162,7 +166,10 @@ async def review_request_state(
 
 
 @router.post(
-    "/{agent_id}/business-trials/{report_id}/reviews/requests/{request_id}/resume",
+    (
+        '/{agent_id}/business-trials/{report_id}/reviews/requests/{request_id'
+        '}/resume'
+    ),
     response_model=BusinessReviewRecord,
 )
 async def resume_review_request(
@@ -182,7 +189,10 @@ async def resume_review_request(
 
 
 @router.post(
-    "/{agent_id}/business-trials/{report_id}/reviews/requests/{request_id}/cancel",
+    (
+        '/{agent_id}/business-trials/{report_id}/reviews/requests/{request_id'
+        '}/cancel'
+    ),
     response_model=BusinessReviewRequestState,
 )
 async def cancel_review_request(

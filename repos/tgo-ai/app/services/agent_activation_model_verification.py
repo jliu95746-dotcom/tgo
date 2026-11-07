@@ -1,4 +1,5 @@
-"""Attach current model-owner evidence to a configuration, never a credential receipt."""
+"Attach current model-owner evidence to a configuration, never a \
+credential receipt."
 
 import hmac
 from typing import Protocol

@@ -67,26 +67,35 @@ _logger = get_logger(__name__)
 
 
 UNEDITABLE_SYSTEM_PROMPT = (
-    "\nIf the tool throws an error requiring authentication, provide the user with a Markdown "
-    "link to the authentication page and prompt them to authenticate."
-    "\nFor factual answers based on bound knowledge, call each RAG search tool at most once "
-    "per user turn. Treat the first governed result as complete. Use only explicit facts "
-    "from that result. Never claim that an item matches a requested price, policy, date, "
-    "specification, or other constraint unless the matching value is explicitly present. "
-    "If no result satisfies the constraint, clearly say that no confirmed match was found."
-    "\nWhen a tool is needed, call it immediately without any user-facing preamble. "
-    "Never announce that you are about to search, check, think, or use a tool."
-    "\nCustomer context management applies identically to every channel. When the customer "
-    "explicitly provides a stable profile fact such as their name, contact method, company, "
-    "position, or address, call update_user_info once with only the stated fields. When the "
-    "customer clearly expresses satisfaction, dissatisfaction, emotion, or a service intent, "
-    "call update_user_sentiment once. Use add_user_tags only for its documented controlled "
-    "vocabulary and only when evidence is explicit. Use update_user_memory only for stable "
-    "preferences, durable constraints, or decisions that will help in future conversations. "
-    "Never store passwords, verification codes, authentication tokens, payment credentials, "
-    "government identifiers, medical details, or unconfirmed inferences in profile fields, "
-    "tags, sentiment, or long-term memory. Do not mention these background writes to the "
-    "customer unless the write fails and affects the requested service."
+    '\n'
+    'If the tool throws an error requiring authentication, provide the '
+    'user with a Markdown link to the authentication page and prompt '
+    'them to authenticate.\n'
+    'For factual answers based on bound knowledge, call each RAG search '
+    'tool at most once per user turn. Treat the first governed result as '
+    'complete. Use only explicit facts from that result. Never claim '
+    'that an item matches a requested price, policy, date, '
+    'specification, or other constraint unless the matching value is '
+    'explicitly present. If no result satisfies the constraint, clearly '
+    'say that no confirmed match was found.\n'
+    'When a tool is needed, call it immediately without any user-facing '
+    'preamble. Never announce that you are about to search, check, '
+    'think, or use a tool.\n'
+    'Customer context management applies identically to every channel. '
+    'When the customer explicitly provides a stable profile fact such as '
+    'their name, contact method, company, position, or address, call '
+    'update_user_info once with only the stated fields. When the '
+    'customer clearly expresses satisfaction, dissatisfaction, emotion, '
+    'or a service intent, call update_user_sentiment once. Use '
+    'add_user_tags only for its documented controlled vocabulary and '
+    'only when evidence is explicit. Use update_user_memory only for '
+    'stable preferences, durable constraints, or decisions that will '
+    'help in future conversations. Never store passwords, verification '
+    'codes, authentication tokens, payment credentials, government '
+    'identifiers, medical details, or unconfirmed inferences in profile '
+    'fields, tags, sentiment, or long-term memory. Do not mention these '
+    'background writes to the customer unless the write fails and '
+    'affects the requested service.'
 )
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -116,7 +125,10 @@ class AgentBuilder:
 
     @staticmethod
     def _is_cancellation_like_error(exc: BaseException) -> bool:
-        """Detect anyio/asyncio cancellation-style exceptions emitted by MCP clients."""
+        (
+            'Detect anyio/asyncio cancellation-style exceptions emitted by '
+            'MCP clients.'
+        )
         name = type(exc).__name__.lower()
         message = str(exc).lower()
         return "cancel" in name or "cancel scope" in message
@@ -128,15 +140,20 @@ class AgentBuilder:
         request: AgentRunRequest,
         internal_agent: Optional["InternalAgent"] = None,
     ) -> Union[Agent, RemoteAgent]:
-        """Build an agent configured for the given request.
-
-        Args:
-            request: The agent run request containing configuration
-            internal_agent: Optional internal agent model containing tool bindings
-        """
+        (
+            'Build an agent configured for the given request.\n'
+            '\n'
+            '        Args:\n'
+            '            request: The agent run request containing '
+            'configuration\n'
+            '            internal_agent: Optional internal agent model '
+            'containing tool bindings\n'
+            '        '
+        )
         # # 1. Handle Remote Store Agents
-        # if internal_agent and getattr(internal_agent, "is_remote_store_agent", False):
-        #     return await self._build_remote_store_agent(request, internal_agent)
+        # if internal_agent and getattr(internal_agent,
+        # "is_remote_store_agent", False):
+        # return await self._build_remote_store_agent(request, internal_agent)
 
         # 2. Handle Local Agents
         return await self._build_local_agent(request, internal_agent)
@@ -161,7 +178,9 @@ class AgentBuilder:
                 if credential:
                     api_key = credential.get("api_key")
             except Exception as e:
-                self._logger.warning("Failed to fetch store credential", error=str(e))
+                self._logger.warning(
+                    "Failed to fetch store credential", error=str(e)
+                )
 
         if not api_key:
             api_key = settings.store_api_key
@@ -178,7 +197,8 @@ class AgentBuilder:
                 )
             except Exception as e:
                 self._logger.warning(
-                    "Failed to build local tools for remote agent", error=str(e)
+                    "Failed to build local tools for remote agent",
+                    error=str(e),
                 )
 
         self._logger.debug(
@@ -204,6 +224,7 @@ class AgentBuilder:
         """Helper to construct a local Agno Agent."""
         config = self._normalize_config(request.config)
         from app.services.commercial_ai_limits import constrain_agent
+
         config = constrain_agent(config, request.message)
         tools: List[Any] = []
         if not request.disable_tools:
@@ -217,7 +238,9 @@ class AgentBuilder:
                 request_id=request.request_id,
                 business_principal=request.business_principal,
                 business_context_token=request.business_context_token,
-                parent_workflow_execution_id=request.parent_workflow_execution_id,
+                parent_workflow_execution_id=(
+                    request.parent_workflow_execution_id
+                ),
                 workflow_lineage=request.workflow_lineage,
                 excluded_tool_ids=request.excluded_tool_ids,
             )
@@ -225,7 +248,9 @@ class AgentBuilder:
         # Build Agno Skills object if skills_enabled
         skills_obj = None
         skills_enabled = (
-            request.skills_enabled if request.skills_enabled is not None else True
+            request.skills_enabled
+            if request.skills_enabled is not None
+            else True
         )
         if not request.disable_tools and skills_enabled and request.project_id:
             try:
@@ -244,8 +269,13 @@ class AgentBuilder:
                 )
 
         model = self._initialize_model(config)
-        instructions = (config.system_prompt if config.expression_only else
-                        self._compose_system_prompt(config.system_prompt, ui_mode=config.ui_mode))
+        instructions = (
+            config.system_prompt
+            if config.expression_only
+            else self._compose_system_prompt(
+                config.system_prompt, ui_mode=config.ui_mode
+            )
+        )
         enable_memory = (
             bool(config.enable_memory)
             if request.enable_memory is None
@@ -266,7 +296,9 @@ class AgentBuilder:
                 "additional_context": config.system_message,
                 "expected_output": config.expected_output,
                 "description": "Tools agent with MCP and RAG support",
-                "markdown": config.markdown if config.markdown is not None else True,
+                "markdown": config.markdown
+                if config.markdown is not None
+                else True,
                 "add_datetime_to_context": config.add_datetime_to_context
                 if config.add_datetime_to_context is not None
                 else True,
@@ -284,7 +316,8 @@ class AgentBuilder:
                 "debug_level": 2,
             }
 
-            # Inject Agno Skills object (auto system-prompt + tool registration)
+            # Inject Agno Skills object (auto system-prompt + tool
+            # registration)
             if skills_obj is not None:
                 agent_kwargs["skills"] = skills_obj
 
@@ -327,10 +360,14 @@ class AgentBuilder:
         # Map base defaults if not provided in merged config
         merged.model_name = merged.model_name or base.name
         merged.temperature = (
-            merged.temperature if merged.temperature is not None else base.temperature
+            merged.temperature
+            if merged.temperature is not None
+            else base.temperature
         )
         merged.max_tokens = (
-            merged.max_tokens if merged.max_tokens is not None else base.max_tokens
+            merged.max_tokens
+            if merged.max_tokens is not None
+            else base.max_tokens
         )
         merged.system_prompt = merged.system_prompt or base.system_prompt
 
@@ -360,7 +397,9 @@ class AgentBuilder:
                     include_examples=True,
                 )
                 prompt = f"{prompt}\n\n{json_render_block}"
-                self._logger.debug("json-render schema injected into system prompt")
+                self._logger.debug(
+                    "json-render schema injected into system prompt"
+                )
             except Exception as exc:  # noqa: BLE001
                 self._logger.warning(
                     "Failed to inject json-render schema into system prompt",
@@ -369,7 +408,9 @@ class AgentBuilder:
 
         return f"{prompt}{UNEDITABLE_SYSTEM_PROMPT}"
 
-    def resolve_model_instance(self, config: Optional[AgentConfig] = None) -> Any:
+    def resolve_model_instance(
+        self, config: Optional[AgentConfig] = None
+    ) -> Any:
         """Public helper to obtain a model instance using runtime defaults."""
 
         normalized = self._normalize_config(config)
@@ -411,13 +452,16 @@ class AgentBuilder:
             )
 
         try:
-            tools.extend(await self._build_workflow_tools(
-                config.workflow, request_id=request_id,
-                business_principal=business_principal,
-                business_context_token=business_context_token,
-                parent_workflow_execution_id=parent_workflow_execution_id,
-                workflow_lineage=workflow_lineage,
-            ))
+            tools.extend(
+                await self._build_workflow_tools(
+                    config.workflow,
+                    request_id=request_id,
+                    business_principal=business_principal,
+                    business_context_token=business_context_token,
+                    parent_workflow_execution_id=parent_workflow_execution_id,
+                    workflow_lineage=workflow_lineage,
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             self._logger.warning(
                 "Workflow tool setup failed",
@@ -462,9 +506,15 @@ class AgentBuilder:
         else:
             try:
                 tools.extend(
-                    await self._build_mcp_tools(config.mcp_config, session_id, user_id)
+                    await self._build_mcp_tools(
+                        config.mcp_config, session_id, user_id
+                    )
                 )
-            except (MCPConnectionError, MCPToolError, MCPAuthenticationError) as exc:
+            except (
+                MCPConnectionError,
+                MCPToolError,
+                MCPAuthenticationError,
+            ) as exc:
                 self._logger.warning(
                     "MCP tool setup failed, continuing without MCP tools",
                     error=str(exc),
@@ -472,7 +522,10 @@ class AgentBuilder:
                 )
             except Exception as exc:  # noqa: BLE001
                 self._logger.warning(
-                    "Unexpected error during MCP tool setup, continuing without MCP tools",
+                    (
+                        'Unexpected error during MCP tool setup, continuing '
+                        'without MCP tools'
+                    ),
                     error=str(exc),
                     error_type=type(exc).__name__,
                 )
@@ -495,7 +548,10 @@ class AgentBuilder:
                 )
             except Exception as exc:  # noqa: BLE001
                 self._logger.warning(
-                    "Custom tool setup failed, continuing without custom tools",
+                    (
+                        'Custom tool setup failed, continuing without custom '
+                        'tools'
+                    ),
                     error=str(exc),
                     error_type=type(exc).__name__,
                     agent_id=agent_id,
@@ -566,13 +622,18 @@ class AgentBuilder:
         try:
             from agno.skills import LocalSkills, Skills
         except ImportError:
-            self._logger.warning("agno.skills not available; skipping skill loading")
+            self._logger.warning(
+                "agno.skills not available; skipping skill loading"
+            )
             return None
 
         from pathlib import Path
 
         from app.config import settings
-        from app.services.skill_file_service import SkillFileService, _parse_frontmatter
+        from app.services.skill_file_service import (
+            SkillFileService,
+            _parse_frontmatter,
+        )
 
         base_dir = Path(settings.skills_base_dir)
         loaders: list[SkillLoader] = []
@@ -582,7 +643,10 @@ class AgentBuilder:
         disabled_skills = skill_service.get_disabled_skills(project_id)
 
         def _collect_enabled_loaders(directory: Path) -> None:
-            """Add a LocalSkills loader for each enabled skill in *directory*."""
+            (
+                'Add a LocalSkills loader for each enabled skill in '
+                '*directory*.'
+            )
             if not directory.exists() or not directory.is_dir():
                 return
             try:
@@ -593,11 +657,17 @@ class AgentBuilder:
                         and child.name not in disabled_skills
                         and (child / "SKILL.md").exists()
                     ):
-                        frontmatter, _ = _parse_frontmatter((child / "SKILL.md").read_text(encoding="utf-8"))
+                        frontmatter, _ = _parse_frontmatter(
+                            (child / "SKILL.md").read_text(encoding="utf-8")
+                        )
                         metadata = frontmatter.get("metadata") or {}
-                        if isinstance(metadata, dict) and metadata.get("skill_type") == "humanization":
+                        if (
+                            isinstance(metadata, dict)
+                            and metadata.get("skill_type") == "humanization"
+                        ):
                             # Only the explicitly selected style belongs in the
-                            # isolated final-expression pass, never factual tools.
+                            # isolated final-expression pass, never factual
+                            # tools.
                             continue
                         loaders.append(LocalSkills(str(child)))
             except OSError:
@@ -633,7 +703,11 @@ class AgentBuilder:
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> List[Any]:
-        if not rag_config or not rag_config.rag_url or not rag_config.collections:
+        if (
+            not rag_config
+            or not rag_config.rag_url
+            or not rag_config.collections
+        ):
             return []
         if rag_config.knowledge_channel is None:
             self._logger.warning(
@@ -667,7 +741,9 @@ class AgentBuilder:
         return tools
 
     async def _build_workflow_tools(
-        self, workflow_config: Optional[WorkflowConfig], *,
+        self,
+        workflow_config: Optional[WorkflowConfig],
+        *,
         request_id: str | None = None,
         business_principal: BusinessRequestPrincipal | None = None,
         business_context_token: SecretStr | None = None,
@@ -715,14 +791,18 @@ class AgentBuilder:
         if not mcp_config or not mcp_config.url:
             return []
 
-        headers = await self._build_mcp_headers(mcp_config, session_id, user_id)
+        headers = await self._build_mcp_headers(
+            mcp_config, session_id, user_id
+        )
         server_url = mcp_config.url.rstrip("/") + "/mcp"
         requested_tools = set(mcp_config.tools or [])
         added_tool_names: set[str] = set()
         fetched_tools: List[Any] = []
 
         try:
-            async with streamablehttp_client(server_url, headers=headers) as streams:
+            async with streamablehttp_client(
+                server_url, headers=headers
+            ) as streams:
                 read_stream, write_stream, _ = streams
                 async with ClientSession(read_stream, write_stream) as session:
                     try:
@@ -737,7 +817,9 @@ class AgentBuilder:
                     cursor = None
                     while True:
                         try:
-                            tool_list_page = await session.list_tools(cursor=cursor)
+                            tool_list_page = await session.list_tools(
+                                cursor=cursor
+                            )
                         except Exception as exc:  # noqa: BLE001
                             raise MCPToolError(
                                 "Failed to list MCP tools",
@@ -749,7 +831,10 @@ class AgentBuilder:
                             break
 
                         for mcp_tool in tool_list_page.tools:
-                            if requested_tools and mcp_tool.name not in requested_tools:
+                            if (
+                                requested_tools
+                                and mcp_tool.name not in requested_tools
+                            ):
                                 continue
                             if mcp_tool.name in added_tool_names:
                                 continue
@@ -761,7 +846,9 @@ class AgentBuilder:
                                     headers=headers,
                                 )
                                 if mcp_config.auth_required:
-                                    agno_tool = wrap_mcp_authenticate_tool(agno_tool)
+                                    agno_tool = wrap_mcp_authenticate_tool(
+                                        agno_tool
+                                    )
                                 fetched_tools.append(agno_tool)
                                 added_tool_names.add(mcp_tool.name)
                             except Exception as exc:  # noqa: BLE001
@@ -838,7 +925,8 @@ class AgentBuilder:
         server_url = endpoint.rstrip("/")
 
         # 将 /http 端点转换为 /tools 端点
-        # http://store-api/api/v1/mcp/{tool_id}/http -> http://store-api/api/v1/mcp/{tool_id}/tools
+        # http://store-api/api/v1/mcp/{tool_id}/http ->
+        # http://store-api/api/v1/mcp/{tool_id}/tools
         if server_url.endswith("/http"):
             tools_url = server_url[:-5] + "/tools"
         elif server_url.endswith("/sse"):
@@ -851,7 +939,9 @@ class AgentBuilder:
                 "Fetching MCP tools from gateway",
                 endpoint=endpoint,
                 tools_url=tools_url,
-                requested_tools=list(requested_tools) if requested_tools else None,
+                requested_tools=list(requested_tools)
+                if requested_tools
+                else None,
                 header_keys=list(headers.keys()) if headers else None,
             )
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -869,7 +959,9 @@ class AgentBuilder:
                 self._logger.debug(
                     "MCP gateway response parsed",
                     tools_url=tools_url,
-                    response_keys=list(data.keys()) if isinstance(data, dict) else None,
+                    response_keys=list(data.keys())
+                    if isinstance(data, dict)
+                    else None,
                     tool_count=len(data.get("tools", []))
                     if isinstance(data, dict)
                     else None,
@@ -928,14 +1020,23 @@ class AgentBuilder:
             print(f"[ERROR] Failed to fetch MCP tools from endpoint: {e!r}")
             print(f"[ERROR] endpoint={endpoint}, tools_url={tools_url}")
             print(
-                f"[ERROR] requested_tools={list(requested_tools) if requested_tools else None}"
+                (
+                    f'[ERROR] requested_tools='
+                    f'{(list(requested_tools) if requested_tools else None)}'
+                )
             )
             print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
             self._logger.warning(
-                f"Failed to fetch MCP tools from endpoint, tools will not be available. error={e!r}",
+                (
+                    f'Failed to fetch MCP tools from endpoint, tools will not '
+                    f'be available. error='
+                    f'{e!r}'
+                ),
                 endpoint=endpoint,
                 tools_url=tools_url,
-                requested_tools=list(requested_tools) if requested_tools else None,
+                requested_tools=list(requested_tools)
+                if requested_tools
+                else None,
                 error_type=type(e).__name__,
             )
 
@@ -980,13 +1081,19 @@ class AgentBuilder:
                 raise MCPToolError("Bound MCP tool requires an endpoint")
 
         # 3. Build authentication headers
-        headers = await self._build_auth_headers(session_id, user_id, project_id)
+        headers = await self._build_auth_headers(
+            session_id, user_id, project_id
+        )
 
         # 4. Build tool instances
         tools: List[Any] = []
         tools.extend(
             self._build_plugin_tools(
-                plugin_tools, session_id, user_id, str(internal_agent.id), project_id
+                plugin_tools,
+                session_id,
+                user_id,
+                str(internal_agent.id),
+                project_id,
             )
         )
         tools.extend(self._build_http_webhook_tools(http_tools))
@@ -1018,7 +1125,9 @@ class AgentBuilder:
 
         if project_id:
             try:
-                credential = await api_service_client.get_store_credential(project_id)
+                credential = await api_service_client.get_store_credential(
+                    project_id
+                )
                 if credential and credential.get("api_key"):
                     headers["X-API-Key"] = credential["api_key"]
             except Exception:
@@ -1044,7 +1153,9 @@ class AgentBuilder:
                 plugin_id = config.get("plugin_id")
                 tool_name = config.get("tool_name")
                 if not plugin_id or not tool_name:
-                    raise ValueError("Bound plugin tool requires plugin_id and tool_name")
+                    raise ValueError(
+                        "Bound plugin tool requires plugin_id and tool_name"
+                    )
 
                 # Build schema from parameters list
                 props = {}
@@ -1091,7 +1202,9 @@ class AgentBuilder:
                 ) from None
         return instances
 
-    def _build_http_webhook_tools(self, http_tools: List[AgentTool]) -> List[Any]:
+    def _build_http_webhook_tools(
+        self, http_tools: List[AgentTool]
+    ) -> List[Any]:
         """Helper to construct HTTP webhook tools."""
         instances = []
         for t in http_tools:
@@ -1136,7 +1249,10 @@ class AgentBuilder:
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> List[Function]:
-        """Build Store MCP functions from persisted schemas without network I/O."""
+        (
+            'Build Store MCP functions from persisted schemas without '
+            'network I/O.'
+        )
 
         type_mapping = {
             "str": "string",
@@ -1161,7 +1277,10 @@ class AgentBuilder:
             if not isinstance(methods, dict):
                 continue
             for method_name, method_config in methods.items():
-                if not isinstance(method_name, str) or method_name in seen_names:
+                if (
+                    not isinstance(method_name, str)
+                    or method_name in seen_names
+                ):
                     continue
                 if not isinstance(method_config, dict):
                     method_config = {}
@@ -1172,9 +1291,14 @@ class AgentBuilder:
                     if not isinstance(parameter, dict):
                         continue
                     parameter_name = parameter.get("name")
-                    if not isinstance(parameter_name, str) or not parameter_name:
+                    if (
+                        not isinstance(parameter_name, str)
+                        or not parameter_name
+                    ):
                         continue
-                    source_type = str(parameter.get("type") or "string").lower()
+                    source_type = str(
+                        parameter.get("type") or "string"
+                    ).lower()
                     schema: Dict[str, Any] = {
                         "type": type_mapping.get(source_type, "string"),
                         "description": str(parameter.get("description") or ""),
@@ -1191,7 +1315,9 @@ class AgentBuilder:
 
                 mcp_tool = types.SimpleNamespace(
                     name=method_name,
-                    description=str(method_config.get("description") or method_name),
+                    description=str(
+                        method_config.get("description") or method_name
+                    ),
                     inputSchema={
                         "type": "object",
                         "properties": properties,
@@ -1223,12 +1349,17 @@ class AgentBuilder:
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> tuple[List[Any], List[str]]:
-        """Helper to construct individual MCP server instances (HTTP/SSE/stdio).
-
-        Routing logic:
-        - STORE tools → ``_fetch_mcp_tools_from_endpoint`` (ToolStore gateway with API Key auth)
-        - LOCAL tools → ``MCPTools`` standard MCP direct connection (internal services)
-        """
+        (
+            'Helper to construct individual MCP server instances '
+            '(HTTP/SSE/stdio).\n'
+            '\n'
+            '        Routing logic:\n'
+            '        - STORE tools → ``_fetch_mcp_tools_from_endpoint`` '
+            '(ToolStore gateway with API Key auth)\n'
+            '        - LOCAL tools → ``MCPTools`` standard MCP direct '
+            'connection (internal services)\n'
+            '        '
+        )
         instances: list[Function | SavedMCPTools] = []
         stdio_cmds: list[str] = []
 
@@ -1243,7 +1374,9 @@ class AgentBuilder:
                 transport = endpoint_tools[0].transport_type or "http"
                 if transport not in ("http", "sse", "stdio"):
                     raise MCPToolError("Unsupported bound MCP transport")
-                server_url = endpoint if transport == "stdio" else endpoint.rstrip("/")
+                server_url = (
+                    endpoint if transport == "stdio" else endpoint.rstrip("/")
+                )
 
                 # Use tool_source_type to decide connection mode (not headers)
                 is_store_tool = any(
@@ -1251,7 +1384,8 @@ class AgentBuilder:
                 )
 
                 if is_store_tool and headers and transport != "stdio":
-                    # Prefer the schema already synced into the database. Remote
+                    # Prefer the schema already synced into the database.
+                    # Remote
                     # discovery added a fixed network delay to every chat turn.
                     fetched = self._build_store_tools_from_config(
                         server_url=server_url,
@@ -1274,22 +1408,36 @@ class AgentBuilder:
                     if fetched:
                         instances.extend(fetched)
                     else:
-                        raise MCPToolError("MCP discovery returned no callable tools")
+                        raise MCPToolError(
+                            "MCP discovery returned no callable tools"
+                        )
                 else:
-                    # Standard MCP direct connection (LOCAL tools / internal services)
+                    # Standard MCP direct connection (LOCAL tools / internal
+                    # services)
                     mcp = SavedMCPTools(
-                        transport="stdio" if transport == "stdio" else "http" if transport == "http" else "sse",
+                        transport="stdio"
+                        if transport == "stdio"
+                        else "http"
+                        if transport == "http"
+                        else "sse",
                         url=server_url,
-                        headers=mcp_connection_headers(endpoint_tools[0].base_config),
+                        headers=mcp_connection_headers(
+                            endpoint_tools[0].base_config
+                        ),
                         tool_names=[tool.tool_name for tool in endpoint_tools],
                     )
                     await mcp.connect()
                     instances.append(mcp)
-                    if not {tool.tool_name for tool in endpoint_tools}.issubset(mcp.functions):
-                        raise MCPToolError("MCP server is missing a bound tool")
+                    if not {
+                        tool.tool_name for tool in endpoint_tools
+                    }.issubset(mcp.functions):
+                        raise MCPToolError(
+                            "MCP server is missing a bound tool"
+                        )
             except Exception as exc:
                 self._logger.warning(
-                    "Bound MCP server setup failed", error_type=type(exc).__name__
+                    "Bound MCP server setup failed",
+                    error_type=type(exc).__name__,
                 )
                 await close_connected()
                 raise MCPToolError(
@@ -1315,8 +1463,11 @@ class AgentBuilder:
 
         project_id = internal_agent.project_id
         if not project_id:
-            raise MCPAuthenticationError("Device access requires the agent's project")
-        # Validate identifiers before inserting them into a trusted endpoint URL.
+            raise MCPAuthenticationError(
+                "Device access requires the agent's project"
+            )
+        # Validate identifiers before inserting them into a trusted endpoint
+        # URL.
         device_id = str(UUID(device_id))
         project_id = str(UUID(project_id))
 
@@ -1327,11 +1478,14 @@ class AgentBuilder:
         except (ExternalServiceError, NotFoundError, ValidationError) as exc:
             raise MCPToolError("设备策略或测试暂不可用，请检查设备后重试") from exc
         current_digest = read_policy.digest if read_policy else None
-        if current_digest != getattr(internal_agent, "bound_device_policy_digest", None):
+        if current_digest != getattr(
+            internal_agent, "bound_device_policy_digest", None
+        ):
             raise MCPToolError("设备策略已变化，请重新验证并绑定此设备")
 
         device_headers = device_headers_factory(
-            project_id, device_id,
+            project_id,
+            device_id,
             getattr(internal_agent, "bound_device_policy_digest", None),
         )
 
@@ -1344,19 +1498,24 @@ class AgentBuilder:
             endpoint=endpoint,
         )
 
-        # Generic MCP bindings are separate tools, not a device permissions list.
+        # Generic MCP bindings are separate tools, not a device permissions
+        # list.
         added_tool_names: set[str] = set()
         device_tools: List[Any] = []
 
         try:
-            async with streamablehttp_client(endpoint, headers=device_headers()) as streams:
+            async with streamablehttp_client(
+                endpoint, headers=device_headers()
+            ) as streams:
                 read_stream, write_stream, _ = streams
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
 
                     cursor = None
                     while True:
-                        tool_list_page = await session.list_tools(cursor=cursor)
+                        tool_list_page = await session.list_tools(
+                            cursor=cursor
+                        )
                         if not tool_list_page or not tool_list_page.tools:
                             break
 
@@ -1377,7 +1536,10 @@ class AgentBuilder:
                                 added_tool_names.add(mcp_tool.name)
                             except Exception as exc:  # noqa: BLE001
                                 self._logger.warning(
-                                    "Failed to convert device MCP tool, skipping",
+                                    (
+                                        'Failed to convert device MCP tool, '
+                                        'skipping'
+                                    ),
                                     device_id=str(device_id),
                                     endpoint=endpoint,
                                     tool_name=mcp_tool.name,
@@ -1413,12 +1575,22 @@ class AgentBuilder:
         )
         return device_tools
 
-    def get_memory_backend(self, model: Any) -> tuple[MemoryManager, PostgresDb]:
-        """Expose shared memory backend for external consumers (keyed by model)."""
+    def get_memory_backend(
+        self, model: Any
+    ) -> tuple[MemoryManager, PostgresDb]:
+        (
+            'Expose shared memory backend for external consumers (keyed by '
+            'model).'
+        )
         return self._ensure_memory_backend(model)
 
-    def _ensure_memory_backend(self, model: Any) -> tuple[MemoryManager, PostgresDb]:
-        """Always create a fresh MemoryManager for the provided model; reuse only the PostgresDb connection."""
+    def _ensure_memory_backend(
+        self, model: Any
+    ) -> tuple[MemoryManager, PostgresDb]:
+        (
+            'Always create a fresh MemoryManager for the provided model; '
+            'reuse only the PostgresDb connection.'
+        )
         try:
             db = self._memory_db
             if db is None:
@@ -1429,7 +1601,8 @@ class AgentBuilder:
                 db = PostgresDb(db_url=db_url)
                 self._memory_db = db
 
-            # Create a new MemoryManager for each request to avoid stale model references
+            # Create a new MemoryManager for each request to avoid stale model
+            # references
             memory_manager = MemoryManager(model=model, db=db)
             return memory_manager, db
         except Exception as exc:  # noqa: BLE001
@@ -1458,7 +1631,9 @@ class AgentBuilder:
 
         supabase_token = self._settings.supabase.access_token
         if not supabase_token:
-            self._logger.debug("No Supabase token available for MCP authentication")
+            self._logger.debug(
+                "No Supabase token available for MCP authentication"
+            )
             raise MCPAuthenticationError(
                 "Supabase access token is required for MCP authentication"
             )
@@ -1501,7 +1676,9 @@ class AgentBuilder:
             )
 
         # Validation
-        if config.temperature is not None and not (0 <= config.temperature <= 2):
+        if config.temperature is not None and not (
+            0 <= config.temperature <= 2
+        ):
             raise InvalidConfigurationError(
                 "Temperature must be 0-2", temperature=config.temperature
             )
@@ -1533,7 +1710,9 @@ class AgentBuilder:
                 if is_deepseek and thinking_enabled is not None:
                     extra_body = {
                         "thinking": {
-                            "type": "enabled" if thinking_enabled else "disabled"
+                            "type": "enabled"
+                            if thinking_enabled
+                            else "disabled"
                         }
                     }
                 return OpenAIChat(
@@ -1542,8 +1721,11 @@ class AgentBuilder:
                     temperature=config.temperature,
                     max_tokens=config.max_tokens,
                     role_map={
-                        "system": "system", "user": "user", "assistant": "assistant",
-                        "tool": "tool", "model": "assistant",
+                        "system": "system",
+                        "user": "user",
+                        "assistant": "assistant",
+                        "tool": "tool",
+                        "model": "assistant",
                     },
                     base_url=creds.api_base_url,
                     organization=creds.organization,
@@ -1557,9 +1739,12 @@ class AgentBuilder:
                     api_key=api_key,
                     temperature=config.temperature,
                     timeout=creds.timeout,
-                    client_params={"base_url": creds.api_base_url} if creds.api_base_url else None,
+                    client_params={"base_url": creds.api_base_url}
+                    if creds.api_base_url
+                    else None,
                 )
-                # Omitting the token limit must retain the SDK's non-null default.
+                # Omitting the token limit must retain the SDK's non-null
+                # default.
                 if config.max_tokens is not None:
                     claude.max_tokens = config.max_tokens
                 return claude
@@ -1567,17 +1752,22 @@ class AgentBuilder:
             if provider_kind == "google":
                 http_options = None
                 if creds.api_base_url is not None or creds.timeout is not None:
-                    # The Google SDK expects HTTP options on its client and milliseconds.
+                    # The Google SDK expects HTTP options on its client and
+                    # milliseconds.
                     http_options = HttpOptions(
                         base_url=creds.api_base_url,
-                        timeout=ceil(creds.timeout * 1000) if creds.timeout is not None else None,
+                        timeout=ceil(creds.timeout * 1000)
+                        if creds.timeout is not None
+                        else None,
                     )
                 return Gemini(
                     id=model_name,
                     api_key=api_key,
                     temperature=config.temperature,
                     max_output_tokens=config.max_tokens,
-                    client_params={"http_options": http_options} if http_options is not None else None,
+                    client_params={"http_options": http_options}
+                    if http_options is not None
+                    else None,
                 )
 
         except Exception as exc:

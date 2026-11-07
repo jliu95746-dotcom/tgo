@@ -1,4 +1,5 @@
-"""Shared mutation guard: verify the candidate before changing serving peers."""
+"Shared mutation guard: verify the candidate before changing serving \
+peers."
 
 from uuid import UUID
 
@@ -17,7 +18,10 @@ from app.services.agent_device_script_selection_identity import (
 
 
 class ActivationConfirmationConflict(ConflictError):
-    """The current server evidence no longer matches the explicitly confirmed intent."""
+    (
+        'The current server evidence no longer matches the explicitly '
+        'confirmed intent.'
+    )
 
 
 json_object = TypeAdapter(dict[str, JsonValue])
@@ -49,7 +53,10 @@ def check_live_binding(agent: Agent, current: bool, requested: bool) -> None:
 
 
 async def business_fingerprint(db: AsyncSession, agent: Agent) -> str:
-    """Compare actual business changes without treating a nickname as a new test."""
+    (
+        'Compare actual business changes without treating a nickname as a '
+        'new test.'
+    )
     payload: dict[str, object] = {
         field: getattr(agent, field) for field in BUSINESS_FIELDS
     }
@@ -115,7 +122,8 @@ async def require_activation(
 ) -> None:
     if actor is None:
         raise AuthorizationError("启用或修改接待员工的业务配置需要管理员登录身份")
-    # Deferred import keeps the actual AgentService and its read adapter acyclic.
+    # Deferred import keeps the actual AgentService and its read adapter
+    # acyclic.
     from app.services.agent_activation_readiness import (
         AgentActivationReadinessService,
     )

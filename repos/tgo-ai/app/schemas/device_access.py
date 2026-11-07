@@ -45,7 +45,10 @@ class AgentDeviceActionReadiness(BaseModel):
         if self.status == "ready":
             if self.device_id is None or self.policy_digest is None:
                 raise ValueError(
-                    "Ready device action requires a device ID and policy digest"
+                    (
+                        'Ready device action requires a device ID and policy '
+                        'digest'
+                    )
                 )
             UUID(self.device_id)
         elif self.status == "not_bound" and self.device_id is not None:

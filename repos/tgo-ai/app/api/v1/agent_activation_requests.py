@@ -1,4 +1,5 @@
-"""Private request recovery; a historical receipt never authorizes another switch."""
+"Private request recovery; a historical receipt never authorizes another \
+switch."
 from uuid import UUID
 
 from fastapi import APIRouter, Depends

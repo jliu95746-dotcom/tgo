@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, List, Optional
 
 import sqlalchemy as sa
 from sqlalchemy import Boolean, ForeignKey, JSON, String, Text, Index
-from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
 
@@ -64,7 +64,9 @@ class Agent(BaseModel):
     model: Mapped[str] = mapped_column(
         String(150),
         nullable=False,
-        comment='LLM model with provider prefix (format: "provider:model_name")',
+        comment=(
+            'LLM model with provider prefix (format: "provider:model_name")'
+        ),
     )
 
     is_default: Mapped[bool] = mapped_column(
@@ -75,14 +77,20 @@ class Agent(BaseModel):
     )
 
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=sa.false(),
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.false(),
         comment="Whether the agent accepts new runs",
     )
 
     config: Mapped[Optional[dict]] = mapped_column(
         JSON,
         nullable=True,
-        comment="Agent configuration (temperature, max_tokens, markdown, add_datetime_to_context, etc.)",
+        comment=(
+            'Agent configuration (temperature, max_tokens, markdown, '
+            'add_datetime_to_context, etc.)'
+        ),
     )
 
     is_remote_store_agent: Mapped[bool] = mapped_column(
@@ -130,9 +138,14 @@ class Agent(BaseModel):
         comment="Whether to enable skill discovery for this agent",
     )
 
-    humanization_skill_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    humanization_skill_name: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
     humanization_skill_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=sa.false(),
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.false(),
     )
 
     # Relationships
@@ -171,8 +184,12 @@ class Agent(BaseModel):
         lazy="selectin",
     )
 
-    business_connections: Mapped[List["AgentBusinessConnection"]] = relationship(
-        "AgentBusinessConnection", lazy="selectin", viewonly=True,
+    business_connections: Mapped[
+        List["AgentBusinessConnection"]
+    ] = relationship(
+        "AgentBusinessConnection",
+        lazy="selectin",
+        viewonly=True,
     )
 
     __table_args__ = (
@@ -189,14 +206,24 @@ class Agent(BaseModel):
             "uq_ai_agents_default_per_project_active",
             "project_id",
             unique=True,
-            postgresql_where=sa.text("is_default = true AND deleted_at IS NULL"),
+            postgresql_where=sa.text(
+                "is_default = true AND deleted_at IS NULL"
+            ),
             sqlite_where=sa.text("is_default = 1 AND deleted_at IS NULL"),
         ),
     )
 
     def __repr__(self) -> str:
         """String representation of the agent."""
-        return f"<Agent(id={self.id}, name='{self.name}', project_id={self.project_id})>"
+        return (
+            f'<Agent(id='
+            f'{self.id}'
+            f", name='"
+            f'{self.name}'
+            f"', project_id="
+            f'{self.project_id}'
+            f')>'
+        )
 
     @property
     def provider(self) -> str:
@@ -215,12 +242,17 @@ class Agent(BaseModel):
     @property
     def collection_ids(self) -> List[str]:
         """Get the collection IDs from agent collections."""
-        return [agent_collection.collection_id for agent_collection in self.collections]
+        return [
+            agent_collection.collection_id
+            for agent_collection in self.collections
+        ]
 
     @property
     def workflow_ids(self) -> List[str]:
         """Get the workflow IDs from agent workflows."""
-        return [agent_workflow.workflow_id for agent_workflow in self.workflows]
+        return [
+            agent_workflow.workflow_id for agent_workflow in self.workflows
+        ]
 
 
 class AgentToolAssociation(BaseModel):
@@ -264,11 +296,16 @@ class AgentToolAssociation(BaseModel):
         comment="Agent-specific tool configuration overrides",
     )
 
-
     __table_args__ = (
         Index("idx_agent_tool_assoc_agent_id", "agent_id"),
         Index("idx_agent_tool_assoc_tool_id", "tool_id"),
     )
 
     def __repr__(self) -> str:  # pragma: no cover - convenience
-        return f"<AgentToolAssociation(agent_id={self.agent_id}, tool_id={self.tool_id})>"
+        return (
+            f'<AgentToolAssociation(agent_id='
+            f'{self.agent_id}'
+            f', tool_id='
+            f'{self.tool_id}'
+            f')>'
+        )

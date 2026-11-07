@@ -99,7 +99,9 @@ class Settings(BaseSettings):
         default=0.37,
         ge=0.0,
         le=1.0,
-        description="Minimum relevance score required for automatic-answer knowledge",
+        description=(
+            'Minimum relevance score required for automatic-answer knowledge'
+        ),
     )
 
     # MCP Service Configuration
@@ -131,7 +133,10 @@ class Settings(BaseSettings):
     )
     api_internal_service_url: str = Field(
         default="http://localhost:8001",
-        description="Base URL for the core API internal service (no-auth internal endpoints)",
+        description=(
+            'Base URL for the core API internal service (no-auth internal '
+            'endpoints)'
+        ),
     )
 
     # Plugin Runtime Configuration
@@ -159,7 +164,10 @@ class Settings(BaseSettings):
     )
     device_control_mcp_endpoint: str = Field(
         default="http://tgo-device-control:8085/mcp/{device_id}",
-        description="Device Control MCP endpoint URL template. {device_id} is replaced at runtime.",
+        description=(
+            'Device Control MCP endpoint URL template. {device_id} is '
+            'replaced at runtime.'
+        ),
     )
 
     # Skills File Storage Configuration
@@ -170,7 +178,10 @@ class Settings(BaseSettings):
     )
     github_token: Optional[str] = Field(
         default=None,
-        description="Default GitHub token for skill import (optional, increases rate limit)",
+        description=(
+            'Default GitHub token for skill import (optional, increases rate '
+            'limit)'
+        ),
     )
 
     # Server Configuration
@@ -228,7 +239,9 @@ class Settings(BaseSettings):
     )
     intent_automation_enabled: bool = Field(
         default=False,
-        description="Enable calibrated automatic reply and read-only tool routes",
+        description=(
+            'Enable calibrated automatic reply and read-only tool routes'
+        ),
     )
     intent_provider_timeout_seconds: float = Field(
         default=12.0,
@@ -295,7 +308,10 @@ class Settings(BaseSettings):
     # Testing Configuration
 
     test_database_url: str = Field(
-        default="postgresql+asyncpg://postgres:password@localhost:5432/tgo_ai_service_test",
+        default=(
+            'postgresql+asyncpg://postgres:password@localhost:5432/tgo_ai_ser'
+            'vice_test'
+        ),
         description="Test database URL",
     )
 

@@ -7,15 +7,20 @@ from typing import Annotated, Any, Dict, List, Optional
 from pydantic import Field, field_validator
 from pydantic import ConfigDict
 
-from app.schemas.base import BaseSchema, IDMixin, PaginatedResponse, TimestampMixin
+from app.schemas.base import (
+    BaseSchema,
+    IDMixin,
+    PaginatedResponse,
+    TimestampMixin,
+)
 from app.schemas.tool import AgentToolDetail
-from pydantic import computed_field
 
 PublishedVersion = Annotated[int, Field(strict=True, ge=1)]
 
 
 class AgentCategory(str, enum.Enum):
     """Agent category enumeration."""
+
     NORMAL = "normal"
     COMPUTER_USE = "computer_use"
 
@@ -43,7 +48,6 @@ class AgentToolBase(BaseSchema):
     )
 
 
-
 class AgentToolCreate(AgentToolBase):
     """Schema for creating agent tool bindings."""
 
@@ -59,9 +63,16 @@ class AgentToolResponse(AgentToolBase, IDMixin, TimestampMixin):
 class AgentBase(BaseSchema):
     """Base agent schema with common fields."""
 
-    humanization_skill_name: Optional[str] = Field(default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]{1,63}$")
+    humanization_skill_name: Optional[str] = Field(
+        default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]{1,63}$"
+    )
     humanization_skill_enabled: bool = False
-    is_active: bool = Field(default=False, description="New employees stay paused until current tests and reviews pass")
+    is_active: bool = Field(
+        default=False,
+        description=(
+            'New employees stay paused until current tests and reviews pass'
+        ),
+    )
 
     name: str = Field(
         max_length=255,
@@ -80,7 +91,9 @@ class AgentBase(BaseSchema):
     )
     is_default: bool = Field(
         default=False,
-        description="Whether this should be the default agent (only one per project)",
+        description=(
+            'Whether this should be the default agent (only one per project)'
+        ),
     )
     config: Optional[Dict[str, Any]] = Field(
         default=None,
@@ -105,7 +118,9 @@ class AgentBase(BaseSchema):
     )
     bound_device_id: Optional[str] = Field(
         default=None,
-        description="Bound device ID for automatic device control MCP connection",
+        description=(
+            'Bound device ID for automatic device control MCP connection'
+        ),
     )
     skills_enabled: bool = Field(
         default=True,
@@ -128,18 +143,34 @@ class AgentCreate(AgentBase):
     )
     collections: Optional[List[str]] = Field(
         default_factory=lambda: [],
-        description="Collection IDs to associate with the agent (UUID strings)",
-        examples=[["123e4567-e89b-12d3-a456-426614174000", "987fcdeb-51a2-43d1-9f6e-123456789abc"]],
+        description=(
+            'Collection IDs to associate with the agent (UUID strings)'
+        ),
+        examples=[
+            [
+                "123e4567-e89b-12d3-a456-426614174000",
+                "987fcdeb-51a2-43d1-9f6e-123456789abc",
+            ]
+        ],
     )
     workflows: Optional[List[str]] = Field(
         default_factory=lambda: [],
         description="Workflow IDs to associate with the agent (UUID strings)",
-        examples=[["123e4567-e89b-12d3-a456-426614174000", "987fcdeb-51a2-43d1-9f6e-123456789abc"]],
+        examples=[
+            [
+                "123e4567-e89b-12d3-a456-426614174000",
+                "987fcdeb-51a2-43d1-9f6e-123456789abc",
+            ]
+        ],
     )
     workflow_release_versions: Dict[str, PublishedVersion] = Field(
         default_factory=dict,
-        description="Explicit published version for selected workflows; omitted IDs use the current release",
+        description=(
+            'Explicit published version for selected workflows; omitted IDs '
+            'use the current release'
+        ),
     )
+
     @field_validator("collections", "workflows")
     @classmethod
     def validate_ids(cls, v: Optional[List[str]]) -> Optional[List[str]]:
@@ -158,17 +189,26 @@ class AgentUpdate(BaseSchema):
 
     model_config = ConfigDict(extra="forbid")
 
-    humanization_skill_name: Optional[str] = Field(default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]{1,63}$")
+    humanization_skill_name: Optional[str] = Field(
+        default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]{1,63}$"
+    )
     humanization_skill_enabled: Optional[bool] = None
 
     @field_validator("humanization_skill_enabled")
     @classmethod
     def style_switch_not_null(cls, value: Optional[bool]) -> bool:
         if value is None:
-            raise ValueError("humanization_skill_enabled must be true or false")
+            raise ValueError(
+                "humanization_skill_enabled must be true or false"
+            )
         return value
 
-    is_active: Optional[bool] = Field(default=None, description="Enable or disable new runs; existing runs are not cancelled")
+    is_active: Optional[bool] = Field(
+        default=None,
+        description=(
+            'Enable or disable new runs; existing runs are not cancelled'
+        ),
+    )
 
     @field_validator("is_active")
     @classmethod
@@ -225,25 +265,49 @@ class AgentUpdate(BaseSchema):
     )
     collections: Optional[List[str]] = Field(
         default=None,
-        description="Updated collection IDs to associate with the agent (UUID strings). Replaces existing associations.",
-        examples=[["123e4567-e89b-12d3-a456-426614174000", "987fcdeb-51a2-43d1-9f6e-123456789abc"]],
+        description=(
+            'Updated collection IDs to associate with the agent (UUID '
+            'strings). Replaces existing associations.'
+        ),
+        examples=[
+            [
+                "123e4567-e89b-12d3-a456-426614174000",
+                "987fcdeb-51a2-43d1-9f6e-123456789abc",
+            ]
+        ],
     )
     workflows: Optional[List[str]] = Field(
         default=None,
-        description="Updated workflow IDs to associate with the agent (UUID strings). Replaces existing associations.",
-        examples=[["123e4567-e89b-12d3-a456-426614174000", "987fcdeb-51a2-43d1-9f6e-123456789abc"]],
+        description=(
+            'Updated workflow IDs to associate with the agent (UUID '
+            'strings). Replaces existing associations.'
+        ),
+        examples=[
+            [
+                "123e4567-e89b-12d3-a456-426614174000",
+                "987fcdeb-51a2-43d1-9f6e-123456789abc",
+            ]
+        ],
     )
     workflow_release_versions: Dict[str, PublishedVersion] = Field(
         default_factory=dict,
-        description="Explicit published versions to pin for selected workflows",
+        description=(
+            'Explicit published versions to pin for selected workflows'
+        ),
     )
     refresh_workflow_releases: bool = Field(
         default=False,
-        description="Explicitly rebind selected workflows to their current published versions",
+        description=(
+            'Explicitly rebind selected workflows to their current published '
+            'versions'
+        ),
     )
     bound_device_id: Optional[str] = Field(
         default=None,
-        description="Updated bound device ID for device control. Set to empty string to unbind.",
+        description=(
+            'Updated bound device ID for device control. Set to empty string '
+            'to unbind.'
+        ),
     )
     skills_enabled: Optional[bool] = Field(
         default=None,
@@ -263,7 +327,6 @@ class AgentUpdate(BaseSchema):
         return v
 
 
-
 class AgentResponse(AgentBase, IDMixin, TimestampMixin):
     """Schema for agent API responses."""
 
@@ -273,7 +336,6 @@ class AgentResponse(AgentBase, IDMixin, TimestampMixin):
         default=None,
         description="Associated LLM provider (credentials) ID",
     )
-
 
 
 class AgentWithDetails(AgentResponse):
@@ -289,7 +351,9 @@ class AgentWithDetails(AgentResponse):
     # Expose resolved Tool details under `tools`, reading from `_tools_data`
     tools: List[AgentToolDetail] = Field(
         default_factory=list,
-        description="Detailed tool information for bound tools (from ai_tools table)",
+        description=(
+            'Detailed tool information for bound tools (from ai_tools table)'
+        ),
         validation_alias="_tools_data",
         serialization_alias="tools",
     )
@@ -317,7 +381,10 @@ AgentWithDetails.model_rebuild()
 
 
 class AgentListResponse(PaginatedResponse[AgentWithDetails]):
-    """Paginated response model for agent list endpoint with detailed agent information."""
+    (
+        'Paginated response model for agent list endpoint with detailed '
+        'agent information.'
+    )
 
     pass
 

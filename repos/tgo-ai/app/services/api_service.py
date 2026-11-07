@@ -64,7 +64,8 @@ class APIServiceClient:
 
     def __init__(self) -> None:
         """Initialize the API service client."""
-        # Use docker service name instead of localhost for internal communication
+        # Use docker service name instead of localhost for internal
+        # communication
 
         self.api_base_url = settings.api_service_url
         internal_base = (
@@ -119,7 +120,10 @@ class APIServiceClient:
     async def get_agent_configuration_actor(
         self, query: AgentConfigurationActorQuery
     ) -> AgentConfigurationActor:
-        """Current configuration authority, independent of business resource availability."""
+        (
+            'Current configuration authority, independent of business '
+            'resource availability.'
+        )
         receipt = await self._activation_owner(
             "actor", query, AgentConfigurationActor
         )
@@ -251,7 +255,10 @@ class APIServiceClient:
     async def confirm_reply_phase_ended(
         self, phase: ReplyPhaseIdentity
     ) -> bool:
-        """Bounded, idempotent receipt delivery through the private API port."""
+        (
+            'Bounded, idempotent receipt delivery through the private API '
+            'port.'
+        )
         payload = {**phase.model_dump(mode="json"), "status": "ended"}
         for attempt in range(2):
             try:
@@ -324,7 +331,13 @@ class APIServiceClient:
         """
         if not project_id or not project_id.strip():
             raise ValueError("Plugin execution requires a project ID")
-        url = f"{self.plugin_runtime_url}/plugins/tools/execute/{plugin_id}/{tool_name}"
+        url = (
+            f'{self.plugin_runtime_url}'
+            f'/plugins/tools/execute/'
+            f'{plugin_id}'
+            f'/'
+            f'{tool_name}'
+        )
 
         payload = {
             "arguments": arguments,

@@ -9,9 +9,7 @@ from uuid import uuid4
 from pydantic import JsonValue
 
 from app.core.logging import get_logger
-from app.models.streaming import StreamingEvent
 from .event_emitter import (
-    StreamingEventEmitter,
     get_event_emitter,
     cleanup_event_emitter,
 )

@@ -67,12 +67,15 @@ async def run_retry_once() -> int:
         if not rows:
             logger.info("embedding-sync-retry: no candidates found")
             return 0
-        print("run_retry_once....",rows)
+        print("run_retry_once....", rows)
         async with AsyncSessionLocal() as session:
             configs = await build_embedding_configs(session, rows)
         if not configs:
             logger.info(
-                "embedding-sync-retry: candidates had no valid embedding configs",
+                (
+                    'embedding-sync-retry: candidates had no valid embedding '
+                    'configs'
+                ),
                 count=len(rows),
             )
             return 0
@@ -95,7 +98,9 @@ async def start_embedding_sync_retry_loop(stop_event: asyncio.Event) -> None:
     """
     print("start_embedding_sync_retry_loop....")
     if not settings.embedding_sync_retry_enabled:
-        logger.info("embedding-sync-retry: disabled via settings; loop not started")
+        logger.info(
+            "embedding-sync-retry: disabled via settings; loop not started"
+        )
         return
 
     interval = max(30, int(settings.embedding_sync_retry_interval_seconds))
@@ -103,10 +108,13 @@ async def start_embedding_sync_retry_loop(stop_event: asyncio.Event) -> None:
         "embedding-sync-retry: starting loop",
         interval_seconds=interval,
         max_attempts=settings.embedding_sync_retry_max_attempts,
-        stale_pending_minutes=settings.embedding_sync_retry_stale_pending_minutes,
+        stale_pending_minutes=(
+            settings.embedding_sync_retry_stale_pending_minutes
+        ),
     )
 
-    # Wait one interval before first pass to avoid interfering with startup/tests
+    # Wait one interval before first pass to avoid interfering with
+    # startup/tests
     try:
         await asyncio.wait_for(stop_event.wait(), timeout=interval)
     except asyncio.TimeoutError:
@@ -122,4 +130,3 @@ async def start_embedding_sync_retry_loop(stop_event: asyncio.Event) -> None:
             await asyncio.wait_for(stop_event.wait(), timeout=interval)
         except asyncio.TimeoutError:
             continue
-

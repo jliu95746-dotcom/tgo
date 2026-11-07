@@ -23,7 +23,10 @@ class PluginExecutionContext(BaseModel):
 
 
 class PluginExecutionResult(BaseModel):
-    """Mirror plugin runtime output without accepting truthy success strings."""
+    (
+        'Mirror plugin runtime output without accepting truthy success '
+        'strings.'
+    )
 
     success: bool = Field(strict=True)
     content: str = ""

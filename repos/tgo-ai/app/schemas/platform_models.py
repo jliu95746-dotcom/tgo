@@ -1,4 +1,5 @@
-"""Trusted platform credentials are transient and never returned by tenant APIs."""
+"Trusted platform credentials are transient and never returned by tenant \
+APIs."
 
 from decimal import Decimal
 from typing import Literal

@@ -26,15 +26,22 @@ security = HTTPBearer(auto_error=False)
 
 
 @asynccontextmanager
-async def _get_session_from_app(request: Request) -> AsyncIterator[AsyncSession]:
-    """Acquire a DB session respecting dependency overrides on the FastAPI app."""
+async def _get_session_from_app(
+    request: Request,
+) -> AsyncIterator[AsyncSession]:
+    (
+        'Acquire a DB session respecting dependency overrides on the FastAPI '
+        'app.'
+    )
 
     dependency = request.app.dependency_overrides.get(get_db, get_db)
     generator = dependency()
     try:
         session = await generator.__anext__()
     except StopAsyncIteration as exc:  # pragma: no cover - defensive
-        raise RuntimeError("Database dependency did not yield a session") from exc
+        raise RuntimeError(
+            "Database dependency did not yield a session"
+        ) from exc
     try:
         yield session
     finally:
@@ -66,7 +73,9 @@ async def get_current_project(
     # Try JWT authentication first
     if authorization and authorization.credentials:
         async with _get_session_from_app(request) as session:
-            return await get_project_from_jwt(authorization.credentials, session)
+            return await get_project_from_jwt(
+                authorization.credentials, session
+            )
 
     # Try API key authentication
     x_api_key = request.headers.get("X-API-Key")
@@ -81,15 +90,17 @@ async def get_current_project(
 async def get_current_project_id(
     project: Project = Depends(get_current_project),
 ) -> uuid.UUID:
-    """
-    Get the current project ID.
-    
-    Args:
-        project: Current authenticated project
-        
-    Returns:
-        Project UUID
-    """
+    (
+        '\n'
+        '    Get the current project ID.\n'
+        '    \n'
+        '    Args:\n'
+        '        project: Current authenticated project\n'
+        '        \n'
+        '    Returns:\n'
+        '        Project UUID\n'
+        '    '
+    )
     return project.id
 
 
@@ -106,7 +117,9 @@ async def get_current_or_internal_project_id(
             or not internal_project_id
             or not hmac.compare_digest(internal_key, settings.secret_key)
         ):
-            raise AuthenticationError("Invalid internal service authentication")
+            raise AuthenticationError(
+                "Invalid internal service authentication"
+            )
         try:
             return uuid.UUID(internal_project_id)
         except ValueError as exc:
@@ -117,8 +130,12 @@ async def get_current_or_internal_project_id(
 
 
 def get_pagination_params(
-    limit: int = Query(default=20, ge=1, le=100, description="Number of items to return"),
-    offset: int = Query(default=0, ge=0, description="Number of items to skip"),
+    limit: int = Query(
+        default=20, ge=1, le=100, description="Number of items to return"
+    ),
+    offset: int = Query(
+        default=0, ge=0, description="Number of items to skip"
+    ),
 ) -> tuple[int, int]:
     """
     Get pagination parameters with validation.
@@ -146,7 +163,9 @@ def get_agent_service(db: AsyncSession = Depends(get_db)) -> AgentService:
     return AgentService(db)
 
 
-def get_llm_provider_service(db: AsyncSession = Depends(get_db)) -> LLMProviderService:
+def get_llm_provider_service(
+    db: AsyncSession = Depends(get_db),
+) -> LLMProviderService:
     """Get LLMProviderService instance."""
     return LLMProviderService(db)
 

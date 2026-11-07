@@ -25,9 +25,12 @@ class AgentActivationRequestRecord(BaseModel):
             name="uq_ai_activation_request_key",
         ),
         CheckConstraint(
-            "(status='pending' AND finished_at IS NULL AND failure_code IS NULL) OR "
-            "(status='completed' AND finished_at IS NOT NULL AND failure_code IS NULL) OR "
-            "(status='rejected' AND finished_at IS NOT NULL AND failure_code IS NOT NULL)",
+            (
+                "(status='pending' AND finished_at IS NULL AND failure_code "
+                "IS NULL) OR (status='completed' AND finished_at IS NOT NULL "
+                "AND failure_code IS NULL) OR (status='rejected' AND "
+                'finished_at IS NOT NULL AND failure_code IS NOT NULL)'
+            ),
             name="ck_ai_activation_request_outcome",
         ),
     )

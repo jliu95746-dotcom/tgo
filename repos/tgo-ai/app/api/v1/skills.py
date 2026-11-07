@@ -106,7 +106,9 @@ async def create_skill(
     response_model=SkillDetail,
     status_code=status.HTTP_201_CREATED,
     summary="Create a humanization skill",
-    description="Create a manually trained customer-service humanization skill.",
+    description=(
+        'Create a manually trained customer-service humanization skill.'
+    ),
 )
 async def create_humanization_skill(
     data: HumanizationSkillCreateRequest,
@@ -129,7 +131,9 @@ async def create_humanization_skill(
     "/{skill_name}/training-samples",
     response_model=HumanizationTrainingStatus,
     summary="Add a pending humanization correction",
-    description="Store an assist-mode edit without changing the published skill.",
+    description=(
+        'Store an assist-mode edit without changing the published skill.'
+    ),
 )
 async def add_humanization_training_sample(
     skill_name: str,
@@ -155,7 +159,9 @@ async def add_humanization_training_sample(
     "/{skill_name}/apply-training",
     response_model=HumanizationTrainingApplyResponse,
     summary="Publish pending humanization corrections",
-    description="Apply pending samples only after an explicit administrator action.",
+    description=(
+        'Apply pending samples only after an explicit administrator action.'
+    ),
 )
 async def apply_humanization_training(
     skill_name: str,
@@ -220,7 +226,10 @@ async def match_context(
     "/{skill_name}",
     response_model=SkillDetail,
     summary="Get skill details",
-    description="Get the full detail of a skill including instructions and file listings.",
+    description=(
+        'Get the full detail of a skill including instructions and file '
+        'listings.'
+    ),
 )
 async def get_skill(
     skill_name: str,
@@ -363,7 +372,9 @@ async def import_skill(
 @router.get(
     "/{skill_name}/files/{file_path:path}",
     summary="Read a skill sub-file",
-    description="Read the content of a script or reference file within a skill.",
+    description=(
+        'Read the content of a script or reference file within a skill.'
+    ),
 )
 async def get_skill_file(
     skill_name: str,
@@ -394,7 +405,10 @@ async def get_skill_file(
     "/{skill_name}/files/{file_path:path}",
     status_code=status.HTTP_200_OK,
     summary="Create or update a skill sub-file",
-    description="Create or update a script or reference file within a project-private skill.",
+    description=(
+        'Create or update a script or reference file within a '
+        'project-private skill.'
+    ),
 )
 async def put_skill_file(
     skill_name: str,
@@ -424,7 +438,9 @@ async def put_skill_file(
     "/{skill_name}/files/{file_path:path}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a skill sub-file",
-    description="Delete a script or reference file from a project-private skill.",
+    description=(
+        'Delete a script or reference file from a project-private skill.'
+    ),
 )
 async def delete_skill_file(
     skill_name: str,

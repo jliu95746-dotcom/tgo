@@ -126,7 +126,9 @@ def _extract_store_output(result: Any) -> str:
         "structuredContent" in payload or payload.get("isError") is True
     ):
         try:
-            return mcp_result_text(CallToolResult.model_validate({"content": [], **payload}))
+            return mcp_result_text(
+                CallToolResult.model_validate({"content": [], **payload})
+            )
         except ValueError as exc:
             return f"<error>Store execution failed: {exc}</error>"
 
@@ -179,11 +181,14 @@ class ToolExecutor:
         }
 
     async def register_tools(
-        self, 
-        tool_ids: Optional[List[uuid.UUID]] = None, 
-        collection_ids: Optional[List[str]] = None
+        self,
+        tool_ids: Optional[List[uuid.UUID]] = None,
+        collection_ids: Optional[List[str]] = None,
     ) -> None:
-        """Register tools to establish a mapping from tool_name to execution info."""
+        (
+            'Register tools to establish a mapping from tool_name to '
+            'execution info.'
+        )
         if tool_ids:
             stmt = select(Tool).where(
                 and_(
@@ -195,29 +200,29 @@ class ToolExecutor:
             result = await self.db.execute(stmt)
             tools = result.scalars().all()
             for tool in tools:
-                tool_type_str = "mcp" if tool.tool_type == ToolType.MCP else "function"
+                tool_type_str = (
+                    "mcp" if tool.tool_type == ToolType.MCP else "function"
+                )
                 if tool.tool_source_type == ToolSourceType.STORE:
                     tool_type_str = "store"
                 elif tool.transport_type == "plugin":
                     tool_type_str = "plugin"
                 elif tool.transport_type == "http_webhook":
                     tool_type_str = "http"
-                
+
                 self._tool_registry[tool.name] = {
                     "type": tool_type_str,
                     "id": str(tool.id),
-                    "tool": tool
+                    "tool": tool,
                 }
 
         if collection_ids:
             for cid in collection_ids:
-                # Same naming convention as in ChatService._create_rag_tool_definitions
+                # Same naming convention as in
+                # ChatService._create_rag_tool_definitions
                 short_id = cid.replace("-", "")[:8]
                 tool_name = f"rag_search_{short_id}"
-                self._tool_registry[tool_name] = {
-                    "type": "rag",
-                    "id": cid
-                }
+                self._tool_registry[tool_name] = {"type": "rag", "id": cid}
 
     async def execute(self, tool_name: str, arguments: Any) -> str:
         """Execute a tool by name with provided arguments."""
@@ -233,7 +238,11 @@ class ToolExecutor:
             try:
                 args = json.loads(arguments)
             except json.JSONDecodeError:
-                return f"<error>Invalid JSON arguments for tool '{tool_name}'</error>"
+                return (
+                    f"<error>Invalid JSON arguments for tool '"
+                    f'{tool_name}'
+                    f"'</error>"
+                )
 
         try:
             if tool_type == "rag":
@@ -247,24 +256,37 @@ class ToolExecutor:
             elif tool_type == "http":
                 return await self._execute_http(info["tool"], args)
             elif tool_type == "function":
-                # For now, we don't have a specific implementation for generic functions 
-                # in the database that aren't MCP. 
-                return f"<error>Tool '{tool_name}' is a generic function which is not yet implemented for direct execution</error>"
+                # For now, we don't have a specific implementation for generic
+                # functions
+                # in the database that aren't MCP.
+                return (
+                    f"<error>Tool '"
+                    f'{tool_name}'
+                    f"' is a generic function which is not yet implemented "
+                    f'for direct execution</error>'
+                )
             else:
                 return f"<error>Unsupported tool type: {tool_type}</error>"
         except Exception as e:
-            logger.error(f"Error executing tool {tool_name}: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error executing tool {tool_name}: {str(e)}", exc_info=True
+            )
             return f"<error>{str(e)}</error>"
 
-    async def _execute_rag(self, collection_id: str, args: Dict[str, Any]) -> str:
+    async def _execute_rag(
+        self, collection_id: str, args: Dict[str, Any]
+    ) -> str:
         query = args.get("query")
         if not query:
             return "<error>Missing 'query' argument for RAG search</error>"
-        
+
         limit = args.get("limit", 10)
         knowledge_channel = self._context.get("knowledge_channel")
         if not knowledge_channel:
-            return "<error>RAG search denied: knowledge_channel is required</error>"
+            return (
+                '<error>RAG search denied: knowledge_channel is '
+                'required</error>'
+            )
         try:
             results = await rag_service_client.search_documents(
                 collection_id=collection_id,
@@ -285,32 +307,52 @@ class ToolExecutor:
         except Exception:
             return "<error>RAG search failed: knowledge unavailable</error>"
 
-    async def _execute_mcp(self, tool_model: Tool, args: Dict[str, Any]) -> str:
+    async def _execute_mcp(
+        self, tool_model: Tool, args: Dict[str, Any]
+    ) -> str:
         if not tool_model.endpoint:
             return "<error>MCP tool missing endpoint</error>"
-            
+
         # Use the saved endpoint verbatim, as AgentBuilder does. MCP servers
         # may expose custom paths; appending /mcp breaks otherwise valid tools.
         server_url = tool_model.endpoint.rstrip("/")
         transport = tool_model.transport_type or "http"
         if transport not in ("http", "sse"):
-            return "<error>MCP direct execution supports HTTP or SSE transport only</error>"
+            return (
+                '<error>MCP direct execution supports HTTP or SSE transport '
+                'only</error>'
+            )
 
         try:
             headers = mcp_connection_headers(tool_model.config)
             async with AsyncExitStack() as stack:
                 if transport == "sse":
-                    read_stream, write_stream = await stack.enter_async_context(sse_client(server_url, headers=headers))
+                    (
+                        read_stream,
+                        write_stream,
+                    ) = await stack.enter_async_context(
+                        sse_client(server_url, headers=headers)
+                    )
                 else:
-                    read_stream, write_stream, _ = await stack.enter_async_context(streamablehttp_client(server_url, headers=headers))
+                    (
+                        read_stream,
+                        write_stream,
+                        _,
+                    ) = await stack.enter_async_context(
+                        streamablehttp_client(server_url, headers=headers)
+                    )
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
-                    result = await session.call_tool(tool_model.name, arguments=args)
+                    result = await session.call_tool(
+                        tool_model.name, arguments=args
+                    )
             return mcp_result_text(result)
         except Exception as e:
             return f"<error>MCP execution failed: {str(e)}</error>"
 
-    async def _execute_store(self, tool_model: Tool, args: Dict[str, Any]) -> str:
+    async def _execute_store(
+        self, tool_model: Tool, args: Dict[str, Any]
+    ) -> str:
         """Execute a tool via the Store proxy."""
         store_tool_id = tool_model.store_resource_id
         if not store_tool_id:
@@ -318,9 +360,14 @@ class ToolExecutor:
 
         try:
             # 1. 获取商店凭证
-            credential = await api_service_client.get_store_credential(str(self.project_id))
+            credential = await api_service_client.get_store_credential(
+                str(self.project_id)
+            )
             if not credential or not credential.get("api_key"):
-                return "<error>Project not bound to Store. Please bind credentials first.</error>"
+                return (
+                    '<error>Project not bound to Store. Please bind '
+                    'credentials first.</error>'
+                )
 
             api_key = credential["api_key"]
 
@@ -363,18 +410,25 @@ class ToolExecutor:
             )
             return f"<error>Store execution failed: {str(e)}</error>"
 
-    async def _execute_plugin(self, tool_model: Tool, args: Dict[str, Any]) -> str:
+    async def _execute_plugin(
+        self, tool_model: Tool, args: Dict[str, Any]
+    ) -> str:
         """Execute a plugin tool via the core API service proxy."""
         config = tool_model.config or {}
         plugin_id = config.get("plugin_id")
         tool_name = config.get("tool_name")
-        
+
         if not plugin_id or not tool_name:
-            return "<error>Plugin tool missing configuration (plugin_id or tool_name)</error>"
+            return (
+                '<error>Plugin tool missing configuration (plugin_id or '
+                'tool_name)</error>'
+            )
 
         try:
             context = PluginExecutionContext.model_validate(self._context)
-            context.visitor_id = PluginExecutionContext.visitor_from_user(context.visitor_id)
+            context.visitor_id = PluginExecutionContext.visitor_from_user(
+                context.visitor_id
+            )
             result = await api_service_client.execute_plugin_tool(
                 plugin_id=plugin_id,
                 tool_name=tool_name,
@@ -382,21 +436,28 @@ class ToolExecutor:
                 context=context.model_dump(mode="json"),
                 project_id=str(self.project_id),
             )
-            
+
             return plugin_result_text(result)
         except Exception as e:
             return f"<error>Plugin tool execution failed: {str(e)}</error>"
 
-    async def _execute_http(self, tool_model: Tool, args: Dict[str, Any]) -> str:
+    async def _execute_http(
+        self, tool_model: Tool, args: Dict[str, Any]
+    ) -> str:
         """Execute a custom HTTP webhook tool."""
         if not tool_model.endpoint:
             return "<error>HTTP tool missing endpoint</error>"
 
         config = tool_model.config or {}
         if config.get("logistics_provider"):
-            from app.services.logistics_provider import execute_logistics_provider
+            from app.services.logistics_provider import (
+                execute_logistics_provider,
+            )
+
             try:
-                result = await execute_logistics_provider(tool_model.endpoint, config["logistics_provider"], args)
+                result = await execute_logistics_provider(
+                    tool_model.endpoint, config["logistics_provider"], args
+                )
                 return json.dumps(result, ensure_ascii=False)
             except ValueError:
                 return "<error>快递服务商查询失败：请检查单号、授权、额度和返回字段配置</error>"
@@ -404,27 +465,37 @@ class ToolExecutor:
                 return http_tool_error(exc)
         method = config.get("method", "POST").upper()
         headers = config.get("headers", {})
-        
+
         # Ensure timeout is handled
         timeout = config.get("timeout", 30.0)
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 if method == "GET":
-                    response = await client.get(tool_model.endpoint, params=args, headers=headers)
+                    response = await client.get(
+                        tool_model.endpoint, params=args, headers=headers
+                    )
                 elif method == "POST":
-                    response = await client.post(tool_model.endpoint, json=args, headers=headers)
+                    response = await client.post(
+                        tool_model.endpoint, json=args, headers=headers
+                    )
                 elif method == "PUT":
-                    response = await client.put(tool_model.endpoint, json=args, headers=headers)
+                    response = await client.put(
+                        tool_model.endpoint, json=args, headers=headers
+                    )
                 elif method == "DELETE":
-                    response = await client.delete(tool_model.endpoint, params=args, headers=headers)
+                    response = await client.delete(
+                        tool_model.endpoint, params=args, headers=headers
+                    )
                 elif method == "PATCH":
-                    response = await client.patch(tool_model.endpoint, json=args, headers=headers)
+                    response = await client.patch(
+                        tool_model.endpoint, json=args, headers=headers
+                    )
                 else:
                     return f"<error>Unsupported HTTP method: {method}</error>"
 
                 response.raise_for_status()
-                
+
                 try:
                     return json.dumps(response.json(), ensure_ascii=False)
                 except ValueError:

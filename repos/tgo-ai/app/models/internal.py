@@ -76,7 +76,8 @@ class AgentTool(BaseModel):
             if schema:
                 try:
                     return _tool_input_schema.validate_python(
-                        schema, strict=True,
+                        schema,
+                        strict=True,
                     )
                 except (TypeError, ValueError):
                     raise ValueError("Invalid tool input schema") from None
@@ -318,7 +319,10 @@ class AgentExecutionContext(BaseModel):
     system_message: Optional[str] = Field(
         default=None,
         description=(
-            "Optional system message appended after the stored agent instruction"
+            (
+                'Optional system message appended after the stored agent '
+                'instruction'
+            )
         ),
     )
     expected_output: Optional[str] = Field(
@@ -389,7 +393,10 @@ class SubQuestion(BaseModel):
     requires_context: bool = Field(
         default=False,
         description=(
-            "Whether this sub-question requires context from other sub-questions"
+            (
+                'Whether this sub-question requires context from other '
+                'sub-questions'
+            )
         ),
     )
     context_dependencies: List[str] = Field(

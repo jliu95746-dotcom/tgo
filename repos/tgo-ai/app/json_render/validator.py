@@ -21,7 +21,10 @@ try:
 except ImportError:
     _HAS_JSONSCHEMA = False
     logger.warning(
-        "jsonschema package not installed; json-render schema validation disabled"
+        (
+            'jsonschema package not installed; json-render schema validation '
+            'disabled'
+        )
     )
 
 
@@ -37,7 +40,10 @@ class JsonRenderPatchValidator:
     def validate(
         self, patches: List[Dict[str, Any]]
     ) -> Tuple[bool, Optional[str]]:
-        """Validate patch lines with lightweight and optional JSON Schema checks."""
+        (
+            'Validate patch lines with lightweight and optional JSON Schema '
+            'checks.'
+        )
         errors: List[str] = []
 
         for idx, patch in enumerate(patches):

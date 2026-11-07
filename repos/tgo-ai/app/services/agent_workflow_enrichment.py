@@ -1,4 +1,5 @@
-"""Add remote workflow details without losing employee-owned binding records."""
+"Add remote workflow details without losing employee-owned binding \
+records."
 
 import logging
 from uuid import UUID
@@ -11,7 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 def _local_placeholder(binding: AgentWorkflow) -> WorkflowData:
-    """Represent a retained binding when its workflow details are unavailable."""
+    (
+        'Represent a retained binding when its workflow details are '
+        'unavailable.'
+    )
     return WorkflowData(
         id=binding.workflow_id,
         name=binding.workflow_id,
@@ -30,7 +34,10 @@ async def enrich_agent_workflow_bindings(
     agents: list[Agent],
     project_id: UUID,
 ) -> list[Agent]:
-    """Use local associations as the source of truth for editable workflow IDs."""
+    (
+        'Use local associations as the source of truth for editable workflow '
+        'IDs.'
+    )
     workflow_ids = sorted(
         {
             binding.workflow_id
@@ -42,14 +49,19 @@ async def enrich_agent_workflow_bindings(
     remote_by_id: dict[str, WorkflowData] = {}
     if workflow_ids:
         try:
-            remote_workflows = await workflow_service_client.get_workflows_batch(
-                workflow_ids,
-                str(project_id),
+            remote_workflows = (
+                await workflow_service_client.get_workflows_batch(
+                    workflow_ids,
+                    str(project_id),
+                )
             )
             remote_by_id = {item.id: item for item in remote_workflows}
         except Exception:  # noqa: BLE001 - local associations remain readable
             logger.warning(
-                "Workflow details unavailable; retaining local employee bindings",
+                (
+                    'Workflow details unavailable; retaining local employee '
+                    'bindings'
+                ),
                 extra={
                     "project_id": str(project_id),
                     "binding_count": len(workflow_ids),

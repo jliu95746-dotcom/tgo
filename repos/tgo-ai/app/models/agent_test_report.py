@@ -1,4 +1,5 @@
-"""Private trial artifacts owned by AI; no customer sessions or raw credentials."""
+"Private trial artifacts owned by AI; no customer sessions or raw \
+credentials."
 
 from datetime import datetime
 from uuid import UUID

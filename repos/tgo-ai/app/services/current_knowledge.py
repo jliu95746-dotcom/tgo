@@ -62,10 +62,14 @@ class GovernedSearchResponse(BaseModel):
 
 
 def knowledge_search_query(context: AgentExecutionContext) -> str:
-    """Use bounded conversation hints for retrieval, never as factual evidence."""
+    (
+        'Use bounded conversation hints for retrieval, never as factual '
+        'evidence.'
+    )
     message = context.message
     # Media processing wraps recognized input in a warning and a JSON envelope.
-    # Search the recognized words, keeping the original untrusted message in the
+    # Search the recognized words, keeping the original untrusted message in
+    # the
     # agent context so this normalization cannot grant any business authority.
     _, separator, payload = message.partition("\n")
     if separator:

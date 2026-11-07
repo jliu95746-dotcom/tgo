@@ -1,4 +1,5 @@
-"""Read-only impact report for employee workflow bindings without a release pin."""
+"Read-only impact report for employee workflow bindings without a \
+release pin."
 
 from uuid import UUID
 

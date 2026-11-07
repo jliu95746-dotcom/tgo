@@ -172,19 +172,25 @@ class ToolsRuntimeService:
     async def _stream_agent(
         self, request: AgentRunRequest
     ) -> AsyncGenerator[StreamEventType, None]:
-        """执行流式智能体调用, 返回事件流.
-
-        Args:
-            request: Agent run request with message and configuration
-
-        Yields:
-            StreamEventType: Stream events (content, tool calls, errors, completion)
-
-        Raises:
-            InvalidConfigurationError: If agent configuration is invalid
-            MissingConfigurationError: If required configuration is missing
-            StreamingError: If streaming fails
-        """
+        (
+            '执行流式智能体调用, 返回事件流.\n'
+            '\n'
+            '        Args:\n'
+            '            request: Agent run request with message and '
+            'configuration\n'
+            '\n'
+            '        Yields:\n'
+            '            StreamEventType: Stream events (content, tool '
+            'calls, errors, completion)\n'
+            '\n'
+            '        Raises:\n'
+            '            InvalidConfigurationError: If agent configuration '
+            'is invalid\n'
+            '            MissingConfigurationError: If required '
+            'configuration is missing\n'
+            '            StreamingError: If streaming fails\n'
+            '        '
+        )
         # Validate message
 
         if not request.message:
@@ -202,7 +208,10 @@ class ToolsRuntimeService:
             agent = await self._builder.build_agent(request)
         except (InvalidConfigurationError, MissingConfigurationError) as e:
             self._logger.error(
-                "Failed to build agent for streaming due to configuration error",
+                (
+                    'Failed to build agent for streaming due to '
+                    'configuration error'
+                ),
                 error=str(e),
                 error_type=type(e).__name__,
                 session_id=request.session_id,

@@ -1,4 +1,5 @@
-"""Materialize request-scoped platform credentials without storing tenant copies."""
+"Materialize request-scoped platform credentials without storing tenant \
+copies."
 
 from uuid import UUID
 from app.models.llm_provider import LLMProvider

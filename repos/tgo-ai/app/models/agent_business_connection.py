@@ -1,4 +1,5 @@
-"""AI owns explicit connection selections and durable configuration receipts."""
+"AI owns explicit connection selections and durable configuration \
+receipts."
 from uuid import UUID
 
 from sqlalchemy import (
@@ -26,7 +27,10 @@ class AgentBusinessConnection(BaseModel):
             name="uq_ai_employee_connection",
         ),
         CheckConstraint(
-            "revision >= 1 AND configuration_revision >= 1 AND authorization_revision >= 1",
+            (
+                'revision >= 1 AND configuration_revision >= 1 AND '
+                'authorization_revision >= 1'
+            ),
             name="ck_ai_employee_connection_revisions",
         ),
     )

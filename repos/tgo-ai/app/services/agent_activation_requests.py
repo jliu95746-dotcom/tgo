@@ -1,4 +1,5 @@
-"""A configuration switch and its immutable result share one database transaction."""
+"A configuration switch and its immutable result share one database \
+transaction."
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -42,7 +43,8 @@ class ActorOwner(Protocol):
 def command_digest(command: AgentActivationRequest) -> str:
     payload = command.model_dump(mode="json")
     if payload["expected"].get("business_evidence_revision") is None:
-        # Keep pre-business knowledge confirmations retryable with their original digest.
+        # Keep pre-business knowledge confirmations retryable with their
+        # original digest.
         payload["expected"].pop("business_evidence_revision", None)
     payload["expected"]["channels"] = sorted(
         payload["expected"]["channels"], key=lambda row: row["channel"]
@@ -181,7 +183,8 @@ class AgentActivationRequestService:
                 status="pending",
             )
             self.db.add(row)
-            # This DML also establishes a physical transaction before the candidate savepoint.
+            # This DML also establishes a physical transaction before the
+            # candidate savepoint.
             await self.db.flush()
             failure: ActivationFailure | None = None
             age = (

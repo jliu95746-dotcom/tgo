@@ -1,4 +1,5 @@
-"""Immutable review intentions, bounded retries, and original-key cancellation."""
+"Immutable review intentions, bounded retries, and original-key \
+cancellation."
 
 import asyncio
 import hashlib
@@ -263,8 +264,10 @@ class AgentBusinessReviewRequests:
     async def install(
         self, entry_id: UUID, digest: str, result: BusinessReviewRecord
     ) -> None:
-        # This update and the actual review record commit in the SAME transaction.
-        # A cancellation that wins the row cannot be overwritten by late approval.
+        # This update and the actual review record commit in the SAME
+        # transaction.
+        # A cancellation that wins the row cannot be overwritten by late
+        # approval.
         claimed: UUID | None = await self.db.scalar(
             update(AgentBusinessReviewRequest)
             .where(

@@ -17,7 +17,9 @@ INTENTS = {
 
 
 def intents(text: str) -> set[str]:
-    return {name for name, pattern in INTENTS.items() if re.search(pattern, text)}
+    return {
+        name for name, pattern in INTENTS.items() if re.search(pattern, text)
+    }
 
 
 def result_state(facts: str) -> str:
@@ -41,11 +43,13 @@ def result_state(facts: str) -> str:
 
 def text_tokens(text: str) -> set[str]:
     text = re.sub(r"[^a-z0-9\u4e00-\u9fff]", "", text.lower())
-    return {text[i:i + 2] for i in range(max(0, len(text) - 1))}
+    return {text[i: i + 2] for i in range(max(0, len(text) - 1))}
 
 
 def match_examples(
-    examples: list[TrainingExample], query: str, factual_draft: str = "",
+    examples: list[TrainingExample],
+    query: str,
+    factual_draft: str = "",
     recent_messages: list[ConversationTurn] | None = None,
 ) -> list[TrainingExample]:
     # Use prior conditions for elliptical follow-ups such as '那这个呢？'.

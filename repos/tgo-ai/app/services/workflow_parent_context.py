@@ -1,4 +1,5 @@
-"""Parse a parent workflow hop only after the internal channel is authenticated."""
+"Parse a parent workflow hop only after the internal channel is \
+authenticated."
 
 import json
 from dataclasses import dataclass

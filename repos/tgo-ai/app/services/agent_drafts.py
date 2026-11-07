@@ -118,7 +118,8 @@ class AgentDraftService:
         fields: dict[str, object] = {
             key: getattr(agent, key) for key in AgentBase.model_fields
         }
-        # Activation state is independent; same-revision retries never toggle it.
+        # Activation state is independent; same-revision retries never toggle
+        # it.
         fields.update(
             is_active=False,
             is_default=False,

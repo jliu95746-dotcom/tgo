@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Float, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,20 +21,26 @@ if TYPE_CHECKING:
 
 
 class LLMProvider(BaseModel):
-    """LLM provider configuration for a project.
-
-    Fields:
-      - project_id: owning project
-      - alias: human friendly unique key within a project (e.g. "openai-prod")
-      - provider_kind: canonical kind: openai | anthropic | google | openai_compatible
-      - vendor: optional vendor label (e.g. deepseek, openrouter)
-      - api_base_url: optional custom base URL (for compatible vendors)
-      - api_key: API key secret (plain stored; do NOT log it)
-      - organization: optional org/tenant id for some providers (OpenAI)
-      - timeout: optional request timeout seconds
-      - is_active: whether usable
-      - synced_at: last sync timestamp from tgo-api
-    """
+    (
+        'LLM provider configuration for a project.\n'
+        '\n'
+        '    Fields:\n'
+        '      - project_id: owning project\n'
+        '      - alias: human friendly unique key within a project (e.g. '
+        '"openai-prod")\n'
+        '      - provider_kind: canonical kind: openai | anthropic | google '
+        '| openai_compatible\n'
+        '      - vendor: optional vendor label (e.g. deepseek, openrouter)\n'
+        '      - api_base_url: optional custom base URL (for compatible '
+        'vendors)\n'
+        '      - api_key: API key secret (plain stored; do NOT log it)\n'
+        '      - organization: optional org/tenant id for some providers '
+        '(OpenAI)\n'
+        '      - timeout: optional request timeout seconds\n'
+        '      - is_active: whether usable\n'
+        '      - synced_at: last sync timestamp from tgo-api\n'
+        '    '
+    )
 
     __tablename__ = "ai_llm_providers"
     # Override BaseModel.id to require externally-provided IDs (no default)
@@ -97,8 +103,10 @@ class LLMProvider(BaseModel):
         comment="When this record was last synchronized",
     )
 
-    # Note: No FK relationship to ai_projects by design; project_id may refer to external projects not yet synced.
-    # Note: (project_id, alias) is NOT unique - multiple providers can share the same alias within a project.
+    # Note: No FK relationship to ai_projects by design; project_id may refer
+    # to external projects not yet synced.
+    # Note: (project_id, alias) is NOT unique - multiple providers can share
+    # the same alias within a project.
 
     # Relationships
 
@@ -107,4 +115,16 @@ class LLMProvider(BaseModel):
     )
 
     def __repr__(self) -> str:
-        return f"<LLMProvider(id={self.id}, project_id={self.project_id}, alias='{self.alias}', kind='{self.provider_kind}', vendor='{self.vendor}')>"
+        return (
+            f'<LLMProvider(id='
+            f'{self.id}'
+            f', project_id='
+            f'{self.project_id}'
+            f", alias='"
+            f'{self.alias}'
+            f"', kind='"
+            f'{self.provider_kind}'
+            f"', vendor='"
+            f'{self.vendor}'
+            f"')>"
+        )

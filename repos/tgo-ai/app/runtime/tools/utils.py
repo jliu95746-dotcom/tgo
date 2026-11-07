@@ -24,7 +24,9 @@ from app.schemas.business_execution_context import BusinessRequestPrincipal
 from app.services.mcp_result import mcp_result_text
 from app.services.http_tool_errors import http_tool_error
 from app.services.plugin_result import plugin_result_text
-from app.services.workflow_execution_authorization import verify_current_binding
+from app.services.workflow_execution_authorization import (
+    verify_current_binding,
+)
 from .mcp_authentication import (
     wrap_mcp_authenticate_tool as _wrap_mcp_authenticate_tool,
 )
@@ -41,12 +43,11 @@ NO_RELEVANT_KNOWLEDGE_RESPONSE = (
 )
 
 RAG_SEARCH_LIMIT_RESPONSE = (
-    '<documents status="search_limit_reached">'
-    "<instruction>The knowledge collection has already been searched for this "
-    "user turn. Do not call the RAG tool again. Answer only from the documents "
-    "already returned; if they do not contain an explicit match, say that no "
-    "matching item can be confirmed.</instruction>"
-    "</documents>"
+    '<documents status="search_limit_reached"><instruction>The knowledge '
+    'collection has already been searched for this user turn. Do not '
+    'call the RAG tool again. Answer only from the documents already '
+    'returned; if they do not contain an explicit match, say that no '
+    'matching item can be confirmed.</instruction></documents>'
 )
 
 RAG_GROUNDING_INSTRUCTION = (
@@ -224,14 +225,19 @@ async def create_rag_tool(
 
     url = rag_url.rstrip("/")
     from app.services.service_identity import rag_service_headers
+
     collection_endpoint = f"{url}/v1/collections/{collection_id}"
     params = {"project_id": str(project_id)}
 
-    async with aiohttp.ClientSession(headers=rag_service_headers(url)) as session:
+    async with aiohttp.ClientSession(
+        headers=rag_service_headers(url)
+    ) as session:
         async with session.get(collection_endpoint, params=params) as response:
             response.raise_for_status()
             collection_data = await response.json()
-    display_name = collection_data.get("display_name") or f"collection_{collection_id}"
+    display_name = (
+        collection_data.get("display_name") or f"collection_{collection_id}"
+    )
     description = collection_data.get("description")
     tool_description = (
         f"Search documents within the '{display_name}' collection for results"
@@ -239,11 +245,16 @@ async def create_rag_tool(
         " returned, do not guess or answer from general knowledge."
     )
     if description:
-        tool_description = f"{tool_description} Collection description: {description}"
+        tool_description = (
+            f"{tool_description} Collection description: {description}"
+        )
 
     # Build provider-safe tool name: letters, digits, _, ., -
-    # We no longer use display_name in the tool name to avoid special character issues.
-    short_id = (collection_id.replace("-", "")[:8]) if collection_id else "unknown"
+    # We no longer use display_name in the tool name to avoid special character
+    # issues.
+    short_id = (
+        (collection_id.replace("-", "")[:8]) if collection_id else "unknown"
+    )
     tool_name = f"rag_search_{short_id}".lower()
     search_executed = False
 
@@ -254,7 +265,8 @@ async def create_rag_tool(
         search_executed = True
 
         search_endpoint = (
-            f"{url}/v1/collections/{collection_id}" "/documents/search/automatic-answer"
+            f"{url}/v1/collections/{collection_id}"
+            "/documents/search/automatic-answer"
         )
         payload = {
             "query": query,
@@ -265,7 +277,9 @@ async def create_rag_tool(
         }
         started_at = time.perf_counter()
         try:
-            async with aiohttp.ClientSession(headers=rag_service_headers(url)) as session:
+            async with aiohttp.ClientSession(
+                headers=rag_service_headers(url)
+            ) as session:
                 async with session.post(
                     search_endpoint,
                     params=params,
@@ -339,7 +353,9 @@ async def create_rag_tool(
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Natural language query to search the collection.",
+                    "description": (
+                        'Natural language query to search the collection.'
+                    ),
                 }
             },
             "required": ["query"],
@@ -350,8 +366,12 @@ async def create_rag_tool(
 
 
 async def create_workflow_tools(
-    workflow_url: str, workflow_ids: List[str], project_id: Optional[str],
-    *, agent_id: str, fixed_versions: Optional[Dict[str, int]] = None,
+    workflow_url: str,
+    workflow_ids: List[str],
+    project_id: Optional[str],
+    *,
+    agent_id: str,
+    fixed_versions: Optional[Dict[str, int]] = None,
     release_ids: Optional[Dict[str, str]] = None,
     release_digests: Optional[Dict[str, str]] = None,
     request_id: str | None = None,
@@ -377,9 +397,12 @@ async def create_workflow_tools(
         raise ValueError("客户业务请求上下文凭证不完整")
     if business_principal is not None:
         assert business_context_token is not None
-        if hashlib.sha256(
-            business_context_token.get_secret_value().encode()
-        ).hexdigest() != business_principal.context_digest:
+        if (
+            hashlib.sha256(
+                business_context_token.get_secret_value().encode()
+            ).hexdigest()
+            != business_principal.context_digest
+        ):
             raise ValueError("客户业务请求上下文凭证不匹配")
         if str(business_principal.project_id) != str(project_id):
             raise ValueError("客户业务请求来源项目与员工项目不一致")
@@ -420,15 +443,23 @@ async def create_workflow_tools(
             for workflow_data in workflows_data:
                 workflow_id = workflow_data["id"]
                 current_published = workflow_data.get("published_version")
-                if (workflow_data.get("status") != "active"
-                        or not isinstance(current_published, int)
-                        or isinstance(current_published, bool)
-                        or current_published < 1):
+                if (
+                    workflow_data.get("status") != "active"
+                    or not isinstance(current_published, int)
+                    or isinstance(current_published, bool)
+                    or current_published < 1
+                ):
                     raise ValueError("请先发布所选工作流，再关联为员工业务能力。")
                 version = fixed_versions.get(workflow_id)
                 expected_release_id = (release_ids or {}).get(workflow_id)
                 expected_digest = (release_digests or {}).get(workflow_id)
-                if not isinstance(version, int) or isinstance(version, bool) or version < 1 or not expected_release_id or not expected_digest:
+                if (
+                    not isinstance(version, int)
+                    or isinstance(version, bool)
+                    or version < 1
+                    or not expected_release_id
+                    or not expected_digest
+                ):
                     raise ValueError("员工工作流尚未固定发布版本，请重新关联。")
                 endpoint = (
                     f"{url}/v1/workflows/{workflow_id}/releases/"
@@ -453,20 +484,28 @@ async def create_workflow_tools(
         w_id = workflow_data.get("id")
         pinned = workflow_data.get("pinned_release")
         release_version = pinned["release_version"]
-        if workflow_data.get("status") != "active" or not isinstance(release_version, int) or isinstance(release_version, bool) or release_version < 1:
+        if (
+            workflow_data.get("status") != "active"
+            or not isinstance(release_version, int)
+            or isinstance(release_version, bool)
+            or release_version < 1
+        ):
             raise ValueError("请先发布所选工作流，再关联为员工业务能力。")
         name = workflow_data.get("name") or f"workflow_{w_id}"
         description = workflow_data.get("description")
 
         tool_description = f"Execute the '{name}' workflow."
         if description:
-            tool_description = f"{tool_description} Workflow description: {description}"
+            tool_description = (
+                f"{tool_description} Workflow description: {description}"
+            )
         requires_approval = "approval" in (pinned.get("node_types") or [])
         if requires_approval:
             if not request_id:
                 raise ValueError("人工审批工作流缺少 AI 执行追踪 ID")
             tool_description += (
-                " Submits for human approval; do not claim the task is complete."
+                ' Submits for human approval; do not claim the task is '
+                'complete.'
             )
 
         # Build safe tool name
@@ -503,15 +542,23 @@ async def create_workflow_tools(
             inputs_schema["required"] = required_inputs
 
         def make_execute_func(
-            wf_id: str, fixed_version: int, release_id: str,
-            release_digest: str, approval: bool,
+            wf_id: str,
+            fixed_version: int,
+            release_id: str,
+            release_digest: str,
+            approval: bool,
         ) -> Callable[[Optional[Dict[str, Any]]], Awaitable[str]]:
-            async def execute_workflow(inputs: Optional[Dict[str, Any]] = None) -> str:
+            async def execute_workflow(
+                inputs: Optional[Dict[str, Any]] = None
+            ) -> str:
                 execute_endpoint = f"{url}/v1/workflows/{wf_id}/execute"
                 exec_params = {"project_id": str(project_id)}
                 payload = {
-                    "inputs": inputs or {}, "stream": False, "async": approval,
-                    "execution_mode": "production", "release_version": fixed_version,
+                    "inputs": inputs or {},
+                    "stream": False,
+                    "async": approval,
+                    "execution_mode": "production",
+                    "release_version": fixed_version,
                     "expected_release_id": release_id,
                     "expected_release_digest": release_digest,
                     "employee_agent_id": agent_id,
@@ -519,44 +566,83 @@ async def create_workflow_tools(
                 if origin is not None:
                     payload["origin"] = origin
                 if approval:
-                    payload["invocation_key"] = str(uuid5(
-                        NAMESPACE_URL,
-                        f"workflow-approval:{project_id}:{agent_id}:{wf_id}:"
-                        f"{request_id}:"
-                        + json.dumps(inputs or {}, sort_keys=True, ensure_ascii=False,
-                                     separators=(",", ":")),
-                    ))
+                    payload["invocation_key"] = str(
+                        uuid5(
+                            NAMESPACE_URL,
+                            (
+                                f'workflow-approval:'
+                                f'{project_id}'
+                                f':'
+                                f'{agent_id}'
+                                f':'
+                                f'{wf_id}'
+                                f':'
+                                f'{request_id}'
+                                f':'
+                            )
+                            + json.dumps(
+                                inputs or {},
+                                sort_keys=True,
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
+                        )
+                    )
 
                 try:
-                    if (business_principal is not None
-                            and business_principal.expires_at <= datetime.now(UTC)):
+                    if (
+                        business_principal is not None
+                        and business_principal.expires_at <= datetime.now(UTC)
+                    ):
                         raise PermissionError("客户业务请求来源已失效")
                     await verify_current_binding(
-                        agent_id, str(project_id), wf_id, fixed_version,
-                        release_id, release_digest,
+                        agent_id,
+                        str(project_id),
+                        wf_id,
+                        fixed_version,
+                        release_id,
+                        release_digest,
                     )
                     headers = {"X-Internal-API-Key": settings.secret_key}
                     from app.services.quota_authorization import (
                         current_authorization,
                     )
+
                     usage = current_authorization.get()
                     if usage is not None:
                         if str(usage.project_id) != str(project_id):
                             raise PermissionError("工作流额度与员工企业不一致")
-                        if (usage.reservation_id is None
-                                or usage.lease_id is None):
+                        if (
+                            usage.reservation_id is None
+                            or usage.lease_id is None
+                        ):
                             raise PermissionError("工作流额度来源不完整")
-                        headers.update({
-                            "X-AI-Reservation": str(usage.reservation_id),
-                            "X-AI-Lease": str(usage.lease_id),
-                        })
-                    if business_principal is not None and business_context_token is not None:
-                        headers.update({
-                            "X-Business-Request-Context": business_context_token.get_secret_value(),
-                            "X-Business-Visitor-Id": str(business_principal.visitor_id),
-                            "X-Business-Request-Fingerprint": business_principal.request_fingerprint,
-                            "X-Execution-Channel": business_principal.channel.value,
-                        })
+                        headers.update(
+                            {
+                                "X-AI-Reservation": str(usage.reservation_id),
+                                "X-AI-Lease": str(usage.lease_id),
+                            }
+                        )
+                    if (
+                        business_principal is not None
+                        and business_context_token is not None
+                    ):
+                        headers.update(
+                            {
+                                (
+                                    'X-Business-Request-Context'
+                                ): business_context_token.get_secret_value(),
+                                "X-Business-Visitor-Id": str(
+                                    business_principal.visitor_id
+                                ),
+                                (
+                                    'X-Business-Request-Fingerprint'
+                                ): business_principal.request_fingerprint,
+                                "X-Execution-Channel": (
+                                    business_principal.channel.value
+                                ),
+                            }
+                        )
                     async with aiohttp.ClientSession() as session:
                         async with session.post(
                             execute_endpoint,
@@ -567,25 +653,38 @@ async def create_workflow_tools(
                             exec_response.raise_for_status()
                             data = await exec_response.json()
                             if approval:
-                                if (not isinstance(data, dict)
-                                        or not isinstance(data.get("id"), str)
-                                        or not isinstance(data.get("status"), str)):
+                                if (
+                                    not isinstance(data, dict)
+                                    or not isinstance(data.get("id"), str)
+                                    or not isinstance(data.get("status"), str)
+                                ):
                                     raise ValueError("人工审批工作流返回的执行记录无效")
-                                return json.dumps({
-                                    "success": data["status"] not in {
-                                        "failed", "cancelled",
+                                return json.dumps(
+                                    {
+                                        "success": data["status"]
+                                        not in {
+                                            "failed",
+                                            "cancelled",
+                                        },
+                                        "status": data["status"],
+                                        "execution_id": data["id"],
                                     },
-                                    "status": data["status"],
-                                    "execution_id": data["id"],
-                                }, ensure_ascii=False)
+                                    ensure_ascii=False,
+                                )
                             return json.dumps(data, ensure_ascii=False)
                 except PermissionError:
-                    return json.dumps({
-                        "success": False,
-                        "error": "员工工作流授权已变更，请刷新配置或转人工处理。",
-                    }, ensure_ascii=False)
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": "员工工作流授权已变更，请刷新配置或转人工处理。",
+                        },
+                        ensure_ascii=False,
+                    )
                 except Exception:  # noqa: BLE001
-                    return json.dumps({"success": False, "error": "工作流执行失败，请转人工处理。"}, ensure_ascii=False)
+                    return json.dumps(
+                        {"success": False, "error": "工作流执行失败，请转人工处理。"},
+                        ensure_ascii=False,
+                    )
 
             return execute_workflow
 
@@ -599,8 +698,11 @@ async def create_workflow_tools(
                     "required": ["inputs"] if required_inputs else [],
                 },
                 entrypoint=make_execute_func(
-                    w_id, release_version, pinned["release_id"],
-                    pinned["definition_digest"], requires_approval,
+                    w_id,
+                    release_version,
+                    pinned["release_id"],
+                    pinned["definition_digest"],
+                    requires_approval,
                 ),
                 skip_entrypoint_processing=True,
             )
@@ -626,7 +728,8 @@ def create_agno_mcp_tool(
         started_at = time.perf_counter()
         try:
             async with streamablehttp_client(
-                mcp_server_url, headers=headers_factory() if headers_factory else headers
+                mcp_server_url,
+                headers=headers_factory() if headers_factory else headers,
             ) as streams:
                 read_stream, write_stream, _ = streams
                 async with ClientSession(read_stream, write_stream) as session:
@@ -735,9 +838,14 @@ def create_http_tool(
 
         try:
             if logistics_provider:
-                from app.services.logistics_provider import execute_logistics_provider
+                from app.services.logistics_provider import (
+                    execute_logistics_provider,
+                )
+
                 try:
-                    result = await execute_logistics_provider(endpoint, logistics_provider, tool_args)
+                    result = await execute_logistics_provider(
+                        endpoint, logistics_provider, tool_args
+                    )
                     return json.dumps(result, ensure_ascii=False)
                 except ValueError:
                     return "<error>快递服务商查询失败：请检查单号、授权、额度和返回字段配置</error>"

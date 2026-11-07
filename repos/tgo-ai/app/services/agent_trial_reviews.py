@@ -277,7 +277,8 @@ class AgentTrialReviewService:
             or not _eligible(report, command.case)
         ):
             raise HTTPException(409, "本次报告不满足评审条件，请核对资料、完成确认或重新试聊")
-        # Serialize judgments on the owned immutable report, including competing tabs.
+        # Serialize judgments on the owned immutable report, including
+        # competing tabs.
         owned = await self.db.scalar(
             select(AgentTestReport.id)
             .where(

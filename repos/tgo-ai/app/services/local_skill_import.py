@@ -153,7 +153,8 @@ def _normalize(document: bytes, display_name: str | None) -> tuple[str, bytes]:
         label = display_name or metadata.get('display_name') or original_name
         if not isinstance(label, str) or not label.strip() or len(label) > 100:
             raise ValueError('显示名称必须为 1–100 字')
-        # Local imports are ordinary instructions, not published training libraries.
+        # Local imports are ordinary instructions, not published training
+        # libraries.
 
         metadata['display_name'] = label.strip()
         metadata['skill_type'] = 'standard'

@@ -18,14 +18,18 @@ from app.models.internal import AgentCollection as InternalAgentCollection
 from app.models.internal import AgentExecutionRequest, AgentExecutionResponse
 from app.models.internal import AgentTool as InternalAgentTool
 from app.models.internal import AgentWorkflow as InternalAgentWorkflow
-from app.schemas.agent_business_connections import AgentBusinessConnectionRecord
+from app.schemas.agent_business_connections import (
+    AgentBusinessConnectionRecord,
+)
 from app.runtime.core.exceptions import (
     AgentExecutionError,
     DataMappingError,
     StreamingError,
     TransformationError,
 )
-from app.runtime.supervisor.streaming.workflow_events import WorkflowEventEmitter
+from app.runtime.supervisor.streaming.workflow_events import (
+    WorkflowEventEmitter,
+)
 from app.runtime.tools.executor.service import ToolsRuntimeService
 from app.runtime.tools.models import (
     AgentConfig,
@@ -63,45 +67,62 @@ def _safe_uuid(value: str) -> uuid.UUID:
 
 def _convert_agent(
     agent: DBAgent,
-    tool_associations_map: Optional[Dict[uuid.UUID, ToolAssociationData]] = None,
+    tool_associations_map: Optional[
+        Dict[uuid.UUID, ToolAssociationData]
+    ] = None,
     *,
     allow_inactive_trial: bool = False,
 ) -> InternalAgent:
-    """Convert database agent to internal agent model.
-
-    Args:
-        agent: Database agent model
-        tool_associations_map: Optional map of tool_id -> association data (enabled, permissions, config)
-
-    Returns:
-        InternalAgent: Converted internal agent model
-
-    Raises:
-        DataMappingError: If required fields are missing or conversion fails
-    """
+    (
+        'Convert database agent to internal agent model.\n'
+        '\n'
+        '    Args:\n'
+        '        agent: Database agent model\n'
+        '        tool_associations_map: Optional map of tool_id -> '
+        'association data (enabled, permissions, config)\n'
+        '\n'
+        '    Returns:\n'
+        '        InternalAgent: Converted internal agent model\n'
+        '\n'
+        '    Raises:\n'
+        '        DataMappingError: If required fields are missing or '
+        'conversion fails\n'
+        '    '
+    )
     try:
         # Validate required fields
-        if getattr(agent, "is_active", True) is False and not allow_inactive_trial:
-            raise DataMappingError("AI员工已停用，请先启用后再发起对话", agent_id=str(agent.id))
+        if (
+            getattr(agent, "is_active", True) is False
+            and not allow_inactive_trial
+        ):
+            raise DataMappingError(
+                "AI员工已停用，请先启用后再发起对话", agent_id=str(agent.id)
+            )
         if not agent.id:
             raise DataMappingError(
                 "Agent ID is required",
                 agent_name=agent.name if hasattr(agent, "name") else None,
             )
         if not agent.name:
-            raise DataMappingError("Agent name is required", agent_id=str(agent.id))
+            raise DataMappingError(
+                "Agent name is required", agent_id=str(agent.id)
+            )
         if not agent.model:
             raise DataMappingError(
-                "Agent model is required", agent_id=str(agent.id), agent_name=agent.name
+                "Agent model is required",
+                agent_id=str(agent.id),
+                agent_name=agent.name,
             )
 
         # Convert tools
         # Note: agent.tools is a list of Tool entities from ai_tools table
-        # We need to get association data (enabled, permissions, config) from tool_associations_map
+        # We need to get association data (enabled, permissions, config) from
+        # tool_associations_map
         tools = []
         for tool in agent.tools:
             try:
-                # ORM relationships can still contain soft-deleted tools/bindings.
+                # ORM relationships can still contain soft-deleted
+                # tools/bindings.
                 if (
                     tool.deleted_at is not None
                     or tool.project_id != agent.project_id
@@ -244,22 +265,48 @@ def _convert_agent(
             tools=tools,
             collections=collections,
             workflows=workflows,
-            business_connections=[AgentBusinessConnectionRecord.model_validate({
-                key: getattr(row, key) for key in (
-                    "id", "project_id", "agent_id", "connection_id", "operations", "enabled", "revision",
-                    "configuration_revision", "authorization_revision", "resource_revision", "configured_by",
+            business_connections=[
+                AgentBusinessConnectionRecord.model_validate(
+                    {
+                        key: getattr(row, key)
+                        for key in (
+                            "id",
+                            "project_id",
+                            "agent_id",
+                            "connection_id",
+                            "operations",
+                            "enabled",
+                            "revision",
+                            "configuration_revision",
+                            "authorization_revision",
+                            "resource_revision",
+                            "configured_by",
+                        )
+                    }
                 )
-            }) for row in getattr(agent, "business_connections", []) if row.enabled],
+                for row in getattr(agent, "business_connections", [])
+                if row.enabled
+            ],
             is_default=agent.is_active or agent.is_default,
-            is_remote_store_agent=getattr(agent, "is_remote_store_agent", False),
+            is_remote_store_agent=getattr(
+                agent, "is_remote_store_agent", False
+            ),
             remote_agent_url=getattr(agent, "remote_agent_url", None),
             store_agent_id=getattr(agent, "store_agent_id", None),
             bound_device_id=getattr(agent, "bound_device_id", None),
-            bound_device_policy_digest=getattr(agent, "bound_device_policy_digest", None),
+            bound_device_policy_digest=getattr(
+                agent, "bound_device_policy_digest", None
+            ),
             skills_enabled=getattr(agent, "skills_enabled", True),
-            humanization_skill_name=getattr(agent, "humanization_skill_name", None),
-            humanization_skill_enabled=getattr(agent, "humanization_skill_enabled", False) or False,
-            agent_category=getattr(agent, "agent_category", "normal") or "normal",
+            humanization_skill_name=getattr(
+                agent, "humanization_skill_name", None
+            ),
+            humanization_skill_enabled=getattr(
+                agent, "humanization_skill_enabled", False
+            )
+            or False,
+            agent_category=getattr(agent, "agent_category", "normal")
+            or "normal",
             created_at=agent.created_at or datetime.now(timezone.utc),
             updated_at=agent.updated_at or datetime.now(timezone.utc),
             llm_provider_credentials=provider_credentials,
@@ -279,7 +326,9 @@ def _convert_agent(
 class AIServiceClient:
     """Adapter that exposes persisted agents in runtime-friendly format."""
 
-    def __init__(self, agent_service: AgentService, project_id: uuid.UUID) -> None:
+    def __init__(
+        self, agent_service: AgentService, project_id: uuid.UUID
+    ) -> None:
         self._agent_service = agent_service
         self._project_id = project_id
         self.logger = get_logger(__name__)
@@ -300,7 +349,10 @@ class AIServiceClient:
     async def get_agent(
         self, agent_id: str, auth_headers: Dict[str, str]
     ) -> InternalAgent:
-        """Get a single agent with its tool associations and related resources."""
+        (
+            'Get a single agent with its tool associations and related '
+            'resources.'
+        )
         del auth_headers  # Interface parity with other service adapters
 
         try:
@@ -329,25 +381,50 @@ class AIServiceClient:
         return await self._convert_agent_with_associations(db_agent)
 
     async def get_trial_agent(
-        self, agent_id: uuid.UUID, *, requested_by: uuid.UUID | None = None, verify_runtime: bool = True,
+        self,
+        agent_id: uuid.UUID,
+        *,
+        requested_by: uuid.UUID | None = None,
+        verify_runtime: bool = True,
     ) -> InternalAgent:
-        """Trusted trial preparation only; never toggles persisted activation."""
+        (
+            'Trusted trial preparation only; never toggles persisted '
+            'activation.'
+        )
         db_agent = await self._agent_service.get_agent(
-            self._project_id, agent_id, enrich_resources=False,
+            self._project_id,
+            agent_id,
+            enrich_resources=False,
         )
         converted = await self._convert_agent_with_associations(
-            db_agent, allow_inactive_trial=True, resolve_model=verify_runtime or requested_by is None,
+            db_agent,
+            allow_inactive_trial=True,
+            resolve_model=verify_runtime or requested_by is None,
         )
         if requested_by is not None:
-            from app.services.agent_activation_model_verification import verify_model_configuration
+            from app.services.agent_activation_model_verification import (
+                verify_model_configuration,
+            )
             from app.services.api_service import api_service_client
+
             if not verify_runtime:
-                # Platform checks only need owner metadata; tenant credentials stay local.
+                # Platform checks only need owner metadata; tenant credentials
+                # stay local.
                 from app.config import settings as runtime_settings
-                if not (runtime_settings.saas_enabled and runtime_settings.saas_billing_enabled):
-                    converted = await resolve_system_default_model(self._agent_service.db, converted)
+
+                if not (
+                    runtime_settings.saas_enabled
+                    and runtime_settings.saas_billing_enabled
+                ):
+                    converted = await resolve_system_default_model(
+                        self._agent_service.db, converted
+                    )
             converted = await verify_model_configuration(
-                db_agent, converted, requested_by, api_service_client, verify_runtime=verify_runtime,
+                db_agent,
+                converted,
+                requested_by,
+                api_service_client,
+                verify_runtime=verify_runtime,
             )
         return converted
 
@@ -355,7 +432,10 @@ class AIServiceClient:
         self,
         auth_headers: Dict[str, str],
     ) -> InternalAgent:
-        """Load the default agent once without downstream display enrichment."""
+        (
+            'Load the default agent once without downstream display '
+            'enrichment.'
+        )
 
         del auth_headers
         try:
@@ -364,7 +444,9 @@ class AIServiceClient:
                 enrich_resources=False,
             )
         except NotFoundError as exc:
-            raise ValueError("Default agent not configured for project") from exc
+            raise ValueError(
+                "Default agent not configured for project"
+            ) from exc
         except Exception as exc:
             raise TransformationError(
                 "Failed to fetch default agent from database",
@@ -406,16 +488,26 @@ class AIServiceClient:
                 for assoc in associations
             }
             converted = _convert_agent(
-                db_agent, tool_associations_map=tool_associations_map,
+                db_agent,
+                tool_associations_map=tool_associations_map,
                 allow_inactive_trial=allow_inactive_trial,
             )
             from app.services.agent_device_script_selection_identity import (
                 selection_snapshot,
             )
+
             converted.device_script_selection = await selection_snapshot(
-                self._agent_service.db, self._project_id, agent_uuid,
+                self._agent_service.db,
+                self._project_id,
+                agent_uuid,
             )
-            return await resolve_system_default_model(self._agent_service.db, converted) if resolve_model else converted
+            return (
+                await resolve_system_default_model(
+                    self._agent_service.db, converted
+                )
+                if resolve_model
+                else converted
+            )
         except DataMappingError:
             raise
         except Exception as exc:
@@ -455,24 +547,29 @@ class AgentServiceClient:
         rag_url: Optional[str] = None,
         rag_api_key: Optional[str] = None,
     ) -> AgentExecutionResponse:
-        """Execute agent without streaming.
-
-        Args:
-            agent: Internal agent model
-            request: Agent execution request
-            auth_headers: Authentication headers (unused but part of interface)
-            timeout: Execution timeout in seconds (unused but part of interface)
-            mcp_url: MCP service URL
-            rag_url: RAG service URL
-            rag_api_key: RAG API key
-
-        Returns:
-            AgentExecutionResponse: Execution response
-
-        Raises:
-            AgentExecutionError: If agent execution fails
-            TransformationError: If request/response transformation fails
-        """
+        (
+            'Execute agent without streaming.\n'
+            '\n'
+            '        Args:\n'
+            '            agent: Internal agent model\n'
+            '            request: Agent execution request\n'
+            '            auth_headers: Authentication headers (unused but '
+            'part of interface)\n'
+            '            timeout: Execution timeout in seconds (unused but '
+            'part of interface)\n'
+            '            mcp_url: MCP service URL\n'
+            '            rag_url: RAG service URL\n'
+            '            rag_api_key: RAG API key\n'
+            '\n'
+            '        Returns:\n'
+            '            AgentExecutionResponse: Execution response\n'
+            '\n'
+            '        Raises:\n'
+            '            AgentExecutionError: If agent execution fails\n'
+            '            TransformationError: If request/response '
+            'transformation fails\n'
+            '        '
+        )
         try:
             self.logger.debug(
                 "Building agent run request",
@@ -586,26 +683,32 @@ class AgentServiceClient:
         rag_url: Optional[str] = None,
         rag_api_key: Optional[str] = None,
     ) -> AgentExecutionResponse:
-        """Execute agent with streaming.
-
-        Args:
-            agent: Internal agent model
-            request: Agent execution request
-            auth_headers: Authentication headers (unused but part of interface)
-            workflow_events: Event emitter for workflow events
-            execution_id: Unique execution ID
-            timeout: Execution timeout in seconds (unused but part of interface)
-            mcp_url: MCP service URL
-            rag_url: RAG service URL
-            rag_api_key: RAG API key
-
-        Returns:
-            AgentExecutionResponse: Execution response with streaming metadata
-
-        Raises:
-            StreamingError: If streaming fails
-            TransformationError: If request/response transformation fails
-        """
+        (
+            'Execute agent with streaming.\n'
+            '\n'
+            '        Args:\n'
+            '            agent: Internal agent model\n'
+            '            request: Agent execution request\n'
+            '            auth_headers: Authentication headers (unused but '
+            'part of interface)\n'
+            '            workflow_events: Event emitter for workflow events\n'
+            '            execution_id: Unique execution ID\n'
+            '            timeout: Execution timeout in seconds (unused but '
+            'part of interface)\n'
+            '            mcp_url: MCP service URL\n'
+            '            rag_url: RAG service URL\n'
+            '            rag_api_key: RAG API key\n'
+            '\n'
+            '        Returns:\n'
+            '            AgentExecutionResponse: Execution response with '
+            'streaming metadata\n'
+            '\n'
+            '        Raises:\n'
+            '            StreamingError: If streaming fails\n'
+            '            TransformationError: If request/response '
+            'transformation fails\n'
+            '        '
+        )
         # Build run request
         try:
             self.logger.debug(
@@ -785,7 +888,11 @@ class AgentServiceClient:
         rag_api_key: Optional[str],
     ) -> AgentRunRequest:
         agent_config = self._build_agent_config(
-            agent, request, mcp_url=mcp_url, rag_url=rag_url, rag_api_key=rag_api_key
+            agent,
+            request,
+            mcp_url=mcp_url,
+            rag_url=rag_url,
+            rag_api_key=rag_api_key,
         )
         return AgentRunRequest(
             message=request.message,
@@ -811,7 +918,9 @@ class AgentServiceClient:
         override_config = request.config or {}
         combined_config = {**base_config, **override_config}
 
-        system_prompt = combined_config.get("system_prompt") or agent.instruction or ""
+        system_prompt = (
+            combined_config.get("system_prompt") or agent.instruction or ""
+        )
         temperature = combined_config.get("temperature")
         max_tokens = combined_config.get("max_tokens")
 
@@ -827,7 +936,9 @@ class AgentServiceClient:
         if rag_url and agent.collections:
             rag_config = RagConfig(
                 rag_url=rag_url,
-                collections=[str(collection.id) for collection in agent.collections],
+                collections=[
+                    str(collection.id) for collection in agent.collections
+                ],
                 api_key=rag_api_key,
             )
 
@@ -862,7 +973,8 @@ class AgentServiceClient:
                 project_id=str(getattr(agent, "project_id", None)),
             )
 
-        # Resolve provider credentials directly from the agent-side runtime data.
+        # Resolve provider credentials directly from the agent-side runtime
+        # data.
         provider_credentials = getattr(agent, "llm_provider_credentials", None)
 
         return AgentConfig(

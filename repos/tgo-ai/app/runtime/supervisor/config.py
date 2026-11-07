@@ -23,7 +23,10 @@ class QueryAnalysisSettings(BaseSettings):
     max_retries: int = Field(default=3, ge=0)
     retry_delay: float = Field(default=1.0, ge=0.1)
     system_prompt: str = Field(
-        default="You are an expert AI coordination system. Always respond with valid JSON only."
+        default=(
+            'You are an expert AI coordination system. Always respond with '
+            'valid JSON only.'
+        )
     )
     prompt_template: str = Field(default="unified_coordination")
     validate_response: bool = True

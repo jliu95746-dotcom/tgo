@@ -122,7 +122,8 @@ class ProjectAIConfigService:
             )
             synced.append(cfg)
         # upsert_config already commits; no additional commit required here
-        # Build and dispatch a single batch embedding sync for all updated projects
+        # Build and dispatch a single batch embedding sync for all updated
+        # projects
 
         embed_cfgs = await build_embedding_configs(self.db, synced)
         if embed_cfgs:

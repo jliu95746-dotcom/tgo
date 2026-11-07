@@ -1,4 +1,5 @@
-"""Durable call inventory and rate snapshots; never charge customer reply credits."""
+"Durable call inventory and rate snapshots; never charge customer reply \
+credits."
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -143,7 +144,8 @@ async def track_model_usage(
             try:
                 await save_finished(identifier, tracker, rate)
             except Exception as exc:
-                # The started row remains visible as incomplete, never a zero-cost success.
+                # The started row remains visible as incomplete, never a
+                # zero-cost success.
 
                 logger.error(
                     "Model usage completion could not persist",

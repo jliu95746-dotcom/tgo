@@ -37,7 +37,10 @@ class BuiltAgent:
 
 
 class AgnoAgentBuilder:
-    """Build a single runnable Agno agent from the resolved execution context."""
+    (
+        'Build a single runnable Agno agent from the resolved execution '
+        'context.'
+    )
 
     def __init__(
         self, settings_obj: Optional[ToolsRuntimeSettings] = None

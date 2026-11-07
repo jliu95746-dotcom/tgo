@@ -1,4 +1,5 @@
-"""Read trial evidence without creating runtime or expiring/committing reports."""
+"Read trial evidence without creating runtime or expiring/committing \
+reports."
 
 from uuid import UUID
 

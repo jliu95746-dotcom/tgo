@@ -1,4 +1,5 @@
-"""Platform cost estimates; these units never replace customer reply credits."""
+"Platform cost estimates; these units never replace customer reply \
+credits."
 
 from datetime import datetime
 from decimal import Decimal

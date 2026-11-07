@@ -132,7 +132,10 @@ class AgentConfig(BaseModel):
 
     ui_mode: Optional[str] = Field(
         default=None,
-        description="UI rendering mode: 'json_render' (json-render SpecStream protocol)",
+        description=(
+            "UI rendering mode: 'json_render' (json-render SpecStream "
+            'protocol)'
+        ),
     )
 
     provider_credentials: Optional[LLMProviderCredentials] = Field(

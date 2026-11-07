@@ -54,7 +54,10 @@ async def check_workflow_binding(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> WorkflowBindingCheckReceipt:
-    """Recheck a fixed employee binding immediately before workflow acceptance."""
+    (
+        'Recheck a fixed employee binding immediately before workflow '
+        'acceptance.'
+    )
     key = request.headers.get("X-Internal-API-Key", "")
     if not key or not hmac.compare_digest(key, settings.secret_key):
         raise HTTPException(403, "员工工作流核验只允许内部服务访问")

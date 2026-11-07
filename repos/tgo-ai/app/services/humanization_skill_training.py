@@ -111,7 +111,10 @@ class HumanizationTrainingStore:
                         )
                     ):
                         raise ValueError(
-                            "A delivery correction cannot be changed after capture"
+                            (
+                                'A delivery correction cannot be changed '
+                                'after capture'
+                            )
                         )
                     return len(existing)
             source_message_id = payload["source_message_id"]

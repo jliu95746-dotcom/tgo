@@ -313,7 +313,10 @@ class AgentActivationPolicyService:
         revision: int,
         selection: AgentActivationSelection | None,
     ) -> None:
-        """Flush in the caller's transaction; the draft owns commit/rollback."""
+        (
+            "Flush in the caller's transaction; the draft owns "
+            'commit/rollback.'
+        )
         await self._agent(project, agent_id)
         await lock_account_agents(self.db, project)
         rows = await self._rows(project, agent_id)

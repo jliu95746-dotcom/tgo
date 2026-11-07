@@ -30,7 +30,7 @@ class LLMModelService:
             stmt = stmt.where(LLMModel.model_type == model_type)
         if not include_inactive:
             stmt = stmt.where(LLMModel.is_active.is_(True))
-        
+
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -65,25 +65,27 @@ class LLMModelService:
             id = uuid.UUID(id)
         if isinstance(provider_id, str):
             provider_id = uuid.UUID(provider_id)
-            
+
         now = datetime.now(timezone.utc)
 
         # 1. Try to find by primary key ID first
         existing = await self.get_model_by_id(id)
-        
-        # 2. If not found by ID, try to find by (provider_id, model_id) to avoid unique constraint violation
+
+        # 2. If not found by ID, try to find by (provider_id, model_id) to
+        # avoid unique constraint violation
         if not existing:
             stmt = select(LLMModel).where(
                 LLMModel.provider_id == provider_id,
                 LLMModel.model_id == model_id,
-                LLMModel.deleted_at.is_(None)
+                LLMModel.deleted_at.is_(None),
             )
             result = await self.db.execute(stmt)
             existing = result.scalar_one_or_none()
 
         if existing:
             # Update in place
-            # If we found it by (provider_id, model_id) but the ID is different, 
+            # If we found it by (provider_id, model_id) but the ID is
+            # different,
             # we should keep the existing ID to avoid conflicts
             existing.provider_id = provider_id
             existing.model_id = model_id
@@ -125,10 +127,12 @@ class LLMModelService:
         models: Iterable[dict],
         commit: bool = True,
     ) -> List[LLMModel]:
-        """Bulk upsert models.
-        
-        Uses model ID as the primary key for upsert logic.
-        """
+        (
+            'Bulk upsert models.\n'
+            '        \n'
+            '        Uses model ID as the primary key for upsert logic.\n'
+            '        '
+        )
         synced: list[LLMModel] = []
         for payload in models:
             model = await self.upsert_model(

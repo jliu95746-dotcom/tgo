@@ -1,4 +1,5 @@
-"""Fresh private owner reads; no client-supplied customer identifiers are accepted."""
+"Fresh private owner reads; no client-supplied customer identifiers are \
+accepted."
 
 from datetime import UTC, datetime
 import hashlib

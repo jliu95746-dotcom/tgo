@@ -95,7 +95,10 @@ class AgentContentChunkData(BaseEventData):
 
 
 class AgentBusinessQueryLink(BaseModel):
-    """Server-owned query identifier for an execution trace, without payloads."""
+    (
+        'Server-owned query identifier for an execution trace, without '
+        'payloads.'
+    )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     tool_name: str = Field(min_length=1, max_length=200)
@@ -146,11 +149,16 @@ class JsonRenderUpdateData(BaseEventData):
 
     patches: List[Dict[str, Any]] = Field(
         ...,
-        description="Array of RFC 6902 JSON Patch lines for json-render SpecStream",
+        description=(
+            'Array of RFC 6902 JSON Patch lines for json-render SpecStream'
+        ),
     )
     text_content: Optional[str] = Field(
         default=None,
-        description="Optional conversational text emitted before the json-render delimiter",
+        description=(
+            'Optional conversational text emitted before the json-render '
+            'delimiter'
+        ),
     )
 
 

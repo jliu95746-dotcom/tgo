@@ -21,7 +21,10 @@ class SupervisorRunRequest(BaseSchema):
 
     agent_id: Optional[str] = Field(
         default=None,
-        description="UUID of the agent to execute. If omitted, the project default agent is used.",
+        description=(
+            'UUID of the agent to execute. If omitted, the project default '
+            'agent is used.'
+        ),
     )
     message: str = Field(
         description="User message to be processed by the agent",
@@ -30,7 +33,10 @@ class SupervisorRunRequest(BaseSchema):
     )
     system_message: Optional[str] = Field(
         default=None,
-        description="Optional system message appended after the stored agent instruction for this run",
+        description=(
+            'Optional system message appended after the stored agent '
+            'instruction for this run'
+        ),
     )
     expected_output: Optional[str] = Field(
         default=None,
@@ -75,31 +81,46 @@ class SupervisorRunRequest(BaseSchema):
     )
     knowledge_channel: Optional[KnowledgeChannel] = Field(
         default=None,
-        description="Channel used for fail-closed automatic-answer knowledge filtering",
+        description=(
+            'Channel used for fail-closed automatic-answer knowledge '
+            'filtering'
+        ),
     )
     enable_memory: Optional[bool] = Field(
         default=None,
         description=(
-            "Override conversational memory for this run. When omitted, the stored "
-            "agent setting is used."
+            (
+                'Override conversational memory for this run. When omitted, '
+                'the stored agent setting is used.'
+            )
         ),
     )
     expected_device_id: uuid.UUID | None = Field(
         default=None,
-        description="Require the resolved agent's device binding to match; never overrides the binding",
+        description=(
+            "Require the resolved agent's device binding to match; never "
+            'overrides the binding'
+        ),
     )
     expected_device_policy_digest: str | None = Field(
         default=None,
         pattern=r"^[0-9a-f]{64}$",
-        description="Require the resolved agent's verified device policy to match",
+        description=(
+            "Require the resolved agent's verified device policy to match"
+        ),
     )
     disable_tools: bool = Field(
         default=False,
-        description="Disable every RAG, workflow, MCP, and skill tool for this run",
+        description=(
+            'Disable every RAG, workflow, MCP, and skill tool for this run'
+        ),
     )
     knowledge_only: bool = Field(
         default=False,
-        description="Retrieve governed knowledge, then generate without actions or memory",
+        description=(
+            'Retrieve governed knowledge, then generate without actions or '
+            'memory'
+        ),
     )
     response_purpose: Literal["standard", "expression"] = "standard"
     require_current_knowledge: bool = False
@@ -150,7 +171,10 @@ class SupervisorRunRequest(BaseSchema):
             or self.ui_mode != "text"
         ):
             raise ValueError(
-                "Knowledge-only run requires governed, action-free non-streaming context"
+                (
+                    'Knowledge-only run requires governed, action-free '
+                    'non-streaming context'
+                )
             )
         return self
 

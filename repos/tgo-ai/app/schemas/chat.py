@@ -1,8 +1,7 @@
-"""OpenAI-compatible Chat Completions API schemas.
-
-These schemas are designed to be fully compatible with the OpenAI Chat Completions API,
-with the addition of provider_id for selecting LLM provider credentials.
-"""
+"OpenAI-compatible Chat Completions API schemas.\n\nThese schemas are \
+designed to be fully compatible with the OpenAI Chat Completions \
+API,\nwith the addition of provider_id for selecting LLM provider \
+credentials.\n"
 
 from __future__ import annotations
 
@@ -112,14 +111,18 @@ class ChatCompletionRequest(BaseModel):
 
     provider_id: uuid.UUID = Field(
         ...,
-        description="UUID of the LLM provider to use (from ai_llm_providers table)",
+        description=(
+            'UUID of the LLM provider to use (from ai_llm_providers table)'
+        ),
     )
 
     # Standard OpenAI parameters
 
     model: str = Field(
         ...,
-        description="Model identifier (e.g., 'gpt-4', 'claude-3-opus', 'gemini-pro')",
+        description=(
+            "Model identifier (e.g., 'gpt-4', 'claude-3-opus', 'gemini-pro')"
+        ),
     )
     messages: List[ChatMessage] = Field(
         ...,
@@ -198,7 +201,10 @@ class ChatCompletionRequest(BaseModel):
 
     tool_ids: Optional[List[uuid.UUID]] = Field(
         default=None,
-        description="Tool IDs to load from database (will be converted to function definitions)",
+        description=(
+            'Tool IDs to load from database (will be converted to function '
+            'definitions)'
+        ),
     )
     collection_ids: Optional[List[str]] = Field(
         default=None,
@@ -206,7 +212,9 @@ class ChatCompletionRequest(BaseModel):
     )
     knowledge_channel: Optional[KnowledgeChannel] = Field(
         default=None,
-        description="Channel used for fail-closed automatic-answer RAG filtering",
+        description=(
+            'Channel used for fail-closed automatic-answer RAG filtering'
+        ),
     )
     max_tool_rounds: Optional[int] = Field(
         default=5,
@@ -216,10 +224,14 @@ class ChatCompletionRequest(BaseModel):
     )
     auto_execute_tools: bool = Field(
         default=True,
-        description="Whether tgo-ai should auto-execute tool calls in an agentic loop. "
-        "When True (default), tgo-ai executes tool calls internally and continues the conversation. "
-        "When False, behaves like standard OpenAI API: returns the LLM response with tool_calls "
-        "as-is for the caller to handle tool execution externally.",
+        description=(
+            'Whether tgo-ai should auto-execute tool calls in an agentic '
+            'loop. When True (default), tgo-ai executes tool calls '
+            'internally and continues the conversation. When False, behaves '
+            'like standard OpenAI API: returns the LLM response with '
+            'tool_calls as-is for the caller to handle tool execution '
+            'externally.'
+        ),
     )
 
 

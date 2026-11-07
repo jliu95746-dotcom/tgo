@@ -51,7 +51,8 @@ class AgentBusinessPreparation:
         )
 
     async def _lock(self, project: UUID) -> None:
-        # Cancellation interrupts SQL advisory-lock waits too; the caller rolls back.
+        # Cancellation interrupts SQL advisory-lock waits too; the caller rolls
+        # back.
         async with asyncio.timeout(self.lock_seconds):
             await lock_account_agents(self.db, project)
 
@@ -209,7 +210,8 @@ class AgentBusinessPreparation:
         await self.trials._agent(project, agent)
         row = await self._find(project, actor, request)
         if row is None:
-            # Compatibility with a pre-upgrade report or a fixture that owns only a report.
+            # Compatibility with a pre-upgrade report or a fixture that owns
+            # only a report.
             original = await self.trials._row(
                 project, actor, agent, request=request
             )
@@ -340,7 +342,8 @@ class AgentBusinessPreparation:
                 if isinstance(error, asyncio.CancelledError)
                 else "preparation_failed"
             )
-            # A cancelled transaction expires ORM attributes; keep the row identity usable.
+            # A cancelled transaction expires ORM attributes; keep the row
+            # identity usable.
             persisted = await self._find(project, actor, request.request_id)
             if persisted is not None:
                 await self._terminate(persisted, category)

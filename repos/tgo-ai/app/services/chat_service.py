@@ -135,7 +135,10 @@ class ChatService:
         request: ChatCompletionRequest,
         project_id: uuid.UUID,
     ) -> ChatCompletionResponse:
-        """Create a non-streaming chat completion with optional agentic loop."""
+        (
+            'Create a non-streaming chat completion with optional agentic '
+            'loop.'
+        )
         request = constrain_chat(request)
         provider = await self._get_provider(request.provider_id, project_id)
         provider_kind = (provider.provider_kind or "").lower()
@@ -173,7 +176,8 @@ class ChatService:
                 return await self._google_completion(request, provider)
             else:
                 raise UnsupportedProviderError(provider_kind)
-        # auto_execute_tools=True: run agentic loop with internal tool execution
+        # auto_execute_tools=True: run agentic loop with internal tool
+        # execution
         # Create tool executor and register tools
 
         executor = ToolExecutor(self.db, project_id)
@@ -351,7 +355,8 @@ class ChatService:
             finally:
                 await close_provider_stream(stream_gen)
             return
-        # auto_execute_tools=True: run agentic loop with internal tool execution
+        # auto_execute_tools=True: run agentic loop with internal tool
+        # execution
         # Create tool executor
 
         executor = ToolExecutor(self.db, project_id)
@@ -421,7 +426,15 @@ class ChatService:
             )
 
             for tc in final_tool_calls:
-                yield f"data: {json.dumps({'type': 'tool_call', 'tool_call': tc.model_dump()}, ensure_ascii=False)}\n\n"
+                yield (
+                    f'data: '
+                    f"""{json.dumps(
+                        {'type': 'tool_call', 'tool_call': tc.model_dump()},
+                        ensure_ascii=False,
+                    )}"""
+                    f'\n'
+                    f'\n'
+                )
             execution_tasks = [
                 executor.execute(item.name, item.arguments)
                 for item in prepared
@@ -570,7 +583,10 @@ class ChatService:
         collection_ids: List[str],
         project_id: uuid.UUID,
     ) -> List[ToolDefinition]:
-        """Fetch collection info from RAG service and create RAG tool definitions."""
+        (
+            'Fetch collection info from RAG service and create RAG tool '
+            'definitions.'
+        )
         if not collection_ids:
             return []
         tool_defs = []
@@ -601,13 +617,18 @@ class ChatService:
                         type="function",
                         function=FunctionDefinition(
                             name=tool_name,
-                            description=f"{description} (Semantically similar search)",
+                            description=(
+                                f'{description}'
+                                f' (Semantically similar search)'
+                            ),
                             parameters={
                                 "type": "object",
                                 "properties": {
                                     "query": {
                                         "type": "string",
-                                        "description": "Natural language search query",
+                                        "description": (
+                                            'Natural language search query'
+                                        ),
                                     }
                                 },
                                 "required": ["query"],
@@ -629,13 +650,19 @@ class ChatService:
                         type="function",
                         function=FunctionDefinition(
                             name=tool_name,
-                            description=f"Search in collection {cid} (Semantically similar search)",
+                            description=(
+                                f'Search in collection '
+                                f'{cid}'
+                                f' (Semantically similar search)'
+                            ),
                             parameters={
                                 "type": "object",
                                 "properties": {
                                     "query": {
                                         "type": "string",
-                                        "description": "Natural language search query",
+                                        "description": (
+                                            'Natural language search query'
+                                        ),
                                     }
                                 },
                                 "required": ["query"],
@@ -772,7 +799,17 @@ class ChatService:
                 "OpenAI streaming failed",
                 error_type=type(exc).__name__,
             )
-            yield f"data: {json.dumps({'error': {'message': 'OpenAI streaming failed', 'type': 'api_error'}})}\n\n"
+            yield (
+                f'data: '
+                f"""{json.dumps(
+                    {'error': {
+                        'message': 'OpenAI streaming failed',
+                        'type': 'api_error',
+                    }}
+                )}"""
+                f'\n'
+                f'\n'
+            )
 
     def _convert_openai_tool_calls(
         self, openai_tool_calls: Optional[List[Any]]

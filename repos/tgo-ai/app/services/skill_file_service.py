@@ -1,21 +1,11 @@
-"""File-system-based skill CRUD service.
-
-Each skill is a directory containing a SKILL.md file (with YAML frontmatter)
-plus optional ``scripts/`` and ``references/`` sub-directories.
-
-Directory layout::
-
-    {base_dir}/
-    ├── _official/          # Global read-only skills shared across all projects
-    │   └── code-review/
-    │       └── SKILL.md
-    ├── {project_id}/       # Project-private skills
-    │   └── my-skill/
-    │       ├── SKILL.md
-    │       ├── scripts/
-    │       └── references/
-    └── ...
-"""
+"File-system-based skill CRUD service.\n\nEach skill is a directory \
+containing a SKILL.md file (with YAML frontmatter)\nplus optional \
+``scripts/`` and ``references/`` sub-directories.\n\nDirectory \
+layout::\n\n    {base_dir}/\n    ├── _official/          # Global \
+read-only skills shared across all projects\n    │   └── code-review/\n \
+   │       └── SKILL.md\n    ├── {project_id}/       # Project-private \
+skills\n    │   └── my-skill/\n    │       ├── SKILL.md\n    │       \
+├── scripts/\n    │       └── references/\n    └── ...\n"
 
 from __future__ import annotations
 
@@ -95,7 +85,12 @@ def _validate_skill_name(name: str) -> str:
     """
     if len(name) < 2 or len(name) > _MAX_SKILL_NAME_LEN:
         raise ValueError(
-            f"Skill name must be 2-{_MAX_SKILL_NAME_LEN} characters, got {len(name)}"
+            (
+                f'Skill name must be 2-'
+                f'{_MAX_SKILL_NAME_LEN}'
+                f' characters, got '
+                f'{len(name)}'
+            )
         )
     if not _SKILL_NAME_RE.match(name):
         raise ValueError(
@@ -164,7 +159,10 @@ class SkillFileService:
         return self.base_dir / project_id
 
     def _skill_dir(self, project_id: str, skill_name: str) -> Path:
-        """Return the path for a *project-private* skill, with traversal check."""
+        (
+            'Return the path for a *project-private* skill, with traversal '
+            'check.'
+        )
         safe_name = _validate_skill_name(skill_name)
         path = self._project_dir(project_id) / safe_name
         # Prevent directory-traversal attacks
@@ -437,7 +435,8 @@ class SkillFileService:
         skill_name: str,
         data: TrainingPublishRequest,
     ) -> HumanizationTrainingApplyResponse:
-        # Snapshot check and release replacement are serialized in this service.
+        # Snapshot check and release replacement are serialized in this
+        # service.
 
         with _RELEASE_LOCK:
             review = await self.review_humanization_training(

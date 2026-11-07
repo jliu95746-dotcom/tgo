@@ -1,4 +1,5 @@
-"""Keep bindings with different transports or credentials in separate sessions."""
+"Keep bindings with different transports or credentials in separate \
+sessions."
 
 from app.models.internal import AgentTool
 from app.schemas.mcp_connection import mcp_connection_headers

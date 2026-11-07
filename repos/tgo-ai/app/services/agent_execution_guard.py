@@ -1,4 +1,5 @@
-"""Recheck a managed employee for the server-authenticated execution channel."""
+"Recheck a managed employee for the server-authenticated execution \
+channel."
 
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -44,7 +45,8 @@ class AgentExecutionGuard:
     async def _runtime(
         self, project: UUID, actor: UUID, agent_id: UUID
     ) -> Agent:
-        # Keep imports deferred: the runtime adapter also owns legacy conversion.
+        # Keep imports deferred: the runtime adapter also owns legacy
+        # conversion.
         from app.runtime.supervisor.infrastructure.services import (
             AIServiceClient,
         )
@@ -118,7 +120,8 @@ class AgentExecutionGuard:
             if business:
                 raise AuthorizationError("业务连接需要先配置岗位和服务渠道，并完成正式执行核验")
             # Pre-policy employees retain their existing runtime constraints.
-            # Any retained policy history, including removal, takes the checked path.
+            # Any retained policy history, including removal, takes the checked
+            # path.
             return loaded
         if channel is None:
             raise AuthorizationError("员工执行渠道必须由业务服务确认")

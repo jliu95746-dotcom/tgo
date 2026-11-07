@@ -1,4 +1,5 @@
-"""Private model-call accounting, separate from the API's customer credit ledger."""
+"Private model-call accounting, separate from the API's customer credit \
+ledger."
 
 from datetime import datetime
 from decimal import Decimal

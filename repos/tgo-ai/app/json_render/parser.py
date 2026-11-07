@@ -1,4 +1,5 @@
-"""Parse mixed LLM output (text + ```spec JSONL blocks) into json-render patches."""
+"Parse mixed LLM output (text + ```spec JSONL blocks) into json-render \
+patches."
 
 from __future__ import annotations
 

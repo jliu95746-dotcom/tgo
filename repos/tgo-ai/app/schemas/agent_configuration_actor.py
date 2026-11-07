@@ -1,4 +1,5 @@
-"""Private, current configuration permissions independent of model/template availability."""
+"Private, current configuration permissions independent of \
+model/template availability."
 from datetime import datetime
 from typing import Literal
 from uuid import UUID

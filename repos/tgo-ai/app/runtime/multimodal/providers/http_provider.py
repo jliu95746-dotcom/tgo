@@ -1,4 +1,5 @@
-"""Bounded OpenAI-compatible media calls; never fetch customer-supplied URLs."""
+"Bounded OpenAI-compatible media calls; never fetch customer-supplied \
+URLs."
 
 from __future__ import annotations
 
@@ -147,7 +148,10 @@ def completion_text(raw: bytes, error_message: str) -> str:
 
 
 class HTTPMediaProvider:
-    """One explicitly selected model and immutable, already-loaded media object."""
+    (
+        'One explicitly selected model and immutable, already-loaded media '
+        'object.'
+    )
 
     def __init__(
         self,
@@ -306,7 +310,8 @@ class HTTPMediaProvider:
             raise ProviderExecutionError("语音模型没有返回有效转写") from exc
 
     async def _transcribe_qwen(self, request: ASRRequest) -> ASROutput:
-        # Qwen-ASR accepts audio inside Chat Completions, not Whisper multipart.
+        # Qwen-ASR accepts audio inside Chat Completions, not Whisper
+        # multipart.
 
         encoded = base64.b64encode(self._media.content).decode("ascii")
         if len(encoded) > MAX_MEDIA_BYTES:

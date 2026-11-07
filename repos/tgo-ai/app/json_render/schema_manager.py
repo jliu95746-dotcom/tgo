@@ -91,69 +91,104 @@ class JsonRenderSchemaManager:
         return "\n\n".join(parts)
 
 
-_JSON_RENDER_PROTOCOL_INSTRUCTIONS = f"""\
-## json-render Response Protocol
-
-When generating rich UI you MUST follow these rules:
-
-1. First write conversational text.
-2. Then output JSONL SpecStream patch lines inside a fenced block:
-   - opening fence: {JSON_RENDER_SPEC_FENCE_OPEN}
-   - closing fence: {JSON_RENDER_SPEC_FENCE_CLOSE}
-3. Inside the fence, each line MUST be a single RFC 6902 patch object.
-4. Patches MUST build a **complete, self-contained** json-render spec. Each message's spec is rendered independently — there is NO cross-message state. You MUST always include:
-   - `root`: string (REQUIRED — the spec will not render without it)
-   - `elements`: object map of element definitions
-   - optional `state`: object
-   **NEVER emit incremental patches** that assume a previous message's spec still exists. Always output the full spec.
-5. Each element MUST contain:
-   - `type`: component name
-   - `props`: object
-   - optional `children`: string[]
-   - optional `on`: event-action bindings
-6. Use RFC 6902 operations: `add`, `replace`, `remove`, `move`, `copy`, `test`.
-7. For interactive controls (button/form), bind events through `on` with action names and params.
-8. Prefer structured components over plain text dumps:
-   - key/value rows: `KV` or `PriceRow`
-   - grouped blocks: `Section`
-   - status and tags: `Badge`
-   - action area: `ButtonGroup`
-9. For order/invoice scenarios, strongly prefer this composition:
-   - root `Card` with `variant: "order"`
-   - header row with order id + status `Badge`
-   - `Section` blocks for shipping, items, and payment
-   - each line item uses `OrderItem`
-   - totals use `PriceRow`; payable/total amount should set `emphasis=true`
-   - action buttons are grouped in `ButtonGroup`
-10. Available component types include:
-   `Card`, `Column`, `Row`, `Text`, `Divider`, `Image`, `Button`, `ButtonGroup`,
-   `Section`, `KV`, `PriceRow`, `Badge`, `OrderItem`,
-   `Input`/`TextField`, `Checkbox`/`CheckBox`, `DateTimeInput`, `MultipleChoice`.
-11. If you cannot produce valid SpecStream patches, return plain text only and DO NOT emit a spec fence.
-12. For form scenarios:
-   - Define initial form values in `state`: `"state": {{ "form": {{ "name": "", "phone": "" }} }}`
-   - Bind input values with `{{ "$bindState": "/form/fieldName" }}` on the `value` prop
-   - **Selection/toggle/filter buttons MUST use the built-in `setState` action** to update local state, e.g.:
-     `"on": {{ "press": {{ "action": "setState", "params": {{ "statePath": "/form/date", "value": "today" }} }} }}`
-   - Only the final submit/search/confirm button should use a custom action name, e.g.:
-     `"on": {{ "press": {{ "action": "searchTrains" }} }}`
-   - User's form input values are automatically collected and sent with the submit action
-13. Built-in actions (setState, pushState, removeState, validateForm) are handled client-side.
-    Do NOT use these as business action names.
-14. Conditional / dynamic prop values — use the `$cond`/`$then`/`$else` expression:
-   `{{ "$cond": {{ "$state": "/form/trainType", "eq": "G" }}, "$then": "primary", "$else": "secondary" }}`
-   Condition operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`; add `"not": true` to negate.
-   Read state: `{{ "$state": "/path" }}` in conditions, `{{ "$bindState": "/path" }}` for two-way binding on Input value.
-   **NEVER use `$if` or `$eq` as expression keys** — they are NOT supported.
-   Full example for a toggle-style filter button:
-   ```
-   {{ "type": "Button", "props": {{ "label": "高铁", "variant": {{ "$cond": {{ "$state": "/form/trainType", "eq": "G" }}, "$then": "primary", "$else": "secondary" }} }}, "on": {{ "press": {{ "action": "setState", "params": {{ "statePath": "/form/trainType", "value": "G" }} }} }} }}
-   ```
-15. Component prop conventions — all form components bind via the `value` prop:
-   - `Input`/`TextField`: `{{ "value": {{ "$bindState": "/form/field" }} }}`
-   - `Checkbox`/`CheckBox`: `{{ "value": {{ "$bindState": "/form/flag" }} }}` (boolean)
-   - `DateTimeInput`: `{{ "value": {{ "$bindState": "/form/date" }} }}`
-   - `MultipleChoice`: single-select dropdown. Use `value` prop (NOT `selectedValues` or `selectedValue`).
-     State must be a string, NOT an array. Example:
-     `{{ "type": "MultipleChoice", "props": {{ "label": "类型", "options": [...], "value": {{ "$bindState": "/form/type" }} }} }}`
-"""
+_JSON_RENDER_PROTOCOL_INSTRUCTIONS = (
+    f'## json-render Response Protocol\n'
+    f'\n'
+    f'When generating rich UI you MUST follow these rules:\n'
+    f'\n'
+    f'1. First write conversational text.\n'
+    f'2. Then output JSONL SpecStream patch lines inside a fenced block:\n'
+    f'   - opening fence: '
+    f'{JSON_RENDER_SPEC_FENCE_OPEN}'
+    f'\n'
+    f'   - closing fence: '
+    f'{JSON_RENDER_SPEC_FENCE_CLOSE}'
+    f'\n'
+    f'3. Inside the fence, each line MUST be a single RFC 6902 patch object.\n'
+    f'4. Patches MUST build a **complete, self-contained** json-render spec. '
+    f"Each message's spec is rendered independently — there is NO "
+    f'cross-message state. You MUST always include:\n'
+    f'   - `root`: string (REQUIRED — the spec will not render without it)\n'
+    f'   - `elements`: object map of element definitions\n'
+    f'   - optional `state`: object\n'
+    f"   **NEVER emit incremental patches** that assume a previous message's "
+    f'spec still exists. Always output the full spec.\n'
+    f'5. Each element MUST contain:\n'
+    f'   - `type`: component name\n'
+    f'   - `props`: object\n'
+    f'   - optional `children`: string[]\n'
+    f'   - optional `on`: event-action bindings\n'
+    f'6. Use RFC 6902 operations: `add`, `replace`, `remove`, `move`, `copy`, '
+    f'`test`.\n'
+    f'7. For interactive controls (button/form), bind events through `on` '
+    f'with action names and params.\n'
+    f'8. Prefer structured components over plain text dumps:\n'
+    f'   - key/value rows: `KV` or `PriceRow`\n'
+    f'   - grouped blocks: `Section`\n'
+    f'   - status and tags: `Badge`\n'
+    f'   - action area: `ButtonGroup`\n'
+    f'9. For order/invoice scenarios, strongly prefer this composition:\n'
+    f'   - root `Card` with `variant: "order"`\n'
+    f'   - header row with order id + status `Badge`\n'
+    f'   - `Section` blocks for shipping, items, and payment\n'
+    f'   - each line item uses `OrderItem`\n'
+    f'   - totals use `PriceRow`; payable/total amount should set '
+    f'`emphasis=true`\n'
+    f'   - action buttons are grouped in `ButtonGroup`\n'
+    f'10. Available component types include:\n'
+    f'   `Card`, `Column`, `Row`, `Text`, `Divider`, `Image`, `Button`, '
+    f'`ButtonGroup`,\n'
+    f'   `Section`, `KV`, `PriceRow`, `Badge`, `OrderItem`,\n'
+    f'   `Input`/`TextField`, `Checkbox`/`CheckBox`, `DateTimeInput`, '
+    f'`MultipleChoice`.\n'
+    f'11. If you cannot produce valid SpecStream patches, return plain text '
+    f'only and DO NOT emit a spec fence.\n'
+    f'12. For form scenarios:\n'
+    f'   - Define initial form values in `state`: `"state": {{ "form": {{ '
+    f'"name": "", "phone": "" }} }}`\n'
+    f'   - Bind input values with `{{ "$bindState": "/form/fieldName" }}` on '
+    f'the `value` prop\n'
+    f'   - **Selection/toggle/filter buttons MUST use the built-in `setState` '
+    f'action** to update local state, e.g.:\n'
+    f'     `"on": {{ "press": {{ "action": "setState", "params": {{ '
+    f'"statePath": "/form/date", "value": "today" }} }} }}`\n'
+    f'   - Only the final submit/search/confirm button should use a custom '
+    f'action name, e.g.:\n'
+    f'     `"on": {{ "press": {{ "action": "searchTrains" }} }}`\n'
+    f"   - User's form input values are automatically collected and sent with "
+    f'the submit action\n'
+    f'13. Built-in actions (setState, pushState, removeState, validateForm) '
+    f'are handled client-side.\n'
+    f'    Do NOT use these as business action names.\n'
+    f'14. Conditional / dynamic prop values — use the `$cond`/`$then`/`$else` '
+    f'expression:\n'
+    f'   `{{ "$cond": {{ "$state": "/form/trainType", "eq": "G" }}, "$then": '
+    f'"primary", "$else": "secondary" }}`\n'
+    f'   Condition operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`; add '
+    f'`"not": true` to negate.\n'
+    f'   Read state: `{{ "$state": "/path" }}` in conditions, `{{ '
+    f'"$bindState": "/path" }}` for two-way binding on Input value.\n'
+    f'   **NEVER use `$if` or `$eq` as expression keys** — they are NOT '
+    f'supported.\n'
+    f'   Full example for a toggle-style filter button:\n'
+    f'   ```\n'
+    f'   {{ "type": "Button", "props": {{ "label": "高铁", "variant": {{ '
+    f'"$cond": {{ "$state": "/form/trainType", "eq": "G" }}, "$then": '
+    f'"primary", "$else": "secondary" }} }}, "on": {{ "press": {{ "action": '
+    f'"setState", "params": {{ "statePath": "/form/trainType", "value": "G" '
+    f'}} }} }} }}\n'
+    f'   ```\n'
+    f'15. Component prop conventions — all form components bind via the '
+    f'`value` prop:\n'
+    f'   - `Input`/`TextField`: `{{ "value": {{ "$bindState": "/form/field" '
+    f'}} }}`\n'
+    f'   - `Checkbox`/`CheckBox`: `{{ "value": {{ "$bindState": "/form/flag" '
+    f'}} }}` (boolean)\n'
+    f'   - `DateTimeInput`: `{{ "value": {{ "$bindState": "/form/date" }} '
+    f'}}`\n'
+    f'   - `MultipleChoice`: single-select dropdown. Use `value` prop (NOT '
+    f'`selectedValues` or `selectedValue`).\n'
+    f'     State must be a string, NOT an array. Example:\n'
+    f'     `{{ "type": "MultipleChoice", "props": {{ "label": "类型", '
+    f'"options": [...], "value": {{ "$bindState": "/form/type" }} }} }}`\n'
+)

@@ -1,4 +1,5 @@
-"""Require fresh owner definitions and all channel evidence for this employee."""
+"Require fresh owner definitions and all channel evidence for this \
+employee."
 
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -100,7 +101,9 @@ class AgentActivationReadinessService:
         knowledge: KnowledgeReader | None = None,
         business: BusinessReader | None = None,
         scripts: ScriptDefinitionReader | None = None,
-        runtime: RuntimeReader = api_service_client.get_business_runtime_readiness,
+        runtime: RuntimeReader = (
+            api_service_client.get_business_runtime_readiness
+        ),
     ) -> None:
         self.db, self.policies = db, AgentActivationPolicyService(db, owner)
         self.configuration = configuration_reader or self._configuration
@@ -134,7 +137,8 @@ class AgentActivationReadinessService:
     async def _configuration(
         self, project: UUID, actor: UUID, agent: UUID
     ) -> RuntimeAgent:
-        # A retained SQLAlchemy identity map must not mask another request's edits.
+        # A retained SQLAlchemy identity map must not mask another request's
+        # edits.
         await self.policies._agent(project, agent)
         async with AIServiceClient(AgentService(self.db), project) as reader:
             return await reader.get_trial_agent(
@@ -230,7 +234,10 @@ class AgentActivationReadinessService:
         business: AgentBusinessCapabilities | None,
         kind: Literal["logistics", "aftersales"],
     ) -> bool:
-        """Match fixed scenario graphs against current owner and business evidence."""
+        (
+            'Match fixed scenario graphs against current owner and business '
+            'evidence.'
+        )
         rows = list(
             (
                 await self.db.scalars(

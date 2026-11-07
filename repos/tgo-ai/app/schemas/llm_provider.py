@@ -119,7 +119,9 @@ class LLMProviderSyncRequest(BaseModel):
                     "providers": [
                         {
                             "id": "11111111-1111-1111-1111-111111111111",
-                            "project_id": "00000000-0000-0000-0000-000000000000",
+                            "project_id": (
+                                '00000000-0000-0000-0000-000000000000'
+                            ),
                             "alias": "openai-prod",
                             "provider_kind": "openai",
                             "vendor": "openai",
@@ -127,7 +129,9 @@ class LLMProviderSyncRequest(BaseModel):
                         },
                         {
                             "id": "22222222-2222-2222-2222-222222222222",
-                            "project_id": "00000000-0000-0000-0000-000000000000",
+                            "project_id": (
+                                '00000000-0000-0000-0000-000000000000'
+                            ),
                             "alias": "deepseek",
                             "provider_kind": "openai_compatible",
                             "vendor": "deepseek",

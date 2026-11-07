@@ -52,7 +52,15 @@ class Collection(BaseModel):
     )
 
     def __repr__(self) -> str:
-        return f"<Collection(id={self.id}, project_id={self.project_id}, name='{self.name}')>"
+        return (
+            f'<Collection(id='
+            f'{self.id}'
+            f', project_id='
+            f'{self.project_id}'
+            f", name='"
+            f'{self.name}'
+            f"')>"
+        )
 
 
 class AgentCollection(BaseModel):
@@ -76,7 +84,9 @@ class AgentCollection(BaseModel):
     collection_id: Mapped[str] = mapped_column(
         String(36),  # UUID string length
         nullable=False,
-        comment="Collection ID (UUID string) - references external RAG service",
+        comment=(
+            'Collection ID (UUID string) - references external RAG service'
+        ),
     )
 
     enabled: Mapped[bool] = mapped_column(
@@ -95,4 +105,12 @@ class AgentCollection(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the agent collection relationship."""
-        return f"<AgentCollection(agent_id={self.agent_id}, collection_id='{self.collection_id}', enabled={self.enabled})>"
+        return (
+            f'<AgentCollection(agent_id='
+            f'{self.agent_id}'
+            f", collection_id='"
+            f'{self.collection_id}'
+            f"', enabled="
+            f'{self.enabled}'
+            f')>'
+        )

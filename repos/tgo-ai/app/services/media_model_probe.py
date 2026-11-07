@@ -1,4 +1,5 @@
-"""Run one selected model without changing project defaults or storing media."""
+"Run one selected model without changing project defaults or storing \
+media."
 import hashlib
 import uuid
 
@@ -49,7 +50,8 @@ async def probe_media_model(
         media = validate_media_content(
             request, content, max_bytes=MAX_PROBE_BYTES
         )
-        # Transient selection only: never attach to the session or save defaults.
+        # Transient selection only: never attach to the session or save
+        # defaults.
 
         selection = ProjectAIConfig(project_id=project_id)
         setattr(

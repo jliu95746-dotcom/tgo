@@ -1,11 +1,9 @@
-"""Project-level default AI model configuration (synced from tgo-api).
-
-This table stores per-project default chat, embedding, and multimodal model selections.
-Design notes:
-- Primary key is project_id (UUID)
-- No foreign key constraints to ai_projects or ai_llm_providers (sync order independent)
-- Only created_at / updated_at timestamps (no soft delete by default)
-"""
+"Project-level default AI model configuration (synced from \
+tgo-api).\n\nThis table stores per-project default chat, embedding, and \
+multimodal model selections.\nDesign notes:\n- Primary key is \
+project_id (UUID)\n- No foreign key constraints to ai_projects or \
+ai_llm_providers (sync order independent)\n- Only created_at / \
+updated_at timestamps (no soft delete by default)\n"
 
 from __future__ import annotations
 
@@ -21,7 +19,10 @@ from app.models.base import BaseModel
 
 
 class _BaseNoId(DeclarativeBase):
-    """Declarative base bound to the shared BaseModel metadata without id mixin."""
+    (
+        'Declarative base bound to the shared BaseModel metadata without id '
+        'mixin.'
+    )
 
     metadata = BaseModel.metadata
 
@@ -29,7 +30,8 @@ class _BaseNoId(DeclarativeBase):
 class ProjectAIConfig(_BaseNoId):
     __tablename__ = "ai_project_ai_configs"
 
-    # Primary key - references project but does NOT enforce foreign key constraint
+    # Primary key - references project but does NOT enforce foreign key
+    # constraint
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -125,10 +127,27 @@ class ProjectAIConfig(_BaseNoId):
 
     def __repr__(self) -> str:
         return (
-            f"<ProjectAIConfig(project_id={self.project_id}, "
-            f"chat={self.default_chat_provider_id}:{self.default_chat_model}, "
-            f"embedding={self.default_embedding_provider_id}:{self.default_embedding_model}, "
-            f"asr={self.default_asr_provider_id}:{self.default_asr_model}, "
-            f"ocr={self.default_ocr_provider_id}:{self.default_ocr_model}, "
-            f"vlm={self.default_vlm_provider_id}:{self.default_vlm_model})>"
+            f'<ProjectAIConfig(project_id='
+            f'{self.project_id}'
+            f', chat='
+            f'{self.default_chat_provider_id}'
+            f':'
+            f'{self.default_chat_model}'
+            f', embedding='
+            f'{self.default_embedding_provider_id}'
+            f':'
+            f'{self.default_embedding_model}'
+            f', asr='
+            f'{self.default_asr_provider_id}'
+            f':'
+            f'{self.default_asr_model}'
+            f', ocr='
+            f'{self.default_ocr_provider_id}'
+            f':'
+            f'{self.default_ocr_model}'
+            f', vlm='
+            f'{self.default_vlm_provider_id}'
+            f':'
+            f'{self.default_vlm_model}'
+            f')>'
         )

@@ -97,19 +97,26 @@ class EventClient:
         *,
         error_messages: Dict[str, str],
     ) -> EventResult:
-        """Post an event to API Service.
-
-        Args:
-            event_type: Event type (e.g., "visitor_info.update")
-            payload: Event payload data
-            error_messages: Dict with keys 'not_configured', 'http_error', 'unexpected_error', 'api_error'
-
-        Returns:
-            EventResult with success status and message
-        """
+        (
+            'Post an event to API Service.\n'
+            '\n'
+            '        Args:\n'
+            '            event_type: Event type (e.g., '
+            '"visitor_info.update")\n'
+            '            payload: Event payload data\n'
+            "            error_messages: Dict with keys 'not_configured', "
+            "'http_error', 'unexpected_error', 'api_error'\n"
+            '\n'
+            '        Returns:\n'
+            '            EventResult with success status and message\n'
+            '        '
+        )
         if not self.is_configured:
             logger.warning(
-                "Internal API address or service key is unavailable; skipping event call",
+                (
+                    'Internal API address or service key is unavailable; '
+                    'skipping event call'
+                ),
                 extra={
                     "agent_id": self.ctx.agent_id,
                     "session_id": self.ctx.session_id,

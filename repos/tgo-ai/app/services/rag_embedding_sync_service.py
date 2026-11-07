@@ -1,14 +1,12 @@
-"""Embedding configuration sync from tgo-ai to tgo-rag with retry.
-
-This service builds payloads from ProjectAIConfig + LLMProvider and dispatches
-batch sync requests to the RAG service using app.services.rag_service.
-
-Design notes:
-- We build all payloads up-front using the current DB session.
-- Network dispatch happens in a background task and does NOT reuse the request's DB session.
-- Retries use exponential backoff (1s, 2s, 4s by default) and swallow errors with logging.
-- Sync status fields on ProjectAIConfig are updated to reflect pending/success/failed and attempts.
-"""
+"Embedding configuration sync from tgo-ai to tgo-rag with retry.\n\nThis \
+service builds payloads from ProjectAIConfig + LLMProvider and \
+dispatches\nbatch sync requests to the RAG service using \
+app.services.rag_service.\n\nDesign notes:\n- We build all payloads \
+up-front using the current DB session.\n- Network dispatch happens in a \
+background task and does NOT reuse the request's DB session.\n- Retries \
+use exponential backoff (1s, 2s, 4s by default) and swallow errors with \
+logging.\n- Sync status fields on ProjectAIConfig are updated to \
+reflect pending/success/failed and attempts.\n"
 from __future__ import annotations
 
 import asyncio
@@ -44,7 +42,9 @@ _OPENAI_COMPATIBLE_KINDS = {
 _DASHSCOPE_VENDORS = {"ali", "aliyun", "dashscope", "qwen", "qwen3"}
 
 
-def _map_provider_for_rag(provider_kind: str, vendor: Optional[str]) -> Optional[str]:
+def _map_provider_for_rag(
+    provider_kind: str, vendor: Optional[str]
+) -> Optional[str]:
     """Map internal provider_kind/vendor to RAG "provider" enum.
 
     DashScope is synchronized by tgo-api as an OpenAI-compatible provider with
@@ -77,19 +77,26 @@ async def build_embedding_configs(
     """
     payloads: List[EmbeddingConfigCreate] = []
     for cfg in cfgs:
-        if not cfg.default_embedding_provider_id or not cfg.default_embedding_model:
+        if (
+            not cfg.default_embedding_provider_id
+            or not cfg.default_embedding_model
+        ):
             # Nothing to sync for this project
             continue
 
         # Fetch provider credentials by ID
-        stmt = select(LLMProvider).where(LLMProvider.id == cfg.default_embedding_provider_id)
+        stmt = select(LLMProvider).where(
+            LLMProvider.id == cfg.default_embedding_provider_id
+        )
         res = await db.execute(stmt)
         provider: Optional[LLMProvider] = res.scalar_one_or_none()
         if not provider or not provider.is_active:
             logger.warning(
                 "Embedding sync skipped: provider missing or inactive",
                 project_id=str(cfg.project_id),
-                provider_id=str(cfg.default_embedding_provider_id) if cfg.default_embedding_provider_id else None,
+                provider_id=str(cfg.default_embedding_provider_id)
+                if cfg.default_embedding_provider_id
+                else None,
             )
             continue
 
@@ -135,7 +142,9 @@ async def dispatch_to_rag_with_retry(
     Swallows exceptions and logs them to avoid crashing background tasks.
     """
     if not configs:
-        return EmbeddingConfigBatchSyncResponse(success_count=0, failed_count=0, errors=[])
+        return EmbeddingConfigBatchSyncResponse(
+            success_count=0, failed_count=0, errors=[]
+        )
 
     # Network-only dispatch; used by background runner which manages DB updates
     attempt = 0
@@ -151,7 +160,9 @@ async def dispatch_to_rag_with_retry(
                 failed_count=resp.failed_count,
             )
             return resp
-        except Exception as e:  # noqa: BLE001 - intentional broad catch in background
+        except (
+            Exception
+        ) as e:  # noqa: BLE001 - intentional broad catch in background
             attempt += 1
             if attempt >= max_retries:
                 logger.error(
@@ -170,26 +181,38 @@ async def dispatch_to_rag_with_retry(
             await asyncio.sleep(delay)
 
 
-def fire_and_forget_embedding_sync(configs: List[EmbeddingConfigCreate]) -> None:
-    """Schedule background sync with retry; never raises to caller.
-
-    Also updates ProjectAIConfig.sync_* fields to reflect lifecycle:
-    - Mark as pending on start (do NOT reset attempt counter; it accumulates across cycles)
-    - Increment attempts on each retry
-    - Mark success with last_sync_at timestamp
-    - Mark failed with last error after exhausting retries
-    """
+def fire_and_forget_embedding_sync(
+    configs: List[EmbeddingConfigCreate],
+) -> None:
+    (
+        'Schedule background sync with retry; never raises to caller.\n'
+        '\n'
+        '    Also updates ProjectAIConfig.sync_* fields to reflect '
+        'lifecycle:\n'
+        '    - Mark as pending on start (do NOT reset attempt counter; it '
+        'accumulates across cycles)\n'
+        '    - Increment attempts on each retry\n'
+        '    - Mark success with last_sync_at timestamp\n'
+        '    - Mark failed with last error after exhausting retries\n'
+        '    '
+    )
 
     async def _runner() -> None:
         from sqlalchemy import select
+
         project_ids = [c.project_id for c in configs]
         if not project_ids:
             return
 
         async with AsyncSessionLocal() as session:
             try:
-                # Mark pending; clear last error but do not reset attempt counter
-                res = await session.execute(select(ProjectAIConfig).where(ProjectAIConfig.project_id.in_(project_ids)))
+                # Mark pending; clear last error but do not reset attempt
+                # counter
+                res = await session.execute(
+                    select(ProjectAIConfig).where(
+                        ProjectAIConfig.project_id.in_(project_ids)
+                    )
+                )
                 rows = res.scalars().all()
                 for r in rows:
                     r.sync_status = "pending"
@@ -203,7 +226,11 @@ def fire_and_forget_embedding_sync(configs: List[EmbeddingConfigCreate]) -> None
                 while True:
                     attempt += 1
                     # increment attempt count
-                    res = await session.execute(select(ProjectAIConfig).where(ProjectAIConfig.project_id.in_(project_ids)))
+                    res = await session.execute(
+                        select(ProjectAIConfig).where(
+                            ProjectAIConfig.project_id.in_(project_ids)
+                        )
+                    )
                     rows = res.scalars().all()
                     for r in rows:
                         r.sync_attempt_count = (r.sync_attempt_count or 0) + 1
@@ -222,7 +249,11 @@ def fire_and_forget_embedding_sync(configs: List[EmbeddingConfigCreate]) -> None
                         }
                         # Advance the sync timestamp for successful projects.
                         now = datetime.now(timezone.utc)
-                        res = await session.execute(select(ProjectAIConfig).where(ProjectAIConfig.project_id.in_(project_ids)))
+                        res = await session.execute(
+                            select(ProjectAIConfig).where(
+                                ProjectAIConfig.project_id.in_(project_ids)
+                            )
+                        )
                         rows = res.scalars().all()
                         for r in rows:
                             if r.project_id in failed_projects:
@@ -242,7 +273,11 @@ def fire_and_forget_embedding_sync(configs: List[EmbeddingConfigCreate]) -> None
                     except Exception as e:  # noqa: BLE001
                         if attempt >= max_retries:
                             # Final failure: mark failed with error
-                            res = await session.execute(select(ProjectAIConfig).where(ProjectAIConfig.project_id.in_(project_ids)))
+                            res = await session.execute(
+                                select(ProjectAIConfig).where(
+                                    ProjectAIConfig.project_id.in_(project_ids)
+                                )
+                            )
                             rows = res.scalars().all()
                             for r in rows:
                                 r.sync_status = "failed"
@@ -263,7 +298,8 @@ def fire_and_forget_embedding_sync(configs: List[EmbeddingConfigCreate]) -> None
                         )
                         await asyncio.sleep(delay)
             except Exception as e:  # pragma: no cover - defensive
-                # Ensure exceptions from background tasks are not left unhandled
+                # Ensure exceptions from background tasks are not left
+                # unhandled
                 logger.error(
                     "Embedding sync background task crashed",
                     error_type=type(e).__name__,
@@ -276,4 +312,3 @@ def fire_and_forget_embedding_sync(configs: List[EmbeddingConfigCreate]) -> None
     except RuntimeError:
         # No running loop (very rare in FastAPI context); run synchronously
         asyncio.run(_runner())
-

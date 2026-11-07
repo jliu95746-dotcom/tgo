@@ -56,7 +56,10 @@ class AgnoAgentRunner:
 
     @staticmethod
     def _configured_prompt_sha256(agent: object) -> str | None:
-        """Fingerprint the local prompt fields supplied to Agno for this run."""
+        (
+            'Fingerprint the local prompt fields supplied to Agno for this '
+            'run.'
+        )
         instructions = getattr(agent, "instructions", None)
         additional_context = getattr(agent, "additional_context", None)
         if not isinstance(instructions, str) or not (
@@ -77,7 +80,10 @@ class AgnoAgentRunner:
     async def run(
         self, built_agent: BuiltAgent, context: AgentExecutionContext
     ) -> SupervisorRunResponse:
-        """Run one agent and translate its result into the public response schema."""
+        (
+            'Run one agent and translate its result into the public response '
+            'schema.'
+        )
         start_time = time.time()
         async with track_model_usage(
             context.project_id, context.agent.model, context.response_purpose
@@ -328,7 +334,10 @@ class AgnoAgentRunner:
         context: AgentExecutionContext,
         reported: dict[UUID, AgentBusinessQueryLink],
     ) -> list[AgentBusinessQueryLink]:
-        """Drain query receipts for this execution without guessing tool order."""
+        (
+            'Drain query receipts for this execution without guessing tool '
+            'order.'
+        )
         evidence = context.knowledge_evidence
         if evidence is None:
             return []
@@ -406,7 +415,10 @@ class AgnoAgentRunner:
 
     @classmethod
     def _extract_final_content(cls, output: Any) -> str:
-        """Return the final visible assistant turn, excluding tool-call preambles."""
+        (
+            'Return the final visible assistant turn, excluding tool-call '
+            'preambles.'
+        )
         messages = getattr(output, "messages", None)
         if isinstance(messages, (list, tuple)):
             for message in reversed(messages):

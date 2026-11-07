@@ -34,7 +34,9 @@ class AgentWorkflow(BaseModel):
     workflow_id: Mapped[str] = mapped_column(
         String(36),  # UUID string length
         nullable=False,
-        comment="Workflow ID (UUID string) - references external workflow service",
+        comment=(
+            'Workflow ID (UUID string) - references external workflow service'
+        ),
     )
 
     enabled: Mapped[bool] = mapped_column(
@@ -60,4 +62,12 @@ class AgentWorkflow(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the agent workflow relationship."""
-        return f"<AgentWorkflow(agent_id={self.agent_id}, workflow_id='{self.workflow_id}', enabled={self.enabled})>"
+        return (
+            f'<AgentWorkflow(agent_id='
+            f'{self.agent_id}'
+            f", workflow_id='"
+            f'{self.workflow_id}'
+            f"', enabled="
+            f'{self.enabled}'
+            f')>'
+        )

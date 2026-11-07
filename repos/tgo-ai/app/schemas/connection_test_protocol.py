@@ -1,4 +1,5 @@
-"""Only the API owner requests and receives a bounded, identified query test."""
+"Only the API owner requests and receives a bounded, identified query \
+test."
 
 from datetime import datetime
 from typing import Literal, Self

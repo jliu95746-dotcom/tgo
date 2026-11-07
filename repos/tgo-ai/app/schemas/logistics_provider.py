@@ -1,4 +1,5 @@
-"""Configuration for user-owned HTTP logistics providers (no store dependency)."""
+"Configuration for user-owned HTTP logistics providers (no store \
+dependency)."
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator

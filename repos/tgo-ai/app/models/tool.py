@@ -11,7 +11,7 @@ from typing import Optional, TYPE_CHECKING, List
 
 from sqlalchemy import String, Text, Index, JSON as SAJSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Enum as SAEnum
 
 from app.models.base import BaseModel
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 class ToolType(str, Enum):
     """Tool type enumeration."""
+
     MCP = "MCP"
     FUNCTION = "FUNCTION"
     ALL = "ALL"
@@ -30,8 +31,9 @@ class ToolType(str, Enum):
 
 class ToolSourceType(str, Enum):
     """Tool source type enumeration."""
-    LOCAL = "LOCAL"           # 本地配置的工具
-    STORE = "STORE"           # 从商店安装的工具
+
+    LOCAL = "LOCAL"  # 本地配置的工具
+    STORE = "STORE"  # 从商店安装的工具
 
 
 class Tool(BaseModel):
@@ -135,5 +137,14 @@ class Tool(BaseModel):
     )
 
     def __repr__(self) -> str:  # pragma: no cover - convenience
-        return f"<Tool(id={self.id}, project_id={self.project_id}, name='{self.name}', type={self.tool_type})>"
-
+        return (
+            f'<Tool(id='
+            f'{self.id}'
+            f', project_id='
+            f'{self.project_id}'
+            f", name='"
+            f'{self.name}'
+            f"', type="
+            f'{self.tool_type}'
+            f')>'
+        )

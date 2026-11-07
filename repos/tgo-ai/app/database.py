@@ -2,7 +2,11 @@
 
 from typing import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
@@ -30,12 +34,14 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Dependency to get database session.
-    
-    Yields:
-        AsyncSession: Database session
-    """
+    (
+        '\n'
+        '    Dependency to get database session.\n'
+        '    \n'
+        '    Yields:\n'
+        '        AsyncSession: Database session\n'
+        '    '
+    )
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -44,8 +50,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
-
-
 
 
 async def close_db() -> None:

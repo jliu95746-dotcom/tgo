@@ -1,9 +1,6 @@
-"""
-MCP Tools Schemas
-
-This module defines Pydantic schemas for MCP service tools endpoints.
-These schemas are used for request/response validation and OpenAPI documentation.
-"""
+"\nMCP Tools Schemas\n\nThis module defines Pydantic schemas for MCP \
+service tools endpoints.\nThese schemas are used for request/response \
+validation and OpenAPI documentation.\n"
 
 from datetime import datetime
 from enum import Enum
@@ -41,7 +38,10 @@ class PaginationMeta(BaseModel):
 
 
 class MCPToolRaw(BaseModel):
-    """Raw tool data as returned by MCP service - matches ToolSummary schema exactly."""
+    (
+        'Raw tool data as returned by MCP service - matches ToolSummary '
+        'schema exactly.'
+    )
 
     # Required fields from MCP service ToolSummary schema
 
@@ -73,11 +73,15 @@ class MCPToolRaw(BaseModel):
     )
     input_schema: Dict[str, Any] = Field(
         default_factory=dict,
-        description="JSON schema defining the expected input parameters for the tool",
+        description=(
+            'JSON schema defining the expected input parameters for the tool'
+        ),
     )
     output_schema: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="JSON schema defining the expected output format from the tool",
+        description=(
+            'JSON schema defining the expected output format from the tool'
+        ),
     )
     short_no: Optional[str] = Field(
         default=None,
@@ -85,10 +89,14 @@ class MCPToolRaw(BaseModel):
     )
     is_installed: Optional[bool] = Field(
         default=None,
-        description="Whether the tool is installed/enabled in the current project (null if no project context)",
+        description=(
+            'Whether the tool is installed/enabled in the current project '
+            '(null if no project context)'
+        ),
     )
 
-    # Additional fields for complete Tool schema (all optional since they're only in full Tool, not ToolSummary)
+    # Additional fields for complete Tool schema (all optional since they're
+    # only in full Tool, not ToolSummary)
 
     meta_data: Optional[Dict[str, Any]] = Field(
         default=None, description="Additional metadata"
@@ -118,11 +126,14 @@ class MCPToolRaw(BaseModel):
         default=None,
         description="Complete MCP server information (null for custom tools)",
     )
-    # Augmented field for agent context: whether this tool is enabled for the agent binding
+    # Augmented field for agent context: whether this tool is enabled for the
+    # agent binding
 
     enabled: Optional[bool] = Field(
         default=None,
-        description="Whether the tool is enabled for the current agent binding",
+        description=(
+            'Whether the tool is enabled for the current agent binding'
+        ),
     )
 
     class Config:
@@ -130,7 +141,10 @@ class MCPToolRaw(BaseModel):
 
 
 class ToolSummary(BaseModel):
-    """Lightweight tool summary for list responses - includes all fields from MCP service."""
+    (
+        'Lightweight tool summary for list responses - includes all fields '
+        'from MCP service.'
+    )
 
     created_at: datetime = Field(description="Creation timestamp")
     updated_at: datetime = Field(description="Last update timestamp")
@@ -154,11 +168,15 @@ class ToolSummary(BaseModel):
     )
     input_schema: Dict[str, Any] = Field(
         default_factory=dict,
-        description="JSON schema defining the expected input parameters for the tool",
+        description=(
+            'JSON schema defining the expected input parameters for the tool'
+        ),
     )
     output_schema: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="JSON schema defining the expected output format from the tool",
+        description=(
+            'JSON schema defining the expected output format from the tool'
+        ),
     )
     short_no: Optional[str] = Field(
         default=None,
@@ -166,7 +184,10 @@ class ToolSummary(BaseModel):
     )
     is_installed: Optional[bool] = Field(
         default=None,
-        description="Whether the tool is installed/enabled in the current project (null if no project context)",
+        description=(
+            'Whether the tool is installed/enabled in the current project '
+            '(null if no project context)'
+        ),
     )
     is_enabled: bool = Field(description="Whether the tool is enabled")
 
@@ -306,7 +327,10 @@ class ExecuteToolRequest(BaseModel):
 
 
 class ToolExecutionResult(BaseModel):
-    """Schema for successful tool execution results - matches MCP service ToolExecutionResult exactly."""
+    (
+        'Schema for successful tool execution results - matches MCP service '
+        'ToolExecutionResult exactly.'
+    )
 
     execution_id: UUID = Field(description="Unique execution identifier")
     status: str = Field(
@@ -367,7 +391,10 @@ class ErrorResponse(BaseModel):
 
 
 class MCPProjectToolRaw(BaseModel):
-    """Raw project tool data as returned by MCP service - matches ProjectToolSummary schema exactly."""
+    (
+        'Raw project tool data as returned by MCP service - matches '
+        'ProjectToolSummary schema exactly.'
+    )
 
     # Required fields from MCP service ProjectToolSummary schema
 
@@ -381,7 +408,10 @@ class MCPProjectToolRaw(BaseModel):
     tool_name: Optional[str] = Field(default=None, description="Tool name")
     tool_title: Optional[str] = Field(
         default=None,
-        description="Tool title (human-readable display name, falls back to name if not set)",
+        description=(
+            'Tool title (human-readable display name, falls back to name if '
+            'not set)'
+        ),
     )
     tool_version: Optional[str] = Field(
         default=None, description="Tool version"
@@ -392,7 +422,9 @@ class MCPProjectToolRaw(BaseModel):
     tool_status: Optional[str] = Field(default=None, description="Tool status")
     tool_description: Optional[str] = Field(
         default=None,
-        description="Tool description providing context about what the tool does",
+        description=(
+            'Tool description providing context about what the tool does'
+        ),
     )
     tool_category: Optional[str] = Field(
         default=None,
@@ -404,11 +436,15 @@ class MCPProjectToolRaw(BaseModel):
     )
     input_schema: Dict[str, Any] = Field(
         default_factory=dict,
-        description="JSON schema defining the expected input parameters for the tool",
+        description=(
+            'JSON schema defining the expected input parameters for the tool'
+        ),
     )
     output_schema: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="JSON schema defining the expected output format from the tool",
+        description=(
+            'JSON schema defining the expected output format from the tool'
+        ),
     )
     short_no: Optional[str] = Field(
         default=None,
@@ -419,7 +455,8 @@ class MCPProjectToolRaw(BaseModel):
         description="Complete MCP server information (null for custom tools)",
     )
 
-    # Additional fields for complete ProjectTool schema (only in full ProjectTool, not ProjectToolSummary)
+    # Additional fields for complete ProjectTool schema (only in full
+    # ProjectTool, not ProjectToolSummary)
 
     configuration: Optional[Dict[str, Any]] = Field(
         default=None, description="Project-specific tool configuration"
@@ -451,7 +488,10 @@ class MCPProjectToolListResponse(BaseModel):
 
 
 class ProjectToolSummary(BaseModel):
-    """Lightweight project tool summary for list responses - includes all fields from MCP service."""
+    (
+        'Lightweight project tool summary for list responses - includes all '
+        'fields from MCP service.'
+    )
 
     created_at: datetime = Field(description="Creation timestamp")
     updated_at: datetime = Field(description="Last update timestamp")
@@ -471,7 +511,9 @@ class ProjectToolSummary(BaseModel):
     tool_source_type: ToolSourceType = Field(description="Tool source type")
     tool_status: ToolStatus = Field(description="Tool status")
     tool_description: Optional[str] = Field(
-        description="Tool description providing context about what the tool does"
+        description=(
+            'Tool description providing context about what the tool does'
+        )
     )
     tool_category: Optional[str] = Field(
         description="Tool category for organization and filtering"
@@ -480,10 +522,14 @@ class ProjectToolSummary(BaseModel):
         description="UUID of the MCP server that provides this tool"
     )
     input_schema: Dict[str, Any] = Field(
-        description="JSON schema defining the expected input parameters for the tool"
+        description=(
+            'JSON schema defining the expected input parameters for the tool'
+        )
     )
     output_schema: Optional[Dict[str, Any]] = Field(
-        description="JSON schema defining the expected output format from the tool"
+        description=(
+            'JSON schema defining the expected output format from the tool'
+        )
     )
     short_no: Optional[str] = Field(
         description="Short identifier/number from the associated MCP server"

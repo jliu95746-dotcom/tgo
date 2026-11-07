@@ -1,4 +1,5 @@
-"""Current per-binding operation evidence; formal execution remains a separate gate."""
+"Current per-binding operation evidence; formal execution remains a \
+separate gate."
 
 import asyncio
 from datetime import UTC, datetime

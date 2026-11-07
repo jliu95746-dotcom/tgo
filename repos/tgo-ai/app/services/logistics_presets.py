@@ -1,4 +1,5 @@
-"""Server-owned signed logistics protocols; no caller-defined credential targets."""
+"Server-owned signed logistics protocols; no caller-defined credential \
+targets."
 import base64
 import hashlib
 import json

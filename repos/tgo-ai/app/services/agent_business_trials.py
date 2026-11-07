@@ -453,7 +453,10 @@ class AgentBusinessTrialService:
         await self.db.commit()
 
     async def run(self, command: BusinessTrialCommand) -> None:
-        """One dispatch only. Crashes expire; private inputs are not replayed."""
+        (
+            'One dispatch only. Crashes expire; private inputs are not '
+            'replayed.'
+        )
         claimed = await self.db.execute(
             update(AgentBusinessTrial)
             .where(

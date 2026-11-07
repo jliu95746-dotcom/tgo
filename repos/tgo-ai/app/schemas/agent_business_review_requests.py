@@ -1,4 +1,5 @@
-"""Recoverable review intentions contain closed business choices, never secrets."""
+"Recoverable review intentions contain closed business choices, never \
+secrets."
 
 from datetime import UTC, datetime
 from typing import Literal, Self

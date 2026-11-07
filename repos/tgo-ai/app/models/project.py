@@ -16,12 +16,15 @@ if TYPE_CHECKING:
 
 
 class Project(BaseModel):
-    """
-    Project model - synchronized copy from API service.
-    
-    This table is maintained by synchronization with the main API service
-    and provides project information for multi-tenant isolation.
-    """
+    (
+        '\n'
+        '    Project model - synchronized copy from API service.\n'
+        '    \n'
+        '    This table is maintained by synchronization with the main API '
+        'service\n'
+        '    and provides project information for multi-tenant isolation.\n'
+        '    '
+    )
 
     __tablename__ = "ai_projects"
 
@@ -69,7 +72,6 @@ class Project(BaseModel):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-
 
     def __repr__(self) -> str:
         """String representation of the project."""

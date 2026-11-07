@@ -125,7 +125,9 @@ class _TGOApplication(FastAPI):
 
 app = _TGOApplication(
     title="TGO-Tech AI Service",
-    description="AI/ML Operations Microservice for TGO-Tech customer service platform",
+    description=(
+        'AI/ML Operations Microservice for TGO-Tech customer service platform'
+    ),
     version=__version__,
     docs_url="/docs" if settings.docs_enabled else None,
     redoc_url="/redoc" if settings.redoc_enabled else None,
@@ -205,7 +207,10 @@ async def log_requests(
     response_length = response.headers.get("content-length", "-")
 
     request_logger.info(
-        "request.end request_id=%s method=%s path=%s status=%s duration_ms=%.2f response_length=%s",
+        (
+            'request.end request_id=%s method=%s path=%s status=%s '
+            'duration_ms=%.2f response_length=%s'
+        ),
         request_id,
         method,
         path,

@@ -103,7 +103,8 @@ async def run_until_disconnect(
             {task, watcher}, return_when=asyncio.FIRST_COMPLETED
         )
         if watcher in done:
-            # Watcher failure also stops work; never assume the caller is alive.
+            # Watcher failure also stops work; never assume the caller is
+            # alive.
 
             await watcher
             raise asyncio.CancelledError(

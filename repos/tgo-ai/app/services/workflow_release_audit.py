@@ -29,7 +29,10 @@ async def list_unpinned_workflows(
     offset: int,
     read_workflows: WorkflowReader | None = None,
 ) -> WorkflowReleaseAuditResponse:
-    """Return project-owned legacy rows and advisory current publication data."""
+    (
+        'Return project-owned legacy rows and advisory current publication '
+        'data.'
+    )
     if limit < 1 or limit > 100 or offset < 0:
         raise ValueError("Invalid workflow audit pagination")
     missing_pin = or_(
@@ -66,15 +69,22 @@ async def list_unpinned_workflows(
     workflow_ids = sorted({binding.workflow_id for _, binding in rows})
     if workflow_ids:
         try:
-            reader = read_workflows or workflow_service_client.get_workflows_batch
+            reader = (
+                read_workflows or workflow_service_client.get_workflows_batch
+            )
             remote_by_id = {
                 workflow.id: workflow
                 for workflow in await reader(workflow_ids, str(project_id))
             }
-        except Exception:  # noqa: BLE001 - local impact report must survive outages
+        except (
+            Exception
+        ):  # noqa: BLE001 - local impact report must survive outages
             logger.warning(
                 "Workflow owner unavailable during legacy binding audit",
-                extra={"project_id": str(project_id), "binding_count": len(rows)},
+                extra={
+                    "project_id": str(project_id),
+                    "binding_count": len(rows),
+                },
             )
 
     items = []

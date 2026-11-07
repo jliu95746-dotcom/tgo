@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
-from pydantic.config import ConfigDict
 
 if TYPE_CHECKING:
     from app.models.llm_model import LLMModel

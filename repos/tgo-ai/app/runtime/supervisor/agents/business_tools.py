@@ -1,4 +1,5 @@
-"""Expose only operation inputs to Agno; the server owns customer identity and authority."""
+"Expose only operation inputs to Agno; the server owns customer identity \
+and authority."
 
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime

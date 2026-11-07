@@ -3,10 +3,8 @@ Event emitter for streaming coordination workflow events.
 """
 
 import asyncio
-import json
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
-from uuid import uuid4
 from pydantic import JsonValue
 
 from app.core.logging import get_logger

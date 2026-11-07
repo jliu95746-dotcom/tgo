@@ -19,9 +19,13 @@ class ProjectAIConfigUpsert(BaseModel):
             "examples": [
                 {
                     "project_id": "00000000-0000-0000-0000-000000000000",
-                    "default_chat_provider_id": "11111111-1111-1111-1111-111111111111",
+                    ('default_chat_provider_id'): (
+                        '11111111-1111-1111-1111-111111111111'
+                    ),
                     "default_chat_model": "gpt-4o",
-                    "default_embedding_provider_id": "22222222-2222-2222-2222-222222222222",
+                    ('default_embedding_provider_id'): (
+                        '22222222-2222-2222-2222-222222222222'
+                    ),
                     "default_embedding_model": "text-embedding-3-large",
                 }
             ]
@@ -110,11 +114,19 @@ class ProjectAIConfigSyncRequest(BaseModel):
                 {
                     "configs": [
                         {
-                            "project_id": "00000000-0000-0000-0000-000000000000",
-                            "default_chat_provider_id": "11111111-1111-1111-1111-111111111111",
+                            "project_id": (
+                                '00000000-0000-0000-0000-000000000000'
+                            ),
+                            ('default_chat_provider_id'): (
+                                '11111111-1111-1111-1111-111111111111'
+                            ),
                             "default_chat_model": "gpt-4o",
-                            "default_embedding_provider_id": "22222222-2222-2222-2222-222222222222",
-                            "default_embedding_model": "text-embedding-3-large",
+                            ('default_embedding_provider_id'): (
+                                '22222222-2222-2222-2222-222222222222'
+                            ),
+                            ('default_embedding_model'): (
+                                'text-embedding-3-large'
+                            ),
                         }
                     ]
                 }

@@ -24,7 +24,10 @@ class ModelSettings(BaseSettings):
         default=4000, ge=100, le=16_000, description="最大生成token"
     )
     system_prompt: str = Field(
-        default="You are a helpful assistant that has access to a variety of tools.",
+        default=(
+            'You are a helpful assistant that has access to a variety of '
+            'tools.'
+        ),
         description="默认系统提示词",
     )
 

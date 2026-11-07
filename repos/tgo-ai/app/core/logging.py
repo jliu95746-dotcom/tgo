@@ -107,8 +107,10 @@ class BoundLogger:
 
 def setup_logging() -> None:
     """Ensure a basic logging configuration is present."""
-    # A filter remains effective even when a root/debug configuration is changed.
-    # Application-level tool diagnostics retain status and safe failure category.
+    # A filter remains effective even when a root/debug configuration is
+    # changed.
+    # Application-level tool diagnostics retain status and safe failure
+    # category.
 
     for name in (
         "httpx",

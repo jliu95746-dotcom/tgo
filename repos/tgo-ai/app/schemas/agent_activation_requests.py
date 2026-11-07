@@ -1,4 +1,5 @@
-"""Immutable activation intent and historical receipt; neither grants execution access."""
+"Immutable activation intent and historical receipt; neither grants \
+execution access."
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -31,7 +32,10 @@ class ActivationExpectation(BaseModel):
             {row.channel for row in self.channels}
         ) != len(self.channels):
             raise ValueError(
-                "Activation expectation requires an explicit time and unique channels"
+                (
+                    'Activation expectation requires an explicit time and '
+                    'unique channels'
+                )
             )
         return self
 

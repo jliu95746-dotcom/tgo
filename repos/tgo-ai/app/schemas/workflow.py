@@ -1,6 +1,5 @@
 """Workflow-related Pydantic schemas."""
 
-import uuid
 from typing import List, Optional
 
 from pydantic import Field
@@ -24,7 +23,9 @@ class WorkflowResponse(BaseSchema):
     )
     enabled: bool = Field(
         default=True,
-        description="Whether this workflow is enabled for the current agent binding",
+        description=(
+            'Whether this workflow is enabled for the current agent binding'
+        ),
     )
     bound_release_version: Optional[int] = None
     bound_release_id: Optional[str] = None

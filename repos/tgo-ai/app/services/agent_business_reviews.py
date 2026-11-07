@@ -1,4 +1,5 @@
-"""Append-only, optimistic and retry-safe judgments over owned business reports."""
+"Append-only, optimistic and retry-safe judgments over owned business \
+reports."
 
 from datetime import UTC, datetime
 import asyncio
@@ -216,7 +217,8 @@ class AgentBusinessReviewService:
                 state = await self.state(project, actor, agent, report_id)
                 if not state.can_review:
                     raise ConflictError("原业务测试依据已失效或不满足评审条件，请重测")
-            # The account lock serializes configuration and reviews. Re-read the
+            # The account lock serializes configuration and reviews. Re-read
+            # the
             # owned immutable report before installing the new judgment.
             row = await self.db.scalar(
                 select(AgentBusinessTrial)

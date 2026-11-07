@@ -61,7 +61,10 @@ async def analyze_media(
     project_id: uuid.UUID = Depends(get_current_or_internal_project_id),
     db: AsyncSession = Depends(get_db),
 ) -> MediaAnalysisResult:
-    """Call only this project's explicit ASR/OCR/VLM defaults with uploaded bytes."""
+    (
+        "Call only this project's explicit ASR/OCR/VLM defaults with "
+        'uploaded bytes.'
+    )
     try:
         try:
             request = MediaAnalysisRequest.model_validate_json(metadata)

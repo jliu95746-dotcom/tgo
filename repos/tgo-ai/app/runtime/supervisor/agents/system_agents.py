@@ -17,7 +17,10 @@ logger = get_logger(__name__)
 
 
 def get_result_consolidation_instruction(streaming: bool = False) -> str:
-    """Build result consolidation system instruction with optional streaming wording."""
+    (
+        'Build result consolidation system instruction with optional '
+        'streaming wording.'
+    )
     persona_block = """你现在是“小T”，一名干净利落的暖心智能客服助手。任何时候都要：
 - 直接给出用户最关心的结论。
 - 用简短的共情语句回应用户情绪，例如“我理解这真的让人着急”。
@@ -43,37 +46,43 @@ def get_result_consolidation_instruction(streaming: bool = False) -> str:
 - 结尾询问“还有其他需要我帮您的吗？”之类的主动关怀。
 - 严禁使用 JSON、代码块或生硬的格式。"""
     else:
-        format_block = """回复要求（结构化输出）：
-请返回一个 JSON 对象，字段如下：
-{
-  "consolidated_content": "正文，必须遵循小T的口吻，先结论后细节，可包含分点说明",
-  "consolidation_approach": "synthesis|best_selection|consensus_building|conflict_resolution",
-  "confidence_score": 介于 0 和 1 之间的数字，体现您对结论的把握程度,
-  "key_insights": ["关键结论或提示，符合小T话风"],
-  "sources_used": ["引用到的智能体名称或信息来源"],
-  "conflicts_resolved": ["若存在冲突，请描述如何处理"],
-  "limitations": ["说明仍需进一步确认的内容或无法处理的部分"],
-  "follow_up_question": "请以小T的语气主动询问用户是否还需要协助"
-}
-除 JSON 外不要输出任何额外文本，字段内容需符合小T的语言风格。"""
+        format_block = (
+            '回复要求（结构化输出）：\n'
+            '请返回一个 JSON 对象，字段如下：\n'
+            '{\n'
+            '  "consolidated_content": "正文，必须遵循小T的口吻，先结论后细节，可包含分点说明",\n'
+            '  "consolidation_approach": "synthesis|best_selection|consensus_'
+            'building|conflict_resolution",\n'
+            '  "confidence_score": 介于 0 和 1 之间的数字，体现您对结论的把握程度,\n'
+            '  "key_insights": ["关键结论或提示，符合小T话风"],\n'
+            '  "sources_used": ["引用到的智能体名称或信息来源"],\n'
+            '  "conflicts_resolved": ["若存在冲突，请描述如何处理"],\n'
+            '  "limitations": ["说明仍需进一步确认的内容或无法处理的部分"],\n'
+            '  "follow_up_question": "请以小T的语气主动询问用户是否还需要协助"\n'
+            '}\n'
+            '除 JSON 外不要输出任何额外文本，字段内容需符合小T的语言风格。'
+        )
 
     return "\n\n".join([persona_block, analysis_block, format_block])
 
 
 def create_query_analysis_agent() -> Agent:
-    """
-    Create a specialized agent for query analysis and decomposition.
-    
-    This agent is responsible for:
-    - Analyzing user queries to understand intent and complexity
-    - Decomposing multi-intent queries into focused sub-questions
-    - Selecting appropriate agents based on capabilities
-    - Determining optimal workflow execution patterns
-    - Creating detailed execution plans with dependencies
-    
-    Returns:
-        Agent: Configured query analysis agent
-    """
+    (
+        '\n'
+        '    Create a specialized agent for query analysis and '
+        'decomposition.\n'
+        '    \n'
+        '    This agent is responsible for:\n'
+        '    - Analyzing user queries to understand intent and complexity\n'
+        '    - Decomposing multi-intent queries into focused sub-questions\n'
+        '    - Selecting appropriate agents based on capabilities\n'
+        '    - Determining optimal workflow execution patterns\n'
+        '    - Creating detailed execution plans with dependencies\n'
+        '    \n'
+        '    Returns:\n'
+        '        Agent: Configured query analysis agent\n'
+        '    '
+    )
     settings = app_settings.supervisor_runtime
     qa = settings.coordination.query_analysis
 
@@ -81,71 +90,92 @@ def create_query_analysis_agent() -> Agent:
         "Creating query analysis agent",
         model_name=qa.model_name,
         temperature=qa.temperature,
-        max_tokens=qa.max_tokens
+        max_tokens=qa.max_tokens,
     )
 
     return Agent(
         id=uuid4(),
         name="Query Analysis Agent",
-        instruction="""You are an expert AI coordination system responsible for intelligent agent selection, task decomposition, and workflow orchestration. Your task is to analyze user queries and create comprehensive coordination plans.
-
-ANALYSIS INSTRUCTIONS:
-1. **Intent Analysis**: Carefully analyze the user's message to understand:
-   - Primary intent and goals
-   - Complexity level (simple single-intent vs complex multi-intent)
-   - Required expertise domains
-   - Expected response format and depth
-
-2. **Agent Selection**: Select the most appropriate agents based on:
-   - Capability alignment with user needs
-   - Expertise relevance to the query
-   - Complementary skills for comprehensive coverage
-   - Load balancing and performance considerations
-
-3. **Workflow Determination**: Choose optimal execution pattern:
-   - "single": One agent handles the entire query
-   - "parallel": Multiple agents work independently on different aspects
-   - "sequential": Agents work in order, each building on previous results
-   - "hierarchical": Structured levels of agents with coordination
-   - "pipeline": Data flows through agents in processing stages
-
-4. **Query Decomposition**: For complex queries:
-   - Break down into focused sub-questions
-   - Assign each sub-question to the most suitable agent
-   - Ensure sub-questions are independent and well-scoped
-   - Maintain logical coherence across decomposition
-
-RESPONSE FORMAT:
-Always respond with a JSON object containing exactly these fields:
-{
-  "selected_agent_ids": ["agent_id_1", "agent_id_2"],
-  "selection_reasoning": "Detailed explanation of why these agents were selected (2-3 sentences)",
-  "workflow": "single|parallel|sequential|hierarchical|pipeline",
-  "workflow_reasoning": "Why this workflow pattern is optimal for this task (1-2 sentences)",
-  "confidence_score": 0.0-1.0,
-  "is_complex": boolean,
-  "sub_questions": [
-    {
-      "id": "sq_1",
-      "question": "Focused sub-question text",
-      "assigned_agent_id": "agent_uuid"
-    }
-  ],
-  "execution_plan": {
-    "dependencies": [],
-    "parallel_groups": [["agent_id_1"], ["agent_id_2"]],
-    "estimated_time": 30.0
-  }
-}
-
-DECISION GUIDELINES:
-- For simple, single-intent queries: Use "single" workflow with one agent, is_complex=false, minimal sub_questions
-- For multi-intent queries: Use appropriate multi-agent workflow, is_complex=true, comprehensive decomposition
-- For queries requiring different expertise: Use "parallel" or "hierarchical" workflows
-- For queries with sequential dependencies: Use "sequential" or "pipeline" workflows
-- Always provide execution_plan with realistic time estimates and dependency analysis
-
-Respond only with valid JSON, no additional text.""",
+        instruction=(
+            'You are an expert AI coordination system responsible for '
+            'intelligent agent selection, task decomposition, and workflow '
+            'orchestration. Your task is to analyze user queries and create '
+            'comprehensive coordination plans.\n'
+            '\n'
+            'ANALYSIS INSTRUCTIONS:\n'
+            "1. **Intent Analysis**: Carefully analyze the user's message to "
+            'understand:\n'
+            '   - Primary intent and goals\n'
+            '   - Complexity level (simple single-intent vs complex '
+            'multi-intent)\n'
+            '   - Required expertise domains\n'
+            '   - Expected response format and depth\n'
+            '\n'
+            '2. **Agent Selection**: Select the most appropriate agents '
+            'based on:\n'
+            '   - Capability alignment with user needs\n'
+            '   - Expertise relevance to the query\n'
+            '   - Complementary skills for comprehensive coverage\n'
+            '   - Load balancing and performance considerations\n'
+            '\n'
+            '3. **Workflow Determination**: Choose optimal execution '
+            'pattern:\n'
+            '   - "single": One agent handles the entire query\n'
+            '   - "parallel": Multiple agents work independently on '
+            'different aspects\n'
+            '   - "sequential": Agents work in order, each building on '
+            'previous results\n'
+            '   - "hierarchical": Structured levels of agents with '
+            'coordination\n'
+            '   - "pipeline": Data flows through agents in processing stages\n'
+            '\n'
+            '4. **Query Decomposition**: For complex queries:\n'
+            '   - Break down into focused sub-questions\n'
+            '   - Assign each sub-question to the most suitable agent\n'
+            '   - Ensure sub-questions are independent and well-scoped\n'
+            '   - Maintain logical coherence across decomposition\n'
+            '\n'
+            'RESPONSE FORMAT:\n'
+            'Always respond with a JSON object containing exactly these '
+            'fields:\n'
+            '{\n'
+            '  "selected_agent_ids": ["agent_id_1", "agent_id_2"],\n'
+            '  "selection_reasoning": "Detailed explanation of why these '
+            'agents were selected (2-3 sentences)",\n'
+            '  "workflow": "single|parallel|sequential|hierarchical|pipeline"'
+            ',\n'
+            '  "workflow_reasoning": "Why this workflow pattern is optimal '
+            'for this task (1-2 sentences)",\n'
+            '  "confidence_score": 0.0-1.0,\n'
+            '  "is_complex": boolean,\n'
+            '  "sub_questions": [\n'
+            '    {\n'
+            '      "id": "sq_1",\n'
+            '      "question": "Focused sub-question text",\n'
+            '      "assigned_agent_id": "agent_uuid"\n'
+            '    }\n'
+            '  ],\n'
+            '  "execution_plan": {\n'
+            '    "dependencies": [],\n'
+            '    "parallel_groups": [["agent_id_1"], ["agent_id_2"]],\n'
+            '    "estimated_time": 30.0\n'
+            '  }\n'
+            '}\n'
+            '\n'
+            'DECISION GUIDELINES:\n'
+            '- For simple, single-intent queries: Use "single" workflow with '
+            'one agent, is_complex=false, minimal sub_questions\n'
+            '- For multi-intent queries: Use appropriate multi-agent '
+            'workflow, is_complex=true, comprehensive decomposition\n'
+            '- For queries requiring different expertise: Use "parallel" or '
+            '"hierarchical" workflows\n'
+            '- For queries with sequential dependencies: Use "sequential" or '
+            '"pipeline" workflows\n'
+            '- Always provide execution_plan with realistic time estimates '
+            'and dependency analysis\n'
+            '\n'
+            'Respond only with valid JSON, no additional text.'
+        ),
         model=qa.model_name,
         config={
             "temperature": qa.temperature,
@@ -157,24 +187,27 @@ Respond only with valid JSON, no additional text.""",
         collections=[],
         is_default=False,
         created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
+        updated_at=datetime.utcnow(),
     )
 
 
 def create_result_consolidation_agent(streaming: bool = False) -> Agent:
-    """
-    Create a specialized agent for result consolidation and synthesis.
-    
-    This agent is responsible for:
-    - Analyzing multiple agent responses for consistency
-    - Identifying and resolving conflicts between responses
-    - Synthesizing information into coherent unified responses
-    - Maintaining source attribution and confidence scoring
-    - Providing comprehensive conflict resolution
-    
-    Returns:
-        Agent: Configured result consolidation agent
-    """
+    (
+        '\n'
+        '    Create a specialized agent for result consolidation and '
+        'synthesis.\n'
+        '    \n'
+        '    This agent is responsible for:\n'
+        '    - Analyzing multiple agent responses for consistency\n'
+        '    - Identifying and resolving conflicts between responses\n'
+        '    - Synthesizing information into coherent unified responses\n'
+        '    - Maintaining source attribution and confidence scoring\n'
+        '    - Providing comprehensive conflict resolution\n'
+        '    \n'
+        '    Returns:\n'
+        '        Agent: Configured result consolidation agent\n'
+        '    '
+    )
     settings = app_settings.supervisor_runtime
     consolidation = settings.coordination.result_consolidation
     return Agent(
@@ -192,25 +225,32 @@ def create_result_consolidation_agent(streaming: bool = False) -> Agent:
         collections=[],
         is_default=False,
         created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
+        updated_at=datetime.utcnow(),
     )
 
 
-def get_system_agent_by_type(agent_type: str, *, streaming: bool = False) -> Agent:
-    """
-    Get a system agent by type.
-    
-    Args:
-        agent_type: Type of system agent ("query_analysis" or "result_consolidation")
-        streaming: When True and requesting the result consolidation agent, tailor
-            the instructions for streaming responses (no JSON payload)
-        
-    Returns:
-        Agent: The requested system agent
-        
-    Raises:
-        ValueError: If agent_type is not recognized
-    """
+def get_system_agent_by_type(
+    agent_type: str, *, streaming: bool = False
+) -> Agent:
+    (
+        '\n'
+        '    Get a system agent by type.\n'
+        '    \n'
+        '    Args:\n'
+        '        agent_type: Type of system agent ("query_analysis" or '
+        '"result_consolidation")\n'
+        '        streaming: When True and requesting the result '
+        'consolidation agent, tailor\n'
+        '            the instructions for streaming responses (no JSON '
+        'payload)\n'
+        '        \n'
+        '    Returns:\n'
+        '        Agent: The requested system agent\n'
+        '        \n'
+        '    Raises:\n'
+        '        ValueError: If agent_type is not recognized\n'
+        '    '
+    )
     if agent_type == "query_analysis":
         return create_query_analysis_agent()
     elif agent_type == "result_consolidation":
@@ -220,13 +260,16 @@ def get_system_agent_by_type(agent_type: str, *, streaming: bool = False) -> Age
 
 
 def create_system_agents() -> Dict[str, Agent]:
-    """
-    Create all system agents used by the coordination system.
-    
-    Returns:
-        Dict[str, Agent]: Dictionary mapping agent types to agent instances
-    """
+    (
+        '\n'
+        '    Create all system agents used by the coordination system.\n'
+        '    \n'
+        '    Returns:\n'
+        '        Dict[str, Agent]: Dictionary mapping agent types to agent '
+        'instances\n'
+        '    '
+    )
     return {
         "query_analysis": create_query_analysis_agent(),
-        "result_consolidation": create_result_consolidation_agent()
+        "result_consolidation": create_result_consolidation_agent(),
     }

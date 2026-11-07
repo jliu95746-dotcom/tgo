@@ -89,12 +89,15 @@ def create_user_tag_tool(
         tags: list[dict[str, str]],
         metadata: Optional[dict[str, Any]] = None,
     ) -> str:
-        """Add tags to user via user_tag.add event.
-
-        Args:
-            tags: List of tag objects, each with 'name' (English, required) and 'name_zh' (Chinese, optional)
-            metadata: Optional additional context
-        """
+        (
+            'Add tags to user via user_tag.add event.\n'
+            '\n'
+            '        Args:\n'
+            "            tags: List of tag objects, each with 'name' "
+            "(English, required) and 'name_zh' (Chinese, optional)\n"
+            '            metadata: Optional additional context\n'
+            '        '
+        )
         if not tags:
             return "请至少提供一个标签。"
         # Validate and normalize tags
@@ -129,7 +132,9 @@ def create_user_tag_tool(
             "properties": {
                 "tags": {
                     "type": "array",
-                    "description": "标签列表，每个标签包含 name（英文名，必填）和 name_zh（中文名，建议提供）",
+                    "description": (
+                        '标签列表，每个标签包含 name（英文名，必填）和 name_zh（中文名，建议提供）'
+                    ),
                     "items": {
                         "type": "object",
                         "properties": {

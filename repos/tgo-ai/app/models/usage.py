@@ -2,11 +2,11 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy import JSON
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
@@ -17,12 +17,14 @@ if TYPE_CHECKING:
 
 
 class ToolUsageRecord(BaseModel):
-    """
-    Tool usage records for tracking AI agent tool usage.
-    
-    Tracks when agents use tools, their parameters, results,
-    and performance metrics for analytics and monitoring.
-    """
+    (
+        '\n'
+        '    Tool usage records for tracking AI agent tool usage.\n'
+        '    \n'
+        '    Tracks when agents use tools, their parameters, results,\n'
+        '    and performance metrics for analytics and monitoring.\n'
+        '    '
+    )
 
     __tablename__ = "ai_tool_usage_records"
 
@@ -42,7 +44,10 @@ class ToolUsageRecord(BaseModel):
     tool_name: Mapped[str] = mapped_column(
         String(355),
         nullable=False,
-        comment='Tool name with provider prefix (format: "tool_provider:tool_name")',
+        comment=(
+            'Tool name with provider prefix (format: '
+            '"tool_provider:tool_name")'
+        ),
     )
 
     session_id: Mapped[Optional[str]] = mapped_column(
@@ -112,7 +117,15 @@ class ToolUsageRecord(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the tool usage record."""
-        return f"<ToolUsageRecord(id={self.id}, tool_name='{self.tool_name}', status='{self.execution_status}')>"
+        return (
+            f'<ToolUsageRecord(id='
+            f'{self.id}'
+            f", tool_name='"
+            f'{self.tool_name}'
+            f"', status='"
+            f'{self.execution_status}'
+            f"')>"
+        )
 
     @property
     def tool_provider(self) -> str:
@@ -155,7 +168,9 @@ class CollectionUsageRecord(BaseModel):
     collection_id: Mapped[str] = mapped_column(
         String(36),  # UUID string length
         nullable=False,
-        comment="Collection ID (UUID string) - references external RAG service",
+        comment=(
+            'Collection ID (UUID string) - references external RAG service'
+        ),
     )
 
     session_id: Mapped[Optional[str]] = mapped_column(
@@ -260,7 +275,15 @@ class CollectionUsageRecord(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the collection usage record."""
-        return f"<CollectionUsageRecord(id={self.id}, collection_id={self.collection_id}, status='{self.query_status}')>"
+        return (
+            f'<CollectionUsageRecord(id='
+            f'{self.id}'
+            f', collection_id='
+            f'{self.collection_id}'
+            f", status='"
+            f'{self.query_status}'
+            f"')>"
+        )
 
 
 class AgentUsageRecord(BaseModel):
@@ -349,4 +372,12 @@ class AgentUsageRecord(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of the agent usage record."""
-        return f"<AgentUsageRecord(id={self.id}, agent_id={self.agent_id}, period='{self.aggregation_type}')>"
+        return (
+            f'<AgentUsageRecord(id='
+            f'{self.id}'
+            f', agent_id='
+            f'{self.agent_id}'
+            f", period='"
+            f'{self.aggregation_type}'
+            f"')>"
+        )

@@ -21,7 +21,10 @@ class SkillEmployeeUsage(BaseSchema):
 
 
 class SkillSummary(BaseSchema):
-    """Lightweight summary for listing skills (parsed from SKILL.md frontmatter)."""
+    (
+        'Lightweight summary for listing skills (parsed from SKILL.md '
+        'frontmatter).'
+    )
 
     used_by: List[SkillEmployeeUsage] = Field(default_factory=list)
     name: str = Field(
@@ -39,7 +42,10 @@ class SkillSummary(BaseSchema):
     )
     is_official: bool = Field(
         default=False,
-        description="Whether this is an official/built-in skill (from _official/ directory)",
+        description=(
+            'Whether this is an official/built-in skill (from _official/ '
+            'directory)'
+        ),
     )
     is_featured: bool = Field(
         default=False,
@@ -82,7 +88,9 @@ class SkillDetail(SkillSummary):
     """Full skill detail including instructions and file listings."""
 
     instructions: str = Field(
-        description="Markdown body of SKILL.md (the actual skill instructions)",
+        description=(
+            'Markdown body of SKILL.md (the actual skill instructions)'
+        ),
         examples=["# Code Review Skill\n\n## When to use this skill\n..."],
     )
     license: Optional[str] = Field(
@@ -123,7 +131,10 @@ class SkillCreateRequest(BaseSchema):
         ...,
         max_length=64,
         pattern=r"^[a-z0-9][a-z0-9-]*[a-z0-9]$",
-        description="Skill name (lowercase + digits + hyphens, no consecutive hyphens)",
+        description=(
+            'Skill name (lowercase + digits + hyphens, no consecutive '
+            'hyphens)'
+        ),
         examples=["code-review", "1password"],
     )
     description: str = Field(
@@ -183,7 +194,9 @@ class SkillToggleRequest(BaseSchema):
 
     enabled: bool = Field(
         ...,
-        description="Whether the skill should be enabled (true) or disabled (false)",
+        description=(
+            'Whether the skill should be enabled (true) or disabled (false)'
+        ),
     )
 
 

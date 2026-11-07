@@ -1,4 +1,5 @@
-"""Bind existing project defaults to concrete, tenant-scoped media providers."""
+"Bind existing project defaults to concrete, tenant-scoped media \
+providers."
 
 from __future__ import annotations
 
@@ -173,5 +174,7 @@ class ConfiguredMultimodalService:
             return await MultimodalService(
                 registry,
                 ProviderSelection(asr=asr_name, ocr=ocr_name, vlm=vlm_name),
-                provider_timeout_seconds=settings.multimodal_provider_timeout_seconds,
+                provider_timeout_seconds=(
+                    settings.multimodal_provider_timeout_seconds
+                ),
             ).analyze(request)

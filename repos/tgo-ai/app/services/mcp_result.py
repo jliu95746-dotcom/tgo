@@ -10,7 +10,10 @@ class MCPToolResultError(ValueError):
 
 
 def mcp_result_text(result: CallToolResult) -> str:
-    """Return complete usable output, never turning an MCP error into success."""
+    (
+        'Return complete usable output, never turning an MCP error into '
+        'success.'
+    )
     text = "\n".join(
         block.text
         for block in result.content

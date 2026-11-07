@@ -1,4 +1,5 @@
-"""Resolve the reserved follow-system model at run time, never in stored agents."""
+"Resolve the reserved follow-system model at run time, never in stored \
+agents."
 from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
