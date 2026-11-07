@@ -1,5 +1,6 @@
 """Authenticated customer logistics archive endpoints."""
 
+from typing import TypedDict
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,12 +18,19 @@ from app.schemas.customer_logistics import (
     ShipmentCreateRequest,
     ShipmentListResponse,
     ShipmentQueryResponse,
+    ShipmentResponse,
     TrackingEventListResponse,
+    TrackingEventResponse,
 )
 from app.services.customer_logistics_service import CustomerLogisticsService
 
 
 router = APIRouter()
+
+
+class _LogisticsQueryDetails(TypedDict, total=False):
+    carrier_code: str
+    phone: str
 
 
 def _service(db: Session) -> CustomerLogisticsService:
@@ -79,9 +87,11 @@ async def test_query_tool(
     ),
 ) -> LogisticsToolTestResponse:
     project, _ = project_and_api_key
-    query_details = {key: value for key, value in {
-        "carrier_code": request.carrier_code, "phone": request.phone,
-    }.items() if value is not None}
+    query_details: _LogisticsQueryDetails = {}
+    if request.carrier_code is not None:
+        query_details["carrier_code"] = request.carrier_code
+    if request.phone is not None:
+        query_details["phone"] = request.phone
     result = await _service(db).execute_live_query(
         project.id, request.tracking_no, query_tool_id=request.query_tool_id,
         **query_details,
@@ -107,7 +117,10 @@ def list_shipments(
     project, _ = project_and_api_key
     _ensure_visitor(db, project.id, visitor_id)
     return ShipmentListResponse(
-        shipments=_service(db).list_shipments(project.id, visitor_id)
+        shipments=tuple(
+            ShipmentResponse.model_validate(shipment)
+            for shipment in _service(db).list_shipments(project.id, visitor_id)
+        )
     )
 
 
@@ -135,7 +148,7 @@ def create_shipment(
         carrier_name=request.carrier_name,
     )
     return ShipmentQueryResponse(
-        shipment=shipment,
+        shipment=ShipmentResponse.model_validate(shipment),
         events=(),
         queried_live=False,
         message="物流单已加入顾客档案",
@@ -158,8 +171,10 @@ async def query_shipment(
         project.id, shipment_id
     )
     return ShipmentQueryResponse(
-        shipment=shipment,
-        events=events,
+        shipment=ShipmentResponse.model_validate(shipment),
+        events=tuple(
+            TrackingEventResponse.model_validate(event) for event in events
+        ),
         queried_live=True,
         message="物流轨迹已更新",
     )
@@ -178,5 +193,8 @@ def list_events(
 ) -> TrackingEventListResponse:
     project, _ = project_and_api_key
     return TrackingEventListResponse(
-        events=_service(db).list_events(project.id, shipment_id)
+        events=tuple(
+            TrackingEventResponse.model_validate(event)
+            for event in _service(db).list_events(project.id, shipment_id)
+        )
     )
