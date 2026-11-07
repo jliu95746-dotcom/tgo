@@ -55,7 +55,9 @@ router = APIRouter()
     "",
     response_model=List[SkillSummary],
     summary="List all skills",
-    description="List all skills visible to the current project (private + official).",
+    description=(
+        'List all skills visible to the current project (private + official).'
+    ),
 )
 async def list_skills(
     auth_data: tuple[Any, str] = Depends(get_authenticated_project),
@@ -170,7 +172,9 @@ async def try_reply(
     "/{skill_name}",
     response_model=SkillDetail,
     summary="Get skill details",
-    description="Get full detail of a skill including instructions and file listings.",
+    description=(
+        'Get full detail of a skill including instructions and file listings.'
+    ),
 )
 async def get_skill(
     skill_name: str,
@@ -290,7 +294,9 @@ async def import_skill(
 @router.get(
     "/{skill_name}/files/{file_path:path}",
     summary="Read a skill sub-file",
-    description="Read the content of a script or reference file within a skill.",
+    description=(
+        'Read the content of a script or reference file within a skill.'
+    ),
 )
 async def get_skill_file(
     skill_name: str,
@@ -307,7 +313,10 @@ async def get_skill_file(
     "/{skill_name}/files/{file_path:path}",
     status_code=status.HTTP_200_OK,
     summary="Create or update a skill sub-file",
-    description="Create or update a script or reference file within a project-private skill.",
+    description=(
+        'Create or update a script or reference file within a '
+        'project-private skill.'
+    ),
 )
 async def put_skill_file(
     skill_name: str,
@@ -325,7 +334,9 @@ async def put_skill_file(
     "/{skill_name}/files/{file_path:path}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a skill sub-file",
-    description="Delete a script or reference file from a project-private skill.",
+    description=(
+        'Delete a script or reference file from a project-private skill.'
+    ),
 )
 async def delete_skill_file(
     skill_name: str,

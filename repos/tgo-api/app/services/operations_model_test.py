@@ -1,4 +1,5 @@
-"""Credential connectivity checks; upstream data and keys stay on the server."""
+"Credential connectivity checks; upstream data and keys stay on the \
+server."
 
 from datetime import datetime, timezone
 

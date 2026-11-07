@@ -40,7 +40,10 @@ class EmailConnectionTestRequest(BaseSchema):
     )
     smtp_use_tls: bool = Field(
         default=True,
-        description="Whether to use TLS/STARTTLS for SMTP connection (recommended for ports 587, 25)",
+        description=(
+            'Whether to use TLS/STARTTLS for SMTP connection (recommended '
+            'for ports 587, 25)'
+        ),
     )
 
     # IMAP Configuration
@@ -73,7 +76,10 @@ class EmailConnectionTestRequest(BaseSchema):
     )
     imap_use_ssl: bool = Field(
         default=True,
-        description="Whether to use SSL for IMAP connection (recommended for port 993)",
+        description=(
+            'Whether to use SSL for IMAP connection (recommended for port '
+            '993)'
+        ),
     )
 
     @field_validator('smtp_port', 'imap_port')

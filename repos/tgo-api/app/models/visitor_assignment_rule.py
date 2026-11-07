@@ -54,12 +54,18 @@ class VisitorAssignmentRule(Base):
     model: Mapped[Optional[str]] = mapped_column(
         String(100),
         nullable=True,
-        comment="Specific model to use (e.g., gpt-4, qwen-turbo). If null, uses provider's default",
+        comment=(
+            'Specific model to use (e.g., gpt-4, qwen-turbo). If null, uses '
+            "provider's default"
+        ),
     )
     prompt: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
-        comment="Custom prompt for assignment analysis. If null, uses system default",
+        comment=(
+            'Custom prompt for assignment analysis. If null, uses system '
+            'default'
+        ),
     )
     llm_assignment_enabled: Mapped[bool] = mapped_column(
         Boolean,
@@ -73,7 +79,10 @@ class VisitorAssignmentRule(Base):
         String(50),
         nullable=True,
         default="Asia/Shanghai",
-        comment="Timezone for service hours (e.g., Asia/Shanghai, America/New_York, Europe/London)",
+        comment=(
+            'Timezone for service hours (e.g., Asia/Shanghai, '
+            'America/New_York, Europe/London)'
+        ),
     )
     service_weekdays: Mapped[Optional[list]] = mapped_column(
         ARRAY(Integer),
@@ -136,7 +145,15 @@ class VisitorAssignmentRule(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<VisitorAssignmentRule(id={self.id}, project_id={self.project_id}, llm_assignment_enabled={self.llm_assignment_enabled})>"
+        return (
+            f'<VisitorAssignmentRule(id='
+            f'{self.id}'
+            f', project_id='
+            f'{self.project_id}'
+            f', llm_assignment_enabled='
+            f'{self.llm_assignment_enabled}'
+            f')>'
+        )
 
     @property
     def effective_prompt(self) -> str:

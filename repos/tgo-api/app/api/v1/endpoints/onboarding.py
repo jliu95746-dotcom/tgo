@@ -79,7 +79,8 @@ async def get_onboarding_progress(
 
     progress = _get_or_create_progress(db, project_id)
 
-    # If already marked as completed (skipped), return current state without re-checking
+    # If already marked as completed (skipped), return current state without
+    # re-checking
 
     if progress.is_completed:
         step_statuses = [
@@ -87,7 +88,8 @@ async def get_onboarding_progress(
             progress.step_2_completed,
             progress.step_3_completed,
             progress.step_4_completed,
-            progress.step_5_completed,  # Read from database (may be skipped by user)
+            # Read from database (may be skipped by user)
+            progress.step_5_completed,
         ]
         # Only count action steps (1-4) for progress
 
@@ -162,14 +164,19 @@ async def get_onboarding_progress(
     "/skip",
     response_model=OnboardingProgressResponse,
     summary="Skip onboarding step(s)",
-    description="""
-    Skip onboarding step(s) for the authenticated user's project.
-
-    - If `step_number` is provided (1-5), only that specific step is skipped.
-    - If `step_number` is not provided, the entire onboarding is skipped (all steps marked as completed).
-
-    This allows users to dismiss individual steps or the entire onboarding guide.
-    """,
+    description=(
+        '\n'
+        "    Skip onboarding step(s) for the authenticated user's project.\n"
+        '\n'
+        '    - If `step_number` is provided (1-5), only that specific step '
+        'is skipped.\n'
+        '    - If `step_number` is not provided, the entire onboarding is '
+        'skipped (all steps marked as completed).\n'
+        '\n'
+        '    This allows users to dismiss individual steps or the entire '
+        'onboarding guide.\n'
+        '    '
+    ),
 )
 async def skip_onboarding(
     request: SkipOnboardingRequest = None,

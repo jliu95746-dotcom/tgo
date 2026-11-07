@@ -99,7 +99,13 @@ def enqueue_action(
             f"您的企业注册验证码是：{code}\n\n" "验证码 15 分钟内有效，请勿告知他人。\n" "如非本人申请，请忽略此邮件。"
         )
     else:
-        link = f"{settings.SAAS_WEB_BASE_URL.rstrip('/')}/auth/{route}#token={token}"
+        link = (
+            f"{settings.SAAS_WEB_BASE_URL.rstrip('/')}"
+            f'/auth/'
+            f'{route}'
+            f'#token='
+            f'{token}'
+        )
         body = f"请打开以下链接完成操作：\n{link}\n\n如非本人申请，请忽略此邮件。"
     payload = MailPayload(
         recipient=staff.username,
@@ -122,7 +128,8 @@ def lock_action(db: Session, token: str, purpose: str) -> EmailAction:
 
 
 def lock_action_digest(db: Session, digest: str, purpose: str) -> EmailAction:
-    # All account changes lock the company first to serialize grants and members.
+    # All account changes lock the company first to serialize grants and
+    # members.
 
     action = db.scalar(
         select(EmailAction).where(
@@ -208,7 +215,8 @@ def complete_password_reset(db: Session, token: str, password: str) -> None:
         raise HTTPException(400, "验证链接无效或已过期")
     staff.password_hash = get_password_hash(password)
     staff.token_version += 1
-    # Invalidate every outstanding recovery link; reset never enables an account.
+    # Invalidate every outstanding recovery link; reset never enables an
+    # account.
 
     for pending in db.scalars(
         select(EmailAction).where(

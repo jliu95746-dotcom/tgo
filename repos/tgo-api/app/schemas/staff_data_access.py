@@ -1,4 +1,5 @@
-"""Retain the original staff token without putting it in outputs or task JSON."""
+"Retain the original staff token without putting it in outputs or task \
+JSON."
 
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, SecretStr

@@ -39,7 +39,12 @@ async def sync_uninstall_models_to_store(
     for resource_id in store_resource_ids:
         try:
             logger.info(
-                f"Syncing uninstall to Store: project={project_id}, resource={resource_id}"
+                (
+                    f'Syncing uninstall to Store: project='
+                    f'{project_id}'
+                    f', resource='
+                    f'{resource_id}'
+                )
             )
             await store_client.uninstall_model(resource_id, api_key)
         except Exception as e:
@@ -52,9 +57,12 @@ async def sync_uninstall_models_to_store(
 async def sync_uninstall_all_provider_models(
     db: Session, project_id: Union[str, UUID], provider_id: UUID
 ) -> None:
-    """
-    Fetch all models for a provider that have a store_resource_id and uninstall them.
-    """
+    (
+        '\n'
+        '    Fetch all models for a provider that have a store_resource_id '
+        'and uninstall them.\n'
+        '    '
+    )
     from app.models.ai_model import AIModel
 
     # Get models with store_resource_id

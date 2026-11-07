@@ -1,4 +1,5 @@
-"""Shared provider protocol for existing model listing and connection checks."""
+"Shared provider protocol for existing model listing and connection \
+checks."
 
 from typing import Optional
 from fastapi import HTTPException, status

@@ -21,7 +21,8 @@ async def _sync_pending_failed_once() -> None:
     """Scan DB for providers needing sync and perform batch sync with retry."""
     db = SessionLocal()
     try:
-        # Query providers: failed | pending | never synced, and not soft-deleted
+        # Query providers: failed | pending | never synced, and not
+        # soft-deleted
         q = db.query(AIProvider).filter(
             AIProvider.deleted_at.is_(None),
             or_(

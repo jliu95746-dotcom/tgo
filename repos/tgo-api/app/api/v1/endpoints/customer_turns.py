@@ -1,4 +1,5 @@
-"""Channel delivery fences reuse existing platform and scoped visitor identity."""
+"Channel delivery fences reuse existing platform and scoped visitor \
+identity."
 
 from uuid import UUID
 
@@ -238,7 +239,8 @@ async def receipt(
         or not turn.external_delivery
     ):
         raise HTTPException(403, "发送回执不属于当前渠道")
-    # Revoked reception can report an already observed receipt, but cannot claim
+    # Revoked reception can report an already observed receipt, but cannot
+    # claim
     # another send. Acknowledging a receipt never performs an external send.
 
     turn = TurnStore(db).confirm(

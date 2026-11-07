@@ -512,7 +512,10 @@ async def validate_workflow_generic(
     request: WorkflowValidateRequest,
     current_user: Staff = Depends(get_current_active_user),
 ) -> WorkflowValidationResponse:
-    """Validate an arbitrary workflow graph (nodes/edges) in Workflow service."""
+    (
+        'Validate an arbitrary workflow graph (nodes/edges) in Workflow '
+        'service.'
+    )
     data = await workflow_client.validate_workflow_generic(
         str(current_user.project_id), request.model_dump(by_alias=True)
     )
@@ -616,27 +619,34 @@ async def get_workflow_variables(
     "/{workflow_id}/execute",
     summary="Execute Workflow",
     response_model=None,
-    description="""
-Execute a workflow using one of three supported modes:
-
-1. **Synchronous Mode (Default, `stream=False`, `async=False`)**:
-   Executes the workflow immediately and returns the final output. Ideal for short-lived tasks.
-
-2. **Asynchronous Mode (`async=True`)**:
-   Creates an execution record and triggers a background Celery task. Returns the execution record immediately.
-
-3. **Streaming Mode (`stream=True`)**:
-   Returns a Server-Sent Events (SSE) stream, pushing real-time events as the workflow progresses.
-
-### Streaming Mode Events (SSE):
-When `stream=True`, the response header includes `Content-Type: text/event-stream`.
-Each message starts with `data: ` followed by a JSON string and ends with `\\n\\n`.
-
-- **workflow_started**: Workflow execution initialized.
-- **node_started**: A specific node has started executing.
-- **node_finished**: A specific node has finished (success or failure).
-- **workflow_finished**: Entire workflow has finished.
-""",
+    description=(
+        '\n'
+        'Execute a workflow using one of three supported modes:\n'
+        '\n'
+        '1. **Synchronous Mode (Default, `stream=False`, `async=False`)**:\n'
+        '   Executes the workflow immediately and returns the final output. '
+        'Ideal for short-lived tasks.\n'
+        '\n'
+        '2. **Asynchronous Mode (`async=True`)**:\n'
+        '   Creates an execution record and triggers a background Celery '
+        'task. Returns the execution record immediately.\n'
+        '\n'
+        '3. **Streaming Mode (`stream=True`)**:\n'
+        '   Returns a Server-Sent Events (SSE) stream, pushing real-time '
+        'events as the workflow progresses.\n'
+        '\n'
+        '### Streaming Mode Events (SSE):\n'
+        'When `stream=True`, the response header includes `Content-Type: '
+        'text/event-stream`.\n'
+        'Each message starts with `data: ` followed by a JSON string and '
+        'ends with `\\n\\n`.\n'
+        '\n'
+        '- **workflow_started**: Workflow execution initialized.\n'
+        '- **node_started**: A specific node has started executing.\n'
+        '- **node_finished**: A specific node has finished (success or '
+        'failure).\n'
+        '- **workflow_finished**: Entire workflow has finished.\n'
+    ),
     responses={
         200: {
             "description": "Successful Response",
@@ -645,7 +655,10 @@ Each message starts with `data: ` followed by a JSON string and ends with `\\n\\
                     "schema": {
                         "oneOf": [
                             {
-                                "$ref": "#/components/schemas/WorkflowSyncResponse"
+                                "$ref": (
+                                    '#/components/schemas/WorkflowSyncRespons'
+                                    'e'
+                                )
                             },
                             {"$ref": "#/components/schemas/WorkflowExecution"},
                         ]
@@ -653,7 +666,9 @@ Each message starts with `data: ` followed by a JSON string and ends with `\\n\\
                     "examples": {
                         "sync_mode": {
                             "summary": "Synchronous Mode (Default)",
-                            "description": "Returns final output and metadata.",
+                            "description": (
+                                'Returns final output and metadata.'
+                            ),
                             "value": {
                                 "success": True,
                                 "output": {
@@ -668,7 +683,10 @@ Each message starts with `data: ` followed by a JSON string and ends with `\\n\\
                         },
                         "async_mode": {
                             "summary": "Asynchronous Mode (async=true)",
-                            "description": "Returns the execution record with 'pending' status.",
+                            "description": (
+                                "Returns the execution record with 'pending' "
+                                'status.'
+                            ),
                             "value": {
                                 "id": "d73d5f18-3cc0-400f-ab18-c0a5f05625f5",
                                 "project_id": "proj-123",
@@ -690,10 +708,38 @@ Each message starts with `data: ` followed by a JSON string and ends with `\\n\\
                 "text/event-stream": {
                     "description": "Streaming Mode (stream=true)",
                     "example": (
-                        "data: {\"event\": \"workflow_started\", \"workflow_run_id\": \"uuid-1\", \"task_id\": \"stream-uuid-1\", \"data\": {\"id\": \"uuid-1\", \"workflow_id\": \"wf-1\", \"inputs\": {}, \"created_at\": 1735790000}}\n\n"
-                        "data: {\"event\": \"node_started\", \"workflow_run_id\": \"uuid-1\", \"task_id\": \"stream-uuid-1\", \"data\": {\"id\": \"node-exec-1\", \"node_id\": \"node-1\", \"node_type\": \"llm\", \"title\": \"AI Chat\", \"index\": 1, \"created_at\": 1735790001}}\n\n"
-                        "data: {\"event\": \"node_finished\", \"workflow_run_id\": \"uuid-1\", \"task_id\": \"stream-uuid-1\", \"data\": {\"id\": \"node-exec-1\", \"node_id\": \"node-1\", \"node_type\": \"llm\", \"inputs\": {}, \"outputs\": {\"text\": \"Hello\"}, \"status\": \"succeeded\", \"error\": null, \"elapsed_time\": 0.5, \"finished_at\": 1735790002}}\n\n"
-                        "data: {\"event\": \"workflow_finished\", \"workflow_run_id\": \"uuid-1\", \"task_id\": \"stream-uuid-1\", \"data\": {\"id\": \"uuid-1\", \"workflow_id\": \"wf-1\", \"status\": \"succeeded\", \"outputs\": {\"result\": \"Hello\"}, \"error\": null, \"elapsed_time\": 0.6, \"total_steps\": 1, \"finished_at\": 1735790002}}\n\n"
+                        (
+                            'data: {"event": "workflow_started", '
+                            '"workflow_run_id": "uuid-1", "task_id": '
+                            '"stream-uuid-1", "data": {"id": "uuid-1", '
+                            '"workflow_id": "wf-1", "inputs": {}, '
+                            '"created_at": 1735790000}}\n'
+                            '\n'
+                            'data: {"event": "node_started", '
+                            '"workflow_run_id": "uuid-1", "task_id": '
+                            '"stream-uuid-1", "data": {"id": "node-exec-1", '
+                            '"node_id": "node-1", "node_type": "llm", '
+                            '"title": "AI Chat", "index": 1, "created_at": '
+                            '1735790001}}\n'
+                            '\n'
+                            'data: {"event": "node_finished", '
+                            '"workflow_run_id": "uuid-1", "task_id": '
+                            '"stream-uuid-1", "data": {"id": "node-exec-1", '
+                            '"node_id": "node-1", "node_type": "llm", '
+                            '"inputs": {}, "outputs": {"text": "Hello"}, '
+                            '"status": "succeeded", "error": null, '
+                            '"elapsed_time": 0.5, "finished_at": '
+                            '1735790002}}\n'
+                            '\n'
+                            'data: {"event": "workflow_finished", '
+                            '"workflow_run_id": "uuid-1", "task_id": '
+                            '"stream-uuid-1", "data": {"id": "uuid-1", '
+                            '"workflow_id": "wf-1", "status": "succeeded", '
+                            '"outputs": {"result": "Hello"}, "error": null, '
+                            '"elapsed_time": 0.6, "total_steps": 1, '
+                            '"finished_at": 1735790002}}\n'
+                            '\n'
+                        )
                     ),
                 },
             },

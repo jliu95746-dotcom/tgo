@@ -39,32 +39,36 @@ def create_app(
     startup_hooks: Optional[List[Callable]] = None,
     shutdown_hooks: Optional[List[Callable]] = None,
 ) -> FastAPI:
-    """
-    Create and configure the FastAPI application instance.
-    
-    This factory function allows extensions (like SaaS modules) to inject
-    additional routers, middlewares, and lifecycle hooks.
-    
-    Args:
-        additional_routers: List of APIRouter instances to include
-        additional_middlewares: List of (middleware_class, kwargs) tuples
-        startup_hooks: List of async functions to run on startup
-        shutdown_hooks: List of async functions to run on shutdown
-    
-    Returns:
-        Configured FastAPI application instance
-    
-    Example:
-        # In SaaS extension:
-        from app.main import create_app
-        from .routers import billing_router
-        from .middlewares import UsageMiddleware
-        
-        app = create_app(
-            additional_routers=[billing_router],
-            additional_middlewares=[(UsageMiddleware, {})],
-        )
-    """
+    (
+        '\n'
+        '    Create and configure the FastAPI application instance.\n'
+        '    \n'
+        '    This factory function allows extensions (like SaaS modules) to '
+        'inject\n'
+        '    additional routers, middlewares, and lifecycle hooks.\n'
+        '    \n'
+        '    Args:\n'
+        '        additional_routers: List of APIRouter instances to include\n'
+        '        additional_middlewares: List of (middleware_class, kwargs) '
+        'tuples\n'
+        '        startup_hooks: List of async functions to run on startup\n'
+        '        shutdown_hooks: List of async functions to run on shutdown\n'
+        '    \n'
+        '    Returns:\n'
+        '        Configured FastAPI application instance\n'
+        '    \n'
+        '    Example:\n'
+        '        # In SaaS extension:\n'
+        '        from app.main import create_app\n'
+        '        from .routers import billing_router\n'
+        '        from .middlewares import UsageMiddleware\n'
+        '        \n'
+        '        app = create_app(\n'
+        '            additional_routers=[billing_router],\n'
+        '            additional_middlewares=[(UsageMiddleware, {})],\n'
+        '        )\n'
+        '    '
+    )
     application = FastAPI(
         title=settings.PROJECT_NAME,
         description=settings.PROJECT_DESCRIPTION,
@@ -165,7 +169,9 @@ def create_app(
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ErrorResponse"
+                                    "$ref": (
+                                        '#/components/schemas/ErrorResponse'
+                                    )
                                 }
                             }
                         },

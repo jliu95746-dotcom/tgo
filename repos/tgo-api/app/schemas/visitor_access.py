@@ -1,4 +1,5 @@
-"""Visitor credentials are not platform identifiers or business execution grants."""
+"Visitor credentials are not platform identifiers or business execution \
+grants."
 
 from datetime import datetime
 from typing import Literal

@@ -33,7 +33,10 @@ operator_bearer = HTTPBearer(auto_error=False)
 
 
 def require_commercial_operations() -> None:
-    """Configuration must be possible before enforcing customer subscriptions."""
+    (
+        'Configuration must be possible before enforcing customer '
+        'subscriptions.'
+    )
     if not settings.SAAS_ENABLED:
         raise HTTPException(404, "企业商业化配置尚未启用")
 

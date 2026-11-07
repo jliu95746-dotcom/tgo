@@ -26,9 +26,13 @@ class NativeHandbackReceipt(BaseModel):
 
 
 async def prepare_native_mode(
-    visitor: Visitor, desired_mode: str | None,
+    visitor: Visitor,
+    desired_mode: str | None,
 ) -> None:
-    """Require verified native release before committing workbench AI/assist."""
+    (
+        'Require verified native release before committing workbench '
+        'AI/assist.'
+    )
     if desired_mode not in {"auto", "assist"}:
         return
     platform = visitor.platform

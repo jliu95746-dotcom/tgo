@@ -1,4 +1,5 @@
-"""Administrators configure paused employees using their current login scope."""
+"Administrators configure paused employees using their current login \
+scope."
 from uuid import UUID
 
 from fastapi import APIRouter, Depends

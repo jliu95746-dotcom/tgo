@@ -99,7 +99,10 @@ def _validate_business_query_tool_name(operation: str, tool_name: str) -> None:
 def formal_business_query_links(
     evidence: KnowledgeEvidence,
 ) -> list[tuple[UUID, str, Literal["passed", "failed"]]]:
-    """Select only server-created business tool receipts, never their content."""
+    (
+        'Select only server-created business tool receipts, never their '
+        'content.'
+    )
     links: list[tuple[UUID, str, Literal["passed", "failed"]]] = []
     for tool in evidence.tool_results:
         if tool.query_id is None and tool.operation is None:
@@ -117,7 +120,10 @@ def formal_business_query_links(
 def read_business_query_signals(
     value: object,
 ) -> list[tuple[UUID, str, Literal["passed", "failed"]]]:
-    """Accept bounded, typed server events without reading tool arguments/results."""
+    (
+        'Accept bounded, typed server events without reading tool '
+        'arguments/results.'
+    )
     if value is None:
         return []
     if not isinstance(value, list) or len(value) > 50:
@@ -684,7 +690,10 @@ async def _process_ai_reply_to_wukongim(
     contextual_reply: ContextualReply | None = None,
     disable_business_tools: bool = False,
 ) -> AsyncGenerator[ReplyEvent, None]:
-    """Release one checked result to both SSE consumers and persisted IM history."""
+    (
+        'Release one checked result to both SSE consumers and persisted IM '
+        'history.'
+    )
     customer_facing = channel_type == 251
     if not customer_facing:
         async for event in _process_internal_ai_stream_to_wukongim(
@@ -1388,11 +1397,14 @@ async def run_background_ai_interaction(
     interaction_run_id: UUID | None = None,
     contextual_reply: ContextualReply | None = None,
 ) -> None:
-    """Run AI interaction in the background.
-
-    Args:
-        started_event: Optional asyncio.Event that will be set when agent execution starts.
-    """
+    (
+        'Run AI interaction in the background.\n'
+        '\n'
+        '    Args:\n'
+        '        started_event: Optional asyncio.Event that will be set when '
+        'agent execution starts.\n'
+        '    '
+    )
     failed = False
     async for event_payload in process_ai_stream_to_wukongim(
         project_id=project_id,
@@ -1540,7 +1552,12 @@ def convert_ui_user_action_to_query(user_action: Dict[str, Any]) -> str:
         ", ".join(context_parts) if context_parts else "no additional context"
     )
 
-    return f"[UI Action] User triggered action '{action_name}' with context: {context_str}"
+    return (
+        f"[UI Action] User triggered action '"
+        f'{action_name}'
+        f"' with context: "
+        f'{context_str}'
+    )
 
 
 # ============================================================================
@@ -1551,7 +1568,10 @@ def convert_ui_user_action_to_query(user_action: Dict[str, Any]) -> str:
 def extract_messages_from_openai_format(
     messages: list[OpenAIChatMessage], user_field: Optional[str] = None
 ) -> tuple[str, Optional[str], str]:
-    """Extract user message, system message, and platform_open_id from OpenAI message format."""
+    (
+        'Extract user message, system message, and platform_open_id from '
+        'OpenAI message format.'
+    )
     user_message = None
     system_message = None
 

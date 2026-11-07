@@ -1,4 +1,5 @@
-"""An in-request proof for website data, never a response or a persisted grant."""
+"An in-request proof for website data, never a response or a persisted \
+grant."
 
 from uuid import UUID
 

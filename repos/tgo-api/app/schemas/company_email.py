@@ -1,4 +1,5 @@
-"""Purpose-specific public account actions; tokens never appear in responses."""
+"Purpose-specific public account actions; tokens never appear in \
+responses."
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 

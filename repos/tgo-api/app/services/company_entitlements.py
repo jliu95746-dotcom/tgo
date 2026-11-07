@@ -1,4 +1,5 @@
-"""Server-time service gates; expired administrators can still read and renew."""
+"Server-time service gates; expired administrators can still read and \
+renew."
 
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -22,7 +23,10 @@ def require_new_service(db: Session, project_id: UUID) -> None:
 
 
 def new_service_available(db: Session, project_id: UUID) -> bool:
-    """Expose a presentation flag without leaking plan, usage or company data."""
+    (
+        'Expose a presentation flag without leaking plan, usage or company '
+        'data.'
+    )
     try:
         require_new_service(db, project_id)
         return True

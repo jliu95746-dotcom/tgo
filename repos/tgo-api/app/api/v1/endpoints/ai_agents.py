@@ -51,11 +51,15 @@ async def _enrich_agent_with_device(
     agent_data: Dict[str, Any],
     project_id: str,
 ) -> None:
-    """Enrich a single agent dict with bound_device info from tgo-device-control.
-
-    Mutates *agent_data* in-place by adding a ``bound_device`` key when the
-    agent has a non-empty ``bound_device_id``.
-    """
+    (
+        'Enrich a single agent dict with bound_device info from '
+        'tgo-device-control.\n'
+        '\n'
+        '    Mutates *agent_data* in-place by adding a ``bound_device`` key '
+        'when the\n'
+        '    agent has a non-empty ``bound_device_id``.\n'
+        '    '
+    )
     device_id = agent_data.get("bound_device_id")
     if not device_id:
         return
@@ -96,7 +100,10 @@ async def get_workflow_release_audit(
     ),
     actor: Staff = Depends(require_agent_configuration_actor),
 ) -> WorkflowReleaseAuditResponse:
-    """Admin-only, project-scoped impact report; this endpoint never changes pins."""
+    (
+        'Admin-only, project-scoped impact report; this endpoint never '
+        'changes pins.'
+    )
     project, _ = project_and_api_key
     return await ai_client.get_workflow_release_audit(
         project_id=str(project.id),
@@ -160,12 +167,17 @@ async def get_workflow_pin_transitions(
     response_model=AgentListResponse,
     responses=LIST_RESPONSES,
     summary="List Agents",
-    description="""
-    Retrieve all AI agents for the authenticated project with filtering and pagination.
-    
-    Agents are AI entities that can be configured with specific models, instructions, and tools.
-    All results are automatically scoped to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Retrieve all AI agents for the authenticated project with '
+        'filtering and pagination.\n'
+        '    \n'
+        '    Agents are AI entities that can be configured with specific '
+        'models, instructions, and tools.\n'
+        '    All results are automatically scoped to the authenticated '
+        'project.\n'
+        '    '
+    ),
 )
 async def list_agents(
     model: Optional[str] = Query(
@@ -233,12 +245,16 @@ async def list_agents(
     responses=CREATE_RESPONSES,
     status_code=201,
     summary="Create Agent",
-    description="""
-    Create a new AI agent within the authenticated project.
-    
-    Agents can be configured with specific LLM models, system instructions, and tool bindings.
-    Only one default agent is allowed per project. Agent is automatically scoped to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Create a new AI agent within the authenticated project.\n'
+        '    \n'
+        '    Agents can be configured with specific LLM models, system '
+        'instructions, and tool bindings.\n'
+        '    Only one default agent is allowed per project. Agent is '
+        'automatically scoped to the authenticated project.\n'
+        '    '
+    ),
 )
 async def create_agent(
     agent_data: AgentCreateRequest,
@@ -333,10 +349,14 @@ async def get_device_action_readiness(
     response_model=AgentWithDetailsResponse,
     responses=CRUD_RESPONSES,
     summary="Get Agent",
-    description="""
-    Retrieve detailed information about a specific AI agent including tool bindings
-    and collection access if requested. Agent must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Retrieve detailed information about a specific AI agent '
+        'including tool bindings\n'
+        '    and collection access if requested. Agent must belong to the '
+        'authenticated project.\n'
+        '    '
+    ),
 )
 async def get_agent(
     agent_id: UUID,
@@ -381,7 +401,8 @@ async def get_agent(
 
     if isinstance(result, dict):
         await _enrich_agent_with_device(result, str(project.id))
-    # Return raw JSON to avoid strict validation, while keeping docs via response_model
+    # Return raw JSON to avoid strict validation, while keeping docs via
+    # response_model
 
     return JSONResponse(content=result)
 
@@ -391,12 +412,15 @@ async def get_agent(
     response_model=AgentResponse,
     responses=UPDATE_RESPONSES,
     summary="Update Agent",
-    description="""
-    Update AI agent configuration, tools, or settings.
-    
-    You can modify agent name, instruction, model, tool bindings, and default
-    agent status. Agent must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Update AI agent configuration, tools, or settings.\n'
+        '    \n'
+        '    You can modify agent name, instruction, model, tool bindings, '
+        'and default\n'
+        '    agent status. Agent must belong to the authenticated project.\n'
+        '    '
+    ),
 )
 async def update_agent(
     agent_id: UUID,
@@ -470,10 +494,14 @@ async def update_agent(
     responses=CRUD_RESPONSES,
     status_code=204,
     summary="Delete Agent",
-    description="""
-    Soft delete an AI agent by its UUID. The agent will be marked as deleted but
-    preserved for audit purposes. Agent must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Soft delete an AI agent by its UUID. The agent will be marked '
+        'as deleted but\n'
+        '    preserved for audit purposes. Agent must belong to the '
+        'authenticated project.\n'
+        '    '
+    ),
 )
 async def delete_agent(
     agent_id: UUID,
@@ -497,12 +525,16 @@ async def delete_agent(
     responses=CRUD_RESPONSES,
     status_code=204,
     summary="Set Agent Tool Enabled",
-    description="""
-    Enable or disable a specific tool binding for an agent.
-
-    This allows you to toggle individual tool bindings without modifying the entire agent configuration.
-    Agent and tool binding must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Enable or disable a specific tool binding for an agent.\n'
+        '\n'
+        '    This allows you to toggle individual tool bindings without '
+        'modifying the entire agent configuration.\n'
+        '    Agent and tool binding must belong to the authenticated '
+        'project.\n'
+        '    '
+    ),
 )
 async def set_agent_tool_enabled(
     agent_id: UUID,
@@ -537,12 +569,16 @@ async def set_agent_tool_enabled(
     responses=CRUD_RESPONSES,
     status_code=204,
     summary="Set Agent Collection Enabled",
-    description="""
-    Enable or disable a specific collection binding for an agent.
-
-    This allows you to toggle individual collection bindings without modifying the entire agent configuration.
-    Agent and collection binding must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Enable or disable a specific collection binding for an agent.\n'
+        '\n'
+        '    This allows you to toggle individual collection bindings '
+        'without modifying the entire agent configuration.\n'
+        '    Agent and collection binding must belong to the authenticated '
+        'project.\n'
+        '    '
+    ),
 )
 async def set_agent_collection_enabled(
     agent_id: UUID,
@@ -577,12 +613,16 @@ async def set_agent_collection_enabled(
     responses=CRUD_RESPONSES,
     status_code=204,
     summary="Set Agent Workflow Enabled",
-    description="""
-    Enable or disable a specific workflow binding for an agent.
-
-    This allows you to toggle individual workflow bindings without modifying the entire agent configuration.
-    Agent and workflow binding must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Enable or disable a specific workflow binding for an agent.\n'
+        '\n'
+        '    This allows you to toggle individual workflow bindings without '
+        'modifying the entire agent configuration.\n'
+        '    Agent and workflow binding must belong to the authenticated '
+        'project.\n'
+        '    '
+    ),
 )
 async def set_agent_workflow_enabled(
     agent_id: UUID,

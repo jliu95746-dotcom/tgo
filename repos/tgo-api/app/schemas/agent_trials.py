@@ -25,7 +25,10 @@ class AgentTrialRequest(BaseModel):
 
 
 class AgentTrialReceipt(BaseModel):
-    """Private quota reference; no customer message or question is fabricated."""
+    (
+        'Private quota reference; no customer message or question is '
+        'fabricated.'
+    )
 
     model_config = ConfigDict(extra="forbid")
     kind: Literal["agent_trial"] = "agent_trial"

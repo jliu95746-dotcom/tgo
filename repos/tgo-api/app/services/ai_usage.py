@@ -1,4 +1,5 @@
-"""One quota reservation per reply round; all mutations share the company lock."""
+"One quota reservation per reply round; all mutations share the company \
+lock."
 
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
@@ -209,7 +210,8 @@ def release(
     if row.status in {"released", "settled"}:
         return
     if row.status != "reserved" and not delivery_rejected:
-        row.status = "review"  # Ambiguous sends need channel lookup, never blind refund.
+        # Ambiguous sends need channel lookup, never blind refund.
+        row.status = "review"
         return
     batch = db.get(AICreditBatch, row.batch_id)
     assert batch is not None

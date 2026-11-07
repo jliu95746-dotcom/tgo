@@ -1,8 +1,7 @@
-"""Symmetric encryption utilities for protecting secrets at rest.
-
-Uses Fernet (symmetric authenticated encryption) with a key derived from settings.SECRET_KEY.
-This enables reversible encryption for fields like API keys.
-"""
+"Symmetric encryption utilities for protecting secrets at rest.\n\nUses \
+Fernet (symmetric authenticated encryption) with a key derived from \
+settings.SECRET_KEY.\nThis enables reversible encryption for fields \
+like API keys.\n"
 from __future__ import annotations
 
 import base64

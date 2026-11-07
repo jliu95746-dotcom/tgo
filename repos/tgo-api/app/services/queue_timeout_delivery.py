@@ -1,4 +1,5 @@
-"""Deliver committed timeout intents without repeating uncertain channel sends."""
+"Deliver committed timeout intents without repeating uncertain channel \
+sends."
 
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -257,7 +258,10 @@ async def deliver_timeout_notice(db: Session, entry_id: UUID) -> None:
 async def recover_timeout_notices(
     db: Session, *, limit: int = 20, project_id: UUID | None = None
 ) -> None:
-    """Recover only persisted intents; never backfill notices for old expiries."""
+    (
+        'Recover only persisted intents; never backfill notices for old '
+        'expiries.'
+    )
     metadata = VisitorWaitingQueue.extra_metadata[QUEUE_TIMEOUT_NOTICE_KEY]
     external = metadata["external_status"].as_string()
     history = metadata["history_status"].as_string()

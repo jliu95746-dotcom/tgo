@@ -8,20 +8,24 @@ from fastapi import Request
 def get_client_language(
     request: Request, provided_language: Optional[str] = None
 ) -> Optional[str]:
-    """
-    Get the client's preferred language from the request.
-    
-    Priority:
-    1. If provided_language is given and not empty, use it directly
-    2. Accept-Language header (first language in the list)
-    
-    Args:
-        request: FastAPI Request object
-        provided_language: Optional language code provided in the request body
-        
-    Returns:
-        The client's preferred language code (e.g., 'en', 'zh-CN'), or None if not available
-    """
+    (
+        '\n'
+        "    Get the client's preferred language from the request.\n"
+        '    \n'
+        '    Priority:\n'
+        '    1. If provided_language is given and not empty, use it directly\n'
+        '    2. Accept-Language header (first language in the list)\n'
+        '    \n'
+        '    Args:\n'
+        '        request: FastAPI Request object\n'
+        '        provided_language: Optional language code provided in the '
+        'request body\n'
+        '        \n'
+        '    Returns:\n'
+        "        The client's preferred language code (e.g., 'en', 'zh-CN'), "
+        'or None if not available\n'
+        '    '
+    )
     # 1. Use provided language if available
     if provided_language and provided_language.strip():
         return provided_language.strip()
@@ -117,24 +121,29 @@ def _pick_best_ip_from_xff(x_forwarded_for: str) -> Optional[str]:
 def get_client_ip(
     request: Request, provided_ip: Optional[str] = None
 ) -> Optional[str]:
-    """
-    Get the real client IP address from the request.
-    
-    Priority:
-    1. If provided_ip is given and not empty, use it directly
-    2. X-Forwarded-For header (first IP in the chain, set by proxies like nginx)
-    3. X-Real-IP header (set by nginx with real_ip_header directive)
-    4. CF-Connecting-IP header (set by Cloudflare)
-    5. True-Client-IP header (set by some CDNs)
-    6. request.client.host (direct connection, may be proxy IP)
-    
-    Args:
-        request: FastAPI Request object
-        provided_ip: Optional IP address provided in the request body
-        
-    Returns:
-        The client's real IP address, or None if not available
-    """
+    (
+        '\n'
+        '    Get the real client IP address from the request.\n'
+        '    \n'
+        '    Priority:\n'
+        '    1. If provided_ip is given and not empty, use it directly\n'
+        '    2. X-Forwarded-For header (first IP in the chain, set by '
+        'proxies like nginx)\n'
+        '    3. X-Real-IP header (set by nginx with real_ip_header '
+        'directive)\n'
+        '    4. CF-Connecting-IP header (set by Cloudflare)\n'
+        '    5. True-Client-IP header (set by some CDNs)\n'
+        '    6. request.client.host (direct connection, may be proxy IP)\n'
+        '    \n'
+        '    Args:\n'
+        '        request: FastAPI Request object\n'
+        '        provided_ip: Optional IP address provided in the request '
+        'body\n'
+        '        \n'
+        '    Returns:\n'
+        "        The client's real IP address, or None if not available\n"
+        '    '
+    )
     # 1. Use provided IP if available
     if provided_ip and provided_ip.strip():
         ip_value = _normalize_ip_candidate(provided_ip)

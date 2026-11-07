@@ -1,4 +1,5 @@
-"""Locate a validated HEVC picture instead of metadata start-code lookalikes."""
+"Locate a validated HEVC picture instead of metadata start-code \
+lookalikes."
 
 import re
 
@@ -10,7 +11,7 @@ def hevc_offset(content: bytes) -> int:
         raise ValueError("微信图片容器无效")
     markers = list(START_CODE.finditer(content, 4, min(len(content), 262144)))
     for index, marker in enumerate(markers):
-        chain = markers[index : index + 4]
+        chain = markers[index: index + 4]
         if len(chain) < 4:
             break
         types = []
@@ -18,7 +19,7 @@ def hevc_offset(content: bytes) -> int:
             position = unit.end()
             if position + 2 >= len(content):
                 break
-            first, second = content[position : position + 2]
+            first, second = content[position: position + 2]
             if first & 128 or not second & 7:
                 break
             types.append((first >> 1) & 63)

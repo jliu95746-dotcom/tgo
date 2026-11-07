@@ -30,7 +30,10 @@ class ProviderModelSeed:
 
 
 def normalize_provider_key(provider: str) -> str:
-    """Normalize provider aliases to the canonical key used by default templates."""
+    (
+        'Normalize provider aliases to the canonical key used by default '
+        'templates.'
+    )
     raw = (provider or "").strip().lower()
     if not raw:
         return OPENAI_COMPATIBLE_PROVIDER
@@ -51,7 +54,10 @@ def resolve_initial_model_seeds(
 def get_default_model_seeds(
     db: Session, provider: str
 ) -> list[ProviderModelSeed]:
-    """Load default model seeds from DB for a provider, with openai-compatible fallback."""
+    (
+        'Load default model seeds from DB for a provider, with '
+        'openai-compatible fallback.'
+    )
     provider_key = normalize_provider_key(provider)
     rows = _load_default_rows(db, provider_key)
     if not rows and provider_key != OPENAI_COMPATIBLE_PROVIDER:

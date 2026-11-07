@@ -45,7 +45,10 @@ class WebsiteMetadataResponse(BaseModel):
     )
     description: Optional[str] = Field(
         None,
-        description="The website description from meta description or og:description tag",
+        description=(
+            'The website description from meta description or og:description '
+            'tag'
+        ),
     )
     favicon: Optional[str] = Field(
         None, description="The favicon URL if found"
@@ -65,15 +68,20 @@ class WebsiteMetadataResponse(BaseModel):
     "/extract-website-metadata",
     response_model=WebsiteMetadataResponse,
     summary="Extract Website Metadata",
-    description="""
-    Extract metadata (title, description, favicon, og:image) from a given website URL.
-
-    This endpoint fetches the HTML content of the specified URL and extracts:
-    - **title**: From the `<title>` tag
-    - **description**: From `<meta name="description">` or `<meta property="og:description">`
-    - **favicon**: From `<link rel="icon">` or similar
-    - **og_image**: From `<meta property="og:image">`
-    """,
+    description=(
+        '\n'
+        '    Extract metadata (title, description, favicon, og:image) from a '
+        'given website URL.\n'
+        '\n'
+        '    This endpoint fetches the HTML content of the specified URL and '
+        'extracts:\n'
+        '    - **title**: From the `<title>` tag\n'
+        '    - **description**: From `<meta name="description">` or `<meta '
+        'property="og:description">`\n'
+        '    - **favicon**: From `<link rel="icon">` or similar\n'
+        '    - **og_image**: From `<meta property="og:image">`\n'
+        '    '
+    ),
     responses={
         200: {"description": "Metadata extracted successfully"},
         400: {"description": "Invalid URL format"},

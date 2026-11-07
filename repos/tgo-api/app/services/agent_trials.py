@@ -1,4 +1,5 @@
-"""Administrator trial orchestration with shared authorization and durable receipts."""
+"Administrator trial orchestration with shared authorization and durable \
+receipts."
 
 import asyncio
 from uuid import UUID

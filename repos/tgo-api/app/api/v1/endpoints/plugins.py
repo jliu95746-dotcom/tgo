@@ -103,7 +103,10 @@ def _handle_runtime_error(e: Exception, context: str) -> NoReturn:
 async def list_plugins(
     current_user: Staff = Depends(get_current_active_user),
 ) -> PluginListResponse:
-    """Get all registered plugins, including global and project-specific ones."""
+    (
+        'Get all registered plugins, including global and project-specific '
+        'ones.'
+    )
     try:
         data = await plugin_runtime_client.list_plugins(
             project_id=str(current_user.project_id)
@@ -117,7 +120,10 @@ async def list_plugins(
 async def get_chat_toolbar_buttons(
     current_user: Staff = Depends(get_current_active_user),
 ) -> ChatToolbarResponse:
-    """Get all chat toolbar buttons from registered plugins for the current project."""
+    (
+        'Get all chat toolbar buttons from registered plugins for the '
+        'current project.'
+    )
     try:
         data = await plugin_runtime_client.get_chat_toolbar_buttons(
             project_id=str(current_user.project_id)
@@ -295,7 +301,8 @@ async def list_installed_plugins(
         data = await plugin_runtime_client.list_installed_plugins(
             project_id=str(current_user.project_id)
         )
-        # Ensure latest_version and source_url are preserved by converting to model
+        # Ensure latest_version and source_url are preserved by converting to
+        # model
 
         return InstalledPluginListResponse(**data)
     except Exception as e:
@@ -313,7 +320,9 @@ async def fetch_plugin_info(
         if not data:
             raise HTTPException(
                 status_code=400,
-                detail="Could not fetch plugin information from the provided URL",
+                detail=(
+                    'Could not fetch plugin information from the provided URL'
+                ),
             )
         return PluginFetchResponse(**data)
     except Exception as e:
@@ -343,17 +352,28 @@ async def install_plugin_stream(
                     "POST",
                     runtime_url,
                     json=install_data,
-                    follow_redirects=False,  # Prevent 307 redirect from changing POST to GET
+                    # Prevent 307 redirect from changing POST to GET
+                    follow_redirects=False,
                 ) as response:
                     if response.status_code != 200:
-                        yield f"data: {json.dumps({'stage': 'error', 'message': f'Runtime error: {response.status_code}'})}\n\n"
+                        yield (
+                            f'data: '
+                            f"{json.dumps({'stage': 'error', 'message': f'Runtime error: {response.status_code}'})}"
+                            f'\n'
+                            f'\n'
+                        )
                         return
                     async for line in response.aiter_lines():
                         if line:
                             yield f"{line}\n\n"
             except Exception as e:
                 logger.error(f"Stream proxy error: {e}")
-                yield f"data: {json.dumps({'stage': 'error', 'message': str(e)})}\n\n"
+                yield (
+                    f'data: '
+                    f"{json.dumps({'stage': 'error', 'message': str(e)})}"
+                    f'\n'
+                    f'\n'
+                )
 
     return StreamingResponse(stream_proxy(), media_type="text/event-stream")
 
@@ -409,7 +429,12 @@ async def upgrade_plugin_stream(
     """Upgrade a plugin and stream progress via SSE proxy."""
 
     async def stream_proxy():
-        runtime_url = f"{settings.PLUGIN_RUNTIME_URL.rstrip('/')}/plugins/{plugin_id}/upgrade"
+        runtime_url = (
+            f"{settings.PLUGIN_RUNTIME_URL.rstrip('/')}"
+            f'/plugins/'
+            f'{plugin_id}'
+            f'/upgrade'
+        )
 
         params = {"project_id": str(current_user.project_id)}
         upgrade_data = request.model_dump()
@@ -424,14 +449,24 @@ async def upgrade_plugin_stream(
                     follow_redirects=False,
                 ) as response:
                     if response.status_code != 200:
-                        yield f"data: {json.dumps({'stage': 'error', 'message': f'Runtime error: {response.status_code}'})}\n\n"
+                        yield (
+                            f'data: '
+                            f"{json.dumps({'stage': 'error', 'message': f'Runtime error: {response.status_code}'})}"
+                            f'\n'
+                            f'\n'
+                        )
                         return
                     async for line in response.aiter_lines():
                         if line:
                             yield f"{line}\n\n"
             except Exception as e:
                 logger.error(f"Upgrade stream proxy error: {e}")
-                yield f"data: {json.dumps({'stage': 'error', 'message': str(e)})}\n\n"
+                yield (
+                    f'data: '
+                    f"{json.dumps({'stage': 'error', 'message': str(e)})}"
+                    f'\n'
+                    f'\n'
+                )
 
     return StreamingResponse(stream_proxy(), media_type="text/event-stream")
 
@@ -580,7 +615,8 @@ async def start_plugin(
 ) -> dict:
     """Start a plugin via runtime service."""
     try:
-        # Pass None or empty dict, runtime will fetch config from DB if not provided
+        # Pass None or empty dict, runtime will fetch config from DB if not
+        # provided
 
         resp = await plugin_runtime_client.start_plugin(
             plugin_id, None, project_id=str(current_user.project_id)

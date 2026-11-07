@@ -1,4 +1,5 @@
-"""Wake durable billing work while retaining callback processing during sales pauses."""
+"Wake durable billing work while retaining callback processing during \
+sales pauses."
 
 import asyncio
 import time

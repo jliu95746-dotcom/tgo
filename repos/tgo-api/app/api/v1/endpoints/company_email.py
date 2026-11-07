@@ -1,4 +1,5 @@
-"""Public email flows share rate limits and never disclose account existence."""
+"Public email flows share rate limits and never disclose account \
+existence."
 
 from hashlib import sha256
 

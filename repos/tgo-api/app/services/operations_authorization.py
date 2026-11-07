@@ -1,4 +1,5 @@
-"""Audited operator grants preserve paid orders and serialize subscription changes."""
+"Audited operator grants preserve paid orders and serialize subscription \
+changes."
 
 from datetime import datetime, timezone
 from uuid import UUID

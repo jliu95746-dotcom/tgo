@@ -262,11 +262,15 @@ def _claim(
 
 
 async def write_delivery_history(row: StaffMessageDelivery) -> None:
-    """Use the same server IM client as AI; never call any channel adapter here."""
+    (
+        'Use the same server IM client as AI; never call any channel adapter '
+        'here.'
+    )
     if not wukongim_client.enabled:
         raise RuntimeError("IM_DISABLED")
     from_uid = f"{row.staff_id}-staff"
-    # The first IM send may have succeeded before its database receipt committed.
+    # The first IM send may have succeeded before its database receipt
+    # committed.
     # Reconcile even when the local attempt counter is still zero; a failed
     # lookup must stop the send rather than risk a duplicate.
     existing = await wukongim_client.get_message_by_client_msg_no(
@@ -300,7 +304,8 @@ async def _sync_history_locked(db: Session, row: StaffMessageDelivery) -> None:
         row.history_status = "sent"
         row.history_error = None
     except Exception as exc:
-        # Persist the intent before channel delivery; even a restart retains it.
+        # Persist the intent before channel delivery; even a restart retains
+        # it.
         row.history_error = type(exc).__name__[:100]
         row.next_retry_at = utc_now() + timedelta(
             seconds=min(300, 5 * 2 ** min(row.history_attempts, 6))
@@ -333,9 +338,13 @@ async def recover_pending_history(
     *,
     project_id: UUID | None = None,
 ) -> int:
-    """Skip locked rows so API workers cannot replay the same pending record."""
+    (
+        'Skip locked rows so API workers cannot replay the same pending '
+        'record.'
+    )
     recovered = 0
-    # Select IDs first; each attempt commits independently rather than holding a
+    # Select IDs first; each attempt commits independently rather than holding
+    # a
     # batch of row locks while waiting on the IM service.
     query = db.query(StaffMessageDelivery.id).filter(
         StaffMessageDelivery.external_status.in_(["sent", "not_required"]),
@@ -446,7 +455,8 @@ async def deliver(
         and training_snapshot(request) is not None
     )
     # A retry uses the immutable saved intent; it must not depend on today's
-    # employee setting or AI service availability to recover its delivery status.
+    # employee setting or AI service availability to recover its delivery
+    # status.
     existing_delivery = (
         db.query(StaffMessageDelivery.id)
         .filter(

@@ -21,30 +21,37 @@ async def realtime_messages(websocket: WebSocket) -> None:
     "/route",
     response_model=WuKongIMRouteResponse,
     summary="Get WuKongIM WebSocket Connection Address",
-    description="Get the WebSocket long connection address for a user from WuKongIM service. "
-    "This endpoint does not require authentication and can be used by both staff and visitors.",
+    description=(
+        'Get the WebSocket long connection address for a user from WuKongIM '
+        'service. This endpoint does not require authentication and can be '
+        'used by both staff and visitors.'
+    ),
 )
 async def get_wukongim_route(
     uid: str,
 ) -> WuKongIMRouteResponse:
-    """
-    Get WuKongIM WebSocket connection address for a user.
-    
-    This is a public endpoint that proxies the request to WuKongIM service
-    to retrieve the WebSocket connection address (tcp_addr and ws_addr) for
-    the specified user ID.
-    
-    Args:
-        uid: User ID (can be staff UID or visitor UID)
-        
-    Returns:
-        WuKongIM route response with connection addresses
-        
-    Raises:
-        400: If uid parameter is missing or invalid
-        502: If WuKongIM service is unreachable or returns an error
-        503: If WuKongIM integration is disabled
-    """
+    (
+        '\n'
+        '    Get WuKongIM WebSocket connection address for a user.\n'
+        '    \n'
+        '    This is a public endpoint that proxies the request to WuKongIM '
+        'service\n'
+        '    to retrieve the WebSocket connection address (tcp_addr and '
+        'ws_addr) for\n'
+        '    the specified user ID.\n'
+        '    \n'
+        '    Args:\n'
+        '        uid: User ID (can be staff UID or visitor UID)\n'
+        '        \n'
+        '    Returns:\n'
+        '        WuKongIM route response with connection addresses\n'
+        '        \n'
+        '    Raises:\n'
+        '        400: If uid parameter is missing or invalid\n'
+        '        502: If WuKongIM service is unreachable or returns an error\n'
+        '        503: If WuKongIM integration is disabled\n'
+        '    '
+    )
     if not uid or not uid.strip():
         logger.warning("Route request with empty uid parameter")
         raise HTTPException(

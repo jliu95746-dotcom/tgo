@@ -60,55 +60,74 @@ SERVICES: dict[str, ServiceDefinition] = {
 
 def _swagger_ui_html(title: str, openapi_url: str) -> str:
     """Generate Swagger UI HTML page."""
-    return f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{title} - Swagger UI</title>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
-</head>
-<body>
-    <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-    <script>
-        SwaggerUIBundle({{
-            url: "{openapi_url}",
-            dom_id: '#swagger-ui',
-            presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
-            layout: "StandaloneLayout"
-        }});
-    </script>
-</body>
-</html>
-"""
+    return (
+        f'\n'
+        f'<!DOCTYPE html>\n'
+        f'<html>\n'
+        f'<head>\n'
+        f'    <title>'
+        f'{title}'
+        f' - Swagger UI</title>\n'
+        f'    <meta charset="utf-8"/>\n'
+        f'    <meta name="viewport" content="width=device-width, '
+        f'initial-scale=1">\n'
+        f'    <link rel="stylesheet" type="text/css" '
+        f'href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">\n'
+        f'</head>\n'
+        f'<body>\n'
+        f'    <div id="swagger-ui"></div>\n'
+        f'    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bund'
+        f'le.js"></script>\n'
+        f'    <script>\n'
+        f'        SwaggerUIBundle({{\n'
+        f'            url: "'
+        f'{openapi_url}'
+        f'",\n'
+        f"            dom_id: '#swagger-ui',\n"
+        f'            presets: [SwaggerUIBundle.presets.apis, '
+        f'SwaggerUIBundle.SwaggerUIStandalonePreset],\n'
+        f'            layout: "StandaloneLayout"\n'
+        f'        }});\n'
+        f'    </script>\n'
+        f'</body>\n'
+        f'</html>\n'
+    )
 
 
 def _error_html(title: str, message: str) -> str:
     """Generate error page HTML."""
     title = escape(title)
     message = escape(message)
-    return f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{title} - Error</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; padding: 40px; background: #f5f5f5; }}
-        .error {{ background: white; padding: 30px; border-radius: 8px; max-width: 600px; margin: 0 auto; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-        h1 {{ color: #e74c3c; }}
-        p {{ color: #666; }}
-    </style>
-</head>
-<body>
-    <div class="error">
-        <h1>⚠️ {title}</h1>
-        <p>{message}</p>
-    </div>
-</body>
-</html>
-"""
+    return (
+        f'\n'
+        f'<!DOCTYPE html>\n'
+        f'<html>\n'
+        f'<head>\n'
+        f'    <title>'
+        f'{title}'
+        f' - Error</title>\n'
+        f'    <style>\n'
+        f'        body {{ font-family: Arial, sans-serif; padding: 40px; '
+        f'background: #f5f5f5; }}\n'
+        f'        .error {{ background: white; padding: 30px; border-radius: '
+        f'8px; max-width: 600px; margin: 0 auto; box-shadow: 0 2px 10px '
+        f'rgba(0,0,0,0.1); }}\n'
+        f'        h1 {{ color: #e74c3c; }}\n'
+        f'        p {{ color: #666; }}\n'
+        f'    </style>\n'
+        f'</head>\n'
+        f'<body>\n'
+        f'    <div class="error">\n'
+        f'        <h1>⚠️ '
+        f'{title}'
+        f'</h1>\n'
+        f'        <p>'
+        f'{message}'
+        f'</p>\n'
+        f'    </div>\n'
+        f'</body>\n'
+        f'</html>\n'
+    )
 
 
 @router.get("", response_class=HTMLResponse, summary="Documentation Index")
@@ -118,19 +137,27 @@ async def docs_index() -> HTMLResponse:
         f'<li><a href="/v1/docs/{key}">{svc["name"]}</a></li>'
         for key, svc in SERVICES.items()
     )
-    return HTMLResponse(f"""
-<!DOCTYPE html>
-<html>
-<head><title>API Documentation</title>
-<style>
-    body {{ font-family: Arial, sans-serif; padding: 40px; background: #f5f5f5; }}
-    .container {{ background: white; padding: 30px; border-radius: 8px; max-width: 600px; margin: 0 auto; }}
-    h1 {{ color: #333; }} ul {{ line-height: 2; }} a {{ color: #3498db; }}
-</style>
-</head>
-<body><div class="container"><h1>📚 API Documentation</h1><ul>{links}</ul></div></body>
-</html>
-""")
+    return HTMLResponse(
+        (
+            f'\n'
+            f'<!DOCTYPE html>\n'
+            f'<html>\n'
+            f'<head><title>API Documentation</title>\n'
+            f'<style>\n'
+            f'    body {{ font-family: Arial, sans-serif; padding: 40px; '
+            f'background: #f5f5f5; }}\n'
+            f'    .container {{ background: white; padding: 30px; '
+            f'border-radius: 8px; max-width: 600px; margin: 0 auto; }}\n'
+            f'    h1 {{ color: #333; }} ul {{ line-height: 2; }} a {{ color: '
+            f'#3498db; }}\n'
+            f'</style>\n'
+            f'</head>\n'
+            f'<body><div class="container"><h1>📚 API Documentation</h1><ul>'
+            f'{links}'
+            f'</ul></div></body>\n'
+            f'</html>\n'
+        )
+    )
 
 
 @router.get(

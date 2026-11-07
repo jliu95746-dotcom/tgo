@@ -134,7 +134,10 @@ class AIReplyOriginRequest(BaseModel):
 
 
 class VisitorAIReplyOriginRequest(AIReplyOriginRequest):
-    """The public platform key locates a site; the IM grant authorizes its visitor."""
+    (
+        'The public platform key locates a site; the IM grant authorizes its '
+        'visitor.'
+    )
 
     platform_api_key: str = Field(min_length=1, max_length=255)
 

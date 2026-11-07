@@ -136,7 +136,10 @@ def _unwrap(raw: object, expected: str | None) -> dict[str, JsonValue]:
 
 
 def normalize_tracking_status(value: str | None) -> str | None:
-    """None means unrecognized; 'unknown' is an explicit non-terminal report."""
+    (
+        "None means unrecognized; 'unknown' is an explicit non-terminal "
+        'report.'
+    )
     if not value:
         return None
     value = value.strip().lower()
@@ -145,7 +148,10 @@ def normalize_tracking_status(value: str | None) -> str | None:
     if re.search(r"(?:待|等待|未|尚未)揽收|\bpending\b|awaiting collection", value):
         return "pending"
     if re.search(
-        r"未签收|未妥投|未送达|待签收|\b(undelivered|unsigned)\b|not(?: \w+){0,2} (?:delivered|signed)",
+        (
+            '未签收|未妥投|未送达|待签收|\\b(undelivered|unsigned)\\b|not(?: \\w+){0,2} '
+            '(?:delivered|signed)'
+        ),
         value,
     ):
         return "unknown"
@@ -173,7 +179,8 @@ def _event_time(value: JsonValue) -> datetime | None:
             return None
         if not 2000 <= parsed.year <= 2100:
             return None
-        # Preserve the existing adapter convention for offset-less provider dates.
+        # Preserve the existing adapter convention for offset-less provider
+        # dates.
 
         return (
             parsed.astimezone(timezone.utc)
@@ -187,7 +194,10 @@ def _event_time(value: JsonValue) -> datetime | None:
 def parse_tracking_result(
     raw: object, *, expected_tracking_no: str | None = None
 ) -> ParsedTrackingResult:
-    """Only structured, successful, source-matching data can update an archive."""
+    (
+        'Only structured, successful, source-matching data can update an '
+        'archive.'
+    )
     expected = (
         re.sub(r"\s+", "", expected_tracking_no).upper()
         if expected_tracking_no

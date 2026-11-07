@@ -1,4 +1,5 @@
-"""Retry scheduling leaves fulfillment, payment and review invariants intact."""
+"Retry scheduling leaves fulfillment, payment and review invariants \
+intact."
 
 from datetime import datetime, timezone
 from uuid import UUID

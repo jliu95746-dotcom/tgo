@@ -1,4 +1,5 @@
-"""Platform-only company overview and reasoned, idempotent quota adjustments."""
+"Platform-only company overview and reasoned, idempotent quota \
+adjustments."
 
 from datetime import datetime
 from uuid import UUID

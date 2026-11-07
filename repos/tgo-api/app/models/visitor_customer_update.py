@@ -15,7 +15,10 @@ if TYPE_CHECKING:
 
 
 class VisitorCustomerUpdate(Base):
-    """Audit log for visitor customer info updates received from external services."""
+    (
+        'Audit log for visitor customer info updates received from external '
+        'services.'
+    )
 
     __tablename__ = "api_visitor_customer_updates"
 
@@ -57,7 +60,9 @@ class VisitorCustomerUpdate(Base):
         JSONB,
         nullable=False,
         default=dict,
-        comment="Dictionary of applied changes {field: {\"old\": val, \"new\": val}}",
+        comment=(
+            'Dictionary of applied changes {field: {"old": val, "new": val}}'
+        ),
     )
     extra_metadata: Mapped[dict] = mapped_column(
         "metadata",
@@ -80,4 +85,10 @@ class VisitorCustomerUpdate(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<VisitorCustomerUpdate(id={self.id}, visitor_id={self.visitor_id})>"
+        return (
+            f'<VisitorCustomerUpdate(id='
+            f'{self.id}'
+            f', visitor_id='
+            f'{self.visitor_id}'
+            f')>'
+        )

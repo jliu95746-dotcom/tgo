@@ -1,4 +1,5 @@
-"""Keep customer authorization out of model input, messages and public serialization."""
+"Keep customer authorization out of model input, messages and public \
+serialization."
 
 from datetime import UTC, datetime
 from typing import TypedDict
@@ -70,7 +71,8 @@ def verify_business_publication(
         ),
         context_token=value.context_token,
     )
-    # Publication uses a new owner transaction, never the earlier route Session.
+    # Publication uses a new owner transaction, never the earlier route
+    # Session.
     with SessionLocal() as db:
         principal = BusinessExecutionContextService(db).verify(check)
     if principal.context_digest != value.context_digest:

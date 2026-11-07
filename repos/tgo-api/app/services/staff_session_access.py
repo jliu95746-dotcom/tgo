@@ -1,4 +1,5 @@
-"""Bind manual close/transfer commands to one staff token and one live session."""
+"Bind manual close/transfer commands to one staff token and one live \
+session."
 
 from dataclasses import dataclass
 from datetime import datetime

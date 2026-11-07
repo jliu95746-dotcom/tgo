@@ -36,13 +36,18 @@ router = APIRouter()
     response_model=CollectionListResponse,
     responses=LIST_RESPONSES,
     summary="List Collections",
-    description="""
-    Retrieve all collections for the authenticated project with filtering and pagination.
-
-    Collections are used to organize documents and files for RAG operations.
-    All results are automatically scoped to the authenticated project.
-    Supports filtering by collection_type (file, website, qa).
-    """,
+    description=(
+        '\n'
+        '    Retrieve all collections for the authenticated project with '
+        'filtering and pagination.\n'
+        '\n'
+        '    Collections are used to organize documents and files for RAG '
+        'operations.\n'
+        '    All results are automatically scoped to the authenticated '
+        'project.\n'
+        '    Supports filtering by collection_type (file, website, qa).\n'
+        '    '
+    ),
 )
 async def list_collections(
     display_name: Optional[str] = Query(
@@ -93,12 +98,17 @@ async def list_collections(
     responses=CREATE_RESPONSES,
     status_code=201,
     summary="Create Collection",
-    description="""
-    Create a new collection within the authenticated project for organizing documents and files.
-
-    Collections help organize RAG content and can contain metadata about embedding models,
-    chunk sizes, and other processing parameters. Collection is automatically scoped to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Create a new collection within the authenticated project for '
+        'organizing documents and files.\n'
+        '\n'
+        '    Collections help organize RAG content and can contain metadata '
+        'about embedding models,\n'
+        '    chunk sizes, and other processing parameters. Collection is '
+        'automatically scoped to the authenticated project.\n'
+        '    '
+    ),
 )
 async def create_collection(
     collection_data: CollectionCreateRequest,
@@ -128,10 +138,14 @@ async def create_collection(
     response_model=CollectionDetailResponse,
     responses=CRUD_RESPONSES,
     summary="Get Collection",
-    description="""
-    Retrieve detailed information about a specific collection including metadata
-    and optional statistics about contained documents and files. Collection must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Retrieve detailed information about a specific collection '
+        'including metadata\n'
+        '    and optional statistics about contained documents and files. '
+        'Collection must belong to the authenticated project.\n'
+        '    '
+    ),
 )
 async def get_collection(
     collection_id: UUID,
@@ -166,14 +180,19 @@ async def get_collection(
     response_model=CollectionResponse,
     responses=UPDATE_RESPONSES,
     summary="Update Collection",
-    description="""
-    Update an existing collection's properties including display name, description,
-    tags, and metadata. Only provided fields will be updated. Collection must belong
-    to the authenticated project and cannot be soft-deleted.
-
-    This endpoint allows partial updates - you only need to provide the fields you want to change.
-    All other fields will remain unchanged.
-    """,
+    description=(
+        '\n'
+        "    Update an existing collection's properties including display "
+        'name, description,\n'
+        '    tags, and metadata. Only provided fields will be updated. '
+        'Collection must belong\n'
+        '    to the authenticated project and cannot be soft-deleted.\n'
+        '\n'
+        '    This endpoint allows partial updates - you only need to provide '
+        'the fields you want to change.\n'
+        '    All other fields will remain unchanged.\n'
+        '    '
+    ),
 )
 async def update_collection(
     collection_id: UUID,
@@ -206,10 +225,14 @@ async def update_collection(
     responses=CRUD_RESPONSES,
     status_code=204,
     summary="Delete Collection",
-    description="""
-    Delete a specific collection by its UUID. This will set collection_id to NULL
-    for associated files and documents but will not delete them. Collection must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Delete a specific collection by its UUID. This will set '
+        'collection_id to NULL\n'
+        '    for associated files and documents but will not delete them. '
+        'Collection must belong to the authenticated project.\n'
+        '    '
+    ),
 )
 async def delete_collection(
     collection_id: UUID,
@@ -233,12 +256,17 @@ async def delete_collection(
     response_model=SearchResponse,
     responses=CRUD_RESPONSES,
     summary="Search Collection Documents",
-    description="""
-    Perform semantic search for documents within a specific collection.
-
-    This endpoint provides collection-scoped search capabilities for RAG operations.
-    All results are automatically scoped to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Perform semantic search for documents within a specific '
+        'collection.\n'
+        '\n'
+        '    This endpoint provides collection-scoped search capabilities '
+        'for RAG operations.\n'
+        '    All results are automatically scoped to the authenticated '
+        'project.\n'
+        '    '
+    ),
 )
 async def search_collection_documents(
     collection_id: UUID,
@@ -272,19 +300,26 @@ async def search_collection_documents(
     response_model=WebsitePageListResponse,
     responses=LIST_RESPONSES,
     summary="List Collection Pages",
-    description="""
-    Retrieve all crawled pages for a specific website collection.
-
-    This endpoint returns the list of website pages that have been crawled
-    and associated with the collection. Only works for collections with
-    collection_type='website'. Results are ordered by creation time (newest first).
-    """,
+    description=(
+        '\n'
+        '    Retrieve all crawled pages for a specific website collection.\n'
+        '\n'
+        '    This endpoint returns the list of website pages that have been '
+        'crawled\n'
+        '    and associated with the collection. Only works for collections '
+        'with\n'
+        "    collection_type='website'. Results are ordered by creation time "
+        '(newest first).\n'
+        '    '
+    ),
 )
 async def list_collection_pages(
     collection_id: UUID,
     status: Optional[str] = Query(
         None,
-        description="Filter by page status (pending, processing, completed, failed)",
+        description=(
+            'Filter by page status (pending, processing, completed, failed)'
+        ),
     ),
     limit: int = Query(
         20, ge=1, le=100, description="Number of pages to return"

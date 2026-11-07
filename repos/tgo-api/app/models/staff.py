@@ -113,12 +113,18 @@ class Staff(Base):
     is_active: Mapped[bool] = mapped_column(
         nullable=False,
         default=True,
-        comment="Whether staff is active for service (long-term switch, e.g., off-duty, resigned)",
+        comment=(
+            'Whether staff is active for service (long-term switch, e.g., '
+            'off-duty, resigned)'
+        ),
     )
     service_paused: Mapped[bool] = mapped_column(
         nullable=False,
         default=False,
-        comment="Whether staff has temporarily paused accepting new visitors (short-term switch)",
+        comment=(
+            'Whether staff has temporarily paused accepting new visitors '
+            '(short-term switch)'
+        ),
     )
 
     # Timestamps
@@ -154,7 +160,15 @@ class Staff(Base):
 
     def __repr__(self) -> str:
         """String representation of the staff."""
-        return f"<Staff(id={self.id}, username='{self.username}', role='{self.role}')>"
+        return (
+            f'<Staff(id='
+            f'{self.id}'
+            f", username='"
+            f'{self.username}'
+            f"', role='"
+            f'{self.role}'
+            f"')>"
+        )
 
     @property
     def is_deleted(self) -> bool:

@@ -1,4 +1,5 @@
-"""Administrator-only employee trials; identities come from the login session."""
+"Administrator-only employee trials; identities come from the login \
+session."
 
 from uuid import UUID
 

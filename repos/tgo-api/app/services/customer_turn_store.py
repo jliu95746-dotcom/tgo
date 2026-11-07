@@ -1,4 +1,5 @@
-"""Transactional turn collection and publication fencing, independent of HTTP tasks."""
+"Transactional turn collection and publication fencing, independent of \
+HTTP tasks."
 
 from datetime import datetime, timedelta, timezone
 import hashlib

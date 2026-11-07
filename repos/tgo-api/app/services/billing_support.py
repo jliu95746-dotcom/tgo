@@ -1,4 +1,5 @@
-"""Traceable human handling of invoices, suspensions and ambiguous AI receipts."""
+"Traceable human handling of invoices, suspensions and ambiguous AI \
+receipts."
 
 from datetime import datetime, timezone
 from uuid import UUID

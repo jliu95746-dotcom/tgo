@@ -1,11 +1,8 @@
-"""GeoIP service for IP to location lookup.
-
-Supports two providers:
-1. geoip2 (MaxMind GeoLite2) - International coverage, requires GeoLite2-City.mmdb
-2. ip2region (lionsoul2014) - Better for China, requires ip2region.xdb
-
-See: https://github.com/lionsoul2014/ip2region
-"""
+"GeoIP service for IP to location lookup.\n\nSupports two providers:\n1. \
+geoip2 (MaxMind GeoLite2) - International coverage, requires \
+GeoLite2-City.mmdb\n2. ip2region (lionsoul2014) - Better for China, \
+requires ip2region.xdb\n\nSee: https://github.com/lionsoul2014/ip2region\
+\n"
 
 from dataclasses import dataclass
 from typing import Optional
@@ -54,12 +51,15 @@ class GeoLocation:
 
 
 class GeoIPService:
-    """Service for looking up geolocation data from IP addresses.
-    
-    Supports two providers:
-    - geoip2: MaxMind GeoLite2 database
-    - ip2region: lionsoul2014's ip2region database (better for China)
-    """
+    (
+        'Service for looking up geolocation data from IP addresses.\n'
+        '    \n'
+        '    Supports two providers:\n'
+        '    - geoip2: MaxMind GeoLite2 database\n'
+        "    - ip2region: lionsoul2014's ip2region database (better for "
+        'China)\n'
+        '    '
+    )
 
     def __init__(self):
         self._geoip2_reader: Optional["geoip2.database.Reader"] = None
@@ -107,22 +107,33 @@ class GeoIPService:
         else:
             self._init_error = f"Unknown GeoIP provider: {provider}"
             logger.error(
-                f"Unknown GeoIP provider: {provider}. Supported: 'geoip2', 'ip2region'"
+                (
+                    f'Unknown GeoIP provider: '
+                    f'{provider}'
+                    f". Supported: 'geoip2', 'ip2region'"
+                )
             )
             return False
 
     def _init_ip2region(self, db_path: str) -> bool:
-        """Initialize ip2region searcher.
-        
-        ip2region uses separate databases for IPv4 and IPv6.
-        db_path can be:
-        - A single file path (will auto-detect version from filename)
-        - A directory containing ip2region_v4.xdb and/or ip2region_v6.xdb
-        
-        See: https://pypi.org/project/py-ip2region/
-        """
+        (
+            'Initialize ip2region searcher.\n'
+            '        \n'
+            '        ip2region uses separate databases for IPv4 and IPv6.\n'
+            '        db_path can be:\n'
+            '        - A single file path (will auto-detect version from '
+            'filename)\n'
+            '        - A directory containing ip2region_v4.xdb and/or '
+            'ip2region_v6.xdb\n'
+            '        \n'
+            '        See: https://pypi.org/project/py-ip2region/\n'
+            '        '
+        )
         if not IP2REGION_AVAILABLE:
-            self._init_error = "py-ip2region library not installed. Run: pip install py-ip2region"
+            self._init_error = (
+                'py-ip2region library not installed. Run: pip install '
+                'py-ip2region'
+            )
             logger.warning(
                 "py-ip2region library not installed. IP geolocation disabled."
             )
@@ -173,7 +184,8 @@ class GeoIPService:
     ) -> bool:
         """Load a single ip2region database file."""
         try:
-            # Load entire xdb into memory for best performance and thread-safety
+            # Load entire xdb into memory for best performance and
+            # thread-safety
             # Note: load_content_from_file is in util module, not searcher
             searcher = xdb_searcher.new_with_file_only(
                 xdb_util.Version(version), db_path
@@ -190,7 +202,14 @@ class GeoIPService:
             return True
         except Exception as e:
             logger.warning(
-                f"Failed to load ip2region {version_name} database from {db_path}: {e}"
+                (
+                    f'Failed to load ip2region '
+                    f'{version_name}'
+                    f' database from '
+                    f'{db_path}'
+                    f': '
+                    f'{e}'
+                )
             )
             return False
 
@@ -215,15 +234,19 @@ class GeoIPService:
             return False
 
     def lookup(self, ip_address: Optional[str]) -> GeoLocation:
-        """
-        Look up geolocation data for an IP address.
-        
-        Args:
-            ip_address: The IP address to look up (IPv4 or IPv6)
-            
-        Returns:
-            GeoLocation with available data, or empty GeoLocation if lookup fails
-        """
+        (
+            '\n'
+            '        Look up geolocation data for an IP address.\n'
+            '        \n'
+            '        Args:\n'
+            '            ip_address: The IP address to look up (IPv4 or '
+            'IPv6)\n'
+            '            \n'
+            '        Returns:\n'
+            '            GeoLocation with available data, or empty '
+            'GeoLocation if lookup fails\n'
+            '        '
+        )
         if not ip_address:
             return GeoLocation()
 
@@ -283,7 +306,8 @@ class GeoIPService:
 
             if len(parts) == 5:
                 country = parts[0] if parts[0] != "0" else None
-                # parts[1] is usually "0" (reserved/area), skipping it as requested
+                # parts[1] is usually "0" (reserved/area), skipping it as
+                # requested
                 region = parts[2] if parts[2] != "0" else None
                 city = parts[3] if parts[3] != "0" else None
                 isp = parts[4] if parts[4] != "0" else None

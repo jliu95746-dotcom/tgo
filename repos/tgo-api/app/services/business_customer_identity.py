@@ -1,4 +1,5 @@
-"""Authenticate merchant assertions and fence each individual customer session."""
+"Authenticate merchant assertions and fence each individual customer \
+session."
 
 from collections.abc import Callable
 from datetime import UTC, datetime

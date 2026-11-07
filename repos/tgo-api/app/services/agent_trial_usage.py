@@ -1,4 +1,5 @@
-"""Trial billing reconciles owned AI reports instead of inventing IM messages."""
+"Trial billing reconciles owned AI reports instead of inventing IM \
+messages."
 
 import asyncio
 import hashlib
@@ -122,7 +123,8 @@ def finish_trial(
             )
         )
         if row is None:
-            return  # Existing legacy/unmetered reports are not charged retroactively.
+            # Existing legacy/unmetered reports are not charged retroactively.
+            return
         row = ai_usage.owned(db, project_id, row.id, row.lease_id)
         receipt = _receipt(row)
         if (
@@ -142,8 +144,10 @@ def finish_trial(
             update={"report_id": report.id}
         ).model_dump(mode="json")
         if report.status in {"completed", "blocked"} and report.answer.strip():
-            # The AI authorized this lease before generation. Its durable report
-            # is the trial receipt, including when network recovery happens later.
+            # The AI authorized this lease before generation. Its durable
+            # report
+            # is the trial receipt, including when network recovery happens
+            # later.
             if row.status == "reserved":
                 row.status = "review"
                 db.flush()
@@ -206,7 +210,8 @@ def _expired_trials() -> list[tuple[ReplyPermit, AgentTrialReceipt]]:
                     )
                 )
             except TGOAPIException:
-                # Corrupt references cannot prove non-delivery. Preserve credit.
+                # Corrupt references cannot prove non-delivery. Preserve
+                # credit.
                 row.status = "review"
                 row.expires_at = datetime.now(timezone.utc) + timedelta(
                     minutes=5
@@ -232,7 +237,8 @@ async def recover_trials() -> None:
                 )
         except HTTPException as error:
             # AI claims the report before authorization or any model call. A
-            # trusted 404 after the lease expires proves there is no generation.
+            # trusted 404 after the lease expires proves there is no
+            # generation.
             if error.status_code == 404:
                 await asyncio.to_thread(release_trial, permit)
             else:

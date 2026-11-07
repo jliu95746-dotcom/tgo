@@ -1,4 +1,5 @@
-"""Check exact-purpose AI authority without interpreting any upstream private error."""
+"Check exact-purpose AI authority without interpreting any upstream \
+private error."
 
 from datetime import UTC, datetime
 from typing import Protocol

@@ -1,4 +1,5 @@
-"""Bind one durable quota permit to the complete multi-phase reply execution."""
+"Bind one durable quota permit to the complete multi-phase reply \
+execution."
 
 import asyncio
 from collections.abc import AsyncIterator, Iterator
@@ -117,7 +118,10 @@ def _reserve(
                 )
                 if run is None or platform.type != "wecom":
                     raise ValueError(
-                        "This SaaS channel has no verified billing delivery adapter"
+                        (
+                            'This SaaS channel has no verified billing '
+                            'delivery adapter'
+                        )
                     )
                 receipt.update(
                     kind="wecom",

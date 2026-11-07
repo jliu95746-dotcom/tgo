@@ -1,4 +1,5 @@
-"""Configuration readiness is distinct from external integration verification."""
+"Configuration readiness is distinct from external integration \
+verification."
 
 from typing import Literal
 

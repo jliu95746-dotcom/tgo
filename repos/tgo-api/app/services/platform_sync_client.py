@@ -66,11 +66,16 @@ class PlatformSyncClient:
     async def delete_platform(
         self, platform_id: str
     ) -> Optional[httpx.Response]:
-        """Attempt to delete a platform. If DELETE is unsupported, return None.
-
-        We try DELETE /v1/platforms/{id}. If the endpoint doesn't exist, callers
-        should fall back to a soft-delete upsert (deleted_at set, or is_active=False).
-        """
+        (
+            'Attempt to delete a platform. If DELETE is unsupported, return '
+            'None.\n'
+            '\n'
+            '        We try DELETE /v1/platforms/{id}. If the endpoint '
+            "doesn't exist, callers\n"
+            '        should fall back to a soft-delete upsert (deleted_at '
+            'set, or is_active=False).\n'
+            '        '
+        )
         url = f"{self.base_url}/v1/platforms/{platform_id}"
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:

@@ -1,4 +1,5 @@
-"""Reuse current realtime ownership for website history and attachment operations."""
+"Reuse current realtime ownership for website history and attachment \
+operations."
 
 import hmac
 from uuid import UUID
@@ -68,7 +69,10 @@ def require_visitor_data_access(
     platform: Platform,
     credentials: HTTPAuthorizationCredentials | None,
 ) -> VisitorDataAccess:
-    """Only a signed visitor IM grant with current scope authorizes website data."""
+    (
+        'Only a signed visitor IM grant with current scope authorizes '
+        'website data.'
+    )
     if (
         not isinstance(credentials, HTTPAuthorizationCredentials)
         or credentials.scheme.lower() != "bearer"
@@ -107,7 +111,10 @@ def require_visitor_data_access(
 def reauthorize_visitor_data(
     db: Session, access: VisitorDataAccess
 ) -> Visitor:
-    """Check the original proof again after an await, without adopting a new owner."""
+    (
+        'Check the original proof again after an await, without adopting a '
+        'new owner.'
+    )
     platform = _current_platform(db, access.platform_id)
     if (
         platform.project_id != access.project_id

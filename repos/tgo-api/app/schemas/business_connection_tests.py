@@ -1,4 +1,5 @@
-"""Public test metadata never accepts credentials or caller-declared success."""
+"Public test metadata never accepts credentials or caller-declared \
+success."
 
 from datetime import datetime
 from typing import Literal, Self

@@ -37,7 +37,9 @@ class AIProvider(Base):
     provider: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        comment="Provider key (e.g., openai, anthropic, dashscope, azure_openai)",
+        comment=(
+            'Provider key (e.g., openai, anthropic, dashscope, azure_openai)'
+        ),
     )
     name: Mapped[str] = mapped_column(
         String(100),
@@ -128,4 +130,12 @@ class AIProvider(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<AIProvider(id={self.id}, provider='{self.provider}', name='{self.name}')>"
+        return (
+            f'<AIProvider(id='
+            f'{self.id}'
+            f", provider='"
+            f'{self.provider}'
+            f"', name='"
+            f'{self.name}'
+            f"')>"
+        )

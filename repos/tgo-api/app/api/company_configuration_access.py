@@ -11,7 +11,10 @@ from app.services.company_entitlements import require_new_service
 
 
 def require_operator_model_management(db: Session = Depends(get_db)) -> None:
-    """Tenant credentials cannot manage models after the shared catalogue is active."""
+    (
+        'Tenant credentials cannot manage models after the shared catalogue '
+        'is active.'
+    )
     from app.services.shared_models import shared_models_active
 
     if shared_models_active(db):

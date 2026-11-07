@@ -1,4 +1,5 @@
-"""Operator task diagnostics without payment credentials or customer payloads."""
+"Operator task diagnostics without payment credentials or customer \
+payloads."
 
 from datetime import datetime
 from uuid import UUID

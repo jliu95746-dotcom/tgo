@@ -1,4 +1,5 @@
-"""Resolve recognized history only inside the current customer and group actor."""
+"Resolve recognized history only inside the current customer and group \
+actor."
 
 from dataclasses import dataclass, field
 

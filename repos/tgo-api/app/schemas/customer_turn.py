@@ -1,4 +1,5 @@
-"""Channel-neutral turn receipts; private quota and model credentials stay server-side."""
+"Channel-neutral turn receipts; private quota and model credentials stay \
+server-side."
 
 from typing import Literal
 from datetime import datetime
@@ -63,4 +64,7 @@ class TurnState(BaseModel):
 
 
 class TurnSuperseded(Exception):
-    """The complete turn changed before publication; no stale content may escape."""
+    (
+        'The complete turn changed before publication; no stale content may '
+        'escape.'
+    )

@@ -20,7 +20,9 @@ from app.schemas import (
     ProjectAIConfigResponse,
 )
 from app.api.common_responses import LIST_RESPONSES
-from app.services.project_ai_config_sync import sync_config_with_retry_and_update
+from app.services.project_ai_config_sync import (
+    sync_config_with_retry_and_update,
+)
 from app.services.shared_models import shared_models_active
 
 logger = get_logger("endpoints.projects")
@@ -30,7 +32,7 @@ router = APIRouter()
 @router.get(
     "",
     response_model=ProjectListResponse,
-    responses={code: response for code, response in LIST_RESPONSES.items()}
+    responses={code: response for code, response in LIST_RESPONSES.items()},
 )
 async def list_projects(
     db: Session = Depends(get_db),
@@ -45,17 +47,24 @@ async def list_projects(
     logger.info(f"User {current_user.username} listing projects")
 
     # Query projects (non-deleted)
-    projects = db.query(Project).filter(
-        Project.id == current_user.project_id,
-        Project.deleted_at.is_(None)
-    ).all()
+    projects = (
+        db.query(Project)
+        .filter(
+            Project.id == current_user.project_id, Project.deleted_at.is_(None)
+        )
+        .all()
+    )
 
-    project_responses = [ProjectResponse.model_validate(project) for project in projects]
+    project_responses = [
+        ProjectResponse.model_validate(project) for project in projects
+    ]
 
     return ProjectListResponse(data=project_responses)
 
 
-@router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_project(
     project_data: ProjectCreate,
     db: Session = Depends(get_db),
@@ -77,16 +86,19 @@ async def get_project(
     """Get project details."""
     logger.info(f"User {current_user.username} getting project: {project_id}")
 
-    project = db.query(Project).filter(
-        Project.id == project_id,
-        Project.id == current_user.project_id,
-        Project.deleted_at.is_(None)
-    ).first()
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id == project_id,
+            Project.id == current_user.project_id,
+            Project.deleted_at.is_(None),
+        )
+        .first()
+    )
 
     if not project:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
 
     return ProjectResponse.model_validate(project)
@@ -107,16 +119,19 @@ async def update_project(
     """
     logger.info(f"User {current_user.username} updating project: {project_id}")
 
-    project = db.query(Project).filter(
-        Project.id == project_id,
-        Project.id == current_user.project_id,
-        Project.deleted_at.is_(None)
-    ).first()
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id == project_id,
+            Project.id == current_user.project_id,
+            Project.deleted_at.is_(None),
+        )
+        .first()
+    )
 
     if not project:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
 
     # Update fields
@@ -148,16 +163,19 @@ async def delete_project(
     """
     logger.info(f"User {current_user.username} deleting project: {project_id}")
 
-    project = db.query(Project).filter(
-        Project.id == project_id,
-        Project.id == current_user.project_id,
-        Project.deleted_at.is_(None)
-    ).first()
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id == project_id,
+            Project.id == current_user.project_id,
+            Project.deleted_at.is_(None),
+        )
+        .first()
+    )
 
     if not project:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
 
     # Soft delete
@@ -177,24 +195,42 @@ async def get_project_ai_config(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
 ) -> ProjectAIConfigResponse:
-    """Get default AI model configuration for a project.
-
-    If a record does not exist yet, create an empty configuration and return it (HTTP 200).
-    Validates that referenced provider IDs exist and are active; if not, returns None for those fields.
-    """
+    (
+        'Get default AI model configuration for a project.\n'
+        '\n'
+        '    If a record does not exist yet, create an empty configuration '
+        'and return it (HTTP 200).\n'
+        '    Validates that referenced provider IDs exist and are active; if '
+        'not, returns None for those fields.\n'
+        '    '
+    )
     # Only allow accessing own project's config
     if current_user.project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+        )
 
-    project = db.query(Project).filter(Project.id == project_id, Project.deleted_at.is_(None)).first()
+    project = (
+        db.query(Project)
+        .filter(Project.id == project_id, Project.deleted_at.is_(None))
+        .first()
+    )
     if not project:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+        )
 
-    from app.models import ProjectAIConfig, AIProvider  # local import to avoid circular
+    from app.models import (
+        ProjectAIConfig,
+        AIProvider,
+    )  # local import to avoid circular
 
     cfg = (
         db.query(ProjectAIConfig)
-        .filter(ProjectAIConfig.project_id == project_id, ProjectAIConfig.deleted_at.is_(None))
+        .filter(
+            ProjectAIConfig.project_id == project_id,
+            ProjectAIConfig.deleted_at.is_(None),
+        )
         .first()
     )
     if not cfg:
@@ -255,25 +291,33 @@ async def get_project_ai_config(
         valid_provider_ids = {p.id for p in valid_providers}
 
     # Validate chat provider
-    if cfg.default_chat_provider_id and cfg.default_chat_provider_id not in valid_provider_ids:
+    if (
+        cfg.default_chat_provider_id
+        and cfg.default_chat_provider_id not in valid_provider_ids
+    ):
         logger.warning(
             "Invalid or inactive default_chat_provider_id detected",
             extra={
                 "project_id": str(project_id),
                 "default_chat_provider_id": str(cfg.default_chat_provider_id),
-            }
+            },
         )
         response_data["default_chat_provider_id"] = None
         response_data["default_chat_model"] = None
 
     # Validate embedding provider
-    if cfg.default_embedding_provider_id and cfg.default_embedding_provider_id not in valid_provider_ids:
+    if (
+        cfg.default_embedding_provider_id
+        and cfg.default_embedding_provider_id not in valid_provider_ids
+    ):
         logger.warning(
             "Invalid or inactive default_embedding_provider_id detected",
             extra={
                 "project_id": str(project_id),
-                "default_embedding_provider_id": str(cfg.default_embedding_provider_id),
-            }
+                "default_embedding_provider_id": str(
+                    cfg.default_embedding_provider_id
+                ),
+            },
         )
         response_data["default_embedding_provider_id"] = None
         response_data["default_embedding_model"] = None
@@ -286,7 +330,11 @@ async def get_project_ai_config(
     for capability, provider_id in multimodal_defaults:
         if provider_id and provider_id not in valid_provider_ids:
             logger.warning(
-                f"Invalid or inactive default_{capability}_provider_id detected",
+                (
+                    f'Invalid or inactive default_'
+                    f'{capability}'
+                    f'_provider_id detected'
+                ),
                 extra={
                     "project_id": str(project_id),
                     f"default_{capability}_provider_id": str(provider_id),
@@ -305,21 +353,35 @@ async def upsert_project_ai_config(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin()),
 ) -> ProjectAIConfigResponse:
-    """Upsert default AI model configuration for a project.
-
-    - Validates provider IDs belong to the same project
-    - Optionally validates model is in provider.available_models when both provided
-    """
+    (
+        'Upsert default AI model configuration for a project.\n'
+        '\n'
+        '    - Validates provider IDs belong to the same project\n'
+        '    - Optionally validates model is in provider.available_models '
+        'when both provided\n'
+        '    '
+    )
     if shared_models_active(db):
         raise HTTPException(403, "模型由平台统一配置，请联系平台管理员")
     if current_user.project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+        )
 
-    project = db.query(Project).filter(Project.id == project_id, Project.deleted_at.is_(None)).first()
+    project = (
+        db.query(Project)
+        .filter(Project.id == project_id, Project.deleted_at.is_(None))
+        .first()
+    )
     if not project:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+        )
 
-    from app.models import ProjectAIConfig, AIProvider  # local import to avoid circular
+    from app.models import (
+        ProjectAIConfig,
+        AIProvider,
+    )  # local import to avoid circular
 
     data = payload.model_dump(exclude_unset=True)
 
@@ -339,18 +401,29 @@ async def upsert_project_ai_config(
             .first()
         )
         if not prov:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid provider for this project")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid provider for this project",
+            )
         model_value = data.get(model_key)
         if model_value:
             available_models = [m for m in prov.models if m.deleted_at is None]
             selected_model = next(
-                (model for model in available_models if model.model_id == model_value),
+                (
+                    model
+                    for model in available_models
+                    if model.model_id == model_value
+                ),
                 None,
             )
             if available_models and selected_model is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Model '{model_value}' not in selected provider's available models",
+                    detail=(
+                        f"Model '"
+                        f'{model_value}'
+                        f"' not in selected provider's available models"
+                    ),
                 )
             if (
                 selected_model is not None
@@ -366,7 +439,11 @@ async def upsert_project_ai_config(
 
     default_selections = (
         ("default_chat_provider_id", "default_chat_model", "chat"),
-        ("default_embedding_provider_id", "default_embedding_model", "embedding"),
+        (
+            "default_embedding_provider_id",
+            "default_embedding_model",
+            "embedding",
+        ),
         ("default_asr_provider_id", "default_asr_model", "asr"),
         ("default_ocr_provider_id", "default_ocr_model", "ocr"),
         ("default_vlm_provider_id", "default_vlm_model", "vlm"),
@@ -378,7 +455,10 @@ async def upsert_project_ai_config(
 
     cfg = (
         db.query(ProjectAIConfig)
-        .filter(ProjectAIConfig.project_id == project_id, ProjectAIConfig.deleted_at.is_(None))
+        .filter(
+            ProjectAIConfig.project_id == project_id,
+            ProjectAIConfig.deleted_at.is_(None),
+        )
         .first()
     )
 
@@ -397,12 +477,17 @@ async def upsert_project_ai_config(
     try:
         await sync_config_with_retry_and_update(db, cfg)
     except Exception as e:
-        logger.warning("ProjectAIConfig sync after upsert failed", extra={"project_id": str(project_id), "error": str(e)})
+        logger.warning(
+            "ProjectAIConfig sync after upsert failed",
+            extra={"project_id": str(project_id), "error": str(e)},
+        )
 
     return ProjectAIConfigResponse.model_validate(cfg)
 
 
-@router.post("/{project_id}/ai-config/sync", response_model=ProjectAIConfigResponse)
+@router.post(
+    "/{project_id}/ai-config/sync", response_model=ProjectAIConfigResponse
+)
 async def sync_project_ai_config_now(
     project_id: UUID,
     db: Session = Depends(get_db),
@@ -412,13 +497,18 @@ async def sync_project_ai_config_now(
     if shared_models_active(db):
         raise HTTPException(403, "模型由平台统一配置，请联系平台管理员")
     if current_user.project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+        )
 
     from app.models import ProjectAIConfig  # local import to avoid circular
 
     cfg = (
         db.query(ProjectAIConfig)
-        .filter(ProjectAIConfig.project_id == project_id, ProjectAIConfig.deleted_at.is_(None))
+        .filter(
+            ProjectAIConfig.project_id == project_id,
+            ProjectAIConfig.deleted_at.is_(None),
+        )
         .first()
     )
     if not cfg:
@@ -431,6 +521,9 @@ async def sync_project_ai_config_now(
     try:
         await sync_config_with_retry_and_update(db, cfg)
     except Exception as e:
-        logger.warning("ProjectAIConfig manual sync failed", extra={"project_id": str(project_id), "error": str(e)})
+        logger.warning(
+            "ProjectAIConfig manual sync failed",
+            extra={"project_id": str(project_id), "error": str(e)},
+        )
 
     return ProjectAIConfigResponse.model_validate(cfg)

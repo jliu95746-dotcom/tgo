@@ -1,4 +1,5 @@
-"""Order creation and verified payment persistence; no network inside a DB lock."""
+"Order creation and verified payment persistence; no network inside a DB \
+lock."
 
 from datetime import datetime, timezone
 from uuid import UUID

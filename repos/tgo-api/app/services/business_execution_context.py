@@ -1,4 +1,5 @@
-"""Reuse the accepted request, live visitor conversation and merchant-signed identity."""
+"Reuse the accepted request, live visitor conversation and \
+merchant-signed identity."
 
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -277,8 +278,10 @@ class BusinessExecutionContextService:
             )
             if row is None:
                 raise identity_denied()
-            # Reissue only this row's original, unchanged expiry for the private
-            # owner check. This neither renews nor revives the customer session.
+            # Reissue only this row's original, unchanged expiry for the
+            # private
+            # owner check. This neither renews nor revives the customer
+            # session.
             verified = self.identity.resolve(
                 check.project_id,
                 item.connection_id,

@@ -73,7 +73,10 @@ def issue_visitor_im_token(
 
 
 def read_visitor_im_access(token: str) -> VisitorIMAccessClaims:
-    """Read signed visitor claims; callers must also check current database scope."""
+    (
+        'Read signed visitor claims; callers must also check current '
+        'database scope.'
+    )
     try:
         claims = jwt.decode(
             token,
@@ -109,7 +112,10 @@ def authenticate_visitor_im_claims(
     uid: str,
     claims: VisitorIMAccessClaims,
 ) -> Visitor:
-    """Recheck already verified claims, including their original expiry and owner."""
+    (
+        'Recheck already verified claims, including their original expiry '
+        'and owner.'
+    )
     if claims.exp <= int(datetime.now(timezone.utc).timestamp()):
         raise _unauthorized()
     visitor_id, project_id, platform_id = (
@@ -161,7 +167,8 @@ def authenticate_visitor_im_claims(
         or visitor.access_secret_digest is not None
     ):
         raise _unauthorized()
-    # The JWT is only a reference: check its original customer binding every operation.
+    # The JWT is only a reference: check its original customer binding every
+    # operation.
 
     from app.services.visitor_access import check_im_business_references
 

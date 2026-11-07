@@ -1,4 +1,5 @@
-"""Read current model ownership and synchronization without exporting credentials."""
+"Read current model ownership and synchronization without exporting \
+credentials."
 
 import hashlib
 import hmac

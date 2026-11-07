@@ -1,4 +1,5 @@
-"""Operator-controlled default model; encrypted storage uses existing setup metadata."""
+"Operator-controlled default model; encrypted storage uses existing \
+setup metadata."
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session

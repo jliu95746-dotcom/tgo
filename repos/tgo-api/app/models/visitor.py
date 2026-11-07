@@ -33,22 +33,24 @@ if TYPE_CHECKING:
 
 
 class VisitorServiceStatus(str, Enum):
-    """Visitor service status enumeration.
-    
-    State transitions:
-    - NEW: Initial state when visitor is created
-    - QUEUED: Visitor is in the waiting queue
-    - ACTIVE: Staff is actively serving the visitor
-    - CLOSED: Service session is closed
-    
-    Allowed transitions:
-    - NEW -> QUEUED (visitor requests human service)
-    - NEW -> ACTIVE (direct assignment without queue)
-    - QUEUED -> ACTIVE (staff assigned from queue)
-    - ACTIVE -> CLOSED (service ends)
-    - CLOSED -> QUEUED (visitor requests service again)
-    - CLOSED -> ACTIVE (visitor re-engaged)
-    """
+    (
+        'Visitor service status enumeration.\n'
+        '    \n'
+        '    State transitions:\n'
+        '    - NEW: Initial state when visitor is created\n'
+        '    - QUEUED: Visitor is in the waiting queue\n'
+        '    - ACTIVE: Staff is actively serving the visitor\n'
+        '    - CLOSED: Service session is closed\n'
+        '    \n'
+        '    Allowed transitions:\n'
+        '    - NEW -> QUEUED (visitor requests human service)\n'
+        '    - NEW -> ACTIVE (direct assignment without queue)\n'
+        '    - QUEUED -> ACTIVE (staff assigned from queue)\n'
+        '    - ACTIVE -> CLOSED (service ends)\n'
+        '    - CLOSED -> QUEUED (visitor requests service again)\n'
+        '    - CLOSED -> ACTIVE (visitor re-engaged)\n'
+        '    '
+    )
 
     NEW = "new"  # Visitor just created, no service requested
     QUEUED = "queued"  # In waiting queue for human service
@@ -196,7 +198,9 @@ class Visitor(Base):
         Boolean,
         nullable=False,
         default=False,
-        comment="Whether the last message in the channel was sent by the visitor",
+        comment=(
+            'Whether the last message in the channel was sent by the visitor'
+        ),
     )
     is_last_message_from_ai: Mapped[bool] = mapped_column(
         Boolean,
@@ -206,7 +210,10 @@ class Visitor(Base):
     )
     last_offline_time: Mapped[Optional[datetime]] = mapped_column(
         nullable=True,
-        comment="Most recent time visitor went offline (NULL when never offline or currently online)",
+        comment=(
+            'Most recent time visitor went offline (NULL when never offline '
+            'or currently online)'
+        ),
     )
     is_online: Mapped[bool] = mapped_column(
         Boolean,
@@ -237,7 +244,9 @@ class Visitor(Base):
         nullable=False,
         default=False,
         server_default="false",
-        comment="Whether the selected humanization skill applies to AI replies",
+        comment=(
+            'Whether the selected humanization skill applies to AI replies'
+        ),
     )
     ai_fallback_retry_count: Mapped[int] = mapped_column(
         Integer,
@@ -381,9 +390,12 @@ class Visitor(Base):
 
     @property
     def platform_type(self) -> Optional[str]:
-        """Convenience accessor for the associated platform type.
-        Returns the platform.type string (e.g., 'website', 'wechat') when available.
-        """
+        (
+            'Convenience accessor for the associated platform type.\n'
+            "        Returns the platform.type string (e.g., 'website', "
+            "'wechat') when available.\n"
+            '        '
+        )
         try:
             return self.platform.type if self.platform is not None else None
         except Exception:

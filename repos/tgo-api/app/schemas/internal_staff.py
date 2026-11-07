@@ -1,4 +1,5 @@
-"""Minimal staff context exposed to internal AI tools, never login credentials."""
+"Minimal staff context exposed to internal AI tools, never login \
+credentials."
 
 from typing import Literal
 from uuid import UUID
@@ -8,7 +9,10 @@ from app.schemas.base import BaseSchema
 
 
 class InternalStaffResponse(BaseSchema):
-    """Allowlisted display and availability fields for an existing staff member."""
+    (
+        'Allowlisted display and availability fields for an existing staff '
+        'member.'
+    )
 
     id: UUID
     type: Literal["staff"] = "staff"

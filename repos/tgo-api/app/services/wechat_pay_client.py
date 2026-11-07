@@ -1,4 +1,5 @@
-"""Native payments using configured merchant credentials and pinned provider keys."""
+"Native payments using configured merchant credentials and pinned \
+provider keys."
 
 import json
 import logging
@@ -175,7 +176,8 @@ class WeChatPayClient:
         except TGOAPIException:
             raise
         except Exception as exc:
-            # Never expose provider bodies, signatures or credential paths to customers.
+            # Never expose provider bodies, signatures or credential paths to
+            # customers.
 
             raise unavailable() from exc
 
@@ -217,7 +219,11 @@ class WeChatPayClient:
     def close(self, number: str) -> None:
         self.request(
             "POST",
-            f"/v3/pay/transactions/out-trade-no/{quote(number, safe='')}/close",
+            (
+                f'/v3/pay/transactions/out-trade-no/'
+                f"{quote(number, safe='')}"
+                f'/close'
+            ),
             {"mchid": settings.WECHAT_PAY_MCH_ID},
         )
 
@@ -356,9 +362,17 @@ class WeChatPayClient:
             self.private_key, "GET", path, b"", timestamp, nonce
         )
         authorization = (
-            "WECHATPAY2-SHA256-RSA2048 "
-            f'mchid="{settings.WECHAT_PAY_MCH_ID}",nonce_str="{nonce}",signature="{signature}",'
-            f'timestamp="{timestamp}",serial_no="{settings.WECHAT_PAY_CERT_SERIAL}"'
+            f'WECHATPAY2-SHA256-RSA2048 mchid="'
+            f'{settings.WECHAT_PAY_MCH_ID}'
+            f'",nonce_str="'
+            f'{nonce}'
+            f'",signature="'
+            f'{signature}'
+            f'",timestamp="'
+            f'{timestamp}'
+            f'",serial_no="'
+            f'{settings.WECHAT_PAY_CERT_SERIAL}'
+            f'"'
         )
         content = bytearray()
         with httpx.Client(
@@ -380,7 +394,8 @@ class WeChatPayClient:
                             "Trade statement exceeds processing limit"
                         )
         # Bill downloads intentionally have no Wechatpay-Signature header.
-        # Integrity comes from the hash in the verified bill application response.
+        # Integrity comes from the hash in the verified bill application
+        # response.
 
         digest = sha1(content).hexdigest()
         if digest != expected_hash.lower():

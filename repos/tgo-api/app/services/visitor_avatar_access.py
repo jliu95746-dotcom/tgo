@@ -234,7 +234,11 @@ async def save_avatar(
                 if total > visitor_service.AVATAR_MAX_SIZE_MB * 1024 * 1024:
                     raise HTTPException(
                         413,
-                        f"File too large. Maximum size: {visitor_service.AVATAR_MAX_SIZE_MB}MB",
+                        (
+                            f'File too large. Maximum size: '
+                            f'{visitor_service.AVATAR_MAX_SIZE_MB}'
+                            f'MB'
+                        ),
                     )
                 output.write(chunk)
         if not total:

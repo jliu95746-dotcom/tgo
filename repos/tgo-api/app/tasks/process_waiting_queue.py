@@ -51,19 +51,24 @@ def _get_semaphore() -> asyncio.Semaphore:
 
 
 async def _process_fallback_batch() -> None:
-    """
-    Fallback batch processing for queue entries that may have been missed.
-    
-    This runs at low frequency (default 2 minutes) to catch:
-    - Entries missed due to event trigger failures
-    - Entries present after system restart
-    - Entries where staff became available without triggering events
-    
-    Only processes entries that:
-    - Are in WAITING status
-    - Are not expired (expired_at > now or expired_at is null)
-    - Haven't been attempted recently (last_attempt_at < now - fallback_interval)
-    """
+    (
+        '\n'
+        '    Fallback batch processing for queue entries that may have been '
+        'missed.\n'
+        '    \n'
+        '    This runs at low frequency (default 2 minutes) to catch:\n'
+        '    - Entries missed due to event trigger failures\n'
+        '    - Entries present after system restart\n'
+        '    - Entries where staff became available without triggering '
+        'events\n'
+        '    \n'
+        '    Only processes entries that:\n'
+        '    - Are in WAITING status\n'
+        '    - Are not expired (expired_at > now or expired_at is null)\n'
+        "    - Haven't been attempted recently (last_attempt_at < now - "
+        'fallback_interval)\n'
+        '    '
+    )
     db = SessionLocal()
     try:
         fallback_delay = timedelta(
@@ -114,7 +119,11 @@ async def _process_fallback_batch() -> None:
             return
 
         logger.info(
-            f"Fallback processor: processing {len(entries_to_process)} entries",
+            (
+                f'Fallback processor: processing '
+                f'{len(entries_to_process)}'
+                f' entries'
+            ),
             extra={"count": len(entries_to_process)},
         )
 
@@ -162,10 +171,15 @@ async def _process_fallback_batch() -> None:
                                 source=AssignmentSource.RULE,
                                 visitor_message=fresh_entry.visitor_message,
                                 session_id=fresh_entry.session_id,
-                                notes=f"Fallback processing (entry_id={fresh_entry.id})",
+                                notes=(
+                                    f'Fallback processing (entry_id='
+                                    f'{fresh_entry.id}'
+                                    f')'
+                                ),
                                 skip_queue_status_check=True,
                                 auto_commit=False,
-                                add_to_queue_if_no_staff=False,  # Already in queue
+                                # Already in queue
+                                add_to_queue_if_no_staff=False,
                                 expected_queue_entry_id=fresh_entry.id,
                             )
 
@@ -173,7 +187,12 @@ async def _process_fallback_batch() -> None:
                                 entry_db.commit()
                                 assigned += 1
                                 logger.info(
-                                    f"Fallback: entry {fresh_entry.id} assigned to {result.assigned_staff_id}",
+                                    (
+                                        f'Fallback: entry '
+                                        f'{fresh_entry.id}'
+                                        f' assigned to '
+                                        f'{result.assigned_staff_id}'
+                                    ),
                                     extra={
                                         "entry_id": str(fresh_entry.id),
                                         "staff_id": str(
@@ -183,12 +202,18 @@ async def _process_fallback_batch() -> None:
                                 )
                             else:
                                 entry_db.commit()  # Commit attempt record
-                                # No staff available, stop processing this project
+                                # No staff available, stop processing this
+                                # project
                                 break
 
                         except Exception as e:
                             logger.error(
-                                f"Fallback: error processing entry {entry.id}: {e}"
+                                (
+                                    f'Fallback: error processing entry '
+                                    f'{entry.id}'
+                                    f': '
+                                    f'{e}'
+                                )
                             )
                             try:
                                 entry_db.rollback()
@@ -351,15 +376,17 @@ async def stop_queue_tasks() -> None:
 
 
 async def trigger_process_entry(entry_id: UUID) -> None:
-    """
-    Trigger processing of a queue entry.
-    
-    This is a backward-compatible wrapper that delegates to the
-    new queue_trigger_service.
-    
-    Args:
-        entry_id: UUID of the VisitorWaitingQueue entry to process
-    """
+    (
+        '\n'
+        '    Trigger processing of a queue entry.\n'
+        '    \n'
+        '    This is a backward-compatible wrapper that delegates to the\n'
+        '    new queue_trigger_service.\n'
+        '    \n'
+        '    Args:\n'
+        '        entry_id: UUID of the VisitorWaitingQueue entry to process\n'
+        '    '
+    )
     from app.services.queue_trigger_service import trigger_queue_for_entry
 
     await trigger_queue_for_entry(entry_id)

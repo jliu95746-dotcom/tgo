@@ -490,9 +490,14 @@ async def script_review(
     if revoke is not None:
         path += f"/{revoke}/revoke"
     value = await _case_call(
-        client, project, actor, agent,
+        client,
+        project,
+        actor,
+        agent,
         "POST" if command is not None or revoke is not None else "GET",
-        path, ScriptReviewState, command=command,
+        path,
+        ScriptReviewState,
+        command=command,
     )
     if (
         value.project_id != project
@@ -525,19 +530,30 @@ async def script_run_check(
     report: UUID,
 ) -> ScriptRunCheck:
     value = await _case_call(
-        client, project, actor, agent, "GET",
-        f"/api/v1/agents/{agent}/device-script-trials/{report}/review/run-check",
+        client,
+        project,
+        actor,
+        agent,
+        "GET",
+        (
+            f'/api/v1/agents/'
+            f'{agent}'
+            f'/device-script-trials/'
+            f'{report}'
+            f'/review/run-check'
+        ),
         ScriptRunCheck,
     )
     state = value.review
     now = datetime.now(timezone.utc)
     if (
-        state.project_id != project or state.actor_id != actor
-        or state.agent_id != agent or state.report_id != report
+        state.project_id != project
+        or state.actor_id != actor
+        or state.agent_id != agent
+        or state.report_id != report
         or not -5 <= (now - value.checked_at).total_seconds() <= 30
-        or value.status == "ready" and (
-            value.valid_until is None or value.valid_until <= now
-        )
+        or value.status == "ready"
+        and (value.valid_until is None or value.valid_until <= now)
     ):
         raise HTTPException(502, "脚本运行检查的归属不一致")
     return value

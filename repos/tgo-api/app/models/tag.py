@@ -59,13 +59,19 @@ class Tag(Base):
     category: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        comment="Tag category: visitor (for customer categorization) or knowledge (for content categorization)",
+        comment=(
+            'Tag category: visitor (for customer categorization) or '
+            'knowledge (for content categorization)'
+        ),
     )
     weight: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         default=0,
-        comment="Tag importance/priority weight (0-10, higher values indicate higher priority)",
+        comment=(
+            'Tag importance/priority weight (0-10, higher values indicate '
+            'higher priority)'
+        ),
     )
     color: Mapped[Optional[str]] = mapped_column(
         String(20), nullable=True, comment="Tag color"
@@ -136,7 +142,15 @@ class Tag(Base):
 
     def __repr__(self) -> str:
         """String representation of the tag."""
-        return f"<Tag(id='{self.id}', name='{self.name}', category='{self.category}')>"
+        return (
+            f"<Tag(id='"
+            f'{self.id}'
+            f"', name='"
+            f'{self.name}'
+            f"', category='"
+            f'{self.category}'
+            f"')>"
+        )
 
     @property
     def is_deleted(self) -> bool:

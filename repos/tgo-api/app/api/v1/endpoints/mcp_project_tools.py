@@ -34,12 +34,16 @@ router = APIRouter()
     response_model=ProjectToolListResponse,
     responses=CRUD_RESPONSES,
     summary="List Project Tools",
-    description="""
-    Retrieve a paginated list of tools installed in the project via AI service MCP integration.
-    
-    Returns detailed information about each tool installation including configuration,
-    status, and associated tool details.
-    """,
+    description=(
+        '\n'
+        '    Retrieve a paginated list of tools installed in the project via '
+        'AI service MCP integration.\n'
+        '    \n'
+        '    Returns detailed information about each tool installation '
+        'including configuration,\n'
+        '    status, and associated tool details.\n'
+        '    '
+    ),
 )
 async def list_project_tools(
     source_type: Optional[str] = Query(
@@ -93,12 +97,16 @@ async def list_project_tools(
     response_model=ProjectToolStats,
     responses=CRUD_RESPONSES,
     summary="Get Project Tool Statistics",
-    description="""
-    Retrieve statistics for tool installations in the project via AI service MCP integration.
-
-    Returns comprehensive statistics including total installations, enabled/disabled counts,
-    tool source type breakdown, and recent activity metrics.
-    """,
+    description=(
+        '\n'
+        '    Retrieve statistics for tool installations in the project via '
+        'AI service MCP integration.\n'
+        '\n'
+        '    Returns comprehensive statistics including total installations, '
+        'enabled/disabled counts,\n'
+        '    tool source type breakdown, and recent activity metrics.\n'
+        '    '
+    ),
 )
 async def get_project_tool_stats(
     project_and_api_key: AuthenticatedProject = Depends(
@@ -121,12 +129,16 @@ async def get_project_tool_stats(
     response_model=ProjectToolResponse,
     responses=CRUD_RESPONSES,
     summary="Get Project Tool",
-    description="""
-    Retrieve detailed information about a specific tool installation in the project.
-
-    Returns complete information about the tool installation including configuration,
-    status, and full tool details.
-    """,
+    description=(
+        '\n'
+        '    Retrieve detailed information about a specific tool '
+        'installation in the project.\n'
+        '\n'
+        '    Returns complete information about the tool installation '
+        'including configuration,\n'
+        '    status, and full tool details.\n'
+        '    '
+    ),
 )
 async def get_project_tool(
     tool_id: UUID,
@@ -151,12 +163,16 @@ async def get_project_tool(
     response_model=ProjectToolResponse,
     responses=UPDATE_RESPONSES,
     summary="Update Project Tool",
-    description="""
-    Update a tool installation configuration via AI service MCP integration.
-    
-    You can modify the tool's enabled status and project-specific configuration.
-    Changes take effect immediately for future tool executions.
-    """,
+    description=(
+        '\n'
+        '    Update a tool installation configuration via AI service MCP '
+        'integration.\n'
+        '    \n'
+        "    You can modify the tool's enabled status and project-specific "
+        'configuration.\n'
+        '    Changes take effect immediately for future tool executions.\n'
+        '    '
+    ),
 )
 async def update_project_tool(
     tool_id: UUID,
@@ -190,12 +206,16 @@ async def update_project_tool(
     responses=DELETE_RESPONSES,
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Uninstall Tool",
-    description="""
-    Remove a tool installation from the project via AI service MCP integration.
-    
-    This will disable the tool and remove it from the project. The tool itself
-    remains available for installation in other projects.
-    """,
+    description=(
+        '\n'
+        '    Remove a tool installation from the project via AI service MCP '
+        'integration.\n'
+        '    \n'
+        '    This will disable the tool and remove it from the project. The '
+        'tool itself\n'
+        '    remains available for installation in other projects.\n'
+        '    '
+    ),
 )
 async def uninstall_tool(
     tool_id: UUID,
@@ -221,12 +241,16 @@ async def uninstall_tool(
     responses=CREATE_RESPONSES,
     status_code=status.HTTP_201_CREATED,
     summary="Install Tool",
-    description="""
-    Install a tool in the project via AI service MCP integration.
-    
-    The tool will be made available for execution within the project with the
-    specified configuration. You can optionally disable the tool after installation.
-    """,
+    description=(
+        '\n'
+        '    Install a tool in the project via AI service MCP integration.\n'
+        '    \n'
+        '    The tool will be made available for execution within the '
+        'project with the\n'
+        '    specified configuration. You can optionally disable the tool '
+        'after installation.\n'
+        '    '
+    ),
 )
 async def install_tool(
     install_data: InstallToolRequest,
@@ -251,12 +275,17 @@ async def install_tool(
     responses=CREATE_RESPONSES,
     status_code=status.HTTP_201_CREATED,
     summary="Bulk Install Tools",
-    description="""
-    Install multiple tools in the project at once via AI service MCP integration.
-    
-    This is more efficient than installing tools individually. All tools will use
-    the same default configuration and enabled status unless overridden.
-    """,
+    description=(
+        '\n'
+        '    Install multiple tools in the project at once via AI service '
+        'MCP integration.\n'
+        '    \n'
+        '    This is more efficient than installing tools individually. All '
+        'tools will use\n'
+        '    the same default configuration and enabled status unless '
+        'overridden.\n'
+        '    '
+    ),
 )
 async def bulk_install_tools(
     bulk_install_data: BulkInstallRequest,
@@ -271,7 +300,9 @@ async def bulk_install_tools(
             "project_id": str(bulk_install_data.project_id),
             "tool_count": len(bulk_install_data.tool_ids),
             "enable_all": bulk_install_data.enable_all,
-            "has_default_configuration": bulk_install_data.default_configuration
+            (
+                'has_default_configuration'
+            ): bulk_install_data.default_configuration
             is not None,
         },
     )

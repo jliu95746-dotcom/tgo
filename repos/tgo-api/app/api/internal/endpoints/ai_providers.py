@@ -1,11 +1,9 @@
-"""Internal AI Provider endpoints.
-
-This module provides internal endpoints for fetching AI provider configuration,
-including decrypted API keys. These endpoints are for internal service-to-service
-communication only (e.g., tgo-vision-agent -> tgo-api).
-
-No authentication required - assumes network-level isolation.
-"""
+"Internal AI Provider endpoints.\n\nThis module provides internal \
+endpoints for fetching AI provider configuration,\nincluding decrypted \
+API keys. These endpoints are for internal \
+service-to-service\ncommunication only (e.g., tgo-vision-agent -> \
+tgo-api).\n\nNo authentication required - assumes network-level \
+isolation.\n"
 
 from typing import Any
 from uuid import UUID
@@ -25,25 +23,30 @@ async def get_provider_config(
     provider_id: UUID,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """Get AI provider configuration for internal services.
-    
-    This endpoint returns the full provider configuration including the decrypted
-    API key. It is designed for internal service-to-service communication.
-    
-    Args:
-        provider_id: UUID of the AI provider
-        
-    Returns:
-        Provider configuration including:
-        - provider_type: Provider type (openai, anthropic, dashscope, azure_openai, etc.)
-        - api_key: Decrypted API key (plaintext)
-        - api_base_url: Base URL for API calls (optional)
-        - config: Additional provider-specific configuration
-        
-    Raises:
-        404: Provider not found
-        400: Provider is not active or has no API key
-    """
+    (
+        'Get AI provider configuration for internal services.\n'
+        '    \n'
+        '    This endpoint returns the full provider configuration including '
+        'the decrypted\n'
+        '    API key. It is designed for internal service-to-service '
+        'communication.\n'
+        '    \n'
+        '    Args:\n'
+        '        provider_id: UUID of the AI provider\n'
+        '        \n'
+        '    Returns:\n'
+        '        Provider configuration including:\n'
+        '        - provider_type: Provider type (openai, anthropic, '
+        'dashscope, azure_openai, etc.)\n'
+        '        - api_key: Decrypted API key (plaintext)\n'
+        '        - api_base_url: Base URL for API calls (optional)\n'
+        '        - config: Additional provider-specific configuration\n'
+        '        \n'
+        '    Raises:\n'
+        '        404: Provider not found\n'
+        '        400: Provider is not active or has no API key\n'
+        '    '
+    )
     provider = (
         db.query(AIProvider)
         .filter(

@@ -1,4 +1,5 @@
-"""Best-effort queue refresh events are emitted only after the owning commit."""
+"Best-effort queue refresh events are emitted only after the owning \
+commit."
 
 import asyncio
 from typing import Literal, cast

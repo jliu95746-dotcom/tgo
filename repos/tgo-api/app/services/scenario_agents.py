@@ -1,4 +1,5 @@
-"""Materialize login-owned setup configuration through the existing AI client."""
+"Materialize login-owned setup configuration through the existing AI \
+client."
 from uuid import UUID
 
 from sqlalchemy import select

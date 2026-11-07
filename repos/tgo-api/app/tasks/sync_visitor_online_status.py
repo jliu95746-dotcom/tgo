@@ -23,14 +23,17 @@ _processing_lock = asyncio.Lock()
 
 
 async def _process_online_status_sync() -> int:
-    """
-    Sync visitor online status with WuKongIM.
-    
-    Only checks visitors who are currently marked as online in the database.
-    
-    Returns:
-        Number of visitors marked offline
-    """
+    (
+        '\n'
+        '    Sync visitor online status with WuKongIM.\n'
+        '    \n'
+        '    Only checks visitors who are currently marked as online in the '
+        'database.\n'
+        '    \n'
+        '    Returns:\n'
+        '        Number of visitors marked offline\n'
+        '    '
+    )
     db: Session = SessionLocal()
     marked_offline_count = 0
 
@@ -68,14 +71,19 @@ async def _process_online_status_sync() -> int:
                 any_changes = False
                 for uid, visitor in uid_to_visitor.items():
                     if uid not in actually_online_set:
-                        # This visitor is marked online in DB but is offline in WuKongIM
+                        # This visitor is marked online in DB but is offline in
+                        # WuKongIM
                         visitor.is_online = False
                         visitor.last_offline_time = datetime.utcnow()
                         marked_offline_count += 1
                         any_changes = True
 
                         logger.info(
-                            f"Visitor {visitor.id} corrected to offline (sync)",
+                            (
+                                f'Visitor '
+                                f'{visitor.id}'
+                                f' corrected to offline (sync)'
+                            ),
                             extra={"visitor_id": str(visitor.id)},
                         )
 
@@ -152,11 +160,13 @@ async def stop_visitor_online_sync_task():
 
 
 async def trigger_online_status_sync() -> int:
-    """
-    Manually trigger a visitor online status sync.
-    
-    Returns:
-        Number of visitors corrected to offline
-    """
+    (
+        '\n'
+        '    Manually trigger a visitor online status sync.\n'
+        '    \n'
+        '    Returns:\n'
+        '        Number of visitors corrected to offline\n'
+        '    '
+    )
     async with _processing_lock:
         return await _process_online_status_sync()

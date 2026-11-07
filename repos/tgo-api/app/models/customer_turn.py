@@ -1,4 +1,5 @@
-"""Durable customer turns and their original, independently deduplicated parts."""
+"Durable customer turns and their original, independently deduplicated \
+parts."
 
 from datetime import datetime
 from uuid import UUID, uuid4

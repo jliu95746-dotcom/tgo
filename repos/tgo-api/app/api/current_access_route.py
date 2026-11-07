@@ -1,4 +1,5 @@
-"""Recheck server-captured authority at response headers and body boundaries."""
+"Recheck server-captured authority at response headers and body \
+boundaries."
 
 from collections.abc import Callable, Coroutine
 from fastapi.routing import APIRoute

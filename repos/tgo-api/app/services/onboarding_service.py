@@ -42,16 +42,21 @@ async def check_step_2_default_models(db: Session, project_id: UUID) -> bool:
         return False
 
     # All four fields must be set
-    if not all([
-        cfg.default_chat_provider_id,
-        cfg.default_chat_model,
-        cfg.default_embedding_provider_id,
-        cfg.default_embedding_model,
-    ]):
+    if not all(
+        [
+            cfg.default_chat_provider_id,
+            cfg.default_chat_model,
+            cfg.default_embedding_provider_id,
+            cfg.default_embedding_model,
+        ]
+    ):
         return False
 
     # Validate that referenced providers exist and are active
-    provider_ids = [cfg.default_chat_provider_id, cfg.default_embedding_provider_id]
+    provider_ids = [
+        cfg.default_chat_provider_id,
+        cfg.default_embedding_provider_id,
+    ]
     valid_count = (
         db.query(AIProvider.id)
         .filter(
@@ -105,7 +110,8 @@ async def check_step_4_agent_created(project_id: UUID) -> bool:
         logger.warning(
             "Failed to check agents for onboarding",
             extra={
-                "project_id": str(project_id), "error_type": type(e).__name__,
+                "project_id": str(project_id),
+                "error_type": type(e).__name__,
             },
         )
         return False
@@ -131,7 +137,8 @@ async def check_all_steps(
 
     steps = [step_1, step_2, step_3, step_4, step_5]
 
-    # Calculate current step (first incomplete action step, or 5 if steps 1-4 done)
+    # Calculate current step (first incomplete action step, or 5 if steps 1-4
+    # done)
     # Only consider steps 1-4 for progress, step 5 is just a notification
     current_step = 5
     for i in range(4):  # Only check steps 1-4

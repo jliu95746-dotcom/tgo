@@ -1,4 +1,5 @@
-"""Bind one generated version to all recognition, routing, and publication phases."""
+"Bind one generated version to all recognition, routing, and publication \
+phases."
 
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -225,7 +226,10 @@ async def prepare_input() -> tuple[str, str]:
             "本轮有媒体识别失败：给出一次请重发或补充文字的提示，同时回答其他能够确认的问题；不能把历史图片当成本次未识别的图片。"
         )
     logging.getLogger(__name__).info(
-        "Customer turn phase turn=%s version=%s phase=recognition seconds=%.3f parts=%s failures=%s",
+        (
+            'Customer turn phase turn=%s version=%s phase=recognition '
+            'seconds=%.3f parts=%s failures=%s'
+        ),
         context.turn_id,
         context.version,
         time.monotonic() - started,
@@ -236,7 +240,10 @@ async def prepare_input() -> tuple[str, str]:
 
 
 async def stage_reply(reply: str, sender: str) -> bool:
-    """True defers final publication to the external channel's delivery receipt."""
+    (
+        "True defers final publication to the external channel's delivery "
+        'receipt.'
+    )
     context = current_execution.get()
     if context is None:
         return False
@@ -271,7 +278,10 @@ async def stage_reply(reply: str, sender: str) -> bool:
     context.staged = True
     if context.generation_started:
         logging.getLogger(__name__).info(
-            "Customer turn phase turn=%s version=%s phase=generation_expression seconds=%.3f",
+            (
+                'Customer turn phase turn=%s version=%s '
+                'phase=generation_expression seconds=%.3f'
+            ),
             context.turn_id,
             context.version,
             time.monotonic() - context.generation_started,

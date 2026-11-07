@@ -1,4 +1,5 @@
-"""Serialized customer tag changes using the original staff and target versions."""
+"Serialized customer tag changes using the original staff and target \
+versions."
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -163,7 +164,8 @@ def begin_tag_removal(
     )
     if link is None:
         raise not_found()
-    # Keep the path association identity, even if it is replaced while preparing.
+    # Keep the path association identity, even if it is replaced while
+    # preparing.
     scope = begin_tag_change(
         db, credentials, actor, link.visitor_id, link.tag_id, remove=True
     )

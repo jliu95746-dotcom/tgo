@@ -54,5 +54,8 @@ class VisitorRegisterResponse(BaseModel):
 
     @field_serializer("im_token", "visitor_access_token", "visitor_end_token")
     def serialize_registration_secret(self, value: SecretStr) -> str:
-        """Issued credentials are sent only in the authorized registration reply."""
+        (
+            'Issued credentials are sent only in the authorized registration '
+            'reply.'
+        )
         return value.get_secret_value()

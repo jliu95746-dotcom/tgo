@@ -17,7 +17,7 @@ from app.models.platform import PlatformTypeDefinition
 
 SEED_PLATFORM_TYPES: List[Dict[str, object]] = [
     # Supported platform types
-     {
+    {
         "type": "website",
         "name": "网站小部件",
         "name_en": "Website",

@@ -213,7 +213,9 @@ async def install_model_from_store(
     if not credential:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Project not bound to Store. Please bind credentials first.",
+            detail=(
+                'Project not bound to Store. Please bind credentials first.'
+            ),
         )
 
     api_key = decrypt_str(credential.api_key_encrypted)
@@ -374,14 +376,16 @@ async def proxy_store_request(
     request: Request,
     current_user: Staff = Depends(get_current_active_user),
 ) -> Response:
-    """
-    透明代理 Store API 请求，不解析参数，直接转发。
-    支持 GET, POST, PUT, DELETE, PATCH 等方法。
-    
-    认证处理:
-    - 如果请求头包含 X-Store-Authorization，则使用它作为商店的 Authorization 头
-    - 否则移除 TGO 的 Authorization 头（商店不认识）
-    """
+    (
+        '\n'
+        '    透明代理 Store API 请求，不解析参数，直接转发。\n'
+        '    支持 GET, POST, PUT, DELETE, PATCH 等方法。\n'
+        '    \n'
+        '    认证处理:\n'
+        '    - 如果请求头包含 X-Store-Authorization，则使用它作为商店的 Authorization 头\n'
+        '    - 否则移除 TGO 的 Authorization 头（商店不认识）\n'
+        '    '
+    )
     if path.strip('/').split('/')[0] in ('agents', 'tools') or path.strip(
         '/'
     ).startswith('install/tool/'):
@@ -412,9 +416,10 @@ async def proxy_store_request(
     }
 
     # 伪装浏览器 User-Agent，防止被 WAF 拦截
-    headers[
-        "user-agent"
-    ] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    headers["user-agent"] = (
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    )
 
     # 3. 处理商店认证
     # 如果前端传了 X-Store-Authorization，转换为 Authorization 头发给商店

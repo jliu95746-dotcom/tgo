@@ -104,7 +104,12 @@ async def save(
         raise HTTPException(422, "请求渠道与岗位配置不一致")
     response = await client._make_request(
         "PUT",
-        f"/api/v1/agents/{agent}/activation-policies/{command.selection.channel.value}",
+        (
+            f'/api/v1/agents/'
+            f'{agent}'
+            f'/activation-policies/'
+            f'{command.selection.channel.value}'
+        ),
         json_data=command.model_dump(mode="json"),
         extra_headers=client._trial_headers(project, actor),
     )

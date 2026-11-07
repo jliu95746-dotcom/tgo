@@ -1,4 +1,5 @@
-"""Server channel metadata never grants browser access or business execution."""
+"Server channel metadata never grants browser access or business \
+execution."
 
 from datetime import datetime
 from uuid import UUID

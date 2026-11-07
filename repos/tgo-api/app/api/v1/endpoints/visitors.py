@@ -196,11 +196,17 @@ async def list_visitors(
     ),
     recent_online_minutes: Optional[int] = Query(
         None,
-        description="Filter visitors who were online within this many minutes (including currently online)",
+        description=(
+            'Filter visitors who were online within this many minutes '
+            '(including currently online)'
+        ),
     ),
     service_status: Optional[List[str]] = Query(
         None,
-        description="Filter visitors by service status (e.g., 'new', 'queued', 'active', 'closed')",
+        description=(
+            "Filter visitors by service status (e.g., 'new', 'queued', "
+            "'active', 'closed')"
+        ),
     ),
     tag_ids: Optional[List[str]] = Query(
         None, description="Filter visitors by tag IDs (OR relationship)"
@@ -210,7 +216,10 @@ async def list_visitors(
     ),
     sort_by: str = Query(
         "created_at",
-        description="Sort field: 'created_at', 'last_visit_time', or 'last_offline_time'",
+        description=(
+            "Sort field: 'created_at', 'last_visit_time', or "
+            "'last_offline_time'"
+        ),
     ),
     sort_order: str = Query("desc", description="Sort order: 'asc' or 'desc'"),
     offset: int = Query(0, ge=0, description="Number of visitors to skip"),
@@ -230,7 +239,17 @@ async def list_visitors(
     online status, tags, and search query. Requires visitors:list permission.
     """
     logger.info(
-        f"User {current_user.username} listing visitors (tag_ids={tag_ids}, recent_online_minutes={recent_online_minutes}, service_status={service_status})"
+        (
+            f'User '
+            f'{current_user.username}'
+            f' listing visitors (tag_ids='
+            f'{tag_ids}'
+            f', recent_online_minutes='
+            f'{recent_online_minutes}'
+            f', service_status='
+            f'{service_status}'
+            f')'
+        )
     )
 
     access = require_staff_record_access(
@@ -271,7 +290,8 @@ async def list_visitors(
 
     # Filter by tags
     if tag_ids:
-        # Use subquery for tag filtering to ensure count() works correctly with distinct visitors
+        # Use subquery for tag filtering to ensure count() works correctly with
+        # distinct visitors
         tag_visitor_ids = (
             db.query(VisitorTag.visitor_id)
             .filter(
@@ -306,9 +326,11 @@ async def list_visitors(
     # Apply sorting
     if sort_by == "last_offline_time":
         if sort_order == "desc":
-            # 1. Online visitors first (is_online=True -> 0, False -> 1, so asc puts True first)
+            # 1. Online visitors first (is_online=True -> 0, False -> 1, so asc
+            # puts True first)
             # 2. If online, sort by created_at desc
-            # 3. If offline, sort by last_offline_time desc (most recently offline first)
+            # 3. If offline, sort by last_offline_time desc (most recently
+            # offline first)
             # 4. NULL last_offline_time values go last
             query = query.order_by(
                 case((Visitor.is_online == True, 0), else_=1).asc(),
@@ -396,7 +418,12 @@ async def create_visitor(
     Requires visitors:create permission.
     """
     logger.info(
-        f"User {current_user.username} creating visitor: {visitor_data.platform_open_id}"
+        (
+            f'User '
+            f'{current_user.username}'
+            f' creating visitor: '
+            f'{visitor_data.platform_open_id}'
+        )
     )
 
     access = require_staff_record_access(
@@ -421,7 +448,10 @@ async def create_visitor(
         if not platform:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No active platform found for type: {visitor_data.platform_type}",
+                detail=(
+                    f'No active platform found for type: '
+                    f'{visitor_data.platform_type}'
+                ),
             )
         platform_id = platform.id
 
@@ -600,7 +630,8 @@ async def register_visitor(
         customer_sessions=req.customer_sessions,
     )
     if visitor is not None:
-        # Ownership is checked before profiles, channels, notifications or IM credentials change.
+        # Ownership is checked before profiles, channels, notifications or IM
+        # credentials change.
         access_secret, access = registration_access(
             db, visitor, proof, new=False
         )
@@ -611,7 +642,8 @@ async def register_visitor(
     ):
         raise visitor_access_denied()
 
-    # if nickname provided, nickname_zh not provided, set nickname_zh to nickname
+    # if nickname provided, nickname_zh not provided, set nickname_zh to
+    # nickname
     if req.nickname and not req.nickname_zh:
         req.nickname_zh = req.nickname
 
@@ -622,7 +654,8 @@ async def register_visitor(
         real_language = get_client_language(request, req.language)
 
         # Use visitor_service.create_visitor_with_channel for complete setup
-        # If normalized_open_id is None, visitor.id will be used as platform_open_id
+        # If normalized_open_id is None, visitor.id will be used as
+        # platform_open_id
         visitor = await visitor_service.create_visitor_with_channel(
             db=db,
             platform=platform,
@@ -718,7 +751,9 @@ async def register_visitor(
         profile_changed = True
 
     # 3) Ensure WuKongIM channel exists
-    # For new visitors, channel was already created by visitor_service.create_visitor_with_channel or visitor_service.ensure_visitor_channel
+    # For new visitors, channel was already created by
+    # visitor_service.create_visitor_with_channel or
+    # visitor_service.ensure_visitor_channel
     # For existing visitors, we need to ensure channel exists
     if not is_new_visitor:
         origin.check(db)
@@ -928,13 +963,15 @@ async def accept_visitor_direct(
     credentials: HTTPAuthorizationCredentials
     | None = Depends(HTTPBearer(auto_error=False)),
 ) -> AcceptVisitorResponse:
-    """
-    客服接入访客。
-    
-    - 无论访客是否在等待队列中均可接入
-    - 如果访客在等待队列中，会自动更新其队列条目状态
-    - 调用 transfer_to_staff 完成实际分配和 WuKongIM 关联
-    """
+    (
+        '\n'
+        '    客服接入访客。\n'
+        '    \n'
+        '    - 无论访客是否在等待队列中均可接入\n'
+        '    - 如果访客在等待队列中，会自动更新其队列条目状态\n'
+        '    - 调用 transfer_to_staff 完成实际分配和 WuKongIM 关联\n'
+        '    '
+    )
     scope = begin_mutation(
         db,
         credentials,
@@ -1051,13 +1088,17 @@ async def get_visitor_by_channel(
     credentials: HTTPAuthorizationCredentials
     | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorResponse:
-    """Get visitor details by channel identifiers. Requires visitors:read permission.
-
-    Logic:
-    - channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE (251): channel_id format is "{visitor_uuid}-vtr"
-    - channel_type == 1: channel_id is the visitor_id directly
-    - otherwise: 400 unsupported channel type
-    """
+    (
+        'Get visitor details by channel identifiers. Requires visitors:read '
+        'permission.\n'
+        '\n'
+        '    Logic:\n'
+        '    - channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE (251): '
+        'channel_id format is "{visitor_uuid}-vtr"\n'
+        '    - channel_type == 1: channel_id is the visitor_id directly\n'
+        '    - otherwise: 400 unsupported channel type\n'
+        '    '
+    )
     # Resolve visitor_id from channel info
     if channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE:
         try:
@@ -1128,7 +1169,10 @@ async def get_visitor_basic(
     db: Session = Depends(get_db),
     user_language: UserLanguage = Depends(get_user_language),
 ) -> VisitorBasicResponse | VisitorPublicProfile:
-    """Staff sees current owned details; a visitor sees only their own display."""
+    (
+        'Staff sees current owned details; a visitor sees only their own '
+        'display.'
+    )
     access = require_profile_access(db, credentials, x_platform_api_key)
     visitor = require_profile_visitor(db, access, visitor_id)
     guard = (
@@ -1424,7 +1468,8 @@ async def update_visitor_service_mode(
     scope = begin_mutation(
         db, credentials, current_user, visitor_id, "visitors:update"
     )
-    # The awaited skill check changes only a detached object, never the session's
+    # The awaited skill check changes only a detached object, never the
+    # session's
     # pending ORM record. The current original customer is locked afterwards.
     staged = Visitor()
     try:
@@ -1482,7 +1527,10 @@ async def delete_visitor(
     "/messages/sync",
     response_model=WuKongIMChannelMessageSyncResponse,
     summary="Visitor: Sync Channel Messages",
-    description="Retrieve the current visitor's own history using the platform key and signed visitor Bearer grant.",
+    description=(
+        "Retrieve the current visitor's own history using the platform key "
+        'and signed visitor Bearer grant.'
+    ),
 )
 async def sync_visitor_channel_messages(
     req: VisitorMessageSyncRequest,
@@ -1608,7 +1656,9 @@ async def sync_visitor_channel_messages(
     "/{visitor_id}/avatar",
     response_model=VisitorAvatarUploadResponse,
     summary="Upload visitor avatar",
-    description="Staff authorization required; JPEG, PNG, GIF or WebP, up to 5MB.",
+    description=(
+        'Staff authorization required; JPEG, PNG, GIF or WebP, up to 5MB.'
+    ),
     tags=["Visitors"],
 )
 async def upload_visitor_avatar(
@@ -1653,7 +1703,10 @@ async def upload_visitor_avatar(
 @router.get(
     "/{visitor_id}/avatar",
     summary="Get private visitor avatar",
-    description="Staff or original visitor authorization required in request headers. No public image access.",
+    description=(
+        'Staff or original visitor authorization required in request '
+        'headers. No public image access.'
+    ),
     tags=["Visitors"],
     responses={
         200: {

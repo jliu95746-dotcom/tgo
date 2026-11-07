@@ -1,4 +1,5 @@
-"""Wake durable outbox processing; restart safety resides in database leases."""
+"Wake durable outbox processing; restart safety resides in database \
+leases."
 
 import asyncio
 

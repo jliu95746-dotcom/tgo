@@ -151,8 +151,10 @@ async def reconcile_deliveries() -> None:
             logger.warning(
                 "AI quota receipt recovery failed: %s", type(exc).__name__
             )
-            # Give newer receipts a chance on the next bounded sweep. Never assume
-            # that a transport failure means the original reply was not delivered.
+            # Give newer receipts a chance on the next bounded sweep. Never
+            # assume
+            # that a transport failure means the original reply was not
+            # delivered.
 
             try:
                 with SessionLocal() as db:

@@ -25,7 +25,10 @@ class ClearanceUserType(str, Enum):
 
 
 class ChannelMemoryClearance(Base):
-    """General channel memory clearance record table, supporting both Staff and Visitor user types."""
+    (
+        'General channel memory clearance record table, supporting both '
+        'Staff and Visitor user types.'
+    )
 
     __tablename__ = "api_channel_memory_clearances"
 

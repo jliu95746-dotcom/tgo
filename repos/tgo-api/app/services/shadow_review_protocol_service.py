@@ -205,7 +205,8 @@ class ShadowReviewProtocolService:
     ) -> ShadowProtocolResponse:
         excluded = {"request_id"}
         if request.target_channel is None:
-            # Preserve the fingerprint of requests issued before channel selection.
+            # Preserve the fingerprint of requests issued before channel
+            # selection.
             excluded.add("target_channel")
         fingerprint = hashlib.sha256(
             request.model_dump_json(exclude=excluded).encode()

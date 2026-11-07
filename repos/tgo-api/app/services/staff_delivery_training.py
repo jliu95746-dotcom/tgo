@@ -78,7 +78,8 @@ async def _capture_locked(db: Session, row: StaffMessageDelivery) -> bool:
         row.training_status = "saved"
         row.training_error = None
     except HTTPException as exc:
-        # A deleted/incompatible skill must not silently recreate or retarget itself.
+        # A deleted/incompatible skill must not silently recreate or retarget
+        # itself.
 
         if exc.status_code in (400, 404, 422):
             row.training_status = "unavailable"

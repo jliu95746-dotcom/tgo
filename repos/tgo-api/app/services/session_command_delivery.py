@@ -129,7 +129,9 @@ def record_transfer(
     )
     payload = {
         "type": 1002,
-        "content": "Session transferred. Agent {0} has transferred you to Agent {1}.",
+        "content": (
+            'Session transferred. Agent {0} has transferred you to Agent {1}.'
+        ),
         "extra": [
             {"uid": from_uid, "name": from_name},
             {"uid": to_uid, "name": to_staff.name or to_staff.username},
@@ -270,7 +272,10 @@ def _still_current(db: Session, row: SessionCommandDelivery) -> bool:
 
 
 async def deliver_session_command(db: Session, operation_id: UUID) -> str:
-    """Send once; uncertain attempts are reconciled but never automatically resent."""
+    (
+        'Send once; uncertain attempts are reconciled but never '
+        'automatically resent.'
+    )
     row = (
         db.query(SessionCommandDelivery)
         .filter(SessionCommandDelivery.id == operation_id)

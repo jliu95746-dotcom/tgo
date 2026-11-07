@@ -1,4 +1,5 @@
-"""Monthly issuance, expiry and payment query compensation independent of the UI."""
+"Monthly issuance, expiry and payment query compensation independent of \
+the UI."
 
 from datetime import datetime, timedelta, timezone
 
@@ -36,8 +37,10 @@ def maintain_subscriptions() -> None:
                 and utc(account.expires_at) <= now
             ):
                 account.status = "expired"
-                # Expiry itself does not change quote basis: a previously paid order
-                # remains fulfillable after an outage. API gates use actual timestamps.
+                # Expiry itself does not change quote basis: a previously paid
+                # order
+                # remains fulfillable after an outage. API gates use actual
+                # timestamps.
             elif account.status == "active":
                 operator_override = operator_authorization_active(account, now)
                 if (
@@ -81,7 +84,8 @@ def maintain_subscriptions() -> None:
 
 def reconcile_one() -> bool:
     now = datetime.now(timezone.utc)
-    # Closed orders remain eligible for query to catch delayed provider settlement.
+    # Closed orders remain eligible for query to catch delayed provider
+    # settlement.
 
     with SessionLocal() as db:
         order = db.scalar(

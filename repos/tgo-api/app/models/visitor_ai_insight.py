@@ -43,7 +43,10 @@ class VisitorAIInsight(Base):
     intent: Mapped[Optional[str]] = mapped_column(
         String(50),
         nullable=True,
-        comment="Visitor intent classification (e.g., purchase, inquiry, complaint, support)",
+        comment=(
+            'Visitor intent classification (e.g., purchase, inquiry, '
+            'complaint, support)'
+        ),
     )
     insight_summary: Mapped[Optional[str]] = mapped_column(
         String(500),

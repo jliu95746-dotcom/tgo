@@ -1,4 +1,5 @@
-"""Validate downstream history ownership before releasing any message contents."""
+"Validate downstream history ownership before releasing any message \
+contents."
 
 from app.core.exceptions import TGOAPIException
 from app.schemas.visitor_data_access import VisitorDataAccess

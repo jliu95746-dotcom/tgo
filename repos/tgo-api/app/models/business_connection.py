@@ -28,7 +28,10 @@ class BusinessConnection(Base):
             "project_id", "request_id", name="uq_business_connection_request"
         ),
         CheckConstraint(
-            "revision >= 1 AND configuration_revision >= 1 AND authorization_revision >= 1",
+            (
+                'revision >= 1 AND configuration_revision >= 1 AND '
+                'authorization_revision >= 1'
+            ),
             name="ck_business_connection_revisions",
         ),
         CheckConstraint(

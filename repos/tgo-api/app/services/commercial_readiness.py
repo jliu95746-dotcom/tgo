@@ -1,4 +1,5 @@
-"""Inspect configuration locally; never send mail, create payments or reveal keys."""
+"Inspect configuration locally; never send mail, create payments or \
+reveal keys."
 
 from urllib.parse import urlsplit
 

@@ -51,15 +51,17 @@ async def _fetch_remote_agent_info(
     base_url: str,
     agent_id: str,
 ) -> Optional[RemoteAgentConfig]:
-    """Fetch agent configuration from remote AgentOS.
-    
-    Args:
-        base_url: AgentOS base URL.
-        agent_id: Agent ID to fetch.
-        
-    Returns:
-        Agent configuration or None if not found.
-    """
+    (
+        'Fetch agent configuration from remote AgentOS.\n'
+        '    \n'
+        '    Args:\n'
+        '        base_url: AgentOS base URL.\n'
+        '        agent_id: Agent ID to fetch.\n'
+        '        \n'
+        '    Returns:\n'
+        '        Agent configuration or None if not found.\n'
+        '    '
+    )
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             # Try to get agent info from AgentOS
@@ -103,11 +105,13 @@ async def _fetch_remote_agent_info(
 async def list_remote_agents(
     current_user: Staff = Depends(get_current_active_user),
 ) -> Dict[str, JsonValue]:
-    """List available remote agents.
-    
-    Returns a list of known remote agents including:
-    - Built-in Computer Use Agent from tgo-device-control
-    """
+    (
+        'List available remote agents.\n'
+        '    \n'
+        '    Returns a list of known remote agents including:\n'
+        '    - Built-in Computer Use Agent from tgo-device-control\n'
+        '    '
+    )
     agents: List[RemoteAgentInfo] = []
 
     # Add built-in Computer Use Agent
@@ -117,9 +121,11 @@ async def list_remote_agents(
         type="computer_use",
         base_url=settings.DEVICE_CONTROL_AGENTOS_URL,
         description=(
-            "AI Agent specialized in controlling user devices to complete tasks. "
-            "Capable of taking screenshots, clicking, typing, scrolling, and "
-            "other GUI interactions."
+            (
+                'AI Agent specialized in controlling user devices to '
+                'complete tasks. Capable of taking screenshots, clicking, '
+                'typing, scrolling, and other GUI interactions.'
+            )
         ),
         status="available",
         supports_device_control=True,
@@ -183,7 +189,10 @@ async def get_remote_agent(
             type="computer_use",
             base_url=settings.DEVICE_CONTROL_AGENTOS_URL,
             description=(
-                "AI Agent specialized in controlling user devices to complete tasks."
+                (
+                    'AI Agent specialized in controlling user devices to '
+                    'complete tasks.'
+                )
             ),
             status=status,
             supports_device_control=True,
@@ -210,11 +219,13 @@ async def get_remote_agent_config(
     agent_id: str,
     current_user: Staff = Depends(get_current_active_user),
 ) -> RemoteAgentConfig:
-    """Get configuration of a remote agent from its AgentOS.
-    
-    This fetches the agent's configuration directly from the remote
-    AgentOS server.
-    """
+    (
+        'Get configuration of a remote agent from its AgentOS.\n'
+        '    \n'
+        "    This fetches the agent's configuration directly from the remote\n"
+        '    AgentOS server.\n'
+        '    '
+    )
     # Determine base URL
     if agent_id == settings.DEVICE_CONTROL_AGENT_ID:
         base_url = settings.DEVICE_CONTROL_AGENTOS_URL
@@ -239,10 +250,13 @@ async def test_remote_agent(
     message: str = Body(..., embed=True),
     current_user: Staff = Depends(get_current_active_user),
 ) -> Dict[str, JsonValue]:
-    """Test a remote agent by sending a simple message.
-    
-    This can be used to verify connectivity and basic functionality.
-    """
+    (
+        'Test a remote agent by sending a simple message.\n'
+        '    \n'
+        '    This can be used to verify connectivity and basic '
+        'functionality.\n'
+        '    '
+    )
     # Determine base URL
     if agent_id == settings.DEVICE_CONTROL_AGENT_ID:
         base_url = settings.DEVICE_CONTROL_AGENTOS_URL

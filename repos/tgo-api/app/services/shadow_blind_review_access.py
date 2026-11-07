@@ -19,7 +19,10 @@ class ShadowBlindReviewAccess:
         self._db = db
 
     def require_result_access(self, project_id: UUID, viewer_id: UUID) -> None:
-        """Coordinators may inspect results; reviewers must finish every sample."""
+        (
+            'Coordinators may inspect results; reviewers must finish every '
+            'sample.'
+        )
         protocols = self._db.scalars(
             select(ShadowReviewProtocol).where(
                 ShadowReviewProtocol.project_id == project_id
@@ -58,7 +61,10 @@ class ShadowBlindReviewAccess:
         request_id: UUID,
         fingerprint: str,
     ) -> None:
-        """The coordinator cannot grade their cohort; one official grade per case."""
+        (
+            'The coordinator cannot grade their cohort; one official grade '
+            'per case.'
+        )
         protocols = self._db.scalars(
             select(ShadowReviewProtocol)
             .where(ShadowReviewProtocol.project_id == project_id)

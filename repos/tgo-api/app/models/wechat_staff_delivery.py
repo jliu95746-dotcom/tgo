@@ -1,4 +1,5 @@
-"""Immutable origin and claim for a human reply returning to its WeChat bridge."""
+"Immutable origin and claim for a human reply returning to its WeChat \
+bridge."
 
 from datetime import datetime
 from uuid import UUID

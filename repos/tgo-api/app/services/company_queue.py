@@ -1,4 +1,5 @@
-"""Public waiting summaries omit message history, contacts and private metadata."""
+"Public waiting summaries omit message history, contacts and private \
+metadata."
 
 from sqlalchemy.orm import Session
 

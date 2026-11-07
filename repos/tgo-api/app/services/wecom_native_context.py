@@ -1,4 +1,5 @@
-"""Mirror native customer and employee messages into the existing chat history."""
+"Mirror native customer and employee messages into the existing chat \
+history."
 
 from __future__ import annotations
 
@@ -49,7 +50,10 @@ class ContextTurn(Protocol):
 def preserve_native_config(
     current: dict[str, object], proposed: dict[str, object]
 ) -> dict[str, object]:
-    """Older channel forms only submit credentials; retain server-managed routing."""
+    (
+        'Older channel forms only submit credentials; retain server-managed '
+        'routing.'
+    )
     merged = dict(proposed)
     for key in (
         "native_handoff_enabled",
@@ -88,7 +92,8 @@ def apply_native_state(
             or getattr(visitor, "service_status", None) == "closed"
         )
     ):
-        # Human ownership belongs to one consultation; the next one starts with AI.
+        # Human ownership belongs to one consultation; the next one starts with
+        # AI.
         visitor.service_mode = "auto"
         visitor.ai_disabled = False
 
@@ -222,7 +227,10 @@ async def mirror_native_event(
             if event.kind == "customer":
                 sender = f"{visitor.id}-vtr"
             else:
-                sender = f"{uuid5(platform.project_id, 'wecom-native:' + event.servicer_userid)}-staff"
+                sender = (
+                    f"{uuid5(platform.project_id, 'wecom-native:' + event.servicer_userid)}"
+                    f'-staff'
+                )
             receipt = await wukongim_client.send_message(
                 from_uid=sender,
                 channel_id=channel_id,

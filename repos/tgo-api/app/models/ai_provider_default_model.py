@@ -68,6 +68,11 @@ class AIProviderDefaultModel(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug repr
         return (
-            "AIProviderDefaultModel("
-            f"provider={self.provider!r}, model_id={self.model_id!r}, model_type={self.model_type!r})"
+            f'AIProviderDefaultModel(provider='
+            f'{self.provider!r}'
+            f', model_id='
+            f'{self.model_id!r}'
+            f', model_type='
+            f'{self.model_type!r}'
+            f')'
         )

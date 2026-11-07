@@ -89,7 +89,10 @@ class MessageIntentOrchestrator:
         conversation_context: list[str] | None = None,
         media_input: dict[str, object] | None = None,
     ) -> MessageIntentRoutingOutcome:
-        """Classify one text message, persist it, then enforce a workflow route."""
+        (
+            'Classify one text message, persist it, then enforce a workflow '
+            'route.'
+        )
         normalized_text = user_text.strip()
         if not normalized_text:
             raise ValueError("user_text must not be empty")
@@ -113,7 +116,9 @@ class MessageIntentOrchestrator:
             request = IntentResultUpsertRequest.model_validate(
                 {
                     "visitor_id": persisted.visitor_id,
-                    "media_analysis_result_id": persisted.media_analysis_result_id,
+                    (
+                        'media_analysis_result_id'
+                    ): persisted.media_analysis_result_id,
                     "intent": persisted.intent,
                     "confidence": persisted.confidence,
                     "entities": persisted.entities,
@@ -173,7 +178,10 @@ class MessageIntentOrchestrator:
             except Exception as exc:
                 self._db.rollback()
                 logger.warning(
-                    "Customer intelligence projection failed without blocking chat",
+                    (
+                        'Customer intelligence projection failed without '
+                        'blocking chat'
+                    ),
                     extra={
                         "visitor_id": str(visitor.id),
                         "source_message_id": source_message_id,
@@ -181,7 +189,8 @@ class MessageIntentOrchestrator:
                     },
                 )
         if shadow_only or persisted.analysis_mode == "shadow":
-            # Assist-mode shadow analysis stops before workflow, business tools,
+            # Assist-mode shadow analysis stops before workflow, business
+            # tools,
             # and human handoff. The staff remains responsible for the reply.
             return MessageIntentRoutingOutcome(
                 intent_result=persisted,
@@ -293,7 +302,10 @@ class MessageIntentOrchestrator:
             or not config.default_chat_model
         ):
             logger.warning(
-                "Intent classification failed closed: default chat model missing",
+                (
+                    'Intent classification failed closed: default chat model '
+                    'missing'
+                ),
                 extra={"project_id": str(project.id)},
             )
             return self._fail_closed_payload()
@@ -413,7 +425,10 @@ class MessageIntentOrchestrator:
         source_message_id: str,
         logistics_no: str | None,
     ) -> tuple[dict[str, object], str | None, tuple[str, ...]] | None:
-        """Use a supplied or previously archived tracking number for live lookup."""
+        (
+            'Use a supplied or previously archived tracking number for live '
+            'lookup.'
+        )
 
         try:
             settings_row = self._logistics_service.get_settings(project.id)

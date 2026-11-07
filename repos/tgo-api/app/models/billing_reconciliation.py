@@ -1,4 +1,5 @@
-"""Daily statement evidence without retaining payer identities or download tokens."""
+"Daily statement evidence without retaining payer identities or download \
+tokens."
 
 from datetime import date, datetime
 

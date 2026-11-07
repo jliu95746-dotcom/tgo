@@ -1,4 +1,5 @@
-"""Issue operator-controlled trial codes and redeem once per verified company."""
+"Issue operator-controlled trial codes and redeem once per verified \
+company."
 
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256

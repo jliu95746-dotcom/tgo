@@ -16,7 +16,10 @@ if TYPE_CHECKING:
 
 
 class VisitorTag(Base):
-    """Visitor tag model for many-to-many relationship between visitors and tags."""
+    (
+        'Visitor tag model for many-to-many relationship between visitors '
+        'and tags.'
+    )
 
     __tablename__ = "api_visitor_tags"
 

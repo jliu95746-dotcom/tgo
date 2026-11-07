@@ -99,7 +99,8 @@ class BusinessConnectionTestService:
         return row
 
     def _cache(self, connection: BusinessConnection) -> None:
-        # These fields are only a cache; reads validate persisted reports again.
+        # These fields are only a cache; reads validate persisted reports
+        # again.
         connection.verified_configuration_revision = (
             connection.configuration_revision
         )

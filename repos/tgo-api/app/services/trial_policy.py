@@ -1,4 +1,5 @@
-"""Read immutable policy versions; atomically audit updates using optimistic versions."""
+"Read immutable policy versions; atomically audit updates using \
+optimistic versions."
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError

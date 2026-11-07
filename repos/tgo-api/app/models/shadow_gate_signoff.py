@@ -36,12 +36,15 @@ class ShadowGateSignoff(Base):
             "live_case_count > 0", name="ck_shadow_gate_live_cases"
         ),
         CheckConstraint(
-            "(decision IS NULL AND decider_id IS NULL AND decision_request_id IS NULL "
-            "AND decision_fingerprint IS NULL AND decision_note IS NULL "
-            "AND decided_at IS NULL) OR "
-            "(decision IS NOT NULL AND decider_id IS NOT NULL "
-            "AND decision_request_id IS NOT NULL AND decision_fingerprint IS NOT NULL "
-            "AND decision_note IS NOT NULL AND decided_at IS NOT NULL)",
+            (
+                '(decision IS NULL AND decider_id IS NULL AND '
+                'decision_request_id IS NULL AND decision_fingerprint IS '
+                'NULL AND decision_note IS NULL AND decided_at IS NULL) OR '
+                '(decision IS NOT NULL AND decider_id IS NOT NULL AND '
+                'decision_request_id IS NOT NULL AND decision_fingerprint IS '
+                'NOT NULL AND decision_note IS NOT NULL AND decided_at IS '
+                'NOT NULL)'
+            ),
             name="ck_shadow_gate_decision_complete",
         ),
     )

@@ -165,7 +165,15 @@ async def review_request_state(
 
     response = await client._make_request(
         "POST" if cancel else "GET",
-        f"/api/v1/agents/{agent}/business-trials/{report_id}/reviews/requests/{request_id}/"
+        (
+            f'/api/v1/agents/'
+            f'{agent}'
+            f'/business-trials/'
+            f'{report_id}'
+            f'/reviews/requests/'
+            f'{request_id}'
+            f'/'
+        )
         + ("cancel" if cancel else "state"),
         extra_headers=client._trial_headers(project, actor),
         timeout=20,
@@ -211,7 +219,15 @@ async def resume_review(
 ) -> BusinessReviewRecord:
     response = await client._make_request(
         "POST",
-        f"/api/v1/agents/{agent}/business-trials/{report_id}/reviews/requests/{request_id}/resume",
+        (
+            f'/api/v1/agents/'
+            f'{agent}'
+            f'/business-trials/'
+            f'{report_id}'
+            f'/reviews/requests/'
+            f'{request_id}'
+            f'/resume'
+        ),
         extra_headers=client._trial_headers(project, actor),
         timeout=35,
     )

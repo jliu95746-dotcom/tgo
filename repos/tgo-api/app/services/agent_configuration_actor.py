@@ -1,4 +1,5 @@
-"""Recheck the current administrator without loading an obsolete template or model."""
+"Recheck the current administrator without loading an obsolete template \
+or model."
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session

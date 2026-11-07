@@ -77,7 +77,10 @@ class KnowledgeGovernanceDraftRequest(BaseModel):
 
 
 class KnowledgeGovernanceBackfillRequest(BaseModel):
-    """Backfill input that intentionally cannot approve or enable old knowledge."""
+    (
+        'Backfill input that intentionally cannot approve or enable old '
+        'knowledge.'
+    )
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 

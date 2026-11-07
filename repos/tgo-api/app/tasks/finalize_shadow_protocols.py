@@ -1,4 +1,5 @@
-"""Freeze official shadow samples shortly after their registered window ends."""
+"Freeze official shadow samples shortly after their registered window \
+ends."
 
 from __future__ import annotations
 
@@ -37,7 +38,10 @@ def finalize_due_protocols(
     *,
     now: datetime | None = None,
 ) -> FinalizationSweep:
-    """Process each due project in its own transaction so failures stay local."""
+    (
+        'Process each due project in its own transaction so failures stay '
+        'local.'
+    )
     cutoff = now or datetime.now(timezone.utc)
     with session_factory() as db:
         due_protocols: list[tuple[UUID, UUID]] = [

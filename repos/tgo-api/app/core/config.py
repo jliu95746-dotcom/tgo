@@ -20,7 +20,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # A channel entry enables context-aware routing, even with no reviewed FAQs.
+    # A channel entry enables context-aware routing, even with no reviewed
+    # FAQs.
     CONTEXTUAL_REPLY_CHANNELS: dict[UUID, list[ReviewedFAQ]] = Field(
         default_factory=dict
     )
@@ -41,17 +42,26 @@ class Settings(BaseSettings):
     API_V1_STR: str = Field(default="/v1", description="API v1 prefix")
     API_BASE_URL: str = Field(
         default="http://localhost:8000",
-        description="Public-facing base URL for this TGO API service (used to construct callback URLs)",
+        description=(
+            'Public-facing base URL for this TGO API service (used to '
+            'construct callback URLs)'
+        ),
     )
 
     # Security
     BUSINESS_CONNECTION_CREDENTIAL_KEY: Optional[SecretStr] = Field(
         default=None,
-        description="Dedicated URL-safe base64 AES-256 key for company business credentials",
+        description=(
+            'Dedicated URL-safe base64 AES-256 key for company business '
+            'credentials'
+        ),
     )
     BUSINESS_CONNECTION_SERVICE_TOKEN: Optional[SecretStr] = Field(
         default=None,
-        description="Private credential resolution token shared only with the business adapter",
+        description=(
+            'Private credential resolution token shared only with the '
+            'business adapter'
+        ),
     )
     BUSINESS_CONNECTION_TEST_TTL_SECONDS: int = Field(
         default=86400,
@@ -149,7 +159,10 @@ class Settings(BaseSettings):
     # Internal Service Configuration
     INTERNAL_SERVICE_HOST: str = Field(
         default="127.0.0.1",
-        description="Host for internal services (127.0.0.1 for localhost only, 0.0.0.0 for all interfaces in Docker)",
+        description=(
+            'Host for internal services (127.0.0.1 for localhost only, '
+            '0.0.0.0 for all interfaces in Docker)'
+        ),
     )
     INTERNAL_SERVICE_PORT: int = Field(
         default=8001,
@@ -199,18 +212,25 @@ class Settings(BaseSettings):
     )
     WORKFLOW_SERVICE_API_KEY: Optional[str] = Field(
         default=None,
-        description="API key for Workflow service authentication (if required)",
+        description=(
+            'API key for Workflow service authentication (if required)'
+        ),
     )
 
     # AI Provider sync settings
     AI_PROVIDER_SYNC_RETRY_COUNT: int = Field(
         default=3,
-        description="Retry count for AIProvider sync failures (excludes initial attempt)",
+        description=(
+            'Retry count for AIProvider sync failures (excludes initial '
+            'attempt)'
+        ),
         ge=0,
     )
     AI_PROVIDER_SYNC_RETRY_DELAY: int = Field(
         default=2,
-        description="Initial delay in seconds for exponential backoff (2,4,8,...)",
+        description=(
+            'Initial delay in seconds for exponential backoff (2,4,8,...)'
+        ),
         gt=0,
     )
     AI_PROVIDER_SYNC_INTERVAL_MINUTES: int = Field(
@@ -226,12 +246,18 @@ class Settings(BaseSettings):
     # Project AI Config sync settings
     PROJECT_AI_CONFIG_SYNC_RETRY_COUNT: int = Field(
         default=3,
-        description="Retry count for ProjectAIConfig sync failures (excludes initial attempt)",
+        description=(
+            'Retry count for ProjectAIConfig sync failures (excludes initial '
+            'attempt)'
+        ),
         ge=0,
     )
     PROJECT_AI_CONFIG_SYNC_RETRY_DELAY: int = Field(
         default=2,
-        description="Initial delay in seconds for ProjectAIConfig exponential backoff (2,4,8,...)",
+        description=(
+            'Initial delay in seconds for ProjectAIConfig exponential '
+            'backoff (2,4,8,...)'
+        ),
         gt=0,
     )
     PROJECT_AI_CONFIG_SYNC_INTERVAL_MINUTES: int = Field(
@@ -246,34 +272,49 @@ class Settings(BaseSettings):
 
     SHADOW_PROTOCOL_AUTO_FINALIZE_ENABLED: bool = Field(
         default=True,
-        description="Automatically freeze due official shadow review protocols",
+        description=(
+            'Automatically freeze due official shadow review protocols'
+        ),
     )
     SHADOW_PROTOCOL_FINALIZE_INTERVAL_SECONDS: int = Field(
         default=30,
         ge=5,
         le=3600,
-        description="Seconds between official shadow protocol finalization sweeps",
+        description=(
+            'Seconds between official shadow protocol finalization sweeps'
+        ),
     )
 
     # Queue Processing settings (event-driven with fallback)
     QUEUE_DEFAULT_TIMEOUT_MINUTES: int = Field(
         default=60 * 24,  # 24 hours
-        description="Default queue wait timeout in minutes if not configured per project",
+        description=(
+            'Default queue wait timeout in minutes if not configured per '
+            'project'
+        ),
         gt=0,
     )
     QUEUE_CLEANUP_INTERVAL_SECONDS: int = Field(
         default=300,
-        description="Interval in seconds for expired queue entries cleanup (default 5 minutes)",
+        description=(
+            'Interval in seconds for expired queue entries cleanup (default '
+            '5 minutes)'
+        ),
         gt=0,
     )
     QUEUE_FALLBACK_INTERVAL_SECONDS: int = Field(
         default=120,
-        description="Interval in seconds for fallback queue processing (default 2 minutes)",
+        description=(
+            'Interval in seconds for fallback queue processing (default 2 '
+            'minutes)'
+        ),
         gt=0,
     )
     QUEUE_FALLBACK_ENABLED: bool = Field(
         default=True,
-        description="Enable fallback periodic processing for missed queue entries",
+        description=(
+            'Enable fallback periodic processing for missed queue entries'
+        ),
     )
     QUEUE_PROCESS_BATCH_SIZE: int = Field(
         default=50,
@@ -282,7 +323,9 @@ class Settings(BaseSettings):
     )
     QUEUE_PROCESS_MAX_WORKERS: int = Field(
         default=5,
-        description="Maximum number of concurrent workers for queue processing",
+        description=(
+            'Maximum number of concurrent workers for queue processing'
+        ),
         gt=0,
     )
 
@@ -293,12 +336,18 @@ class Settings(BaseSettings):
     )
     SESSION_TIMEOUT_CHECK_INTERVAL_SECONDS: int = Field(
         default=300,
-        description="Interval in seconds between session timeout checks (default 5 minutes)",
+        description=(
+            'Interval in seconds between session timeout checks (default 5 '
+            'minutes)'
+        ),
         gt=0,
     )
     SESSION_DEFAULT_TIMEOUT_HOURS: int = Field(
         default=48,
-        description="Default session timeout in hours if not configured in VisitorAssignmentRule",
+        description=(
+            'Default session timeout in hours if not configured in '
+            'VisitorAssignmentRule'
+        ),
         gt=0,
     )
     SESSION_TIMEOUT_BATCH_SIZE: int = Field(
@@ -314,7 +363,9 @@ class Settings(BaseSettings):
     )
     ASSIGNMENT_RULE_DEFAULT_WEEKDAYS: str = Field(
         default="1,2,3,4,5,6,7",
-        description="Default service weekdays (comma-separated, 1=Monday to 7=Sunday)",
+        description=(
+            'Default service weekdays (comma-separated, 1=Monday to 7=Sunday)'
+        ),
     )
     ASSIGNMENT_RULE_DEFAULT_START_TIME: str = Field(
         default="00:00",
@@ -322,7 +373,9 @@ class Settings(BaseSettings):
     )
     ASSIGNMENT_RULE_DEFAULT_END_TIME: str = Field(
         default="23:59",
-        description="Default service end time (HH:MM format, 23:59 for end of day)",
+        description=(
+            'Default service end time (HH:MM format, 23:59 for end of day)'
+        ),
     )
     ASSIGNMENT_RULE_DEFAULT_MAX_CONCURRENT_CHATS: int = Field(
         default=50,
@@ -347,13 +400,17 @@ class Settings(BaseSettings):
     )
     PLATFORM_SERVICE_API_KEY: Optional[str] = Field(
         default=None,
-        description="API key for Platform Service authentication (if required)",
+        description=(
+            'API key for Platform Service authentication (if required)'
+        ),
     )
 
     # Platform sync monitor settings
     PLATFORM_SYNC_RETRY_INTERVAL_SECONDS: int = Field(
         default=15,
-        description="Base retry interval for platform sync (exponential backoff)",
+        description=(
+            'Base retry interval for platform sync (exponential backoff)'
+        ),
         gt=1,
     )
     PLATFORM_SYNC_BATCH_LIMIT: int = Field(
@@ -411,15 +468,22 @@ class Settings(BaseSettings):
     # Supports two providers: geoip2 (MaxMind GeoLite2) and ip2region
     GEOIP_PROVIDER: str = Field(
         default="ip2region",
-        description="GeoIP provider: 'geoip2' (MaxMind) or 'ip2region' (lionsoul2014)",
+        description=(
+            "GeoIP provider: 'geoip2' (MaxMind) or 'ip2region' (lionsoul2014)"
+        ),
     )
     GEOIP_DATABASE_PATH: Optional[str] = Field(
         default="resources/geoip",
-        description="Path to GeoLite2-City.mmdb (geoip2) or ip2region directory/file (ip2region)",
+        description=(
+            'Path to GeoLite2-City.mmdb (geoip2) or ip2region directory/file '
+            '(ip2region)'
+        ),
     )
     GEOIP_ENABLED: bool = Field(
         default=True,
-        description="Enable IP geolocation lookup (requires GEOIP_DATABASE_PATH)",
+        description=(
+            'Enable IP geolocation lookup (requires GEOIP_DATABASE_PATH)'
+        ),
     )
 
     # Rate Limiting
@@ -450,23 +514,33 @@ class Settings(BaseSettings):
     # Visitor online status sync settings
     VISITOR_ONLINE_SYNC_ENABLED: bool = Field(
         default=True,
-        description="Enable periodic sync of visitor online status with WuKongIM",
+        description=(
+            'Enable periodic sync of visitor online status with WuKongIM'
+        ),
     )
     VISITOR_ONLINE_SYNC_INTERVAL_SECONDS: int = Field(
         default=60,
-        description="Interval in seconds for visitor online status sync (default 1 minute)",
+        description=(
+            'Interval in seconds for visitor online status sync (default 1 '
+            'minute)'
+        ),
         gt=0,
     )
     VISITOR_ONLINE_SYNC_BATCH_SIZE: int = Field(
         default=100,
-        description="Number of visitors to check per batch in online status sync",
+        description=(
+            'Number of visitors to check per batch in online status sync'
+        ),
         gt=0,
     )
 
     # Unknown Platform Fallback
     UNKNOWN_PLATFORM_ID: str = Field(
         default="00000000-0000-0000-0000-000000000000",
-        description="UUID for the unknown/fallback platform when platform data is missing",
+        description=(
+            'UUID for the unknown/fallback platform when platform data is '
+            'missing'
+        ),
     )
     UNKNOWN_PLATFORM_NAME: str = Field(
         default="未知平台",
@@ -518,7 +592,9 @@ class Settings(BaseSettings):
     VISITOR_AVATAR_CLEANUP_AGE_DAYS: int = Field(
         default=7,
         ge=1,
-        description="Minimum age in days before an unbound avatar may be removed",
+        description=(
+            'Minimum age in days before an unbound avatar may be removed'
+        ),
     )
     VISITOR_AVATAR_CLEANUP_INTERVAL_SECONDS: int = Field(
         default=6 * 60 * 60,
@@ -596,7 +672,10 @@ class Settings(BaseSettings):
     )
     OSS_BUCKET_URL: Optional[str] = Field(
         default=None,
-        description="Aliyun OSS bucket URL or Custom Domain (e.g., https://bucket.oss-cn.com)",
+        description=(
+            'Aliyun OSS bucket URL or Custom Domain (e.g., '
+            'https://bucket.oss-cn.com)'
+        ),
     )
     OSS_ACCESS_KEY_ID: Optional[str] = Field(
         default=None,
@@ -626,11 +705,17 @@ class Settings(BaseSettings):
     )
     MINIO_UPLOAD_URL: Optional[str] = Field(
         default=None,
-        description="MinIO upload URL (if different from MINIO_URL, e.g., for internal network)",
+        description=(
+            'MinIO upload URL (if different from MINIO_URL, e.g., for '
+            'internal network)'
+        ),
     )
     MINIO_DOWNLOAD_URL: Optional[str] = Field(
         default=None,
-        description="MinIO download URL (if different from MINIO_URL, e.g., for public domain)",
+        description=(
+            'MinIO download URL (if different from MINIO_URL, e.g., for '
+            'public domain)'
+        ),
     )
     PLUGIN_ENABLED: bool = Field(
         default=True,

@@ -1,4 +1,5 @@
-"""Existing customer bindings cannot silently repurpose a visitor's private history."""
+"Existing customer bindings cannot silently repurpose a visitor's \
+private history."
 
 import hashlib
 import hmac
@@ -54,7 +55,8 @@ def ensure_owner(
     connection: UUID,
     customer_id: str,
 ) -> VisitorBusinessScope:
-    # The caller locks the connection and the current visitor before creating a binding.
+    # The caller locks the connection and the current visitor before creating a
+    # binding.
     expected = fingerprint(project, connection, customer_id)
     row: VisitorBusinessScope | None = db.scalar(
         select(VisitorBusinessScope)

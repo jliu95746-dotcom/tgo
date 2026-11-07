@@ -61,7 +61,8 @@ async def authorize(
             credentials,
         )
     else:
-        # Revocation stops new sends, but cannot erase an already performed send.
+        # Revocation stops new sends, but cannot erase an already performed
+        # send.
 
         if credentials is None:
             raise HTTPException(401, "缺少访客回执凭据")

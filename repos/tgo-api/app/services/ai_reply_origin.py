@@ -51,7 +51,10 @@ async def verify_ai_reply_origins(
     client_msg_nos: list[str],
     im_client: AIReplyIMLookup,
 ) -> list[AIReplyOriginEvidence]:
-    """Verify current and retried AI replies without trusting a client marker."""
+    (
+        'Verify current and retried AI replies without trusting a client '
+        'marker.'
+    )
     unique_nos = list(dict.fromkeys(client_msg_nos))
     current_nos = set(
         db.scalars(

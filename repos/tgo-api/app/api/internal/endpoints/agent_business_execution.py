@@ -1,4 +1,5 @@
-"""Formal business routes stay private and use the existing service identities."""
+"Formal business routes stay private and use the existing service \
+identities."
 
 from uuid import UUID
 from fastapi import APIRouter, Depends

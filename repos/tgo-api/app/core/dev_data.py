@@ -112,15 +112,19 @@ DEFAULT_USER_GLOBAL_PERMISSIONS: List[Tuple[str, str]] = [
 
 
 def ensure_permissions_seed(db: Optional[Session] = None) -> None:
-    """
-    Ensure default permissions are seeded in the database.
-    
-    This function seeds:
-    1. Permission definitions (api_permissions table)
-    2. Global role permissions (api_role_permissions table) - inherited by all projects
-    
-    This function is idempotent - it will only create records that don't exist.
-    """
+    (
+        '\n'
+        '    Ensure default permissions are seeded in the database.\n'
+        '    \n'
+        '    This function seeds:\n'
+        '    1. Permission definitions (api_permissions table)\n'
+        '    2. Global role permissions (api_role_permissions table) - '
+        'inherited by all projects\n'
+        '    \n'
+        '    This function is idempotent - it will only create records that '
+        "don't exist.\n"
+        '    '
+    )
     close_session = False
     if db is None:
         db = SessionLocal()
@@ -161,7 +165,12 @@ def ensure_permissions_seed(db: Optional[Session] = None) -> None:
             permission_id = permission_map.get((resource, action))
             if not permission_id:
                 logger.warning(
-                    f"Permission not found for global role: {resource}:{action}"
+                    (
+                        f'Permission not found for global role: '
+                        f'{resource}'
+                        f':'
+                        f'{action}'
+                    )
                 )
                 continue
 
@@ -204,22 +213,25 @@ def add_project_role_permission(
     action: str,
     db: Optional[Session] = None,
 ) -> bool:
-    """
-    Add a project-specific permission for a role.
-    
-    This adds an ADDITIONAL permission on top of global permissions.
-    Projects can only ADD permissions, not remove global ones.
-    
-    Args:
-        project_id: The project ID
-        role: The role name (user, agent)
-        resource: The resource name
-        action: The action name
-        db: Optional database session
-    
-    Returns:
-        True if permission was added, False if it already exists
-    """
+    (
+        '\n'
+        '    Add a project-specific permission for a role.\n'
+        '    \n'
+        '    This adds an ADDITIONAL permission on top of global '
+        'permissions.\n'
+        '    Projects can only ADD permissions, not remove global ones.\n'
+        '    \n'
+        '    Args:\n'
+        '        project_id: The project ID\n'
+        '        role: The role name (user, agent)\n'
+        '        resource: The resource name\n'
+        '        action: The action name\n'
+        '        db: Optional database session\n'
+        '    \n'
+        '    Returns:\n'
+        '        True if permission was added, False if it already exists\n'
+        '    '
+    )
     close_session = False
     if db is None:
         db = SessionLocal()
@@ -264,7 +276,16 @@ def add_project_role_permission(
         db.commit()
 
         logger.info(
-            f"Added project permission {resource}:{action} for role {role} in project {project_id}"
+            (
+                f'Added project permission '
+                f'{resource}'
+                f':'
+                f'{action}'
+                f' for role '
+                f'{role}'
+                f' in project '
+                f'{project_id}'
+            )
         )
         return True
 

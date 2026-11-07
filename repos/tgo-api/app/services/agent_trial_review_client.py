@@ -1,4 +1,5 @@
-"""Review transport delegates to the existing AI client and trusted identity."""
+"Review transport delegates to the existing AI client and trusted \
+identity."
 from typing import TYPE_CHECKING
 from uuid import UUID
 

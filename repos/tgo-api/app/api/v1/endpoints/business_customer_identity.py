@@ -1,4 +1,5 @@
-"""Only merchant-signed assertions create sessions; admin requests manage policy."""
+"Only merchant-signed assertions create sessions; admin requests manage \
+policy."
 
 from uuid import UUID
 

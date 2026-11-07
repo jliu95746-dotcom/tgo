@@ -1,4 +1,5 @@
-"""Server-only commercial pricing; caller commits while holding company lock."""
+"Server-only commercial pricing; caller commits while holding company \
+lock."
 
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -134,7 +135,8 @@ def check_ai_add_on(
     purchased_at = func.coalesce(
         BillingOrder.paid_at, AICreditBatch.created_at
     )
-    # Count spent purchases this month and honor balances sold under older terms.
+    # Count spent purchases this month and honor balances sold under older
+    # terms.
 
     counted_credit = case(
         (purchased_at >= month_start, AICreditBatch.amount),

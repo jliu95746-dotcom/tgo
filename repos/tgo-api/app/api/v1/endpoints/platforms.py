@@ -9,7 +9,18 @@ import time
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header, UploadFile, File, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+    Request,
+    Response,
+    Header,
+    UploadFile,
+    File,
+    Query,
+)
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session, joinedload, contains_eager
@@ -30,9 +41,19 @@ from app.services.platform_configuration import is_platform_configured
 from app.services.visitor_data_access import require_visitor_data_access
 from app.services.wechat_local_bridge import WeChatLocalStatus, bridge_status
 from app.services.wechat_local_bridge import (
-    WeChatLocalHeartbeat, WeChatLocalPairCode, WeChatLocalPairCredential, WeChatLocalPairExchange,
-    WeChatLocalPairRequest, WeChatLocalScope, WeChatLocalScopeReceipt, WeChatLocalStatus,
-    authorize_bridge_visitor, bridge_status, exchange_pairing_code, issue_pairing_code, publish_bridge_scope,
+    WeChatLocalHeartbeat,
+    WeChatLocalPairCode,
+    WeChatLocalPairCredential,
+    WeChatLocalPairExchange,
+    WeChatLocalPairRequest,
+    WeChatLocalScope,
+    WeChatLocalScopeReceipt,
+    WeChatLocalStatus,
+    authorize_bridge_visitor,
+    bridge_status,
+    exchange_pairing_code,
+    issue_pairing_code,
+    publish_bridge_scope,
 )
 from app.schemas import (
     PlatformAPIKeyResponse,
@@ -80,7 +101,12 @@ async def get_platform_knowledge_availability(
 
 
 def _sanitize_filename(name: str, limit: int = 100) -> str:
-    name = (name or "upload.bin").replace("\\", "_").replace("/", "_").replace("..", ".")
+    name = (
+        (name or "upload.bin")
+        .replace("\\", "_")
+        .replace("/", "_")
+        .replace("..", ".")
+    )
     name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
     if len(name) <= limit:
         return name
@@ -91,16 +117,24 @@ def _sanitize_filename(name: str, limit: int = 100) -> str:
     return name[:limit]
 
 
-def _build_platform_list_item(platform: Platform, language: str = "zh") -> PlatformListItemResponse:
-    """Build PlatformListItemResponse with language-aware name/display_name.
-
-    Priority:
-    1) If ``Platform.name`` is set, always use it.
-    2) Otherwise, pick from the related PlatformTypeDefinition based on language:
-       - ``zh`` (default): use ``name`` (Chinese), fallback to "未命名平台".
-       - non-``zh``: use ``name_en`` when available, otherwise ``name``,
-         finally "Unnamed Platform".
-    """
+def _build_platform_list_item(
+    platform: Platform, language: str = "zh"
+) -> PlatformListItemResponse:
+    (
+        'Build PlatformListItemResponse with language-aware '
+        'name/display_name.\n'
+        '\n'
+        '    Priority:\n'
+        '    1) If ``Platform.name`` is set, always use it.\n'
+        '    2) Otherwise, pick from the related PlatformTypeDefinition '
+        'based on language:\n'
+        '       - ``zh`` (default): use ``name`` (Chinese), fallback to '
+        '"未命名平台".\n'
+        '       - non-``zh``: use ``name_en`` when available, otherwise '
+        '``name``,\n'
+        '         finally "Unnamed Platform".\n'
+        '    '
+    )
     item = PlatformListItemResponse.model_validate(platform)
     item.is_configured = is_platform_configured(platform.type, platform.config)
     try:
@@ -108,7 +142,9 @@ def _build_platform_list_item(platform: Platform, language: str = "zh") -> Platf
             localized_name = platform.name
         elif platform.platform_type:
             if language == "zh":
-                localized_name = getattr(platform.platform_type, "name", None) or "未命名平台"
+                localized_name = (
+                    getattr(platform.platform_type, "name", None) or "未命名平台"
+                )
             else:
                 localized_name = (
                     getattr(platform.platform_type, "name_en", None)
@@ -116,7 +152,9 @@ def _build_platform_list_item(platform: Platform, language: str = "zh") -> Platf
                     or "Unnamed Platform"
                 )
         else:
-            localized_name = "未命名平台" if language == "zh" else "Unnamed Platform"
+            localized_name = (
+                "未命名平台" if language == "zh" else "Unnamed Platform"
+            )
 
         item.name = localized_name
         item.display_name = localized_name
@@ -126,16 +164,22 @@ def _build_platform_list_item(platform: Platform, language: str = "zh") -> Platf
     return item
 
 
-def _build_platform_response(platform: Platform, language: str = "zh") -> PlatformResponse:
+def _build_platform_response(
+    platform: Platform, language: str = "zh"
+) -> PlatformResponse:
     """Build PlatformResponse with language-aware name/display_name."""
     response = PlatformResponse.model_validate(platform)
-    response.is_configured = is_platform_configured(platform.type, platform.config)
+    response.is_configured = is_platform_configured(
+        platform.type, platform.config
+    )
     try:
         if platform.name:
             localized_name = platform.name
         elif platform.platform_type:
             if language == "zh":
-                localized_name = getattr(platform.platform_type, "name", None) or "未命名平台"
+                localized_name = (
+                    getattr(platform.platform_type, "name", None) or "未命名平台"
+                )
             else:
                 localized_name = (
                     getattr(platform.platform_type, "name_en", None)
@@ -143,7 +187,9 @@ def _build_platform_response(platform: Platform, language: str = "zh") -> Platfo
                     or "Unnamed Platform"
                 )
         else:
-            localized_name = "未命名平台" if language == "zh" else "Unnamed Platform"
+            localized_name = (
+                "未命名平台" if language == "zh" else "Unnamed Platform"
+            )
 
         response.name = localized_name
         response.display_name = localized_name
@@ -158,12 +204,19 @@ async def list_platform_types(
     current_user: Staff = Depends(require_permission("platforms:list")),
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> list[PlatformTypeDefinitionResponse]:
-    """List available platform type definitions. Requires platforms:list permission."""
+    (
+        'List available platform type definitions. Requires platforms:list '
+        'permission.'
+    )
     logger.info(f"User {current_user.username} listing platform types")
 
     platform_types = (
         db.query(PlatformTypeDefinition)
-        .filter(PlatformTypeDefinition.type.in_([item.value for item in PlatformType]))
+        .filter(
+            PlatformTypeDefinition.type.in_(
+                [item.value for item in PlatformType]
+            )
+        )
         .order_by(PlatformTypeDefinition.name)
         .all()
     )
@@ -176,9 +229,7 @@ async def list_platform_types(
                 display_name = item.name or "未命名平台类型"
             else:
                 display_name = (
-                    item.name_en
-                    or item.name
-                    or "Unnamed Platform Type"
+                    item.name_en or item.name or "Unnamed Platform Type"
                 )
             resp.display_name = display_name
         except Exception:
@@ -196,12 +247,15 @@ async def list_platforms(
     current_user: Staff = Depends(require_permission("platforms:list")),
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformListResponse:
-    """
-    List platforms.
-
-    Retrieve a paginated list of communication platforms with optional filtering.
-    Requires platforms:list permission.
-    """
+    (
+        '\n'
+        '    List platforms.\n'
+        '\n'
+        '    Retrieve a paginated list of communication platforms with '
+        'optional filtering.\n'
+        '    Requires platforms:list permission.\n'
+        '    '
+    )
     logger.info(f"User {current_user.username} listing platforms")
 
     # Build query
@@ -227,8 +281,7 @@ async def list_platforms(
 
     # Apply pagination and ordering
     platforms = (
-        query
-        .order_by(
+        query.order_by(
             Platform.is_active.desc(),
             PlatformTypeDefinition.is_supported.desc(),
             Platform.created_at.desc(),
@@ -238,9 +291,11 @@ async def list_platforms(
         .all()
     )
 
-    # Convert to response models (using list item schema without sensitive fields)
+    # Convert to response models (using list item schema without sensitive
+    # fields)
     platform_responses = [
-        _build_platform_list_item(platform, language=x_user_language) for platform in platforms
+        _build_platform_list_item(platform, language=x_user_language)
+        for platform in platforms
     ]
 
     return PlatformListResponse(
@@ -260,7 +315,10 @@ async def list_platforms(
     response_model=PublicPlatformResponse,
     response_model_exclude_none=True,
     summary="Platform: Get Platform Info",
-    description="Retrieve platform information using Platform API key (visitor-facing).",
+    description=(
+        'Retrieve platform information using Platform API key '
+        '(visitor-facing).'
+    ),
 )
 async def get_platform_info(
     platform_api_key: str | None = None,
@@ -268,17 +326,25 @@ async def get_platform_info(
     x_platform_api_key: str | None = Header(None, alias="X-Platform-API-Key"),
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PublicPlatformResponse:
-    """Get platform information by Platform API key.
-
-    - Auth: API key in query param `platform_api_key` or header `X-Platform-API-Key`
-    - Returns: public widget presentation; no administrator configuration
-    - Errors: 401 (invalid/missing), 403 (disabled/deleted)
-    """
+    (
+        'Get platform information by Platform API key.\n'
+        '\n'
+        '    - Auth: API key in query param `platform_api_key` or header '
+        '`X-Platform-API-Key`\n'
+        '    - Returns: public widget presentation; no administrator '
+        'configuration\n'
+        '    - Errors: 401 (invalid/missing), 403 (disabled/deleted)\n'
+        '    '
+    )
     api_key = platform_api_key or x_platform_api_key
     if not api_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing platform_api_key")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing platform_api_key",
+        )
 
-    # Look up by api_key (without status/deleted filters) to distinguish 401 vs 403 as required
+    # Look up by api_key (without status/deleted filters) to distinguish 401 vs
+    # 403 as required
     platform = (
         db.query(Platform)
         .join(Project, Platform.project_id == Project.id)
@@ -289,35 +355,58 @@ async def get_platform_info(
     # Log attempt with sanitized key hash prefix
     try:
         import hashlib
+
         key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:10]
     except Exception:
         key_hash = "unknown"
 
     if not platform:
-        logger.warning("Platform info auth failed: invalid api key", extra={"api_key_sha256_prefix": key_hash})
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform_api_key")
+        logger.warning(
+            "Platform info auth failed: invalid api key",
+            extra={"api_key_sha256_prefix": key_hash},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid platform_api_key",
+        )
 
     if platform.type not in {item.value for item in PlatformType}:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="该渠道已下线")
 
     if platform.deleted_at is not None:
-        logger.warning("Platform info access denied: platform deleted", extra={"platform_id": str(platform.id)})
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Platform is deleted")
+        logger.warning(
+            "Platform info access denied: platform deleted",
+            extra={"platform_id": str(platform.id)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Platform is deleted"
+        )
 
     if not platform.is_active:
-        logger.warning("Platform info access denied: platform disabled", extra={"platform_id": str(platform.id)})
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Platform is disabled")
+        logger.warning(
+            "Platform info access denied: platform disabled",
+            extra={"platform_id": str(platform.id)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform is disabled",
+        )
 
-    logger.info("Platform info retrieved", extra={"platform_id": str(platform.id)})
+    logger.info(
+        "Platform info retrieved", extra={"platform_id": str(platform.id)}
+    )
     response = public_platform_response(
         platform, _build_platform_list_item(platform, language=x_user_language)
     )
     from app.services.company_entitlements import new_service_available
+
     response.service_available = new_service_available(db, platform.project_id)
     return response
 
 
-@router.post("", response_model=PlatformResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=PlatformResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_platform(
     platform_data: PlatformCreate,
     db: Session = Depends(get_db),
@@ -330,19 +419,34 @@ async def create_platform(
     Create a new communication platform configuration.
     Requires platforms:create permission.
     """
-    logger.info(f"User {current_user.username} creating platform: {platform_data.name or '[auto]'}")
+    logger.info(
+        (
+            f'User '
+            f'{current_user.username}'
+            f' creating platform: '
+            f"{platform_data.name or '[auto]'}"
+        )
+    )
 
-
-    existing = db.query(Platform.id).filter(
-        Platform.project_id == current_user.project_id,
-        Platform.deleted_at.is_(None),
-        func.lower(Platform.name) == platform_data.name.lower(),
-    ).first()
+    existing = (
+        db.query(Platform.id)
+        .filter(
+            Platform.project_id == current_user.project_id,
+            Platform.deleted_at.is_(None),
+            func.lower(Platform.name) == platform_data.name.lower(),
+        )
+        .first()
+    )
     if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="渠道名称已存在，请使用不同名称")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="渠道名称已存在，请使用不同名称"
+        )
 
-    await require_platform_agent(current_user.project_id, platform_data.agent_id)
+    await require_platform_agent(
+        current_user.project_id, platform_data.agent_id
+    )
     from app.services.company_resources import reserve_channel_creation
+
     reserve_channel_creation(db, current_user.project_id)
 
     # Create platform
@@ -376,7 +480,9 @@ async def get_platform(
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
     """Get platform details. Requires platforms:read permission."""
-    logger.info(f"User {current_user.username} getting platform: {platform_id}")
+    logger.info(
+        f"User {current_user.username} getting platform: {platform_id}"
+    )
 
     platform = (
         db.query(Platform)
@@ -392,33 +498,40 @@ async def get_platform(
 
     if not platform:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Platform not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found"
         )
 
     return _build_platform_response(platform, language=x_user_language)
 
 
-@router.get("/{platform_id}/wechat-local/status", response_model=WeChatLocalStatus)
+@router.get(
+    "/{platform_id}/wechat-local/status", response_model=WeChatLocalStatus
+)
 async def get_wechat_local_status(
     platform_id: UUID,
     response: Response,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("platforms:read")),
 ) -> WeChatLocalStatus:
-    platform = db.query(Platform).filter(
-        Platform.id == platform_id,
-        Platform.project_id == current_user.project_id,
-        Platform.type == PlatformType.WECHAT_LOCAL.value,
-        Platform.deleted_at.is_(None),
-    ).first()
+    platform = (
+        db.query(Platform)
+        .filter(
+            Platform.id == platform_id,
+            Platform.project_id == current_user.project_id,
+            Platform.type == PlatformType.WECHAT_LOCAL.value,
+            Platform.deleted_at.is_(None),
+        )
+        .first()
+    )
     if platform is None:
         raise HTTPException(404, "Platform not found")
     response.headers["Cache-Control"] = "no-store"
     return await bridge_status(platform)
 
 
-def _pairing_platform(db: Session, platform_id: UUID, project_id: UUID | None = None) -> Platform:
+def _pairing_platform(
+    db: Session, platform_id: UUID, project_id: UUID | None = None
+) -> Platform:
     query = db.query(Platform).filter(
         Platform.id == platform_id,
         Platform.type == PlatformType.WECHAT_LOCAL.value,
@@ -433,7 +546,10 @@ def _pairing_platform(db: Session, platform_id: UUID, project_id: UUID | None = 
     return platform
 
 
-@router.post("/{platform_id}/wechat-local/pair/authorize", response_model=WeChatLocalPairCode)
+@router.post(
+    "/{platform_id}/wechat-local/pair/authorize",
+    response_model=WeChatLocalPairCode,
+)
 async def authorize_wechat_local_pair(
     platform_id: UUID,
     payload: WeChatLocalPairRequest,
@@ -443,10 +559,15 @@ async def authorize_wechat_local_pair(
 ) -> WeChatLocalPairCode:
     platform = _pairing_platform(db, platform_id, current_user.project_id)
     response.headers["Cache-Control"] = "no-store"
-    return WeChatLocalPairCode(code=await issue_pairing_code(platform, payload.challenge))
+    return WeChatLocalPairCode(
+        code=await issue_pairing_code(platform, payload.challenge)
+    )
 
 
-@router.post("/{platform_id}/wechat-local/pair/exchange", response_model=WeChatLocalPairCredential)
+@router.post(
+    "/{platform_id}/wechat-local/pair/exchange",
+    response_model=WeChatLocalPairCredential,
+)
 async def exchange_wechat_local_pair(
     platform_id: UUID,
     payload: WeChatLocalPairExchange,
@@ -459,41 +580,56 @@ async def exchange_wechat_local_pair(
     return WeChatLocalPairCredential(platform_api_key=key)
 
 
-@router.post("/{platform_id}/wechat-local/heartbeat", response_model=WeChatLocalStatus)
+@router.post(
+    "/{platform_id}/wechat-local/heartbeat", response_model=WeChatLocalStatus
+)
 async def wechat_local_heartbeat(
     platform_id: UUID,
     payload: WeChatLocalHeartbeat,
     db: Session = Depends(get_db),
     api_key: str = Header("", alias="X-Platform-API-Key"),
-    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(HTTPBearer(auto_error=False)),
 ) -> WeChatLocalStatus:
-    platform = db.query(Platform).filter(
-        Platform.id == platform_id,
-        Platform.api_key == api_key,
-        Platform.type == PlatformType.WECHAT_LOCAL.value,
-        Platform.is_active.is_(True),
-        Platform.deleted_at.is_(None),
-    ).first()
+    platform = (
+        db.query(Platform)
+        .filter(
+            Platform.id == platform_id,
+            Platform.api_key == api_key,
+            Platform.type == PlatformType.WECHAT_LOCAL.value,
+            Platform.is_active.is_(True),
+            Platform.deleted_at.is_(None),
+        )
+        .first()
+    )
     if platform is None:
         raise HTTPException(401, "Invalid platform API key")
-    await authorize_bridge_visitor(db, platform, payload.channel_id, 251, credentials)
+    await authorize_bridge_visitor(
+        db, platform, payload.channel_id, 251, credentials
+    )
     return await bridge_status(platform, heartbeat=True)
 
 
-@router.post("/{platform_id}/wechat-local/scope", response_model=WeChatLocalScopeReceipt)
+@router.post(
+    "/{platform_id}/wechat-local/scope", response_model=WeChatLocalScopeReceipt
+)
 async def update_wechat_local_scope(
     platform_id: UUID,
     scope: WeChatLocalScope,
     db: Session = Depends(get_db),
     api_key: str = Header("", alias="X-Platform-API-Key"),
 ) -> WeChatLocalScopeReceipt:
-    platform = db.query(Platform).filter(
-        Platform.id == platform_id,
-        Platform.api_key == api_key,
-        Platform.type == PlatformType.WECHAT_LOCAL.value,
-        Platform.is_active.is_(True),
-        Platform.deleted_at.is_(None),
-    ).first()
+    platform = (
+        db.query(Platform)
+        .filter(
+            Platform.id == platform_id,
+            Platform.api_key == api_key,
+            Platform.type == PlatformType.WECHAT_LOCAL.value,
+            Platform.is_active.is_(True),
+            Platform.deleted_at.is_(None),
+        )
+        .first()
+    )
     if not api_key or platform is None:
         raise HTTPException(401, "Invalid platform API key")
     await publish_bridge_scope(platform, scope)
@@ -514,7 +650,9 @@ async def update_platform(
     Update platform configuration and settings.
     Requires platforms:update permission.
     """
-    logger.info(f"User {current_user.username} updating platform: {platform_id}")
+    logger.info(
+        f"User {current_user.username} updating platform: {platform_id}"
+    )
 
     platform = (
         db.query(Platform)
@@ -530,23 +668,26 @@ async def update_platform(
 
     if not platform:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Platform not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found"
         )
 
     # Check if new name conflicts with existing platform
     if platform_data.name and platform_data.name != platform.name:
-        existing_platform = db.query(Platform).filter(
-            Platform.project_id == current_user.project_id,
-            Platform.name == platform_data.name,
-            Platform.id != platform_id,
-            Platform.deleted_at.is_(None)
-        ).first()
+        existing_platform = (
+            db.query(Platform)
+            .filter(
+                Platform.project_id == current_user.project_id,
+                Platform.name == platform_data.name,
+                Platform.id != platform_id,
+                Platform.deleted_at.is_(None),
+            )
+            .first()
+        )
 
         if existing_platform:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Platform name already exists"
+                detail="Platform name already exists",
             )
 
     # Confirm new or reactivated bindings before changing any stored field.
@@ -564,10 +705,14 @@ async def update_platform(
 
     # Update fields
     update_data = platform_data.model_dump(exclude_unset=True)
-    if platform.type == "wecom" and isinstance(update_data.get("config"), dict):
+    if platform.type == "wecom" and isinstance(
+        update_data.get("config"), dict
+    ):
         from app.services.wecom_native_context import preserve_native_config
 
-        update_data["config"] = preserve_native_config(platform.config or {}, update_data["config"])
+        update_data["config"] = preserve_native_config(
+            platform.config or {}, update_data["config"]
+        )
     for field, value in update_data.items():
         setattr(platform, field, value)
 
@@ -588,24 +733,32 @@ async def delete_platform(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("platforms:delete")),
 ) -> None:
-    """
-    Delete platform (soft delete).
+    (
+        '\n'
+        '    Delete platform (soft delete).\n'
+        '\n'
+        '    Soft delete a platform. This also affects all visitors '
+        'associated with this platform.\n'
+        '    Requires platforms:delete permission.\n'
+        '    '
+    )
+    logger.info(
+        f"User {current_user.username} deleting platform: {platform_id}"
+    )
 
-    Soft delete a platform. This also affects all visitors associated with this platform.
-    Requires platforms:delete permission.
-    """
-    logger.info(f"User {current_user.username} deleting platform: {platform_id}")
-
-    platform = db.query(Platform).filter(
-        Platform.id == platform_id,
-        Platform.project_id == current_user.project_id,
-        Platform.deleted_at.is_(None)
-    ).first()
+    platform = (
+        db.query(Platform)
+        .filter(
+            Platform.id == platform_id,
+            Platform.project_id == current_user.project_id,
+            Platform.deleted_at.is_(None),
+        )
+        .first()
+    )
 
     if not platform:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Platform not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found"
         )
 
     # Soft delete
@@ -619,14 +772,26 @@ async def delete_platform(
     return None
 
 
-@router.post("/{platform_id}/regenerate_api_key", response_model=PlatformAPIKeyResponse)
+@router.post(
+    "/{platform_id}/regenerate_api_key", response_model=PlatformAPIKeyResponse
+)
 async def regenerate_platform_api_key(
     platform_id: UUID,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("platforms:update")),
 ) -> PlatformAPIKeyResponse:
-    """Regenerate the API key for a platform. Requires platforms:update permission."""
-    logger.info(f"User {current_user.username} regenerating API key for platform: {platform_id}")
+    (
+        'Regenerate the API key for a platform. Requires platforms:update '
+        'permission.'
+    )
+    logger.info(
+        (
+            f'User '
+            f'{current_user.username}'
+            f' regenerating API key for platform: '
+            f'{platform_id}'
+        )
+    )
 
     platform = (
         db.query(Platform)
@@ -641,8 +806,7 @@ async def regenerate_platform_api_key(
 
     if not platform:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Platform not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found"
         )
 
     platform.api_key = generate_api_key()
@@ -651,11 +815,9 @@ async def regenerate_platform_api_key(
     db.commit()
     db.refresh(platform)
 
-
     logger.info(f"Regenerated API key for platform {platform.id}")
 
     return PlatformAPIKeyResponse(id=platform.id, api_key=platform.api_key)
-
 
 
 @router.post("/{platform_id}/enable", response_model=PlatformResponse)
@@ -665,8 +827,13 @@ async def enable_platform(
     current_user: Staff = Depends(require_permission("platforms:update")),
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
-    """Enable a platform (set is_active=True). Requires platforms:update permission."""
-    logger.info("User %s enabling platform %s", current_user.username, str(platform_id))
+    (
+        'Enable a platform (set is_active=True). Requires platforms:update '
+        'permission.'
+    )
+    logger.info(
+        "User %s enabling platform %s", current_user.username, str(platform_id)
+    )
 
     platform = (
         db.query(Platform)
@@ -680,7 +847,9 @@ async def enable_platform(
         .first()
     )
     if not platform:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found"
+        )
 
     await require_platform_agent(current_user.project_id, platform.agent_id)
     platform.is_active = True
@@ -696,7 +865,11 @@ async def enable_platform(
     if platform.type == "slack":
         await _notify_slack_platform_reload(platform)
 
-    logger.info("Platform %s enabled by user %s", str(platform.id), current_user.username)
+    logger.info(
+        "Platform %s enabled by user %s",
+        str(platform.id),
+        current_user.username,
+    )
     return _build_platform_response(platform, language=x_user_language)
 
 
@@ -707,8 +880,15 @@ async def disable_platform(
     current_user: Staff = Depends(require_permission("platforms:update")),
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
-    """Disable a platform (set is_active=False). Requires platforms:update permission."""
-    logger.info("User %s disabling platform %s", current_user.username, str(platform_id))
+    (
+        'Disable a platform (set is_active=False). Requires platforms:update '
+        'permission.'
+    )
+    logger.info(
+        "User %s disabling platform %s",
+        current_user.username,
+        str(platform_id),
+    )
 
     platform = (
         db.query(Platform)
@@ -722,7 +902,9 @@ async def disable_platform(
         .first()
     )
     if not platform:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found"
+        )
 
     # Delete Telegram webhook when platform is disabled
     if platform.type == "telegram":
@@ -737,7 +919,11 @@ async def disable_platform(
     db.commit()
     db.refresh(platform)
 
-    logger.info("Platform %s disabled by user %s", str(platform.id), current_user.username)
+    logger.info(
+        "Platform %s disabled by user %s",
+        str(platform.id),
+        current_user.username,
+    )
     return _build_platform_response(platform, language=x_user_language)
 
 
@@ -749,12 +935,16 @@ async def _setup_telegram_webhook(platform: Platform) -> None:
     if not bot_token:
         logger.warning(
             "Telegram platform %s enabled but no bot_token configured",
-            str(platform.id)
+            str(platform.id),
         )
         return
 
     # Build webhook URL
-    webhook_url = f"{settings.API_BASE_URL.rstrip('/')}/v1/platforms/callback/{platform.api_key}"
+    webhook_url = (
+        f"{settings.API_BASE_URL.rstrip('/')}"
+        f'/v1/platforms/callback/'
+        f'{platform.api_key}'
+    )
     webhook_secret = config.get("webhook_secret")
 
     try:
@@ -766,24 +956,27 @@ async def _setup_telegram_webhook(platform: Platform) -> None:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{bot_token}/setWebhook",
-                json=payload
+                json=payload,
             )
             result = response.json()
 
             if result.get("ok"):
                 logger.info(
                     "Telegram webhook set for platform %s: %s",
-                    str(platform.id), webhook_url
+                    str(platform.id),
+                    webhook_url,
                 )
             else:
                 logger.error(
                     "Failed to set Telegram webhook for platform %s: %s",
-                    str(platform.id), result.get("description", "Unknown error")
+                    str(platform.id),
+                    result.get("description", "Unknown error"),
                 )
     except Exception as e:
         logger.error(
             "Error setting Telegram webhook for platform %s: %s",
-            str(platform.id), str(e)
+            str(platform.id),
+            str(e),
         )
 
 
@@ -803,22 +996,34 @@ async def _delete_telegram_webhook(platform: Platform) -> None:
             result = response.json()
 
             if result.get("ok"):
-                logger.info("Telegram webhook deleted for platform %s", str(platform.id))
+                logger.info(
+                    "Telegram webhook deleted for platform %s",
+                    str(platform.id),
+                )
             else:
                 logger.warning(
                     "Failed to delete Telegram webhook for platform %s: %s",
-                    str(platform.id), result.get("description", "Unknown error")
+                    str(platform.id),
+                    result.get("description", "Unknown error"),
                 )
     except Exception as e:
         logger.warning(
             "Error deleting Telegram webhook for platform %s: %s",
-            str(platform.id), str(e)
+            str(platform.id),
+            str(e),
         )
 
 
 async def _notify_slack_platform_reload(platform: Platform) -> None:
-    """Notify tgo-platform to start Slack Socket Mode handler for a platform."""
-    platform_base_url = settings.PLATFORM_BASE_URL if hasattr(settings, 'PLATFORM_BASE_URL') else "http://tgo-platform:8003"
+    (
+        'Notify tgo-platform to start Slack Socket Mode handler for a '
+        'platform.'
+    )
+    platform_base_url = (
+        settings.PLATFORM_BASE_URL
+        if hasattr(settings, 'PLATFORM_BASE_URL')
+        else "http://tgo-platform:8003"
+    )
     url = f"{platform_base_url.rstrip('/')}/internal/slack/reload"
 
     config = platform.config or {}
@@ -837,29 +1042,54 @@ async def _notify_slack_platform_reload(platform: Platform) -> None:
             if response.status_code == 200:
                 result = response.json()
                 if result.get("success"):
-                    logger.info("Slack platform %s reload triggered successfully", str(platform.id))
+                    logger.info(
+                        "Slack platform %s reload triggered successfully",
+                        str(platform.id),
+                    )
                 else:
-                    logger.warning("Slack platform %s reload returned failure: %s", str(platform.id), result.get("message"))
+                    logger.warning(
+                        "Slack platform %s reload returned failure: %s",
+                        str(platform.id),
+                        result.get("message"),
+                    )
             else:
-                logger.warning("Failed to notify tgo-platform for Slack reload: %s", response.text)
+                logger.warning(
+                    "Failed to notify tgo-platform for Slack reload: %s",
+                    response.text,
+                )
     except Exception as e:
-        logger.warning("Error notifying tgo-platform for Slack reload: %s", str(e))
+        logger.warning(
+            "Error notifying tgo-platform for Slack reload: %s", str(e)
+        )
 
 
 async def _notify_slack_platform_stop(platform_id: str) -> None:
     """Notify tgo-platform to stop Slack Socket Mode handler for a platform."""
-    platform_base_url = settings.PLATFORM_BASE_URL if hasattr(settings, 'PLATFORM_BASE_URL') else "http://tgo-platform:8003"
+    platform_base_url = (
+        settings.PLATFORM_BASE_URL
+        if hasattr(settings, 'PLATFORM_BASE_URL')
+        else "http://tgo-platform:8003"
+    )
     url = f"{platform_base_url.rstrip('/')}/internal/slack/stop/{platform_id}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(url)
             if response.status_code == 200:
                 result = response.json()
-                logger.info("Slack platform %s stop triggered: %s", platform_id, result.get("message"))
+                logger.info(
+                    "Slack platform %s stop triggered: %s",
+                    platform_id,
+                    result.get("message"),
+                )
             else:
-                logger.warning("Failed to notify tgo-platform for Slack stop: %s", response.text)
+                logger.warning(
+                    "Failed to notify tgo-platform for Slack stop: %s",
+                    response.text,
+                )
     except Exception as e:
-        logger.warning("Error notifying tgo-platform for Slack stop: %s", str(e))
+        logger.warning(
+            "Error notifying tgo-platform for Slack stop: %s", str(e)
+        )
 
 
 @router.post("/{platform_id}/enable-ai", response_model=PlatformResponse)
@@ -869,8 +1099,15 @@ async def enable_ai_for_platform(
     current_user: Staff = Depends(require_permission("platforms:update")),
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
-    """Enable AI for a platform (set ai_mode=auto). Requires platforms:update permission."""
-    logger.info("User %s enabling AI for platform %s", current_user.username, str(platform_id))
+    (
+        'Enable AI for a platform (set ai_mode=auto). Requires '
+        'platforms:update permission.'
+    )
+    logger.info(
+        "User %s enabling AI for platform %s",
+        current_user.username,
+        str(platform_id),
+    )
 
     platform = (
         db.query(Platform)
@@ -884,7 +1121,9 @@ async def enable_ai_for_platform(
         .first()
     )
     if not platform:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found"
+        )
 
     await require_platform_agent(current_user.project_id, platform.agent_id)
     platform.ai_mode = "auto"
@@ -892,7 +1131,11 @@ async def enable_ai_for_platform(
     db.commit()
     db.refresh(platform)
 
-    logger.info("Platform %s AI enabled (ai_mode=auto) by user %s", str(platform.id), current_user.username)
+    logger.info(
+        "Platform %s AI enabled (ai_mode=auto) by user %s",
+        str(platform.id),
+        current_user.username,
+    )
     return _build_platform_response(platform, language=x_user_language)
 
 
@@ -903,8 +1146,15 @@ async def disable_ai_for_platform(
     current_user: Staff = Depends(require_permission("platforms:update")),
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
-    """Disable AI for a platform (set ai_mode=off). Requires platforms:update permission."""
-    logger.info("User %s disabling AI for platform %s", current_user.username, str(platform_id))
+    (
+        'Disable AI for a platform (set ai_mode=off). Requires '
+        'platforms:update permission.'
+    )
+    logger.info(
+        "User %s disabling AI for platform %s",
+        current_user.username,
+        str(platform_id),
+    )
 
     platform = (
         db.query(Platform)
@@ -918,14 +1168,20 @@ async def disable_ai_for_platform(
         .first()
     )
     if not platform:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found"
+        )
 
     platform.ai_mode = "off"
     platform.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(platform)
 
-    logger.info("Platform %s AI disabled (ai_mode=off) by user %s", str(platform.id), current_user.username)
+    logger.info(
+        "Platform %s AI disabled (ai_mode=off) by user %s",
+        str(platform.id),
+        current_user.username,
+    )
     return _build_platform_response(platform, language=x_user_language)
 
 
@@ -937,12 +1193,16 @@ async def upload_platform_logo(
     current_user: Staff = Depends(require_permission("platforms:update")),
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
-    """Upload or replace the logo image for a platform. Requires platforms:update permission.
-
-    - Auth: JWT staff via get_current_active_user
-    - File: multipart/form-data field 'file'
-    - Validates MIME type and file size; stores under PLATFORM_LOGO_UPLOAD_DIR/{platform_id}/
-    """
+    (
+        'Upload or replace the logo image for a platform. Requires '
+        'platforms:update permission.\n'
+        '\n'
+        '    - Auth: JWT staff via get_current_active_user\n'
+        "    - File: multipart/form-data field 'file'\n"
+        '    - Validates MIME type and file size; stores under '
+        'PLATFORM_LOGO_UPLOAD_DIR/{platform_id}/\n'
+        '    '
+    )
     # 1) Lookup platform and authz
     platform = (
         db.query(Platform)
@@ -954,15 +1214,23 @@ async def upload_platform_logo(
         .first()
     )
     if not platform:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Platform not found"
+        )
     if platform.project_id != current_user.project_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this platform")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this platform",
+        )
 
     # 2) Validate MIME type
     allowed_types = set(settings.PLATFORM_LOGO_ALLOWED_TYPES or [])
     mime = (file.content_type or "").lower()
     if not mime or (allowed_types and mime not in allowed_types):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or unsupported image type")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or unsupported image type",
+        )
 
     # 3) Build destination path
     original_name = _sanitize_filename(file.filename or "logo")
@@ -970,7 +1238,11 @@ async def upload_platform_logo(
     guessed_ext = mimetypes.guess_extension(mime) or ""
     if guessed_ext.startswith("."):
         guessed_ext = guessed_ext[1:]
-    ext = (original_name.rsplit(".", 1)[-1].lower() if "." in original_name else guessed_ext or "png")
+    ext = (
+        original_name.rsplit(".", 1)[-1].lower()
+        if "." in original_name
+        else guessed_ext or "png"
+    )
     ts_ms = int(time.time() * 1000)
     fname = f"{platform_id}_logo_{ts_ms}.{ext}"
 
@@ -998,7 +1270,10 @@ async def upload_platform_logo(
                                 os.unlink(dest_path)
                         except Exception:
                             pass
-                    raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large")
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail="File too large",
+                    )
                 out.write(chunk)
     except HTTPException:
         raise
@@ -1039,7 +1314,10 @@ async def upload_platform_logo(
     db.commit()
     db.refresh(platform)
 
-    logger.info("Platform logo uploaded", extra={"platform_id": str(platform.id), "size": total, "mime": mime})
+    logger.info(
+        "Platform logo uploaded",
+        extra={"platform_id": str(platform.id), "size": total, "mime": mime},
+    )
     return _build_platform_response(platform, language=x_user_language)
 
 
@@ -1056,19 +1334,29 @@ async def get_platform_logo(
     )
     logo_path = platform.logo_path if platform else None
     if not logo_path:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logo not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Logo not found"
+        )
 
     base_dir = Path(settings.PLATFORM_LOGO_UPLOAD_DIR).resolve()
     file_path = (base_dir / logo_path).resolve()
     try:
         file_path.relative_to(base_dir)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid logo path")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid logo path",
+        )
 
     if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logo missing from storage")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Logo missing from storage",
+        )
 
-    mime = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+    mime = (
+        mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+    )
     headers = {"Cache-Control": "public, max-age=86400"}
 
     return FileResponse(path=str(file_path), media_type=mime, headers=headers)
@@ -1080,14 +1368,19 @@ async def wecom_callback_verify(
     request: Request,
     db: Session = Depends(get_db),
 ) -> Response:
-    """WeCom (企业微信/企业微信机器人) callback URL verification (GET).
-
-    WeCom sends msg_signature, timestamp, nonce, and echostr for verification.
-    We verify the signature and decrypt echostr (if encryption enabled), then
-    return the decrypted plain text as the response body.
-    
-    Supports both 'wecom' (企业微信) and 'wecom_bot' (企业微信机器人) platform types.
-    """
+    (
+        'WeCom (企业微信/企业微信机器人) callback URL verification (GET).\n'
+        '\n'
+        '    WeCom sends msg_signature, timestamp, nonce, and echostr for '
+        'verification.\n'
+        '    We verify the signature and decrypt echostr (if encryption '
+        'enabled), then\n'
+        '    return the decrypted plain text as the response body.\n'
+        '    \n'
+        "    Supports both 'wecom' (企业微信) and 'wecom_bot' (企业微信机器人) platform "
+        'types.\n'
+        '    '
+    )
     # 1) Validate platform
     platform = (
         db.query(Platform)
@@ -1101,7 +1394,10 @@ async def wecom_callback_verify(
         .first()
     )
     if not platform:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform_api_key")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid platform_api_key",
+        )
 
     # 2) Extract required query params
     qp = request.query_params
@@ -1110,7 +1406,10 @@ async def wecom_callback_verify(
     nonce = qp.get("nonce")
     echostr = qp.get("echostr")
     if not (msg_signature and timestamp and nonce and echostr):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing required query parameters")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing required query parameters",
+        )
 
     # 3) Load WeCom config
     cfg = platform.config or {}
@@ -1118,7 +1417,10 @@ async def wecom_callback_verify(
     encoding_aes_key = (cfg.get("encoding_aes_key") or "").strip()
     corp_id = (cfg.get("corp_id") or "").strip()
     if not token:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="WeCom token not configured")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="WeCom token not configured",
+        )
     if encoding_aes_key and not corp_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1134,8 +1436,13 @@ async def wecom_callback_verify(
     sha.update("".join(parts).encode("utf-8"))
     calc_sig = sha.hexdigest()
     if calc_sig != msg_signature:
-        logger.warning("WeCom URL verify signature mismatch", extra={"platform_id": str(platform.id)})
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
+        logger.warning(
+            "WeCom URL verify signature mismatch",
+            extra={"platform_id": str(platform.id)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature"
+        )
 
     # 5) Decrypt echostr if AES key provided; otherwise echo as-is
     try:
@@ -1148,10 +1455,17 @@ async def wecom_callback_verify(
         else:
             result = echostr
 
-        logger.info("WeCom URL verify succeeded", extra={"platform_id": str(platform.id)})
+        logger.info(
+            "WeCom URL verify succeeded",
+            extra={"platform_id": str(platform.id)},
+        )
         return Response(content=result, media_type="text/plain")
     except Exception as exc:  # pragma: no cover
-        logger.error("WeCom URL verify failed: %s", exc, extra={"platform_id": str(platform.id)})
+        logger.error(
+            "WeCom URL verify failed: %s",
+            exc,
+            extra={"platform_id": str(platform.id)},
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Verification failed",
@@ -1164,12 +1478,16 @@ async def platform_callback_forward(
     request: Request,
     db: Session = Depends(get_db),
 ) -> Response:
-    """Forward third-party platform callbacks to the TGO Platform Service.
-
-    - Validates the platform_api_key against platforms table (must be active and not soft-deleted)
-    - Forwards body and query parameters to Platform Service
-    - Returns Platform Service response verbatim (status, headers, body)
-    """
+    (
+        'Forward third-party platform callbacks to the TGO Platform Service.\n'
+        '\n'
+        '    - Validates the platform_api_key against platforms table (must '
+        'be active and not soft-deleted)\n'
+        '    - Forwards body and query parameters to Platform Service\n'
+        '    - Returns Platform Service response verbatim (status, headers, '
+        'body)\n'
+        '    '
+    )
     # Validate platform_api_key
     platform = (
         db.query(Platform)
@@ -1182,10 +1500,17 @@ async def platform_callback_forward(
         .first()
     )
     if not platform:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform_api_key")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid platform_api_key",
+        )
 
     # Build target URL
-    target_url = f"{settings.PLATFORM_SERVICE_URL.rstrip('/')}/v1/platforms/callback/{platform_api_key}"
+    target_url = (
+        f"{settings.PLATFORM_SERVICE_URL.rstrip('/')}"
+        f'/v1/platforms/callback/'
+        f'{platform_api_key}'
+    )
 
     # Read original request
     body = await request.body()
@@ -1201,7 +1526,9 @@ async def platform_callback_forward(
 
     # Do the POST forward
     try:
-        async with httpx.AsyncClient(timeout=settings.PLATFORM_SERVICE_TIMEOUT) as client:
+        async with httpx.AsyncClient(
+            timeout=settings.PLATFORM_SERVICE_TIMEOUT
+        ) as client:
             resp = await client.post(
                 target_url,
                 params=dict(request.query_params),
@@ -1209,9 +1536,15 @@ async def platform_callback_forward(
                 headers=forward_headers,
             )
     except httpx.TimeoutException:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Platform Service timeout")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Platform Service timeout",
+        )
     except httpx.RequestError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Platform Service request error: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Platform Service request error: {exc}",
+        )
 
     # Prepare response headers (filter hop-by-hop)
     hop_by_hop = {
@@ -1225,8 +1558,15 @@ async def platform_callback_forward(
         "upgrade",
         "content-length",  # let FastAPI compute
     }
-    passthrough_headers = {k: v for k, v in resp.headers.items() if k.lower() not in hop_by_hop}
+    passthrough_headers = {
+        k: v for k, v in resp.headers.items() if k.lower() not in hop_by_hop
+    }
 
     # Build FastAPI Response; set media_type explicitly
     media_type = resp.headers.get("content-type")
-    return Response(content=resp.content, status_code=resp.status_code, headers=passthrough_headers, media_type=media_type)
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        headers=passthrough_headers,
+        media_type=media_type,
+    )

@@ -28,18 +28,21 @@ class MinIOBackend(StorageBackend):
         download_url: Optional[str] = None,
         region_name: str = "us-east-1",
     ):
-        """
-        Initialize MinIO/S3 backend.
-
-        Args:
-            endpoint_url: S3 endpoint URL
-            access_key_id: S3 access key ID
-            secret_access_key: S3 secret access key
-            bucket_name: S3 bucket name
-            upload_url: Optional internal URL for uploads
-            download_url: Optional public URL for downloads (CDN or custom domain)
-            region_name: S3 region name (default us-east-1)
-        """
+        (
+            '\n'
+            '        Initialize MinIO/S3 backend.\n'
+            '\n'
+            '        Args:\n'
+            '            endpoint_url: S3 endpoint URL\n'
+            '            access_key_id: S3 access key ID\n'
+            '            secret_access_key: S3 secret access key\n'
+            '            bucket_name: S3 bucket name\n'
+            '            upload_url: Optional internal URL for uploads\n'
+            '            download_url: Optional public URL for downloads '
+            '(CDN or custom domain)\n'
+            '            region_name: S3 region name (default us-east-1)\n'
+            '        '
+        )
         if boto3 is None:
             raise ImportError(
                 "The 'boto3' package is required for MinIOBackend. "
@@ -118,7 +121,8 @@ class MinIOBackend(StorageBackend):
         Get public URL for a file path.
         """
         clean_path = path.lstrip("/")
-        # If download_url is just a domain, we need to append bucket name if not using virtual-host style
+        # If download_url is just a domain, we need to append bucket name if
+        # not using virtual-host style
         # For MinIO, usually it's http://domain:port/bucket/path
 
         if self.bucket_name not in self.download_url:

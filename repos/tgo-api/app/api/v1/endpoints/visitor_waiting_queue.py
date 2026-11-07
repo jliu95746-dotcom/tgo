@@ -136,13 +136,15 @@ async def list_waiting_queue(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:read")),
 ) -> WaitingQueueListResponse:
-    """
-    获取等待队列列表。
-    
-    - 默认按优先级降序、位置升序排列（高优先级、先入队的排前面）
-    - 支持按状态、来源、紧急程度、访客ID筛选
-    - 返回访客和客服的简要信息
-    """
+    (
+        '\n'
+        '    获取等待队列列表。\n'
+        '    \n'
+        '    - 默认按优先级降序、位置升序排列（高优先级、先入队的排前面）\n'
+        '    - 支持按状态、来源、紧急程度、访客ID筛选\n'
+        '    - 返回访客和客服的简要信息\n'
+        '    '
+    )
     # Build query
     query = db.query(VisitorWaitingQueue).filter(
         VisitorWaitingQueue.project_id == current_user.project_id,
@@ -204,11 +206,13 @@ async def list_waiting_only(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:read")),
 ) -> WaitingQueueListResponse:
-    """
-    获取等待中的队列（只返回 waiting 状态）。
-    
-    这是一个快捷接口，专门用于客服查看待接入的访客列表。
-    """
+    (
+        '\n'
+        '    获取等待中的队列（只返回 waiting 状态）。\n'
+        '    \n'
+        '    这是一个快捷接口，专门用于客服查看待接入的访客列表。\n'
+        '    '
+    )
     query = db.query(VisitorWaitingQueue).filter(
         VisitorWaitingQueue.project_id == current_user.project_id,
         VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
@@ -255,11 +259,13 @@ async def get_waiting_count(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:read")),
 ) -> dict:
-    """
-    获取等待队列数量统计。
-    
-    返回各状态的数量统计。
-    """
+    (
+        '\n'
+        '    获取等待队列数量统计。\n'
+        '    \n'
+        '    返回各状态的数量统计。\n'
+        '    '
+    )
     project_id = current_user.project_id
 
     waiting_count = (
@@ -335,13 +341,15 @@ async def accept_visitor(
     credentials: HTTPAuthorizationCredentials
     | None = Depends(original_bearer),
 ) -> AcceptVisitorResponse:
-    """
-    客服接入访客。
-    
-    - 从等待队列中接入指定的访客
-    - 调用 transfer_to_staff 完成分配
-    - 更新队列状态为 assigned
-    """
+    (
+        '\n'
+        '    客服接入访客。\n'
+        '    \n'
+        '    - 从等待队列中接入指定的访客\n'
+        '    - 调用 transfer_to_staff 完成分配\n'
+        '    - 更新队列状态为 assigned\n'
+        '    '
+    )
     # Find the queue entry by visitor_id (get the latest waiting entry)
     entry = (
         db.query(VisitorWaitingQueue)
@@ -407,7 +415,13 @@ async def accept_visitor(
     channel_type = entry.channel_type or CHANNEL_TYPE_CUSTOMER_SERVICE
 
     logger.info(
-        f"Staff {current_user.id} accepted visitor {request.visitor_id} from queue",
+        (
+            f'Staff '
+            f'{current_user.id}'
+            f' accepted visitor '
+            f'{request.visitor_id}'
+            f' from queue'
+        ),
         extra={
             "staff_id": str(current_user.id),
             "visitor_id": str(request.visitor_id),
@@ -443,11 +457,13 @@ async def cancel_queue_entry(
     credentials: HTTPAuthorizationCredentials
     | None = Depends(original_bearer),
 ) -> dict[str, bool | str]:
-    """
-    取消队列条目。
-    
-    用于访客离开或其他需要取消等待的情况。
-    """
+    (
+        '\n'
+        '    取消队列条目。\n'
+        '    \n'
+        '    用于访客离开或其他需要取消等待的情况。\n'
+        '    '
+    )
     entry = (
         db.query(VisitorWaitingQueue)
         .filter(
@@ -466,7 +482,11 @@ async def cancel_queue_entry(
     if entry.status != WaitingStatus.WAITING.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Queue entry is not in waiting status (current: {entry.status})",
+            detail=(
+                f'Queue entry is not in waiting status (current: '
+                f'{entry.status}'
+                f')'
+            ),
         )
 
     scope = begin_queue_change(

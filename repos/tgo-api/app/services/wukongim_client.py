@@ -230,11 +230,15 @@ class WuKongIMClient(WuKongIMTransport):
         client_msg_no: str,
         payload: Dict[str, Any],
     ) -> Optional[WuKongIMMessageSendResponse]:
-        """Send a stream anchor message (creates the initial streaming message).
-
-        This sends a message with is_stream=1 to create a stream anchor that
-        subsequent stream events will be attached to.
-        """
+        (
+            'Send a stream anchor message (creates the initial streaming '
+            'message).\n'
+            '\n'
+            '        This sends a message with is_stream=1 to create a '
+            'stream anchor that\n'
+            '        subsequent stream events will be attached to.\n'
+            '        '
+        )
         return await self.send_message(
             payload=payload,
             from_uid=from_uid,
@@ -256,18 +260,24 @@ class WuKongIMClient(WuKongIMTransport):
         from_uid: Optional[str] = None,
         payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Send a stream event to the /message/event endpoint.
-
-        Args:
-            channel_id: Channel ID
-            channel_type: Channel type
-            client_msg_no: Client message number (correlates to the stream anchor)
-            event_id: Unique event ID for idempotency
-            event_type: Event type (stream.delta / stream.close / stream.finish / stream.error / stream.cancel)
-            event_key: Event channel key (default "main", also supports "thinking", "tool:*")
-            from_uid: Optional sender UID
-            payload: Optional event payload (e.g. {kind:"text", delta:"..."})
-        """
+        (
+            'Send a stream event to the /message/event endpoint.\n'
+            '\n'
+            '        Args:\n'
+            '            channel_id: Channel ID\n'
+            '            channel_type: Channel type\n'
+            '            client_msg_no: Client message number (correlates to '
+            'the stream anchor)\n'
+            '            event_id: Unique event ID for idempotency\n'
+            '            event_type: Event type (stream.delta / stream.close '
+            '/ stream.finish / stream.error / stream.cancel)\n'
+            '            event_key: Event channel key (default "main", also '
+            'supports "thinking", "tool:*")\n'
+            '            from_uid: Optional sender UID\n'
+            '            payload: Optional event payload (e.g. {kind:"text", '
+            'delta:"..."})\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
                 "WuKongIM integration is disabled; skipping send_stream_event"
@@ -318,26 +328,39 @@ class WuKongIMClient(WuKongIMTransport):
         sync_once: bool = False,
         is_stream: int = 0,
     ) -> Optional[WuKongIMMessageSendResponse]:
-        """Send a message through WuKongIM (/message/send API).
-
-        This is a low-level method that directly maps to WuKongIM's /message/send API.
-        For sending text messages, consider using send_text_message() instead.
-
-        Args:
-            payload: Message payload dict (will be JSON encoded and base64 encoded internally)
-            from_uid: Sender UID
-            channel_id: Channel ID
-            channel_type: Channel type (1=personal, 2=group, 251=customer_service)
-            client_msg_no: Client-provided message ID for correlation
-            subscribers: Specific subscribers to send message to
-            no_persist: Whether message should not be persisted (default False = persist)
-            red_dot: Whether to show red dot notification (default True = show)
-            sync_once: Whether message should be synced only once (default False = normal sync)
-            is_stream: Whether this is a stream anchor message (0=normal, 1=stream anchor)
-
-        Returns:
-            Response with message_id, message_seq, client_msg_no
-        """
+        (
+            'Send a message through WuKongIM (/message/send API).\n'
+            '\n'
+            '        This is a low-level method that directly maps to '
+            "WuKongIM's /message/send API.\n"
+            '        For sending text messages, consider using '
+            'send_text_message() instead.\n'
+            '\n'
+            '        Args:\n'
+            '            payload: Message payload dict (will be JSON encoded '
+            'and base64 encoded internally)\n'
+            '            from_uid: Sender UID\n'
+            '            channel_id: Channel ID\n'
+            '            channel_type: Channel type (1=personal, 2=group, '
+            '251=customer_service)\n'
+            '            client_msg_no: Client-provided message ID for '
+            'correlation\n'
+            '            subscribers: Specific subscribers to send message '
+            'to\n'
+            '            no_persist: Whether message should not be persisted '
+            '(default False = persist)\n'
+            '            red_dot: Whether to show red dot notification '
+            '(default True = show)\n'
+            '            sync_once: Whether message should be synced only '
+            'once (default False = normal sync)\n'
+            '            is_stream: Whether this is a stream anchor message '
+            '(0=normal, 1=stream anchor)\n'
+            '\n'
+            '        Returns:\n'
+            '            Response with message_id, message_seq, '
+            'client_msg_no\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
                 "WuKongIM integration is disabled; skipping send_message"
@@ -412,22 +435,28 @@ class WuKongIMClient(WuKongIMTransport):
         extra: Optional[Dict[str, Any]] = None,
         client_msg_no: Optional[str] = None,
     ) -> Optional[WuKongIMMessageSendResponse]:
-        """Send a plain text message through WuKongIM.
-
-        This is a convenience method for sending text messages.
-        For more control, use send_message() directly.
-
-        Args:
-            from_uid: Sender UID
-            channel_id: Channel ID
-            channel_type: Channel type (1=personal, 2=group, 251=customer_service)
-            content: Message text content
-            extra: Optional extra JSON data to include in payload
-            client_msg_no: Optional client-provided id to correlate webhook callbacks
-
-        Returns:
-            WuKongIMMessageSendResponse with message_id, message_seq, client_msg_no
-        """
+        (
+            'Send a plain text message through WuKongIM.\n'
+            '\n'
+            '        This is a convenience method for sending text messages.\n'
+            '        For more control, use send_message() directly.\n'
+            '\n'
+            '        Args:\n'
+            '            from_uid: Sender UID\n'
+            '            channel_id: Channel ID\n'
+            '            channel_type: Channel type (1=personal, 2=group, '
+            '251=customer_service)\n'
+            '            content: Message text content\n'
+            '            extra: Optional extra JSON data to include in '
+            'payload\n'
+            '            client_msg_no: Optional client-provided id to '
+            'correlate webhook callbacks\n'
+            '\n'
+            '        Returns:\n'
+            '            WuKongIMMessageSendResponse with message_id, '
+            'message_seq, client_msg_no\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
                 "WuKongIM integration is disabled; skipping send_text_message"
@@ -460,32 +489,44 @@ class WuKongIMClient(WuKongIMTransport):
         staff_name: str,
         client_msg_no: Optional[str] = None,
     ) -> Optional[WuKongIMMessageSendResponse]:
-        """Send a system message when a staff member is assigned to a visitor.
-
-        System message types are defined in range 1000-2000.
-        Type 1000: Staff assigned notification.
-
-        Args:
-            from_uid: Sender UID (typically system or staff UID)
-            channel_id: Channel ID
-            channel_type: Channel type (251=customer_service)
-            staff_uid: The assigned staff's UID
-            staff_name: The assigned staff's display name
-            client_msg_no: Optional client-provided id to correlate webhook callbacks
-
-        Returns:
-            Response with message_id, message_seq, client_msg_no
-        """
+        (
+            'Send a system message when a staff member is assigned to a '
+            'visitor.\n'
+            '\n'
+            '        System message types are defined in range 1000-2000.\n'
+            '        Type 1000: Staff assigned notification.\n'
+            '\n'
+            '        Args:\n'
+            '            from_uid: Sender UID (typically system or staff '
+            'UID)\n'
+            '            channel_id: Channel ID\n'
+            '            channel_type: Channel type (251=customer_service)\n'
+            "            staff_uid: The assigned staff's UID\n"
+            "            staff_name: The assigned staff's display name\n"
+            '            client_msg_no: Optional client-provided id to '
+            'correlate webhook callbacks\n'
+            '\n'
+            '        Returns:\n'
+            '            Response with message_id, message_seq, '
+            'client_msg_no\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping send_staff_assigned_message"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'send_staff_assigned_message'
+                )
             )
             return None
 
         # System message: Staff assigned
         payload: Dict[str, Any] = {
             "type": MessageType.STAFF_ASSIGNED,
-            "content": "You have been connected to customer service. Agent {0} will assist you.",
+            "content": (
+                'You have been connected to customer service. Agent {0} will '
+                'assist you.'
+            ),
             "extra": [
                 {"uid": staff_uid, "name": staff_name},
             ],
@@ -520,25 +561,34 @@ class WuKongIMClient(WuKongIMTransport):
         staff_name: Optional[str] = None,
         client_msg_no: Optional[str] = None,
     ) -> Optional[WuKongIMMessageSendResponse]:
-        """Send a system message when a session is closed.
-
-        System message types are defined in range 1000-2000.
-        Type 1001: Session closed notification.
-
-        Args:
-            from_uid: Sender UID (typically system or staff UID)
-            channel_id: Channel ID
-            channel_type: Channel type (251=customer_service)
-            staff_uid: The staff's UID who closed the session (optional)
-            staff_name: The staff's display name (optional)
-            client_msg_no: Optional client-provided id to correlate webhook callbacks
-
-        Returns:
-            WuKongIMMessageSendResponse with message_id, message_seq, client_msg_no
-        """
+        (
+            'Send a system message when a session is closed.\n'
+            '\n'
+            '        System message types are defined in range 1000-2000.\n'
+            '        Type 1001: Session closed notification.\n'
+            '\n'
+            '        Args:\n'
+            '            from_uid: Sender UID (typically system or staff '
+            'UID)\n'
+            '            channel_id: Channel ID\n'
+            '            channel_type: Channel type (251=customer_service)\n'
+            "            staff_uid: The staff's UID who closed the session "
+            '(optional)\n'
+            "            staff_name: The staff's display name (optional)\n"
+            '            client_msg_no: Optional client-provided id to '
+            'correlate webhook callbacks\n'
+            '\n'
+            '        Returns:\n'
+            '            WuKongIMMessageSendResponse with message_id, '
+            'message_seq, client_msg_no\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping send_session_closed_message"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'send_session_closed_message'
+                )
             )
             return None
 
@@ -546,7 +596,9 @@ class WuKongIMClient(WuKongIMTransport):
         if staff_uid and staff_name:
             payload: Dict[str, Any] = {
                 "type": MessageType.SESSION_CLOSED,
-                "content": "Session ended. Agent {0} has completed the service.",
+                "content": (
+                    'Session ended. Agent {0} has completed the service.'
+                ),
                 "extra": [
                     {"uid": staff_uid, "name": staff_name},
                 ],
@@ -589,34 +641,46 @@ class WuKongIMClient(WuKongIMTransport):
         to_staff_name: str,
         client_msg_no: Optional[str] = None,
     ) -> Optional[WuKongIMMessageSendResponse]:
-        """Send a system message when a session is transferred to another staff.
-
-        System message types are defined in range 1000-2000.
-        Type 1002: Session transferred notification.
-
-        Args:
-            from_uid: Sender UID (typically system or staff UID)
-            channel_id: Channel ID
-            channel_type: Channel type (251=customer_service)
-            from_staff_uid: The original staff's UID
-            from_staff_name: The original staff's display name
-            to_staff_uid: The new staff's UID
-            to_staff_name: The new staff's display name
-            client_msg_no: Optional client-provided id to correlate webhook callbacks
-
-        Returns:
-            WuKongIMMessageSendResponse with message_id, client_msg_no
-        """
+        (
+            'Send a system message when a session is transferred to another '
+            'staff.\n'
+            '\n'
+            '        System message types are defined in range 1000-2000.\n'
+            '        Type 1002: Session transferred notification.\n'
+            '\n'
+            '        Args:\n'
+            '            from_uid: Sender UID (typically system or staff '
+            'UID)\n'
+            '            channel_id: Channel ID\n'
+            '            channel_type: Channel type (251=customer_service)\n'
+            "            from_staff_uid: The original staff's UID\n"
+            "            from_staff_name: The original staff's display name\n"
+            "            to_staff_uid: The new staff's UID\n"
+            "            to_staff_name: The new staff's display name\n"
+            '            client_msg_no: Optional client-provided id to '
+            'correlate webhook callbacks\n'
+            '\n'
+            '        Returns:\n'
+            '            WuKongIMMessageSendResponse with message_id, '
+            'client_msg_no\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping send_session_transferred_message"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'send_session_transferred_message'
+                )
             )
             return None
 
         # System message: Session transferred
         payload: Dict[str, Any] = {
             "type": MessageType.SESSION_TRANSFERRED,
-            "content": "Session transferred. Agent {0} has transferred you to Agent {1}.",
+            "content": (
+                'Session transferred. Agent {0} has transferred you to Agent '
+                '{1}.'
+            ),
             "extra": [
                 {"uid": from_staff_uid, "name": from_staff_name},
                 {"uid": to_staff_uid, "name": to_staff_name},
@@ -673,7 +737,10 @@ class WuKongIMClient(WuKongIMTransport):
         """
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping send_system_message"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'send_system_message'
+                )
             )
             return None
 
@@ -728,7 +795,10 @@ class WuKongIMClient(WuKongIMTransport):
         """
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping send_visitor_profile_updated"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'send_visitor_profile_updated'
+                )
             )
             return None
 
@@ -767,23 +837,34 @@ class WuKongIMClient(WuKongIMTransport):
         client_msg_no: Optional[str] = None,
         reason: Literal["entered", "updated"] = "entered",
     ) -> Optional[WuKongIMMessageSendResponse]:
-        """Send a waiting queue updated event to notify staff of pending visitors.
-
-        This is sent to the project staff channel when a visitor enters the queue.
-
-        Args:
-            channel_id: Project staff channel ID (format: {project_id}-prj)
-            channel_type: Channel type (249 for project staff channel)
-            project_id: Project ID
-            waiting_count: Current number of visitors waiting in queue
-            client_msg_no: Optional client-provided id for correlation
-
-        Returns:
-            WuKongIMMessageSendResponse or None if disabled
-        """
+        (
+            'Send a waiting queue updated event to notify staff of pending '
+            'visitors.\n'
+            '\n'
+            '        This is sent to the project staff channel when a '
+            'visitor enters the queue.\n'
+            '\n'
+            '        Args:\n'
+            '            channel_id: Project staff channel ID (format: '
+            '{project_id}-prj)\n'
+            '            channel_type: Channel type (249 for project staff '
+            'channel)\n'
+            '            project_id: Project ID\n'
+            '            waiting_count: Current number of visitors waiting '
+            'in queue\n'
+            '            client_msg_no: Optional client-provided id for '
+            'correlation\n'
+            '\n'
+            '        Returns:\n'
+            '            WuKongIMMessageSendResponse or None if disabled\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping send_queue_updated_event"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'send_queue_updated_event'
+                )
             )
             return None
 
@@ -820,19 +901,27 @@ class WuKongIMClient(WuKongIMTransport):
         channel_type: int,
         login_uid: Optional[str] = None,
     ) -> Optional[WuKongIMChannelLastMessage]:
-        """Get the last message of a channel.
-
-        Args:
-            channel_id: Channel ID
-            channel_type: Channel type (1=personal, 2=group, 251=customer_service)
-            login_uid: Login user ID (required for personal channels, channel_type=1)
-
-        Returns:
-            WuKongIMChannelLastMessage or None if channel not found or no messages
-        """
+        (
+            'Get the last message of a channel.\n'
+            '\n'
+            '        Args:\n'
+            '            channel_id: Channel ID\n'
+            '            channel_type: Channel type (1=personal, 2=group, '
+            '251=customer_service)\n'
+            '            login_uid: Login user ID (required for personal '
+            'channels, channel_type=1)\n'
+            '\n'
+            '        Returns:\n'
+            '            WuKongIMChannelLastMessage or None if channel not '
+            'found or no messages\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping get_channel_last_message"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'get_channel_last_message'
+                )
             )
             return None
 
@@ -893,7 +982,10 @@ class WuKongIMClient(WuKongIMTransport):
         """
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping get_channel_max_message_seq"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'get_channel_max_message_seq'
+                )
             )
             return None
 
@@ -948,7 +1040,10 @@ class WuKongIMClient(WuKongIMTransport):
         """
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping get_message_by_client_msg_no"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'get_message_by_client_msg_no'
+                )
             )
             return None
 
@@ -1011,16 +1106,21 @@ class WuKongIMClient(WuKongIMTransport):
         channel_type: int,
         subscribers: List[str],
     ) -> Dict[str, Any]:
-        """Create or update a WuKongIM channel.
-
-        Args:
-            channel_id: The channel identifier (e.g., base64-encoded composite id)
-            channel_type: Channel type (1=personal, 2=group, 3=customer_service)
-            subscribers: List of subscriber UIDs to include in the channel
-
-        Returns:
-            Response from WuKongIM service
-        """
+        (
+            'Create or update a WuKongIM channel.\n'
+            '\n'
+            '        Args:\n'
+            '            channel_id: The channel identifier (e.g., '
+            'base64-encoded composite id)\n'
+            '            channel_type: Channel type (1=personal, 2=group, '
+            '3=customer_service)\n'
+            '            subscribers: List of subscriber UIDs to include in '
+            'the channel\n'
+            '\n'
+            '        Returns:\n'
+            '            Response from WuKongIM service\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
                 "WuKongIM integration is disabled; skipping create_channel"
@@ -1060,23 +1160,32 @@ class WuKongIMClient(WuKongIMTransport):
         subscribers: List[str],
         reset: bool = False,
     ) -> Dict[str, Any]:
-        """Add subscribers to a WuKongIM channel.
-
-        This method is idempotent - adding the same subscriber multiple times is safe.
-        If the channel doesn't exist, it will be created automatically.
-
-        Args:
-            channel_id: The channel identifier
-            channel_type: Channel type (cannot be 1/person channel)
-            subscribers: List of subscriber UIDs to add
-            reset: Whether to reset existing subscribers (default False)
-
-        Returns:
-            Response from WuKongIM service
-        """
+        (
+            'Add subscribers to a WuKongIM channel.\n'
+            '\n'
+            '        This method is idempotent - adding the same subscriber '
+            'multiple times is safe.\n'
+            "        If the channel doesn't exist, it will be created "
+            'automatically.\n'
+            '\n'
+            '        Args:\n'
+            '            channel_id: The channel identifier\n'
+            '            channel_type: Channel type (cannot be 1/person '
+            'channel)\n'
+            '            subscribers: List of subscriber UIDs to add\n'
+            '            reset: Whether to reset existing subscribers '
+            '(default False)\n'
+            '\n'
+            '        Returns:\n'
+            '            Response from WuKongIM service\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping add_channel_subscribers"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'add_channel_subscribers'
+                )
             )
             return {}
 
@@ -1147,7 +1256,10 @@ class WuKongIMClient(WuKongIMTransport):
         """
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping remove_channel_subscribers"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'remove_channel_subscribers'
+                )
             )
             return {}
 
@@ -1218,7 +1330,10 @@ class WuKongIMClient(WuKongIMTransport):
         """
         if not self.enabled:
             logger.debug(
-                "WuKongIM integration is disabled; skipping remove_all_channel_subscribers"
+                (
+                    'WuKongIM integration is disabled; skipping '
+                    'remove_all_channel_subscribers'
+                )
             )
             return {}
 
@@ -1274,26 +1389,33 @@ class WuKongIMClient(WuKongIMTransport):
         end_time: Optional[int] = None,
         highlights: Optional[List[str]] = None,
     ) -> WuKongIMSearchMessagesResponse:
-        """
-        Search messages for a given user via WuKongIM search plugin.
-
-        Args:
-            uid: WuKongIM user identifier performing the search
-            keyword: Text to search for within payload.content
-            page: 1-indexed page number
-            limit: Page size
-            payload_types: Optional list of message payload types to filter
-            from_uid: Restrict to messages from a specific sender UID
-            channel_id: Restrict to a specific channel
-            channel_type: Channel type filter
-            topic: Topic filter
-            start_time: Start timestamp (inclusive)
-            end_time: End timestamp (inclusive)
-            highlights: Highlight fields (defaults to payload.content when keyword provided)
-
-        Returns:
-            WuKongIMSearchMessagesResponse containing message search results.
-        """
+        (
+            '\n'
+            '        Search messages for a given user via WuKongIM search '
+            'plugin.\n'
+            '\n'
+            '        Args:\n'
+            '            uid: WuKongIM user identifier performing the search\n'
+            '            keyword: Text to search for within payload.content\n'
+            '            page: 1-indexed page number\n'
+            '            limit: Page size\n'
+            '            payload_types: Optional list of message payload '
+            'types to filter\n'
+            '            from_uid: Restrict to messages from a specific '
+            'sender UID\n'
+            '            channel_id: Restrict to a specific channel\n'
+            '            channel_type: Channel type filter\n'
+            '            topic: Topic filter\n'
+            '            start_time: Start timestamp (inclusive)\n'
+            '            end_time: End timestamp (inclusive)\n'
+            '            highlights: Highlight fields (defaults to '
+            'payload.content when keyword provided)\n'
+            '\n'
+            '        Returns:\n'
+            '            WuKongIMSearchMessagesResponse containing message '
+            'search results.\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug(
                 "WuKongIM integration disabled; skipping message search"
@@ -1616,18 +1738,22 @@ class WuKongIMClient(WuKongIMTransport):
         last_msg_seqs: Optional[str] = None,
         msg_count: int = 20,
     ) -> List[WuKongIMConversation]:
-        """
-        Synchronize recent conversations for a user.
-
-        Args:
-            uid: User unique ID
-            version: Client's max conversation version (0 if no local data)
-            last_msg_seqs: Last message sequences string (optional for incremental sync)
-            msg_count: Max message count per conversation
-
-        Returns:
-            List of WuKongIMConversation with recent messages
-        """
+        (
+            '\n'
+            '        Synchronize recent conversations for a user.\n'
+            '\n'
+            '        Args:\n'
+            '            uid: User unique ID\n'
+            "            version: Client's max conversation version (0 if no "
+            'local data)\n'
+            '            last_msg_seqs: Last message sequences string '
+            '(optional for incremental sync)\n'
+            '            msg_count: Max message count per conversation\n'
+            '\n'
+            '        Returns:\n'
+            '            List of WuKongIMConversation with recent messages\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug("WuKongIM integration is disabled")
             return []
@@ -1710,17 +1836,21 @@ class WuKongIMClient(WuKongIMTransport):
         channels: List[Dict[str, Any]],
         msg_count: int = 20,
     ) -> List[WuKongIMConversation]:
-        """
-        Synchronize conversations by specified channel collection.
-
-        Args:
-            uid: User unique ID
-            channels: List of channels to sync, each with {"channel_id": "...", "channel_type": ...}
-            msg_count: Max message count per conversation
-
-        Returns:
-            List of WuKongIMConversation with recent messages
-        """
+        (
+            '\n'
+            '        Synchronize conversations by specified channel '
+            'collection.\n'
+            '\n'
+            '        Args:\n'
+            '            uid: User unique ID\n'
+            '            channels: List of channels to sync, each with '
+            '{"channel_id": "...", "channel_type": ...}\n'
+            '            msg_count: Max message count per conversation\n'
+            '\n'
+            '        Returns:\n'
+            '            List of WuKongIMConversation with recent messages\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug("WuKongIM integration is disabled")
             return []
@@ -1804,18 +1934,21 @@ class WuKongIMClient(WuKongIMTransport):
         channel_type: int,
         unread: int,
     ) -> Dict[str, Any]:
-        """
-        Set unread count for a conversation.
-
-        Args:
-            uid: User unique ID
-            channel_id: Channel ID
-            channel_type: Channel type (1=personal, 2=group, 3=customer_service)
-            unread: Unread message count
-
-        Returns:
-            Response from WuKongIM service
-        """
+        (
+            '\n'
+            '        Set unread count for a conversation.\n'
+            '\n'
+            '        Args:\n'
+            '            uid: User unique ID\n'
+            '            channel_id: Channel ID\n'
+            '            channel_type: Channel type (1=personal, 2=group, '
+            '3=customer_service)\n'
+            '            unread: Unread message count\n'
+            '\n'
+            '        Returns:\n'
+            '            Response from WuKongIM service\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug("WuKongIM integration is disabled")
             return {}
@@ -1867,17 +2000,20 @@ class WuKongIMClient(WuKongIMTransport):
         channel_id: str,
         channel_type: int,
     ) -> Dict[str, Any]:
-        """
-        Delete a conversation.
-
-        Args:
-            uid: User unique ID
-            channel_id: Channel ID
-            channel_type: Channel type (1=personal, 2=group, 3=customer_service)
-
-        Returns:
-            Response from WuKongIM service
-        """
+        (
+            '\n'
+            '        Delete a conversation.\n'
+            '\n'
+            '        Args:\n'
+            '            uid: User unique ID\n'
+            '            channel_id: Channel ID\n'
+            '            channel_type: Channel type (1=personal, 2=group, '
+            '3=customer_service)\n'
+            '\n'
+            '        Returns:\n'
+            '            Response from WuKongIM service\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug("WuKongIM integration is disabled")
             return {}
@@ -1933,23 +2069,30 @@ class WuKongIMClient(WuKongIMTransport):
         include_event_meta: int = 0,
         event_summary_mode: str = "basic",
     ) -> WuKongIMChannelMessageSyncResponse:
-        """
-        Synchronize messages from a specific channel.
-
-        Args:
-            login_uid: Current login user UID
-            channel_id: Channel ID
-            channel_type: Channel type (1=personal, 2=group)
-            start_message_seq: Start message sequence number (inclusive)
-            end_message_seq: End message sequence number (exclusive)
-            limit: Message count limit
-            pull_mode: Pull mode (0=down, 1=up)
-            include_event_meta: Whether to include event_meta in response (0=no, 1=yes)
-            event_summary_mode: Event summary mode ("basic" or "full")
-
-        Returns:
-            WuKongIMChannelMessageSyncResponse with decoded payloads
-        """
+        (
+            '\n'
+            '        Synchronize messages from a specific channel.\n'
+            '\n'
+            '        Args:\n'
+            '            login_uid: Current login user UID\n'
+            '            channel_id: Channel ID\n'
+            '            channel_type: Channel type (1=personal, 2=group)\n'
+            '            start_message_seq: Start message sequence number '
+            '(inclusive)\n'
+            '            end_message_seq: End message sequence number '
+            '(exclusive)\n'
+            '            limit: Message count limit\n'
+            '            pull_mode: Pull mode (0=down, 1=up)\n'
+            '            include_event_meta: Whether to include event_meta '
+            'in response (0=no, 1=yes)\n'
+            '            event_summary_mode: Event summary mode ("basic" or '
+            '"full")\n'
+            '\n'
+            '        Returns:\n'
+            '            WuKongIMChannelMessageSyncResponse with decoded '
+            'payloads\n'
+            '        '
+        )
         if not self.enabled:
             logger.debug("WuKongIM integration is disabled")
             return WuKongIMChannelMessageSyncResponse(

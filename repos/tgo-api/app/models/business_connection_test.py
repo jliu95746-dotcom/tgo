@@ -36,7 +36,10 @@ class BusinessConnectionTest(Base):
             "mode IN ('http','demo')", name="ck_connection_test_mode"
         ),
         CheckConstraint(
-            "operation IN ('order_query','logistics_query','customer_profile_query','membership_query')",
+            (
+                "operation IN ('order_query','logistics_query','customer_prof"
+                "ile_query','membership_query')"
+            ),
             name="ck_connection_test_operation",
         ),
     )

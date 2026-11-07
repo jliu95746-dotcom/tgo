@@ -461,7 +461,8 @@ async def rewrite_assist_draft(
                     reply = without_opening
                     issues = cleaned_issues
         # New quantities may be derived, but only the independent audit and
-        # source-bound calculator can clear this issue. Other gates stay intact.
+        # source-bound calculator can clear this issue. Other gates stay
+        # intact.
         if not issues or (
             knowledge_evidence is not None and set(issues) == {"new_numbers"}
         ):

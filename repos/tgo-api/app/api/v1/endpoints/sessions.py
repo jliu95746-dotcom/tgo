@@ -219,11 +219,13 @@ async def close_session_by_id(
     requested_operation_id: UUID
     | None = Header(None, alias="X-Session-Operation-ID"),
 ) -> VisitorSessionResponse:
-    """
-    通过会话ID关闭会话。
-    
-    只有会话负责人或管理员可以关闭会话。
-    """
+    (
+        '\n'
+        '    通过会话ID关闭会话。\n'
+        '    \n'
+        '    只有会话负责人或管理员可以关闭会话。\n'
+        '    '
+    )
     operation_id = prepare_operation_id(db, requested_operation_id)
     session, scope = begin_staff_session_change(
         db,
@@ -272,13 +274,15 @@ async def close_session_by_visitor_id(
     requested_operation_id: UUID
     | None = Header(None, alias="X-Session-Operation-ID"),
 ) -> VisitorSessionResponse:
-    """
-    通过访客ID关闭会话。
-    
-    关闭指定访客当前进行中（status=open）的会话。
-    如果访客有多个进行中的会话，关闭最新创建的一个。
-    只有会话负责人或管理员可以关闭会话。
-    """
+    (
+        '\n'
+        '    通过访客ID关闭会话。\n'
+        '    \n'
+        '    关闭指定访客当前进行中（status=open）的会话。\n'
+        '    如果访客有多个进行中的会话，关闭最新创建的一个。\n'
+        '    只有会话负责人或管理员可以关闭会话。\n'
+        '    '
+    )
     operation_id = prepare_operation_id(db, requested_operation_id)
     session, scope = begin_staff_session_change(
         db,
@@ -333,15 +337,17 @@ async def transfer_session(
     requested_operation_id: UUID
     | None = Header(None, alias="X-Session-Operation-ID"),
 ) -> TransferSessionResponse:
-    """
-    转接会话给另一个客服。
-    
-    - 将当前会话的客服更换为目标客服
-    - 保持会话不关闭
-    - 发送通知
-    
-    只有会话负责人或管理员可以转接会话。
-    """
+    (
+        '\n'
+        '    转接会话给另一个客服。\n'
+        '    \n'
+        '    - 将当前会话的客服更换为目标客服\n'
+        '    - 保持会话不关闭\n'
+        '    - 发送通知\n'
+        '    \n'
+        '    只有会话负责人或管理员可以转接会话。\n'
+        '    '
+    )
     operation_id = prepare_operation_id(db, requested_operation_id)
     session, scope = begin_staff_session_change(
         db,
@@ -389,7 +395,8 @@ async def transfer_session(
     visitor_id = session.visitor_id
     from_staff_id = session.staff_id or current_user.id
 
-    # Transfer to target staff (reuse existing session, don't close, don't send notification)
+    # Transfer to target staff (reuse existing session, don't close, don't send
+    # notification)
     notes = f"Transferred from staff {current_user.id}"
     if request.reason:
         notes += f": {request.reason}"
@@ -428,7 +435,14 @@ async def transfer_session(
     await finish_session_notice(db, http_response, operation_id, guard)
 
     logger.info(
-        f"Session {session_id} transferred from staff {from_staff_id} to {request.target_staff_id}",
+        (
+            f'Session '
+            f'{session_id}'
+            f' transferred from staff '
+            f'{from_staff_id}'
+            f' to '
+            f'{request.target_staff_id}'
+        ),
         extra={
             "session_id": str(session_id),
             "visitor_id": str(visitor_id),
@@ -467,15 +481,17 @@ async def transfer_session_by_visitor_id(
     requested_operation_id: UUID
     | None = Header(None, alias="X-Session-Operation-ID"),
 ) -> TransferSessionResponse:
-    """
-    通过访客ID转接会话。
-    
-    - 查找访客当前进行中的会话
-    - 将当前会话的客服更换为目标客服
-    - 保持会话不关闭
-    
-    只有会话负责人或管理员可以转接会话。
-    """
+    (
+        '\n'
+        '    通过访客ID转接会话。\n'
+        '    \n'
+        '    - 查找访客当前进行中的会话\n'
+        '    - 将当前会话的客服更换为目标客服\n'
+        '    - 保持会话不关闭\n'
+        '    \n'
+        '    只有会话负责人或管理员可以转接会话。\n'
+        '    '
+    )
     operation_id = prepare_operation_id(db, requested_operation_id)
     session, scope = begin_staff_session_change(
         db,
@@ -522,7 +538,8 @@ async def transfer_session_by_visitor_id(
     session_id = session.id
     from_staff_id = session.staff_id or current_user.id
 
-    # Transfer to target staff (reuse existing session, don't close, don't send notification)
+    # Transfer to target staff (reuse existing session, don't close, don't send
+    # notification)
     notes = f"Transferred from staff {current_user.id}"
     if request.reason:
         notes += f": {request.reason}"
@@ -561,7 +578,14 @@ async def transfer_session_by_visitor_id(
     await finish_session_notice(db, http_response, operation_id, guard)
 
     logger.info(
-        f"Session transferred via visitor_id {visitor_id} from staff {from_staff_id} to {request.target_staff_id}",
+        (
+            f'Session transferred via visitor_id '
+            f'{visitor_id}'
+            f' from staff '
+            f'{from_staff_id}'
+            f' to '
+            f'{request.target_staff_id}'
+        ),
         extra={
             "session_id": str(session_id),
             "visitor_id": str(visitor_id),

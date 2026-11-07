@@ -116,7 +116,10 @@ class MessageAnalysisService:
         source_message_id: str,
         request: MediaResultUpsertRequest,
     ) -> MediaAnalysisResult:
-        """Persist a result after an in-process caller already resolved the platform."""
+        (
+            'Persist a result after an in-process caller already resolved '
+            'the platform.'
+        )
         self._require_active_platform(platform)
         self._require_scoped_visitor(platform, request.visitor_id)
         fingerprint = _fingerprint(source_message_id, request)
@@ -182,7 +185,10 @@ class MessageAnalysisService:
         request: IntentResultUpsertRequest,
         analysis_mode: Literal["active", "shadow"] = "active",
     ) -> MessageIntentResult:
-        """Persist an intent result for a trusted in-process platform context."""
+        (
+            'Persist an intent result for a trusted in-process platform '
+            'context.'
+        )
         self._require_active_platform(platform)
         self._require_scoped_visitor(platform, request.visitor_id)
         media_result = self._resolve_media_result(

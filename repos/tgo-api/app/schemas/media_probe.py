@@ -1,4 +1,5 @@
-"""Public result of a saved-model test; no credentials or provider raw errors."""
+"Public result of a saved-model test; no credentials or provider raw \
+errors."
 from pydantic import BaseModel, Field
 
 

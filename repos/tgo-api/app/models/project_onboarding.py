@@ -38,29 +38,41 @@ class ProjectOnboardingProgress(Base):
 
     # Step completion flags
     step_1_completed: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False,
+        Boolean,
+        nullable=False,
+        default=False,
         comment="Whether AI provider setup is completed",
     )
     step_2_completed: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False,
+        Boolean,
+        nullable=False,
+        default=False,
         comment="Whether default models are configured",
     )
     step_3_completed: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False,
+        Boolean,
+        nullable=False,
+        default=False,
         comment="Whether RAG collection is created",
     )
     step_4_completed: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False,
+        Boolean,
+        nullable=False,
+        default=False,
         comment="Whether agent with knowledge base is created",
     )
     step_5_completed: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False,
+        Boolean,
+        nullable=False,
+        default=False,
         comment="Whether first chat is started",
     )
 
     # Overall completion status
     is_completed: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False,
+        Boolean,
+        nullable=False,
+        default=False,
         comment="Whether all onboarding steps are completed or skipped",
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(
@@ -69,7 +81,9 @@ class ProjectOnboardingProgress(Base):
     )
 
     # Timestamps (soft delete)
-    created_at: Mapped[datetime] = mapped_column(nullable=False, default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False, default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False, default=func.now(), onupdate=func.now()
     )
@@ -81,8 +95,16 @@ class ProjectOnboardingProgress(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("project_id", name="uq_project_onboarding_project_id"),
+        UniqueConstraint(
+            "project_id", name="uq_project_onboarding_project_id"
+        ),
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debug
-        return f"<ProjectOnboardingProgress(project_id={self.project_id}, is_completed={self.is_completed})>"
+        return (
+            f'<ProjectOnboardingProgress(project_id='
+            f'{self.project_id}'
+            f', is_completed='
+            f'{self.is_completed}'
+            f')>'
+        )

@@ -192,7 +192,8 @@ def change_plan_state(
         _validate_audience(
             db, plan.code, PlanDefinition.model_validate(plan.definition)
         )
-        # Lock all versions in deterministic order before replacing the visible version.
+        # Lock all versions in deterministic order before replacing the visible
+        # version.
 
         for old in versions:
             if old.id != plan.id and old.status == "published":

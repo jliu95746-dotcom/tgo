@@ -1,4 +1,5 @@
-"""Private test purpose, separate service identities, current merchant customer proof."""
+"Private test purpose, separate service identities, current merchant \
+customer proof."
 
 from uuid import UUID
 
@@ -99,7 +100,8 @@ async def resolve(
         command.customer_session,
     )
     authority = await agent_business_trial_client.authorize(ai_client, check)
-    # Re-read after the awaited employee check. No private credential is released
+    # Re-read after the awaited employee check. No private credential is
+    # released
     # for a customer/session revoked while that RPC was running.
     actor_check(db, command)
     connection, credentials = business_connections.resolve(

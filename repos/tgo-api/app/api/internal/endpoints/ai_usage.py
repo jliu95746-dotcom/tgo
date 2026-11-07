@@ -1,4 +1,5 @@
-"""Database authorization for trusted AI workers, isolated from public routes."""
+"Database authorization for trusted AI workers, isolated from public \
+routes."
 
 from datetime import datetime, timezone
 from uuid import UUID

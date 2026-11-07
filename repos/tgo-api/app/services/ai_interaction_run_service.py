@@ -34,7 +34,10 @@ logger = get_logger(__name__)
 
 
 def safe_ai_interaction_failure_code(error_message: str | None) -> str | None:
-    """Keep upstream exceptions and customer content out of durable run rows."""
+    (
+        'Keep upstream exceptions and customer content out of durable run '
+        'rows.'
+    )
     if not error_message:
         return None
     if error_message in AI_INTERACTION_FAILURE_CODES:
@@ -333,7 +336,10 @@ def record_ai_business_query(
     operation: str,
     outcome: Literal["passed", "failed"],
 ) -> None:
-    """Bind server-owned query metadata to the active customer reply attempt."""
+    (
+        'Bind server-owned query metadata to the active customer reply '
+        'attempt.'
+    )
     if operation not in {
         "order_query",
         "logistics_query",
@@ -548,7 +554,8 @@ def mark_ai_interaction_finished(
                 attempt.status = "failed"
                 attempt.completed_at = datetime.now(timezone.utc)
                 db.commit()
-            return  # A late task cannot erase durable retirement or permit retry.
+            # A late task cannot erase durable retirement or permit retry.
+            return
         if run.status != AIInteractionRunStatus.RUNNING.value:
             return  # A second callback cannot rewrite a terminal outcome.
         run.status = (

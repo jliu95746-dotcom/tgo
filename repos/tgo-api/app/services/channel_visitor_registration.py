@@ -1,4 +1,5 @@
-"""Verified channel services resolve their own platform's external visitor ID."""
+"Verified channel services resolve their own platform's external visitor \
+ID."
 
 from datetime import datetime
 

@@ -1,4 +1,5 @@
-"""Public registration accepts identity details, never tenant or role authority."""
+"Public registration accepts identity details, never tenant or role \
+authority."
 
 from pydantic import ConfigDict, EmailStr, Field, field_validator
 

@@ -30,14 +30,18 @@ async def list_ai_models(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
 ) -> AIModelWithProviderListResponse:
-    """List AI models with provider info.
-    
-    This endpoint returns a flat list of models available in the current project,
-    joined with their respective provider information.
-    """
+    (
+        'List AI models with provider info.\n'
+        '    \n'
+        '    This endpoint returns a flat list of models available in the '
+        'current project,\n'
+        '    joined with their respective provider information.\n'
+        '    '
+    )
     project_id = current_user.project_id
 
-    # Base query: join AIModel with AIProvider to filter by project_id and active status
+    # Base query: join AIModel with AIProvider to filter by project_id and
+    # active status
     stmt = (
         select(AIModel, AIProvider)
         .join(AIProvider, AIModel.provider_id == AIProvider.id)
@@ -67,7 +71,8 @@ async def list_ai_models(
 
     data = []
     for model, provider in results:
-        # Explicitly build dict to avoid any implicit ORM attribute access during serialization
+        # Explicitly build dict to avoid any implicit ORM attribute access
+        # during serialization
         # Ensure capabilities is at least an empty dict if None
         caps = model.capabilities or {}
 

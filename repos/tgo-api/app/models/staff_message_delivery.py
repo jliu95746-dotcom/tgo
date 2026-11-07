@@ -35,7 +35,10 @@ class StaffMessageDelivery(Base):
             name="uq_staff_delivery_identity",
         ),
         CheckConstraint(
-            "external_status IN ('not_required','queued','sending','sent','failed','unknown')",
+            (
+                "external_status IN ('not_required','queued','sending','sent'"
+                ",'failed','unknown')"
+            ),
             name="ck_staff_delivery_external",
         ),
         CheckConstraint(

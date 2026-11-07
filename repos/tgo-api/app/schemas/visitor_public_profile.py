@@ -1,4 +1,5 @@
-"""Only the visitor's own display information belongs in public widget output."""
+"Only the visitor's own display information belongs in public widget \
+output."
 
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict

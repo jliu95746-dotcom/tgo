@@ -1,4 +1,5 @@
-"""Route commercial visitor messages inside their existing reply quota permit."""
+"Route commercial visitor messages inside their existing reply quota \
+permit."
 
 from uuid import UUID
 import logging
@@ -66,7 +67,10 @@ async def route_reply_intent(
         context = current_execution.get()
         if context:
             logging.getLogger(__name__).info(
-                "Customer turn phase turn=%s version=%s phase=intent seconds=%.3f route=%s",
+                (
+                    'Customer turn phase turn=%s version=%s phase=intent '
+                    'seconds=%.3f route=%s'
+                ),
                 context.turn_id,
                 context.version,
                 time.monotonic() - started,

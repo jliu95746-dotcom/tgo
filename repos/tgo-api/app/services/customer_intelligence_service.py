@@ -1,4 +1,5 @@
-"""Project trusted message analysis into the shared customer intelligence view."""
+"Project trusted message analysis into the shared customer intelligence \
+view."
 
 from __future__ import annotations
 
@@ -23,19 +24,25 @@ INTENT_PERSONA_TAGS: dict[str, str] = {
 
 
 class CustomerIntelligenceService:
-    """Maintain the latest deterministic insight and profile for one visitor."""
+    (
+        'Maintain the latest deterministic insight and profile for one '
+        'visitor.'
+    )
 
     def __init__(self, db: Session) -> None:
         self._db = db
 
     def record_intent(self, result: MessageIntentResult) -> bool:
-        """Project a trusted classification without storing raw customer text."""
+        (
+            'Project a trusted classification without storing raw customer '
+            'text.'
+        )
 
         if result.classification_source == "fail_closed":
             return False
         if (
-            result.classification_source == "rule" and
-            result.routing_reason == "high_confidence_faq"
+            result.classification_source == "rule"
+            and result.routing_reason == "high_confidence_faq"
         ):
             # The latency fast path deliberately skips semantic classification,
             # so it must not be treated as a real customer profile signal.

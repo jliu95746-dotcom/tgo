@@ -62,7 +62,8 @@ async def enforce_visitor_detail_scope(
     actor = resolve_staff_token(db, credentials.credentials)
     if actor is None or not restricted_staff(actor):
         return
-    # Claiming is authorized by the queue/visitor lock, before history is visible.
+    # Claiming is authorized by the queue/visitor lock, before history is
+    # visible.
     if request.method == "POST" and request.url.path.endswith("/accept"):
         return
     raw = request.path_params.get("visitor_id") or request.path_params.get(

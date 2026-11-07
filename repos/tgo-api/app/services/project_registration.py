@@ -1,4 +1,5 @@
-"""Create an isolated project and its first administrator in one DB transaction."""
+"Create an isolated project and its first administrator in one DB \
+transaction."
 
 from datetime import datetime, timezone
 
@@ -74,7 +75,8 @@ async def register_project_account(
             else None,
         )
         db.add(owner)
-        # No model keys, customers, skills or third-party channel settings are copied.
+        # No model keys, customers, skills or third-party channel settings are
+        # copied.
 
         db.add(
             Platform(
@@ -100,8 +102,10 @@ async def register_project_account(
             if not email_verified:
                 enqueue_action(db, owner, "verify")
         result = StaffResponse.model_validate(owner)
-        # Commit before external I/O: concurrent signup must not hold a unique-index
-        # lock while waiting for IM. Login reconciles the project notification channel.
+        # Commit before external I/O: concurrent signup must not hold a
+        # unique-index
+        # lock while waiting for IM. Login reconciles the project notification
+        # channel.
 
         db.commit()
         return result
@@ -109,7 +113,10 @@ async def register_project_account(
         db.rollback()
         raise HTTPException(
             409,
-            "Unable to create account; check whether the email is already registered",
+            (
+                'Unable to create account; check whether the email is '
+                'already registered'
+            ),
         ) from exc
     except Exception as exc:
         db.rollback()
@@ -123,7 +130,10 @@ async def register_project_account(
 
 
 async def ensure_project_staff_channel(db: Session, staff: Staff) -> None:
-    """Idempotently reconcile the current project's notification membership on login."""
+    (
+        "Idempotently reconcile the current project's notification "
+        'membership on login.'
+    )
     members = (
         db.query(Staff.id)
         .filter(

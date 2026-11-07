@@ -1,4 +1,5 @@
-"""Read internal model accounting over HTTP; the AI service owns its database."""
+"Read internal model accounting over HTTP; the AI service owns its \
+database."
 
 from uuid import UUID
 

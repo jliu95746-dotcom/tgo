@@ -18,7 +18,10 @@ _task: Optional[asyncio.Task] = None
 
 
 async def _sync_pending_failed_once() -> None:
-    """Scan DB for ProjectAIConfig needing sync and perform batch sync with retry."""
+    (
+        'Scan DB for ProjectAIConfig needing sync and perform batch sync '
+        'with retry.'
+    )
     db = SessionLocal()
     try:
         q = db.query(ProjectAIConfig).filter(

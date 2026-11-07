@@ -1,4 +1,5 @@
-"""Signed personal WeChat session authorization and short-lived bridge presence."""
+"Signed personal WeChat session authorization and short-lived bridge \
+presence."
 
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -172,7 +173,13 @@ def _pairing_key(platform: Platform, code: str, challenge: str) -> str:
         raise HTTPException(404, "个人微信渠道不可用")
     if not settings.REDIS_URL:
         raise HTTPException(503, "个人微信连接暂不可用")
-    return f"{_redis_key(platform)}:pair:{sha256(code.encode('ascii')).hexdigest()}:{challenge}"
+    return (
+        f'{_redis_key(platform)}'
+        f':pair:'
+        f"{sha256(code.encode('ascii')).hexdigest()}"
+        f':'
+        f'{challenge}'
+    )
 
 
 async def issue_pairing_code(platform: Platform, challenge: str) -> str:
@@ -182,9 +189,7 @@ async def issue_pairing_code(platform: Platform, challenge: str) -> str:
     if not redis_url:
         raise HTTPException(503, "个人微信连接暂不可用")
     try:
-        async with Redis.from_url(
-            redis_url, socket_timeout=2
-        ) as redis:
+        async with Redis.from_url(redis_url, socket_timeout=2) as redis:
             if not await redis.set(key, "1", ex=120, nx=True):
                 raise HTTPException(503, "请重新确认连接这台电脑")
     except (RedisError, OSError) as exc:
@@ -204,9 +209,7 @@ async def exchange_pairing_code(
     if not redis_url:
         raise HTTPException(503, "个人微信连接暂不可用")
     try:
-        async with Redis.from_url(
-            redis_url, socket_timeout=2
-        ) as redis:
+        async with Redis.from_url(redis_url, socket_timeout=2) as redis:
             if await redis.getdel(key) is None:
                 raise HTTPException(400, "连接授权已过期或无效，请重新启动工具")
     except (RedisError, OSError) as exc:
@@ -265,7 +268,10 @@ async def require_scoped_target(
 def require_current_bridge_identity(
     platform: Platform, identity: str | None
 ) -> None:
-    """Recheck the live lease for every signed IM, history and file operation."""
+    (
+        'Recheck the live lease for every signed IM, history and file '
+        'operation.'
+    )
     if is_filehelper_identity(identity):
         return
     if not is_scoped_identity(identity):

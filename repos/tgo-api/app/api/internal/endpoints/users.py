@@ -25,10 +25,12 @@ VISITOR_UID_SUFFIX = "-vtr"
 
 
 def parse_user_id(user_id: str) -> tuple[str, str]:
-    """Parse user_id and return (user_type, real_id).
-    
-    Types: 'visitor', 'staff'
-    """
+    (
+        'Parse user_id and return (user_type, real_id).\n'
+        '    \n'
+        "    Types: 'visitor', 'staff'\n"
+        '    '
+    )
     if not isinstance(user_id, str):
         return "visitor", str(user_id)
 
@@ -54,10 +56,13 @@ async def get_internal_user_info(
     db: Session = Depends(get_db),
     user_language: UserLanguage = Depends(get_user_language),
 ) -> Union[VisitorResponse, InternalStaffResponse]:
-    """
-    Retrieve enriched user information for internal services.
-    Supports both visitors (with -vtr suffix or no suffix) and staff (with -staff suffix).
-    """
+    (
+        '\n'
+        '    Retrieve enriched user information for internal services.\n'
+        '    Supports both visitors (with -vtr suffix or no suffix) and '
+        'staff (with -staff suffix).\n'
+        '    '
+    )
     user_type, real_id = parse_user_id(user_id)
 
     if user_type == "staff":

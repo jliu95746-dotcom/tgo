@@ -1,4 +1,5 @@
-"""Fresh login-owned administrator identity for employee configuration writes."""
+"Fresh login-owned administrator identity for employee configuration \
+writes."
 
 from fastapi import Depends
 from sqlalchemy.orm import Session

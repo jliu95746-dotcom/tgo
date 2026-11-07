@@ -1,4 +1,5 @@
-"""Read historical signed binding evidence without issuing any customer session."""
+"Read historical signed binding evidence without issuing any customer \
+session."
 
 from datetime import UTC, datetime
 

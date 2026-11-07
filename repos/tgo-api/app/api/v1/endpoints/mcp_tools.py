@@ -61,12 +61,17 @@ async def get_tools_by_ids(
     response_model=ToolListResponse,
     responses=CRUD_RESPONSES,
     summary="List Tools",
-    description="""
-    Retrieve a paginated list of available tools from the MCP service via AI service.
-
-    This endpoint provides access to both MCP server tools and custom webhook tools
-    with filtering capabilities by source type, status, and search terms.
-    """,
+    description=(
+        '\n'
+        '    Retrieve a paginated list of available tools from the MCP '
+        'service via AI service.\n'
+        '\n'
+        '    This endpoint provides access to both MCP server tools and '
+        'custom webhook tools\n'
+        '    with filtering capabilities by source type, status, and search '
+        'terms.\n'
+        '    '
+    ),
 )
 async def list_tools(
     source_type: Optional[str] = Query(
@@ -115,12 +120,16 @@ async def list_tools(
     response_model=ToolResponse,
     responses=CRUD_RESPONSES,
     summary="Get Tool",
-    description="""
-    Retrieve detailed information about a specific tool by ID from the MCP service.
-
-    Returns complete tool information including input schema, configuration,
-    and execution details.
-    """,
+    description=(
+        '\n'
+        '    Retrieve detailed information about a specific tool by ID from '
+        'the MCP service.\n'
+        '\n'
+        '    Returns complete tool information including input schema, '
+        'configuration,\n'
+        '    and execution details.\n'
+        '    '
+    ),
 )
 async def get_tool(
     tool_id: UUID,
@@ -146,13 +155,18 @@ async def get_tool(
     responses=CREATE_RESPONSES,
     status_code=status.HTTP_201_CREATED,
     summary="Create Custom Tool",
-    description="""
-    Create a new custom webhook tool in the MCP service via AI service.
-
-    Custom tools allow you to integrate external services by providing a webhook URL
-    that will be called when the tool is executed. The tool must include a JSON schema
-    for input validation.
-    """,
+    description=(
+        '\n'
+        '    Create a new custom webhook tool in the MCP service via AI '
+        'service.\n'
+        '\n'
+        '    Custom tools allow you to integrate external services by '
+        'providing a webhook URL\n'
+        '    that will be called when the tool is executed. The tool must '
+        'include a JSON schema\n'
+        '    for input validation.\n'
+        '    '
+    ),
 )
 async def create_custom_tool(
     tool_data: CreateCustomToolRequest,
@@ -184,12 +198,16 @@ async def create_custom_tool(
     response_model=ToolResponse,
     responses=UPDATE_RESPONSES,
     summary="Update Custom Tool",
-    description="""
-    Update an existing custom webhook tool in the MCP service via AI service.
-
-    Only custom tools can be updated. You can modify the webhook URL, input schema,
-    timeout settings, and other configuration options.
-    """,
+    description=(
+        '\n'
+        '    Update an existing custom webhook tool in the MCP service via '
+        'AI service.\n'
+        '\n'
+        '    Only custom tools can be updated. You can modify the webhook '
+        'URL, input schema,\n'
+        '    timeout settings, and other configuration options.\n'
+        '    '
+    ),
 )
 async def update_custom_tool(
     tool_id: UUID,
@@ -252,13 +270,18 @@ async def delete_custom_tool(
     responses=CREATE_RESPONSES,
     status_code=status.HTTP_200_OK,
     summary="Execute Tool",
-    description="""
-    Execute a tool installed in the project via the MCP service through AI service.
-
-    The tool must be installed and enabled in the current project. Provide input data
-    according to the tool's input schema. The execution is asynchronous and returns
-    immediately with execution details.
-    """,
+    description=(
+        '\n'
+        '    Execute a tool installed in the project via the MCP service '
+        'through AI service.\n'
+        '\n'
+        '    The tool must be installed and enabled in the current project. '
+        'Provide input data\n'
+        "    according to the tool's input schema. The execution is "
+        'asynchronous and returns\n'
+        '    immediately with execution details.\n'
+        '    '
+    ),
 )
 async def execute_tool(
     tool_id: UUID,

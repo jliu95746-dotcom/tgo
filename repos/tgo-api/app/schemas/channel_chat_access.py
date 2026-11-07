@@ -1,4 +1,5 @@
-"""In-process channel authority; private credentials never enter replies or jobs."""
+"In-process channel authority; private credentials never enter replies \
+or jobs."
 
 from uuid import UUID
 

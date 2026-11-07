@@ -1,4 +1,5 @@
-"""Operator-only recovery primitives; deliberately not exposed by a public API."""
+"Operator-only recovery primitives; deliberately not exposed by a public \
+API."
 
 from dataclasses import dataclass
 from uuid import UUID

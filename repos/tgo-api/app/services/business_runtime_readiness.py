@@ -1,4 +1,5 @@
-"""Observe the registered private execution protocol without granting permission."""
+"Observe the registered private execution protocol without granting \
+permission."
 
 from datetime import UTC, datetime
 

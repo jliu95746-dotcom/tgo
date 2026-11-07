@@ -1,4 +1,5 @@
-"""Original visitor authority through chat ingress, background work and outputs."""
+"Original visitor authority through chat ingress, background work and \
+outputs."
 
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager

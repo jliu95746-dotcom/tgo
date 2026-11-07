@@ -29,7 +29,10 @@ class BusinessCustomerIdentityPolicy(Base):
             name="uq_customer_identity_policy_connection",
         ),
         CheckConstraint(
-            "revision >= 1 AND connection_configuration_revision >= 1 AND max_session_seconds BETWEEN 60 AND 3600",
+            (
+                'revision >= 1 AND connection_configuration_revision >= 1 '
+                'AND max_session_seconds BETWEEN 60 AND 3600'
+            ),
             name="ck_customer_identity_policy_limits",
         ),
     )
@@ -70,7 +73,10 @@ class BusinessCustomerBinding(Base):
             "policy_id", "nonce", name="uq_customer_binding_nonce"
         ),
         CheckConstraint(
-            "revision >= 1 AND policy_revision >= 1 AND connection_configuration_revision >= 1",
+            (
+                'revision >= 1 AND policy_revision >= 1 AND '
+                'connection_configuration_revision >= 1'
+            ),
             name="ck_customer_binding_revisions",
         ),
         CheckConstraint(

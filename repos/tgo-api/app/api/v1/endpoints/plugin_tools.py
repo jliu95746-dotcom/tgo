@@ -35,11 +35,14 @@ async def execute_plugin_tool(
     credentials: HTTPAuthorizationCredentials
     | None = Depends(HTTPBearer(auto_error=False)),
 ) -> ToolExecuteResponse:
-    """
-    Proxy an MCP tool execution request to tgo-plugin-runtime.
-    
-    Staff-facing execution; project identity is derived from authentication.
-    """
+    (
+        '\n'
+        '    Proxy an MCP tool execution request to tgo-plugin-runtime.\n'
+        '    \n'
+        '    Staff-facing execution; project identity is derived from '
+        'authentication.\n'
+        '    '
+    )
     if not current_user.project_id:
         raise HTTPException(status_code=403, detail="Project access required")
     scope = await capture_plugin_scope(

@@ -1,4 +1,5 @@
-"""A reply number is a locator; only its original visitor can stop that reply."""
+"A reply number is a locator; only its original visitor can stop that \
+reply."
 
 from sqlalchemy.orm import Session
 

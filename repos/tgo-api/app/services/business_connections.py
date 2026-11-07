@@ -221,7 +221,8 @@ def _matches_creation_digest(
         for name, value in defaults.items()
     ):
         return False
-    # Only default-valued additions can replay an immutable pre-mapping request.
+    # Only default-valued additions can replay an immutable pre-mapping
+    # request.
     return hmac.compare_digest(
         saved,
         _request_digest(request, legacy_mapping=True, legacy_customer=True),
@@ -433,7 +434,10 @@ def update(
 def resolve(
     db: Session, project: UUID, connection: UUID, *, expected_revision: int
 ) -> tuple[BusinessConnectionResponse, BusinessConnectionCredentials | None]:
-    """Private, exact-version configuration resolution; does not grant execution."""
+    (
+        'Private, exact-version configuration resolution; does not grant '
+        'execution.'
+    )
     row = _find(db, project, connection)
     if row.revision != expected_revision:
         raise ConflictError("原连接配置已变化，请重新读取")

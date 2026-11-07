@@ -1,4 +1,5 @@
-"""The publication boundary rechecks the exact producer run, not a new default."""
+"The publication boundary rechecks the exact producer run, not a new \
+default."
 from typing import Protocol
 from uuid import UUID
 

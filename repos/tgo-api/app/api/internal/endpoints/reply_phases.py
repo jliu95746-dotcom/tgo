@@ -1,4 +1,5 @@
-"""Private AI completion receipts; possession of the exact phase is required."""
+"Private AI completion receipts; possession of the exact phase is \
+required."
 
 from fastapi import APIRouter, HTTPException
 

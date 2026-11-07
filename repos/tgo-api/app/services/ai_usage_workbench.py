@@ -1,4 +1,5 @@
-"""Meter explicit staff generations and replay durable results on HTTP retries."""
+"Meter explicit staff generations and replay durable results on HTTP \
+retries."
 
 import asyncio
 from collections.abc import Awaitable, Callable

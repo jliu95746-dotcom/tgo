@@ -1,4 +1,5 @@
-"""Resolve private credentials only for the original serving employee and customer."""
+"Resolve private credentials only for the original serving employee and \
+customer."
 
 from uuid import UUID
 from fastapi import HTTPException

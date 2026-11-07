@@ -44,7 +44,10 @@ def delivery_record(db: Session, delivery_id: UUID) -> StaffMessageDelivery:
 def mask_bridge_history(
     result: WuKongIMChannelMessageSyncResponse,
 ) -> WuKongIMChannelMessageSyncResponse:
-    """Keep the sync cursor while old bridges skip already delivered human text."""
+    (
+        'Keep the sync cursor while old bridges skip already delivered human '
+        'text.'
+    )
     messages = []
     for message in result.messages:
         extra = message.payload.get("extra")
@@ -268,7 +271,8 @@ def scoped_row(
         visitor.platform_open_id,
     ):
         raise HTTPException(403, "发送任务不属于当前微信会话")
-    # Serializes claims with transfer/close/new submissions before locking queue.
+    # Serializes claims with transfer/close/new submissions before locking
+    # queue.
 
     if (
         db.scalar(
@@ -327,7 +331,8 @@ def checked_owner(db: Session, row: WeChatStaffDelivery) -> None:
         ):
             raise HTTPException(409, "原微信接入渠道已变化")
     except HTTPException:
-        # A claim may already have caused an external send; never mark it failed.
+        # A claim may already have caused an external send; never mark it
+        # failed.
 
         if row.state == "queued":
             row.state = "cancelled"

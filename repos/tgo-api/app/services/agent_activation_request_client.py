@@ -1,4 +1,5 @@
-"""Existing AI transport with strict scope and immutable-command receipt validation."""
+"Existing AI transport with strict scope and immutable-command receipt \
+validation."
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -64,7 +65,8 @@ async def submit(
 def _same_intent(
     left: AgentActivationRequest, right: AgentActivationRequest
 ) -> bool:
-    # The owning AI service also treats channel order as immaterial to this key.
+    # The owning AI service also treats channel order as immaterial to this
+    # key.
     ordered_left = left.expected.model_copy(
         update={
             "channels": sorted(

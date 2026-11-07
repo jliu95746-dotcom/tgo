@@ -1,4 +1,5 @@
-"""Versioned, credential-free delivery state kept with a timed-out queue entry."""
+"Versioned, credential-free delivery state kept with a timed-out queue \
+entry."
 
 from datetime import datetime
 from typing import Literal

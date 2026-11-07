@@ -34,23 +34,25 @@ async def close_visitor_session(
     command_scope: StaffSessionScope | None = None,
     operation_id: UUID | None = None,
 ) -> VisitorSession:
-    """
-    关闭访客会话的公用方法。
-    
-    Args:
-        db: 数据库会话
-        session: 要关闭的会话对象（需要已加载 visitor 关系）
-        closed_by_staff: 关闭会话的客服（可选，用于发送通知）
-        send_notification: 是否发送系统通知消息
-        auto_commit: 是否自动提交事务
-        reason: 关闭原因（可选，用于日志）
-        
-    Returns:
-        关闭后的会话对象
-        
-    Raises:
-        ValueError: 如果会话已经关闭
-    """
+    (
+        '\n'
+        '    关闭访客会话的公用方法。\n'
+        '    \n'
+        '    Args:\n'
+        '        db: 数据库会话\n'
+        '        session: 要关闭的会话对象（需要已加载 visitor 关系）\n'
+        '        closed_by_staff: 关闭会话的客服（可选，用于发送通知）\n'
+        '        send_notification: 是否发送系统通知消息\n'
+        '        auto_commit: 是否自动提交事务\n'
+        '        reason: 关闭原因（可选，用于日志）\n'
+        '        \n'
+        '    Returns:\n'
+        '        关闭后的会话对象\n'
+        '        \n'
+        '    Raises:\n'
+        '        ValueError: 如果会话已经关闭\n'
+        '    '
+    )
     # Check if session is already closed
     if session.status == SessionStatus.CLOSED.value:
         raise ValueError("Session is already closed")
@@ -97,7 +99,8 @@ async def close_visitor_session(
             )
 
     # 2. Close the session
-    session.close()  # This sets status=closed, closed_at, and calculates duration
+    # This sets status=closed, closed_at, and calculates duration
+    session.close()
     session.updated_at = datetime.utcnow()
 
     # 3. Update visitor service status
@@ -166,7 +169,12 @@ async def close_visitor_session(
             if auto_commit:
                 db.commit()
             logger.info(
-                f"Removed staff {session.staff_id} from ChannelMember table for channel {channel_id}"
+                (
+                    f'Removed staff '
+                    f'{session.staff_id}'
+                    f' from ChannelMember table for channel '
+                    f'{channel_id}'
+                )
             )
 
         # Remove from WuKongIM channel (async, non-blocking)
@@ -180,7 +188,12 @@ async def close_visitor_session(
                 subscribers=[staff_uid],
             )
             logger.info(
-                f"Removed staff {session.staff_id} from WuKongIM channel {channel_id}"
+                (
+                    f'Removed staff '
+                    f'{session.staff_id}'
+                    f' from WuKongIM channel '
+                    f'{channel_id}'
+                )
             )
         except Exception as e:
             logger.warning(
@@ -230,7 +243,12 @@ async def close_visitor_session(
                 channel_type=CHANNEL_TYPE_CUSTOMER_SERVICE,
             )
             logger.info(
-                f"Deleted conversation for staff {session.staff_id}, session {session.id}"
+                (
+                    f'Deleted conversation for staff '
+                    f'{session.staff_id}'
+                    f', session '
+                    f'{session.id}'
+                )
             )
         except Exception as e:
             logger.warning(f"Failed to delete conversation from WuKongIM: {e}")

@@ -143,12 +143,17 @@ class CustomerShipment(Base):
             name="uq_customer_shipment_project_tracking_hash",
         ),
         CheckConstraint(
-            "status IN "
-            "('unknown', 'pending', 'active', 'in_transit', 'delivered', 'exception')",
+            (
+                "status IN ('unknown', 'pending', 'active', 'in_transit', "
+                "'delivered', 'exception')"
+            ),
             name="ck_customer_shipment_status",
         ),
         CheckConstraint(
-            "source IN ('visitor_message', 'staff_message', 'manual', 'order_sync')",
+            (
+                "source IN ('visitor_message', 'staff_message', 'manual', "
+                "'order_sync')"
+            ),
             name="ck_customer_shipment_source",
         ),
         CheckConstraint(

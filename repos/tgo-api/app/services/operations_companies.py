@@ -1,4 +1,5 @@
-"""Company ledger overview and compensating adjustments without erasing history."""
+"Company ledger overview and compensating adjustments without erasing \
+history."
 
 from datetime import datetime, timedelta, timezone
 from uuid import UUID

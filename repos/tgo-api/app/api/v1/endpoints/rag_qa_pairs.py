@@ -1,7 +1,5 @@
-"""RAG QA Pairs proxy endpoints.
-
-Provides JWT-authenticated endpoints for staff to manage QA pairs in collections.
-"""
+"RAG QA Pairs proxy endpoints.\n\nProvides JWT-authenticated endpoints \
+for staff to manage QA pairs in collections.\n"
 
 from typing import Optional
 from uuid import UUID
@@ -265,7 +263,10 @@ async def delete_qa_pair(
     response_model=QACategoryListResponse,
     responses=LIST_RESPONSES,
     summary="List QA Categories",
-    description="Get distinct QA pair categories for the project, optionally filtered by collection.",
+    description=(
+        'Get distinct QA pair categories for the project, optionally '
+        'filtered by collection.'
+    ),
 )
 async def list_qa_categories(
     collection_id: Optional[UUID] = Query(

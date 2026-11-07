@@ -1,4 +1,5 @@
-"""Current, serialized staff writes bound to their original customer version."""
+"Current, serialized staff writes bound to their original customer \
+version."
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -66,7 +67,8 @@ def lock_permission(
     db: Session, access: StaffDataAccess, permission: str
 ) -> Staff:
     # Recheck the original token after obtaining the member lock. Permission
-    # grants used by a non-admin are also locked until this transaction commits.
+    # grants used by a non-admin are also locked until this transaction
+    # commits.
     db.query(Staff).filter(
         Staff.id == access.staff_id
     ).populate_existing().with_for_update(read=True).first()
@@ -152,7 +154,8 @@ class VisitorMutationScope:
             if self.owner_required:
                 if lock:
                     # Ownership may be changed on the session without updating
-                    # the customer row. Hold that assignment through commit too.
+                    # the customer row. Hold that assignment through commit
+                    # too.
                     db.query(VisitorSession).filter(
                         VisitorSession.visitor_id == self.visitor_id,
                         VisitorSession.project_id == self.access.project_id,

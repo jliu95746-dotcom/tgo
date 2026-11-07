@@ -1,10 +1,8 @@
-"""Encoding utilities for identifiers.
-
-Provides a Base62 encoder for channel_id generation.
-
-We avoid external dependencies; Base62 is implemented by treating input bytes as a big integer and converting to a Base62 alphabet.
-This maintains a deterministic, reversible mapping for the same input string.
-"""
+"Encoding utilities for identifiers.\n\nProvides a Base62 encoder for \
+channel_id generation.\n\nWe avoid external dependencies; Base62 is \
+implemented by treating input bytes as a big integer and converting to \
+a Base62 alphabet.\nThis maintains a deterministic, reversible mapping \
+for the same input string.\n"
 from __future__ import annotations
 
 import zlib
@@ -36,15 +34,19 @@ def _int_to_base62(n: int) -> str:
 
 
 def encode_channel_id(raw_string: str | None) -> str:
-    """Encode a channel identifier using Base62.
-
-    Implementation details:
-    - The input string is encoded to UTF-8 bytes.
-    - The bytes are interpreted as a big-endian integer.
-    - The integer is converted to a Base62 string via _int_to_base62.
-
-    Note: This preserves a deterministic mapping and is reversible (if needed) by parsing back to int and to bytes).
-    """
+    (
+        'Encode a channel identifier using Base62.\n'
+        '\n'
+        '    Implementation details:\n'
+        '    - The input string is encoded to UTF-8 bytes.\n'
+        '    - The bytes are interpreted as a big-endian integer.\n'
+        '    - The integer is converted to a Base62 string via '
+        '_int_to_base62.\n'
+        '\n'
+        '    Note: This preserves a deterministic mapping and is reversible '
+        '(if needed) by parsing back to int and to bytes).\n'
+        '    '
+    )
     if raw_string is None:
         return "0"
     data = raw_string.encode("utf-8")
@@ -141,17 +143,24 @@ def parse_visitor_channel_id(channel_id: str) -> UUID:
 
 
 def get_session_id(from_uid: str, to_uid: str, channel_type: int) -> str:
-    """
-    Generate a deterministic session ID for a conversation.
-    
-    If channel_type is 1 (personal), follows the ordering logic based on CRC32 
-    hashes of both UIDs to ensure consistency regardless of who is the sender.
-    
-    This matches WuKongIM's internal session ID generation logic for personal channels.
-    """
+    (
+        '\n'
+        '    Generate a deterministic session ID for a conversation.\n'
+        '    \n'
+        '    If channel_type is 1 (personal), follows the ordering logic '
+        'based on CRC32 \n'
+        '    hashes of both UIDs to ensure consistency regardless of who is '
+        'the sender.\n'
+        '    \n'
+        "    This matches WuKongIM's internal session ID generation logic "
+        'for personal channels.\n'
+        '    '
+    )
     if channel_type == 1:
-        # For personal channels, session_id is always {uid1}@{uid2} where uid1 and uid2
-        # are ordered deterministically to ensure both participants see the same session.
+        # For personal channels, session_id is always {uid1}@{uid2} where uid1
+        # and uid2
+        # are ordered deterministically to ensure both participants see the
+        # same session.
         from_hash = zlib.crc32(from_uid.encode())
         to_hash = zlib.crc32(to_uid.encode())
 
@@ -160,7 +169,8 @@ def get_session_id(from_uid: str, to_uid: str, channel_type: int) -> str:
 
         if from_uid != to_uid and from_hash == to_hash:
             # Hash collision (rare but possible with CRC32)
-            # In this case we fallback to string comparison for deterministic ordering
+            # In this case we fallback to string comparison for deterministic
+            # ordering
             if from_uid > to_uid:
                 return f"{from_uid}@{to_uid}"
 

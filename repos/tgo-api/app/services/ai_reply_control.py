@@ -234,7 +234,13 @@ async def controlled_reply(
             failure_reason = "generation_failed"
             frames = traceback.extract_tb(exc.__traceback__)
             locations = [
-                f"{frame.filename.rsplit('/', 1)[-1]}:{frame.name}:{frame.lineno}"
+                (
+                    f"{frame.filename.rsplit('/', 1)[-1]}"
+                    f':'
+                    f'{frame.name}'
+                    f':'
+                    f'{frame.lineno}'
+                )
                 for frame in frames[-5:]
             ]
             logger.warning(
@@ -251,8 +257,10 @@ async def controlled_reply(
                             async with asyncio.timeout(1):
                                 await stop_upstream(control.upstream_run_id)
                         except (Exception, asyncio.CancelledError):
-                            # A cancelled HTTP stop request must not abort cleanup.
-                            # Only the private phase receipt can confirm termination.
+                            # A cancelled HTTP stop request must not abort
+                            # cleanup.
+                            # Only the private phase receipt can confirm
+                            # termination.
 
                             pass
                     # An accepted cancel signal is not proof of task cleanup.

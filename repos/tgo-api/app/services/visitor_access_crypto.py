@@ -1,4 +1,5 @@
-"""Visitor possession is a separate factor from a merchant's customer signature."""
+"Visitor possession is a separate factor from a merchant's customer \
+signature."
 
 import hashlib
 import hmac

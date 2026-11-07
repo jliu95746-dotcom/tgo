@@ -1,4 +1,5 @@
-"""Only latest, unexpired, individually authorized operation reports are proof."""
+"Only latest, unexpired, individually authorized operation reports are \
+proof."
 
 from datetime import UTC, datetime, timedelta
 

@@ -1,4 +1,5 @@
-"""Separate operator-facing model metadata from private execution credentials."""
+"Separate operator-facing model metadata from private execution \
+credentials."
 
 from decimal import Decimal
 from typing import Literal

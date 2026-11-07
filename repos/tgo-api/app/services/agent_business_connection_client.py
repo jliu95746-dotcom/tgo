@@ -1,4 +1,5 @@
-"""Validate employee business configuration through the existing AI transport."""
+"Validate employee business configuration through the existing AI \
+transport."
 from uuid import UUID
 
 from fastapi import HTTPException

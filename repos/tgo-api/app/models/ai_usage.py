@@ -24,7 +24,10 @@ class AIUsageReservation(Base):
     __table_args__ = (
         UniqueConstraint("project_id", "round_key", name="uq_ai_usage_round"),
         CheckConstraint(
-            "status IN ('reserved','publishing','settled','released','review')",
+            (
+                "status IN ('reserved','publishing','settled','released','rev"
+                "iew')"
+            ),
             name="ck_ai_usage_status",
         ),
     )

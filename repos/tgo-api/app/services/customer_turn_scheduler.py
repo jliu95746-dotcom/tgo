@@ -1,4 +1,5 @@
-"""Redis wakeups and renewable ownership; PostgreSQL remains the source of truth."""
+"Redis wakeups and renewable ownership; PostgreSQL remains the source of \
+truth."
 
 import time
 from uuid import UUID
@@ -59,7 +60,10 @@ class TurnScheduler:
         if self.redis:
             return bool(
                 await self.redis.eval(
-                    "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('expire',KEYS[1],30) else return 0 end",
+                    (
+                        "if redis.call('get',KEYS[1])==ARGV[1] then return "
+                        "redis.call('expire',KEYS[1],30) else return 0 end"
+                    ),
                     1,
                     key,
                     owner,
@@ -74,7 +78,10 @@ class TurnScheduler:
         key = "customer-turns:lease:" + str(turn_id)
         if self.redis:
             await self.redis.eval(
-                "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end",
+                (
+                    "if redis.call('get',KEYS[1])==ARGV[1] then return "
+                    "redis.call('del',KEYS[1]) else return 0 end"
+                ),
                 1,
                 key,
                 owner,
@@ -91,7 +98,11 @@ class TurnScheduler:
     async def remove_if_due(self, turn_id: UUID, due: float) -> None:
         if self.redis:
             await self.redis.eval(
-                "if tonumber(redis.call('zscore',KEYS[1],ARGV[1]))==tonumber(ARGV[2]) then return redis.call('zrem',KEYS[1],ARGV[1]) else return 0 end",
+                (
+                    "if tonumber(redis.call('zscore',KEYS[1],ARGV[1]))==tonum"
+                    "ber(ARGV[2]) then return redis.call('zrem',KEYS[1],ARGV["
+                    '1]) else return 0 end'
+                ),
                 1,
                 self.queue,
                 str(turn_id),

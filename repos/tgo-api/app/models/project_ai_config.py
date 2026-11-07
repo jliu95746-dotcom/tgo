@@ -49,7 +49,9 @@ class ProjectAIConfig(Base):
         comment="AIProvider ID for default embedding model",
     )
     default_embedding_model: Mapped[Optional[str]] = mapped_column(
-        String(100), nullable=True, comment="Default embedding model identifier"
+        String(100),
+        nullable=True,
+        comment="Default embedding model identifier",
     )
 
     # Default multimodal model selections
@@ -79,7 +81,9 @@ class ProjectAIConfig(Base):
     )
 
     # Timestamps (soft delete)
-    created_at: Mapped[datetime] = mapped_column(nullable=False, default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False, default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False, default=func.now(), onupdate=func.now()
     )
@@ -87,16 +91,22 @@ class ProjectAIConfig(Base):
 
     # Sync tracking fields (to AI service)
     last_synced_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
-    sync_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    sync_status: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )
     sync_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
-    project: Mapped["Project"] = relationship("Project", back_populates="ai_config", lazy="select")
+    project: Mapped["Project"] = relationship(
+        "Project", back_populates="ai_config", lazy="select"
+    )
     chat_provider: Mapped[Optional["AIProvider"]] = relationship(
         "AIProvider", foreign_keys=[default_chat_provider_id], lazy="select"
     )
     embedding_provider: Mapped[Optional["AIProvider"]] = relationship(
-        "AIProvider", foreign_keys=[default_embedding_provider_id], lazy="select"
+        "AIProvider",
+        foreign_keys=[default_embedding_provider_id],
+        lazy="select",
     )
     asr_provider: Mapped[Optional["AIProvider"]] = relationship(
         "AIProvider", foreign_keys=[default_asr_provider_id], lazy="select"

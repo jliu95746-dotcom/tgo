@@ -1,4 +1,5 @@
-"""Shared, reproducible candidate selection for exploratory and official G4 batches."""
+"Shared, reproducible candidate selection for exploratory and official \
+G4 batches."
 
 from __future__ import annotations
 
@@ -38,7 +39,10 @@ def wecom_case_exists(
     source_message_id: InstrumentedAttribute[str | None],
     window_end: datetime,
 ) -> ColumnElement[bool]:
-    """Require one current project-owned WeCom KF source and shadow analysis."""
+    (
+        'Require one current project-owned WeCom KF source and shadow '
+        'analysis.'
+    )
     return (
         select(Visitor.id)
         .join(

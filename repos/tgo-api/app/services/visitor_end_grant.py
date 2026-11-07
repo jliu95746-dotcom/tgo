@@ -1,4 +1,5 @@
-"""An end-only grant can survive local access deletion without granting reads."""
+"An end-only grant can survive local access deletion without granting \
+reads."
 
 from datetime import UTC, datetime, timedelta
 import hmac

@@ -1,4 +1,5 @@
-"""Operators approve concrete refund previews; callbacks confirm final money movement."""
+"Operators approve concrete refund previews; callbacks confirm final \
+money movement."
 
 from uuid import UUID
 

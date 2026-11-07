@@ -1,4 +1,5 @@
-"""Administrator-only company management and purpose-bound invitation acceptance."""
+"Administrator-only company management and purpose-bound invitation \
+acceptance."
 
 from uuid import UUID
 

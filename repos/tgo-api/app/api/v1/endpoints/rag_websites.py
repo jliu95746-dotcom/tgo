@@ -1,7 +1,5 @@
-"""RAG Website Pages proxy endpoints.
-
-Provides JWT-authenticated endpoints for staff to manage website pages in collections.
-"""
+"RAG Website Pages proxy endpoints.\n\nProvides JWT-authenticated \
+endpoints for staff to manage website pages in collections.\n"
 
 from typing import Optional
 from uuid import UUID
@@ -46,18 +44,22 @@ def _check_project(current_user: Staff) -> str:
     response_model=WebsitePageListResponse,
     responses=LIST_RESPONSES,
     summary="List Pages",
-    description="""
-    List all pages in a collection.
-
-    When tree_depth is specified, the response includes child pages in a hierarchical structure:
-    - tree_depth=0 or None: Flat list (no children)
-    - tree_depth=1: Include direct children only
-    - tree_depth=2: Include children and grandchildren
-    - tree_depth=-1: Include all descendants (unlimited depth)
-
-    When no parent_page_id filter is specified and tree_depth > 0, returns root pages
-    (where parent_page_id IS NULL) with their children.
-    """,
+    description=(
+        '\n'
+        '    List all pages in a collection.\n'
+        '\n'
+        '    When tree_depth is specified, the response includes child pages '
+        'in a hierarchical structure:\n'
+        '    - tree_depth=0 or None: Flat list (no children)\n'
+        '    - tree_depth=1: Include direct children only\n'
+        '    - tree_depth=2: Include children and grandchildren\n'
+        '    - tree_depth=-1: Include all descendants (unlimited depth)\n'
+        '\n'
+        '    When no parent_page_id filter is specified and tree_depth > 0, '
+        'returns root pages\n'
+        '    (where parent_page_id IS NULL) with their children.\n'
+        '    '
+    ),
 )
 async def list_pages(
     collection_id: UUID = Query(..., description="Collection ID"),
@@ -72,7 +74,10 @@ async def list_pages(
         None,
         ge=-1,
         le=10,
-        description="Number of child levels to include. 0/None=no children, 1=direct children, -1=unlimited",
+        description=(
+            'Number of child levels to include. 0/None=no children, 1=direct '
+            'children, -1=unlimited'
+        ),
     ),
     limit: int = Query(
         20, ge=1, le=100, description="Number of pages to return"
@@ -139,20 +144,24 @@ async def get_page(
     responses=CREATE_RESPONSES,
     status_code=201,
     summary="Add Page",
-    description="""
-    Add a page to crawl in a collection.
-
-    This will create a page record and trigger crawling.
-    If max_depth > 0, discovered links will also be crawled.
-
-    Page Hierarchy:
-    - If `parent_page_id` is provided, the new page will be a child of that page
-    - The new page's depth will be parent.depth + 1
-    - This allows building hierarchical page structures
-
-    Deduplication:
-    - If the URL already exists in the collection, it will be skipped
-    """,
+    description=(
+        '\n'
+        '    Add a page to crawl in a collection.\n'
+        '\n'
+        '    This will create a page record and trigger crawling.\n'
+        '    If max_depth > 0, discovered links will also be crawled.\n'
+        '\n'
+        '    Page Hierarchy:\n'
+        '    - If `parent_page_id` is provided, the new page will be a child '
+        'of that page\n'
+        "    - The new page's depth will be parent.depth + 1\n"
+        '    - This allows building hierarchical page structures\n'
+        '\n'
+        '    Deduplication:\n'
+        '    - If the URL already exists in the collection, it will be '
+        'skipped\n'
+        '    '
+    ),
 )
 async def add_page(
     page_data: AddPageRequest,

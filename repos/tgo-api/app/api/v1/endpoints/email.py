@@ -28,20 +28,22 @@ def test_smtp_connection(
     use_tls: bool,
     timeout: int = 30,
 ) -> Dict[str, str]:
-    """
-    Test SMTP server connection.
-    
-    Args:
-        host: SMTP server hostname
-        port: SMTP server port
-        username: SMTP username
-        password: SMTP password
-        use_tls: Whether to use TLS/STARTTLS
-        timeout: Connection timeout in seconds
-        
-    Returns:
-        Dict with 'status' and 'message' keys
-    """
+    (
+        '\n'
+        '    Test SMTP server connection.\n'
+        '    \n'
+        '    Args:\n'
+        '        host: SMTP server hostname\n'
+        '        port: SMTP server port\n'
+        '        username: SMTP username\n'
+        '        password: SMTP password\n'
+        '        use_tls: Whether to use TLS/STARTTLS\n'
+        '        timeout: Connection timeout in seconds\n'
+        '        \n'
+        '    Returns:\n'
+        "        Dict with 'status' and 'message' keys\n"
+        '    '
+    )
     try:
         logger.info(
             f"Testing SMTP connection to {host}:{port} (TLS: {use_tls})"
@@ -104,20 +106,22 @@ def test_imap_connection(
     use_ssl: bool,
     timeout: int = 30,
 ) -> Dict[str, str]:
-    """
-    Test IMAP server connection.
-    
-    Args:
-        host: IMAP server hostname
-        port: IMAP server port
-        username: IMAP username
-        password: IMAP password
-        use_ssl: Whether to use SSL
-        timeout: Connection timeout in seconds
-        
-    Returns:
-        Dict with 'status' and 'message' keys
-    """
+    (
+        '\n'
+        '    Test IMAP server connection.\n'
+        '    \n'
+        '    Args:\n'
+        '        host: IMAP server hostname\n'
+        '        port: IMAP server port\n'
+        '        username: IMAP username\n'
+        '        password: IMAP password\n'
+        '        use_ssl: Whether to use SSL\n'
+        '        timeout: Connection timeout in seconds\n'
+        '        \n'
+        '    Returns:\n'
+        "        Dict with 'status' and 'message' keys\n"
+        '    '
+    )
     try:
         logger.info(
             f"Testing IMAP connection to {host}:{port} (SSL: {use_ssl})"
@@ -167,24 +171,29 @@ def test_imap_connection(
     response_model=EmailConnectionTestResponse,
     status_code=status.HTTP_200_OK,
     summary="Test Email Server Connection",
-    description="""
-    Test SMTP and IMAP server connections with the provided credentials.
-
-    This endpoint validates email server configurations by attempting to:
-    1. Connect to the SMTP server and authenticate
-    2. Connect to the IMAP server and authenticate
-
-    Both tests are performed independently, and detailed results are returned for each.
-
-    **Security Notes:**
-    - Credentials are not stored or logged
-    - Connection timeout is set to 30 seconds
-    - This endpoint requires authentication
-
-    **Common Port Configurations:**
-    - SMTP: 587 (TLS), 465 (SSL), 25 (TLS)
-    - IMAP: 993 (SSL), 143 (no SSL)
-    """,
+    description=(
+        '\n'
+        '    Test SMTP and IMAP server connections with the provided '
+        'credentials.\n'
+        '\n'
+        '    This endpoint validates email server configurations by '
+        'attempting to:\n'
+        '    1. Connect to the SMTP server and authenticate\n'
+        '    2. Connect to the IMAP server and authenticate\n'
+        '\n'
+        '    Both tests are performed independently, and detailed results '
+        'are returned for each.\n'
+        '\n'
+        '    **Security Notes:**\n'
+        '    - Credentials are not stored or logged\n'
+        '    - Connection timeout is set to 30 seconds\n'
+        '    - This endpoint requires authentication\n'
+        '\n'
+        '    **Common Port Configurations:**\n'
+        '    - SMTP: 587 (TLS), 465 (SSL), 25 (TLS)\n'
+        '    - IMAP: 993 (SSL), 143 (no SSL)\n'
+        '    '
+    ),
 )
 async def test_email_connection(
     request: EmailConnectionTestRequest,

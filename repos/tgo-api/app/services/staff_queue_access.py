@@ -172,7 +172,8 @@ def commit_queue_cancel(
             db, scope.entry_id, scope.customer.access.project_id, reason
         ):
             raise changed()
-        # Match ownership/version snapshots to this commit, not a later refresh.
+        # Match ownership/version snapshots to this commit, not a later
+        # refresh.
         visitor.updated_at = max(
             datetime.utcnow(),
             scope.customer.original_version + timedelta(microseconds=1),

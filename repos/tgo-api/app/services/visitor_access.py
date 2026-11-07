@@ -1,4 +1,5 @@
-"""Possession checks preserve anonymous chat without exposing private histories by ID."""
+"Possession checks preserve anonymous chat without exposing private \
+histories by ID."
 
 from datetime import UTC, datetime
 import hmac
@@ -215,7 +216,8 @@ def require_access(
         ):
             raise denied()
         check_im_business_references(db, visitor, claims.business_references)
-        # Original signed expiry is preserved; no token can renew a customer session.
+        # Original signed expiry is preserved; no token can renew a customer
+        # session.
         return VisitorBusinessAccess(
             references=claims.business_references,
             expires_at=datetime.fromtimestamp(claims.exp, UTC)
@@ -242,7 +244,8 @@ def registration_access(
     visitor = current_visitor(db, visitor)
     if new and visitor.access_secret_digest is not None:
         raise denied()
-    # A new merchant account cannot resume cached customer history by its old IM JWT.
+    # A new merchant account cannot resume cached customer history by its old
+    # IM JWT.
     business = (
         business_access(db, visitor, proof)
         if new or protected(db, visitor)
@@ -254,7 +257,8 @@ def registration_access(
             visitor.access_secret_digest,
         ):
             return proof.visitor_access_token, business
-        # A signed customer/IM proof can rotate browser access but not extend identity expiry.
+        # A signed customer/IM proof can rotate browser access but not extend
+        # identity expiry.
         visitor.access_revision += 1
     secret = SecretStr(secrets.token_urlsafe(32))
     visitor.access_secret_digest = access_digest(visitor, secret)
@@ -269,7 +273,8 @@ def end_access(
     *,
     end_token: SecretStr | None = None,
 ) -> None:
-    # Possession of browser access is sufficient to end its own session; never reads data.
+    # Possession of browser access is sufficient to end its own session; never
+    # reads data.
     visitor = current_visitor(db, visitor, allow_retired=True)
     secret = proof.visitor_access_token
     owns_access = (
@@ -284,12 +289,15 @@ def end_access(
     if not owns_access and not verifies_original_end(visitor, end_token):
         raise denied()
     if visitor.access_retired_at is not None:
-        db.commit()  # Release the receipt lock before retrying external cleanup.
-        return  # A lost response can repeat ending; it can never resume or read data.
+        # Release the receipt lock before retrying external cleanup.
+        db.commit()
+        # A lost response can repeat ending; it can never resume or read data.
+        return
     now = datetime.now(UTC)
     visitor.access_retired_at = now
     visitor.is_online = False
-    # Retain only its one-way digest for an idempotent end receipt. All read/resume checks reject retirement.
+    # Retain only its one-way digest for an idempotent end receipt. All
+    # read/resume checks reject retirement.
     visitor.access_revision += 1
     db.execute(
         update(VisitorBusinessScope)

@@ -166,7 +166,8 @@ async def analyze_training(project_id: str, skill_name: str) -> TrainingReview:
                     )
                 ]
                 error_kind += " " + ",".join(fields)
-            # Never write customer messages, model output or credentials to this log.
+            # Never write customer messages, model output or credentials to
+            # this log.
 
             logger.warning(
                 "Humanization sample analysis failed: %s", error_kind

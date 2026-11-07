@@ -38,8 +38,10 @@ def process_refund(identifier: UUID) -> str:
                 order_number, number, total, amount, reason
             )
         except Exception:
-            # The provider may have accepted a request before the connection failed.
-            # If lookup is also unavailable, the durable job retries the same number.
+            # The provider may have accepted a request before the connection
+            # failed.
+            # If lookup is also unavailable, the durable job retries the same
+            # number.
 
             result = client.query_refund(number)
     if result.out_refund_no != number or result.out_trade_no != order_number:

@@ -14,11 +14,14 @@ if TYPE_CHECKING:
 
 
 class Permission(Base):
-    """Permission definition model.
-    
-    Defines available permissions in the system using resource:action format.
-    Examples: staff:create, staff:read, ai_agents:update
-    """
+    (
+        'Permission definition model.\n'
+        '    \n'
+        '    Defines available permissions in the system using '
+        'resource:action format.\n'
+        '    Examples: staff:create, staff:read, ai_agents:update\n'
+        '    '
+    )
 
     __tablename__ = "api_permissions"
 
@@ -66,7 +69,15 @@ class Permission(Base):
 
     def __repr__(self) -> str:
         """String representation of the permission."""
-        return f"<Permission(id={self.id}, resource='{self.resource}', action='{self.action}')>"
+        return (
+            f'<Permission(id='
+            f'{self.id}'
+            f", resource='"
+            f'{self.resource}'
+            f"', action='"
+            f'{self.action}'
+            f"')>"
+        )
 
     @property
     def code(self) -> str:
@@ -75,14 +86,18 @@ class Permission(Base):
 
 
 class RolePermission(Base):
-    """Global Role-Permission association model.
-    
-    Defines default permissions for roles across ALL projects.
-    When a new permission is added, only this table needs to be updated.
-    All projects automatically inherit these permissions.
-    
-    Final project permissions = RolePermission (global) + ProjectRolePermission (project-specific)
-    """
+    (
+        'Global Role-Permission association model.\n'
+        '    \n'
+        '    Defines default permissions for roles across ALL projects.\n'
+        '    When a new permission is added, only this table needs to be '
+        'updated.\n'
+        '    All projects automatically inherit these permissions.\n'
+        '    \n'
+        '    Final project permissions = RolePermission (global) + '
+        'ProjectRolePermission (project-specific)\n'
+        '    '
+    )
 
     __tablename__ = "api_role_permissions"
 
@@ -116,18 +131,30 @@ class RolePermission(Base):
 
     def __repr__(self) -> str:
         """String representation of the global role permission."""
-        return f"<RolePermission(id={self.id}, role='{self.role}', permission_id={self.permission_id})>"
+        return (
+            f'<RolePermission(id='
+            f'{self.id}'
+            f", role='"
+            f'{self.role}'
+            f"', permission_id="
+            f'{self.permission_id}'
+            f')>'
+        )
 
 
 class ProjectRolePermission(Base):
-    """Project-specific Role-Permission association model.
-    
-    Defines additional permissions for roles within a specific project.
-    These permissions are MERGED with global RolePermission.
-    Projects can only ADD permissions, not disable global ones.
-    
-    Final project permissions = RolePermission (global) + ProjectRolePermission (project-specific)
-    """
+    (
+        'Project-specific Role-Permission association model.\n'
+        '    \n'
+        '    Defines additional permissions for roles within a specific '
+        'project.\n'
+        '    These permissions are MERGED with global RolePermission.\n'
+        '    Projects can only ADD permissions, not disable global ones.\n'
+        '    \n'
+        '    Final project permissions = RolePermission (global) + '
+        'ProjectRolePermission (project-specific)\n'
+        '    '
+    )
 
     __tablename__ = "api_project_role_permissions"
 
@@ -172,4 +199,12 @@ class ProjectRolePermission(Base):
 
     def __repr__(self) -> str:
         """String representation of the project role permission."""
-        return f"<ProjectRolePermission(id={self.id}, role='{self.role}', project_id={self.project_id})>"
+        return (
+            f'<ProjectRolePermission(id='
+            f'{self.id}'
+            f", role='"
+            f'{self.role}'
+            f"', project_id="
+            f'{self.project_id}'
+            f')>'
+        )

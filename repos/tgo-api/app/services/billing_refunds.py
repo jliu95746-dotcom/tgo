@@ -1,4 +1,5 @@
-"""Refund money and service disposition are recorded only after verified success."""
+"Refund money and service disposition are recorded only after verified \
+success."
 
 from datetime import datetime, timedelta, timezone
 from uuid import UUID

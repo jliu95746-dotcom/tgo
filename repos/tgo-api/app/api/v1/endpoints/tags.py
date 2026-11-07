@@ -47,12 +47,15 @@ async def list_tags(
     current_user: Staff = Depends(require_permission("tags:list")),
     user_language: UserLanguage = Depends(get_user_language),
 ) -> TagListResponse:
-    """
-    List tags.
-    
-    Retrieve a paginated list of tags with optional filtering by category and search.
-    Requires tags:list permission.
-    """
+    (
+        '\n'
+        '    List tags.\n'
+        '    \n'
+        '    Retrieve a paginated list of tags with optional filtering by '
+        'category and search.\n'
+        '    Requires tags:list permission.\n'
+        '    '
+    )
     logger.info(f"User {current_user.username} listing tags")
 
     # Build query
@@ -103,13 +106,16 @@ async def create_tag(
     current_user: Staff = Depends(require_permission("tags:create")),
     user_language: UserLanguage = Depends(get_user_language),
 ) -> TagResponse:
-    """
-    Create tag.
-    
-    Create a new tag for categorization. Tag ID is automatically generated
-    as Base64 encoded string from name and category.
-    Requires tags:create permission.
-    """
+    (
+        '\n'
+        '    Create tag.\n'
+        '    \n'
+        '    Create a new tag for categorization. Tag ID is automatically '
+        'generated\n'
+        '    as Base64 encoded string from name and category.\n'
+        '    Requires tags:create permission.\n'
+        '    '
+    )
     logger.info(f"User {current_user.username} creating tag: {tag_data.name}")
 
     # Check if tag already exists
@@ -188,13 +194,17 @@ async def update_tag(
     current_user: Staff = Depends(require_permission("tags:update")),
     user_language: UserLanguage = Depends(get_user_language),
 ) -> TagResponse:
-    """
-    Update tag.
-    
-    Update tag properties like weight, color, description, and name_zh.
-    Name and category cannot be changed as they determine the tag ID.
-    Requires tags:update permission.
-    """
+    (
+        '\n'
+        '    Update tag.\n'
+        '    \n'
+        '    Update tag properties like weight, color, description, and '
+        'name_zh.\n'
+        '    Name and category cannot be changed as they determine the tag '
+        'ID.\n'
+        '    Requires tags:update permission.\n'
+        '    '
+    )
     logger.info(f"User {current_user.username} updating tag: {tag_id}")
 
     tag = (
@@ -234,12 +244,15 @@ async def delete_tag(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("tags:delete")),
 ) -> None:
-    """
-    Delete tag (soft delete).
-    
-    Soft delete a tag. This also removes all visitor-tag associations.
-    Requires tags:delete permission.
-    """
+    (
+        '\n'
+        '    Delete tag (soft delete).\n'
+        '    \n'
+        '    Soft delete a tag. This also removes all visitor-tag '
+        'associations.\n'
+        '    Requires tags:delete permission.\n'
+        '    '
+    )
     logger.info(f"User {current_user.username} deleting tag: {tag_id}")
 
     tag = (
@@ -281,7 +294,10 @@ async def create_visitor_tag(
     credentials: HTTPAuthorizationCredentials
     | None = Depends(original_bearer),
 ) -> VisitorTagResponse:
-    """Associate a real, currently owned customer with an existing project tag."""
+    (
+        'Associate a real, currently owned customer with an existing project '
+        'tag.'
+    )
     scope = begin_tag_change(
         db,
         credentials,
@@ -307,7 +323,10 @@ async def delete_visitor_tag(
     credentials: HTTPAuthorizationCredentials
     | None = Depends(original_bearer),
 ) -> None:
-    """Remove the original association after checking current customer ownership."""
+    (
+        'Remove the original association after checking current customer '
+        'ownership.'
+    )
     scope = begin_tag_removal(db, credentials, current_user, visitor_tag_id)
     _, output = commit_tag_change(db, scope)
     output.check(db)
@@ -327,7 +346,10 @@ async def delete_visitor_tag_by_ids(
     credentials: HTTPAuthorizationCredentials
     | None = Depends(original_bearer),
 ) -> None:
-    """Resolve the original association once; do not adopt a later replacement."""
+    (
+        'Resolve the original association once; do not adopt a later '
+        'replacement.'
+    )
     scope = begin_tag_change(
         db, credentials, current_user, visitor_id, tag_id, remove=True
     )

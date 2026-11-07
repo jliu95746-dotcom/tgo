@@ -1,4 +1,5 @@
-"""Idempotent entitlement application under the common company transaction lock."""
+"Idempotent entitlement application under the common company transaction \
+lock."
 
 from datetime import datetime, timezone
 from uuid import UUID
@@ -54,7 +55,10 @@ def grant_credit(
 def grant_due_month(
     db: Session, period: SubscriptionPeriod, now: datetime
 ) -> None:
-    """Only the current monthly bucket is issued; missed expired buckets are useless."""
+    (
+        'Only the current monthly bucket is issued; missed expired buckets '
+        'are useless.'
+    )
     definition = PlanDefinition.model_validate(period.definition)
     for index in range(period.months):
         start = add_months(
@@ -183,7 +187,8 @@ def fulfill_order(
             ):
                 raise conflict("订阅周期缺失，需人工核对")
             period = saved_period
-            # Materialize the old monthly bucket before replacing its definition.
+            # Materialize the old monthly bucket before replacing its
+            # definition.
 
             grant_due_month(db, period, details.quoted_at)
             period.plan_id = details.plan_id

@@ -1,4 +1,5 @@
-"""A confirmed external send remains visible even if staff IM was unavailable."""
+"A confirmed external send remains visible even if staff IM was \
+unavailable."
 
 from datetime import datetime, timedelta, timezone
 from uuid import UUID

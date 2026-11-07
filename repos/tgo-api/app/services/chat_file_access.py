@@ -208,7 +208,8 @@ def _actor_from_link(db: Session, token: str, file_id: UUID) -> FileActor:
         except (KeyError, TypeError, ValueError, ValidationError) as exc:
             raise _unauthorized() from exc
     else:
-        raise _unauthorized()  # Old platform-only links cannot bypass visitor ownership.
+        # Old platform-only links cannot bypass visitor ownership.
+        raise _unauthorized()
     _current_actor(db, actor)
     return actor
 

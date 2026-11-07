@@ -67,11 +67,13 @@ async def list_tools(
         get_authenticated_project
     ),
 ) -> List[ToolResponse]:
-    """
-    List tools for the current project.
-    
-    Proxies to AI service endpoint: GET /api/v1/tools
-    """
+    (
+        '\n'
+        '    List tools for the current project.\n'
+        '    \n'
+        '    Proxies to AI service endpoint: GET /api/v1/tools\n'
+        '    '
+    )
     project, _ = project_and_api_key
 
     # Map 'ALL' to None for downstream service

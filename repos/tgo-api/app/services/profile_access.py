@@ -1,4 +1,5 @@
-"""Original staff/visitor authority and visible peers for profile operations."""
+"Original staff/visitor authority and visible peers for profile \
+operations."
 
 from dataclasses import dataclass
 from collections.abc import Callable

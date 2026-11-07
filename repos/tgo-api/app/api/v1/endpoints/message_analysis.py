@@ -77,7 +77,10 @@ require_message_analysis_read = require_permission("visitors:read")
 
 @router.post(
     "/staff/intent-evaluation-predictions",
-    summary="Export selected project-owned intent results as deidentified G3 JSONL",
+    summary=(
+        'Export selected project-owned intent results as deidentified G3 '
+        'JSONL'
+    ),
 )
 def export_staff_intent_evaluation_predictions(
     request: IntentEvaluationExportRequest,
@@ -92,7 +95,9 @@ def export_staff_intent_evaluation_predictions(
         media_type="application/x-ndjson",
         headers={
             "Cache-Control": "no-store",
-            "Content-Disposition": 'attachment; filename="intent-g3-predictions.jsonl"',
+            "Content-Disposition": (
+                'attachment; filename="intent-g3-predictions.jsonl"'
+            ),
             "X-Content-Type-Options": "nosniff",
         },
     )
@@ -167,7 +172,9 @@ def submit_staff_shadow_adjudication(
 @router.get(
     "/staff/shadow-adjudications",
     response_model=ShadowAdjudicationHistory,
-    summary="Read append-only decisions for a project-owned frozen shadow sample",
+    summary=(
+        'Read append-only decisions for a project-owned frozen shadow sample'
+    ),
 )
 def list_staff_shadow_adjudications(
     batch_id: UUID,
@@ -296,7 +303,9 @@ def list_staff_shadow_review_protocol_candidates(
 @router.get(
     "/staff/shadow-review-protocols/{protocol_id}/integrity",
     response_model=ShadowProtocolIntegrityResponse,
-    summary="Recalculate the frozen official G4 manifest and selected membership",
+    summary=(
+        'Recalculate the frozen official G4 manifest and selected membership'
+    ),
 )
 def verify_staff_shadow_review_protocol_integrity(
     protocol_id: UUID,

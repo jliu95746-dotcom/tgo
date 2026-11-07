@@ -30,7 +30,10 @@ from app.schemas.shadow_adjudication import (
 
 
 def review_set_digest(rows: Iterable[tuple[UUID, UUID, str]]) -> str:
-    """Hash each current review identity and verdict in stable reviewer order."""
+    (
+        'Hash each current review identity and verdict in stable reviewer '
+        'order.'
+    )
     digest = hashlib.sha256()
     for reviewer_id, review_id, verdict in sorted(
         rows, key=lambda row: row[0].bytes

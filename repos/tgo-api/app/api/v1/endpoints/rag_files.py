@@ -40,12 +40,17 @@ router = APIRouter()
     response_model=FileListResponse,
     responses=LIST_RESPONSES,
     summary="List Files",
-    description="""
-    Retrieve all files for the authenticated project with filtering and pagination.
-
-    Files represent uploaded documents that are processed for RAG operations.
-    All results are automatically scoped to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Retrieve all files for the authenticated project with filtering '
+        'and pagination.\n'
+        '\n'
+        '    Files represent uploaded documents that are processed for RAG '
+        'operations.\n'
+        '    All results are automatically scoped to the authenticated '
+        'project.\n'
+        '    '
+    ),
 )
 async def list_files(
     collection_id: Optional[UUID] = Query(
@@ -107,13 +112,19 @@ async def list_files(
     },
     status_code=201,
     summary="Upload File",
-    description="""
-    Upload a new file for RAG processing within the authenticated project.
-
-    The file will be stored and queued for document extraction and embedding generation.
-    Supported formats: PDF, Word documents, text files, and markdown files.
-    All files are automatically scoped to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Upload a new file for RAG processing within the authenticated '
+        'project.\n'
+        '\n'
+        '    The file will be stored and queued for document extraction and '
+        'embedding generation.\n'
+        '    Supported formats: PDF, Word documents, text files, and '
+        'markdown files.\n'
+        '    All files are automatically scoped to the authenticated '
+        'project.\n'
+        '    '
+    ),
 )
 async def upload_file(
     file: UploadFile = File(
@@ -164,22 +175,33 @@ async def upload_file(
     responses={
         **CREATE_RESPONSES,
         413: {
-            "description": "One or more files too large - exceeds maximum allowed size"
+            "description": (
+                'One or more files too large - exceeds maximum allowed size'
+            )
         },
         415: {
-            "description": "Unsupported media type - one or more file types not allowed"
+            "description": (
+                'Unsupported media type - one or more file types not allowed'
+            )
         },
     },
     status_code=201,
     summary="Batch Upload Files",
-    description="""
-    Upload multiple files for RAG processing within the authenticated project in a single batch operation.
-
-    All files will be stored and queued for document extraction and embedding generation.
-    The response includes details about successful uploads and any failures.
-    Supported formats: PDF, Word documents, text files, and markdown files.
-    All files are automatically scoped to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Upload multiple files for RAG processing within the '
+        'authenticated project in a single batch operation.\n'
+        '\n'
+        '    All files will be stored and queued for document extraction and '
+        'embedding generation.\n'
+        '    The response includes details about successful uploads and any '
+        'failures.\n'
+        '    Supported formats: PDF, Word documents, text files, and '
+        'markdown files.\n'
+        '    All files are automatically scoped to the authenticated '
+        'project.\n'
+        '    '
+    ),
 )
 async def upload_files_batch(
     files: List[UploadFile] = File(
@@ -230,10 +252,14 @@ async def upload_files_batch(
     response_model=FileResponse,
     responses=CRUD_RESPONSES,
     summary="Get File",
-    description="""
-    Retrieve detailed information about a specific file including processing status
-    and metadata about generated documents. File must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Retrieve detailed information about a specific file including '
+        'processing status\n'
+        '    and metadata about generated documents. File must belong to the '
+        'authenticated project.\n'
+        '    '
+    ),
 )
 async def get_file(
     file_id: UUID,
@@ -272,18 +298,23 @@ async def get_file(
         504: {"description": "Gateway Timeout - RAG service timeout"},
     },
     summary="Download File",
-    description="""
-    Download a file by its ID with appropriate headers for browser download.
-
-    Downloads the original file content with proper Content-Type, Content-Disposition,
-    and other headers for browser compatibility. The file must belong to the authenticated project.
-
-    Security features:
-    - Validates file belongs to authenticated project
-    - Prevents unauthorized access to files
-    - Verifies file exists and is not deleted
-    - Supports Unicode filenames with proper encoding
-    """,
+    description=(
+        '\n'
+        '    Download a file by its ID with appropriate headers for browser '
+        'download.\n'
+        '\n'
+        '    Downloads the original file content with proper Content-Type, '
+        'Content-Disposition,\n'
+        '    and other headers for browser compatibility. The file must '
+        'belong to the authenticated project.\n'
+        '\n'
+        '    Security features:\n'
+        '    - Validates file belongs to authenticated project\n'
+        '    - Prevents unauthorized access to files\n'
+        '    - Verifies file exists and is not deleted\n'
+        '    - Supports Unicode filenames with proper encoding\n'
+        '    '
+    ),
 )
 async def download_file(
     file_id: UUID,
@@ -373,10 +404,14 @@ async def download_file(
     responses=CRUD_RESPONSES,
     status_code=204,
     summary="Delete File",
-    description="""
-    Delete a specific file by its UUID. This will also delete all associated
-    document chunks and remove the file from storage. File must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Delete a specific file by its UUID. This will also delete all '
+        'associated\n'
+        '    document chunks and remove the file from storage. File must '
+        'belong to the authenticated project.\n'
+        '    '
+    ),
 )
 async def delete_file(
     file_id: UUID,
@@ -398,12 +433,16 @@ async def delete_file(
     response_model=DocumentListResponse,
     responses=LIST_RESPONSES,
     summary="List File Documents",
-    description="""
-    Retrieve all document chunks generated from a specific file with filtering and pagination.
-    
-    This endpoint provides access to the processed document chunks for RAG operations.
-    File must belong to the authenticated project.
-    """,
+    description=(
+        '\n'
+        '    Retrieve all document chunks generated from a specific file '
+        'with filtering and pagination.\n'
+        '    \n'
+        '    This endpoint provides access to the processed document chunks '
+        'for RAG operations.\n'
+        '    File must belong to the authenticated project.\n'
+        '    '
+    ),
 )
 async def list_file_documents(
     file_id: UUID,

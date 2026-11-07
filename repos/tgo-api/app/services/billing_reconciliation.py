@@ -1,4 +1,5 @@
-"""Daily signed statement reconciliation, with query-based payment compensation."""
+"Daily signed statement reconciliation, with query-based payment \
+compensation."
 
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo

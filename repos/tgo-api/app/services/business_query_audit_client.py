@@ -65,7 +65,10 @@ async def read_business_message_audits(
     skip: int,
     limit: int,
 ) -> BusinessQueryAuditList:
-    """Find Plugin attempts using a message identity read from API-owned records."""
+    (
+        'Find Plugin attempts using a message identity read from API-owned '
+        'records.'
+    )
     token = settings.BUSINESS_CONNECTION_SERVICE_TOKEN
     if token is None or len(token.get_secret_value()) < 32:
         raise audit_unavailable()

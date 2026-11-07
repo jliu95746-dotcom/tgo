@@ -1,4 +1,5 @@
-"""Visitor Waiting Queue model for managing visitors waiting for staff assignment."""
+"Visitor Waiting Queue model for managing visitors waiting for staff \
+assignment."
 
 from datetime import datetime
 from enum import Enum
@@ -56,14 +57,18 @@ URGENCY_PRIORITY_MAP = {
 
 
 class VisitorWaitingQueue(Base):
-    """Visitor waiting queue for managing visitors awaiting staff assignment.
-    
-    This is the unified queue for all human service requests, including:
-    - AI agent requests for manual service
-    - Visitor explicit requests for human service
-    - Automatic queuing when no staff is available
-    - Staff transfers
-    """
+    (
+        'Visitor waiting queue for managing visitors awaiting staff '
+        'assignment.\n'
+        '    \n'
+        '    This is the unified queue for all human service requests, '
+        'including:\n'
+        '    - AI agent requests for manual service\n'
+        '    - Visitor explicit requests for human service\n'
+        '    - Automatic queuing when no staff is available\n'
+        '    - Staff transfers\n'
+        '    '
+    )
 
     __tablename__ = "api_visitor_waiting_queue"
 
@@ -97,7 +102,10 @@ class VisitorWaitingQueue(Base):
         String(20),
         nullable=False,
         default=QueueSource.NO_STAFF.value,
-        comment="Queue entry source: ai_request, visitor, transfer, system, no_staff",
+        comment=(
+            'Queue entry source: ai_request, visitor, transfer, system, '
+            'no_staff'
+        ),
     )
     urgency: Mapped[str] = mapped_column(
         String(10),
@@ -133,7 +141,10 @@ class VisitorWaitingQueue(Base):
         Boolean,
         nullable=True,
         default=None,
-        comment="Whether AI responses should be disabled (None=keep current, True=disable, False=enable)",
+        comment=(
+            'Whether AI responses should be disabled (None=keep current, '
+            'True=disable, False=enable)'
+        ),
     )
 
     # Context information
@@ -145,7 +156,10 @@ class VisitorWaitingQueue(Base):
     reason: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,
-        comment="Reason for entering queue (e.g., 'No available staff', 'AI requested')",
+        comment=(
+            "Reason for entering queue (e.g., 'No available staff', 'AI "
+            "requested')"
+        ),
     )
 
     # Channel information (from AI events)
@@ -190,7 +204,9 @@ class VisitorWaitingQueue(Base):
     )
     exited_at: Mapped[Optional[datetime]] = mapped_column(
         nullable=True,
-        comment="When visitor exited the queue (assigned, cancelled, or expired)",
+        comment=(
+            'When visitor exited the queue (assigned, cancelled, or expired)'
+        ),
     )
     created_at: Mapped[datetime] = mapped_column(
         nullable=False,
@@ -224,8 +240,17 @@ class VisitorWaitingQueue(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<VisitorWaitingQueue(id={self.id}, visitor_id={self.visitor_id}, "
-            f"source={self.source}, status={self.status}, position={self.position})>"
+            f'<VisitorWaitingQueue(id='
+            f'{self.id}'
+            f', visitor_id='
+            f'{self.visitor_id}'
+            f', source='
+            f'{self.source}'
+            f', status='
+            f'{self.status}'
+            f', position='
+            f'{self.position}'
+            f')>'
         )
 
     @property
@@ -250,13 +275,17 @@ class VisitorWaitingQueue(Base):
     def needs_fallback_processing(
         self, fallback_delay_seconds: int = 120
     ) -> bool:
-        """Check if this entry should be processed by the fallback processor.
-        
-        Returns True if:
-        - Status is WAITING
-        - Not expired
-        - Either never attempted, or last attempt was more than fallback_delay_seconds ago
-        """
+        (
+            'Check if this entry should be processed by the fallback '
+            'processor.\n'
+            '        \n'
+            '        Returns True if:\n'
+            '        - Status is WAITING\n'
+            '        - Not expired\n'
+            '        - Either never attempted, or last attempt was more than '
+            'fallback_delay_seconds ago\n'
+            '        '
+        )
         if self.status != WaitingStatus.WAITING.value:
             return False
         if self.is_expired:

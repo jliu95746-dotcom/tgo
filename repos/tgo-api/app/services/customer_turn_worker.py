@@ -1,4 +1,5 @@
-"""Recoverable turn execution, independent of browser and callback lifetimes."""
+"Recoverable turn execution, independent of browser and callback \
+lifetimes."
 
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -147,7 +148,10 @@ def begin(
         )
         turn.state, turn.lease_owner = "processing", owner
         logger.info(
-            "Customer turn phase turn=%s version=%s phase=collection seconds=%.3f parts=%s",
+            (
+                'Customer turn phase turn=%s version=%s phase=collection '
+                'seconds=%.3f parts=%s'
+            ),
             turn.id,
             turn.version,
             (now - utc(turn.collect_started_at)).total_seconds(),
@@ -218,7 +222,8 @@ async def execute(turn_id: UUID, owner: UUID) -> None:
         try:
             from app.api.v1.endpoints.chat import chat_completion
 
-            # Use the same scoped visitor proof as the channel; never skip auth.
+            # Use the same scoped visitor proof as the channel; never skip
+            # auth.
 
             from app.services.im_access import issue_visitor_im_token
 

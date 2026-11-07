@@ -24,16 +24,19 @@ class AliyunOSSBackend(StorageBackend):
         access_key_secret: str,
         bucket_url: str | None = None,
     ) -> None:
-        """
-        Initialize Aliyun OSS backend.
-
-        Args:
-            endpoint: OSS endpoint
-            bucket_name: OSS bucket name
-            access_key_id: OSS access key ID
-            access_key_secret: OSS access key secret
-            bucket_url: Base URL for generating public URLs (can be a custom domain)
-        """
+        (
+            '\n'
+            '        Initialize Aliyun OSS backend.\n'
+            '\n'
+            '        Args:\n'
+            '            endpoint: OSS endpoint\n'
+            '            bucket_name: OSS bucket name\n'
+            '            access_key_id: OSS access key ID\n'
+            '            access_key_secret: OSS access key secret\n'
+            '            bucket_url: Base URL for generating public URLs '
+            '(can be a custom domain)\n'
+            '        '
+        )
         if oss2 is None:
             raise ImportError(
                 "The 'oss2' package is required for AliyunOSSBackend. "
@@ -42,7 +45,8 @@ class AliyunOSSBackend(StorageBackend):
         self.auth = oss2.Auth(access_key_id, access_key_secret)
         self.bucket = oss2.Bucket(self.auth, endpoint, bucket_name)
 
-        # bucket_url should be something like https://bucket-name.oss-cn-hangzhou.aliyuncs.com
+        # bucket_url should be something like
+        # https://bucket-name.oss-cn-hangzhou.aliyuncs.com
         # or a custom domain like https://cdn.example.com
 
         self.bucket_url = (
@@ -77,7 +81,8 @@ class AliyunOSSBackend(StorageBackend):
         self, file: BinaryIO, path: str, content_type: str
     ) -> str:
         """Upload file to Aliyun OSS."""
-        # Use run_in_executor to avoid blocking the event loop with synchronous oss2 SDK
+        # Use run_in_executor to avoid blocking the event loop with synchronous
+        # oss2 SDK
 
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(
@@ -104,12 +109,15 @@ class AliyunOSSBackend(StorageBackend):
         Get public URL for a file path.
         """
         clean_path = path.lstrip("/")
-        # If it's an API path (/v1/chat/files/...), we assume it should be handled
+        # If it's an API path (/v1/chat/files/...), we assume it should be
+        # handled
         # normally, but usually OSS backends return direct links.
 
         if clean_path.startswith("v1/chat/files/"):
-            # If the application is configured to serve files via API even with OSS,
-            # we might need different logic. But usually, OSS means direct CDN access.
+            # If the application is configured to serve files via API even with
+            # OSS,
+            # we might need different logic. But usually, OSS means direct CDN
+            # access.
 
             return f"{self.bucket_url}/{clean_path}"
         return f"{self.bucket_url}/{clean_path}"

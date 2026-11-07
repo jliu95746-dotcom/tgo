@@ -86,7 +86,8 @@ class CredentialVault:
         except TGOAPIException:
             raise
         except (ValueError, binascii.Error, ValidationError, InvalidTag):
-            # Neither the upstream error nor decrypted bytes enter errors or logs.
+            # Neither the upstream error nor decrypted bytes enter errors or
+            # logs.
             raise TGOAPIException(
                 "连接凭证无法读取，请重新核对保管配置或更新凭证",
                 code="CREDENTIAL_UNREADABLE",

@@ -159,7 +159,8 @@ def _parse_remote_models(provider: str, data: Any) -> list[RemoteModelInfo]:
                         )
                     )
     elif p in ("anthropic", "claude"):
-        # Anthropic style: { "data": [ { "id": "...", "display_name": "..." } ] }
+        # Anthropic style: { "data": [ { "id": "...", "display_name": "..." } ]
+        # }
 
         if isinstance(data, dict) and "data" in data:
             for m in data["data"]:
@@ -178,7 +179,8 @@ def _parse_remote_models(provider: str, data: Any) -> list[RemoteModelInfo]:
 
         if isinstance(data, dict) and "value" in data:
             for m in data["value"]:
-                # Azure deployments often use 'id' or 'name' as the deployment name
+                # Azure deployments often use 'id' or 'name' as the deployment
+                # name
 
                 mid = m.get("id") or m.get("name")
                 if mid:
@@ -217,7 +219,10 @@ async def get_provider_remote_models(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
 ) -> RemoteModelListResponse:
-    """Fetch available models from the provider's remote API using stored credentials."""
+    (
+        "Fetch available models from the provider's remote API using stored "
+        'credentials.'
+    )
     item = (
         db.query(AIProvider)
         .filter(
@@ -254,7 +259,8 @@ async def get_provider_remote_models(
             models = [m for m in models if m.model_type == model_type]
         if capabilities:
             try:
-                # Parse capabilities filter, e.g., "vision:true,function_calling:true"
+                # Parse capabilities filter, e.g.,
+                # "vision:true,function_calling:true"
 
                 filters = {}
                 for part in capabilities.split(","):
@@ -275,7 +281,12 @@ async def get_provider_remote_models(
                     models = filtered_models
             except Exception as e:
                 logger.warning(
-                    f"Failed to parse capabilities filter '{capabilities}': {e}"
+                    (
+                        f"Failed to parse capabilities filter '"
+                        f'{capabilities}'
+                        f"': "
+                        f'{e}'
+                    )
                 )
         return RemoteModelListResponse(
             provider=item.provider, models=models, is_fallback=False
@@ -336,8 +347,10 @@ async def list_ai_providers(
 
         filter_func = check_model_type
     # Fetch all candidates first (filtered by basic params)
-    # Since specific model filtering is complex in SQL with mixed types, we do it in Python
-    # This is safe because the number of providers per project is typically small (< 50)
+    # Since specific model filtering is complex in SQL with mixed types, we do
+    # it in Python
+    # This is safe because the number of providers per project is typically
+    # small (< 50)
 
     candidates = query.order_by(AIProvider.created_at.desc()).all()
 

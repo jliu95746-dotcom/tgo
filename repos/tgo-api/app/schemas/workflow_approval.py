@@ -1,4 +1,5 @@
-"""Public approval fields; the private workflow checkpoint never crosses the API."""
+"Public approval fields; the private workflow checkpoint never crosses \
+the API."
 
 from datetime import datetime
 from typing import Annotated, Literal

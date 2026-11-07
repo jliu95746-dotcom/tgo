@@ -1,4 +1,5 @@
-"""Visitor Assignment History model for tracking LLM-based assignment decisions."""
+"Visitor Assignment History model for tracking LLM-based assignment \
+decisions."
 
 from datetime import datetime
 from enum import Enum
@@ -193,6 +194,13 @@ class VisitorAssignmentHistory(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<VisitorAssignmentHistory(id={self.id}, visitor_id={self.visitor_id}, "
-            f"assigned_staff_id={self.assigned_staff_id}, source={self.source})>"
+            f'<VisitorAssignmentHistory(id='
+            f'{self.id}'
+            f', visitor_id='
+            f'{self.visitor_id}'
+            f', assigned_staff_id='
+            f'{self.assigned_staff_id}'
+            f', source='
+            f'{self.source}'
+            f')>'
         )

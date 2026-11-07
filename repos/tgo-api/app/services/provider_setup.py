@@ -54,7 +54,8 @@ def resolve_connection(
         if not item:
             raise HTTPException(404, '模型服务不存在')
         if not key:
-            # Never forward stored credentials to an edited destination silently.
+            # Never forward stored credentials to an edited destination
+            # silently.
 
             if (
                 base != (item.api_base_url or '').rstrip('/')
@@ -96,7 +97,15 @@ def build_model_request(
         )
         root = base if base.endswith('/openai') else base + '/openai'
         return (
-            f'{root}/deployments/{quote(draft.model_id, safe="")}/{suffix}?api-version={version}',
+            (
+                f'{root}'
+                f'/deployments/'
+                f"{quote(draft.model_id, safe='')}"
+                f'/'
+                f'{suffix}'
+                f'?api-version='
+                f'{version}'
+            ),
             headers,
             body,
         )

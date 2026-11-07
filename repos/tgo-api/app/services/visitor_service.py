@@ -228,11 +228,14 @@ async def ensure_visitor_channel(
     visitor: Visitor,
     platform: Platform,
 ) -> None:
-    """Ensure WuKongIM channel exists for a visitor.
-    
-    This function separates DB operations from external API calls to minimize
-    transaction duration and prevent deadlocks.
-    """
+    (
+        'Ensure WuKongIM channel exists for a visitor.\n'
+        '    \n'
+        '    This function separates DB operations from external API calls '
+        'to minimize\n'
+        '    transaction duration and prevent deadlocks.\n'
+        '    '
+    )
     channel_id = build_visitor_channel_id(visitor.id)
     subscribers = [str(visitor.id) + "-vtr"]
     need_create_member = False

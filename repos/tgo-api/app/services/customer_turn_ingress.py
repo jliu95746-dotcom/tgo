@@ -1,4 +1,5 @@
-"""Keep HTTP/SSE compatible while one durable worker owns each customer turn."""
+"Keep HTTP/SSE compatible while one durable worker owns each customer \
+turn."
 
 import asyncio
 from collections.abc import AsyncIterator
@@ -63,7 +64,8 @@ async def cancel_customer_turns(db: Session, visitor: Visitor) -> None:
     execution = current_execution.get()
     for cid in stopped:
         if execution is not None and cid == execution.client_msg_no:
-            continue  # Finish the human assignment that this same run requested.
+            # Finish the human assignment that this same run requested.
+            continue
         await stop_run(visitor.project_id, cid)
 
 
@@ -238,6 +240,11 @@ async def response(
                 yield ": waiting for customer turn\n\n"
                 last_keepalive = asyncio.get_running_loop().time()
             await asyncio.sleep(0.1)
-        yield 'event: workflow_failed\ndata: {"event_type":"workflow_failed","data":{"error_message":"回复处理超时"}}\n\n'
+        yield (
+            'event: workflow_failed\n'
+            'data: {"event_type":"workflow_failed","data":{"error_message":"回'
+            '复处理超时"}}\n'
+            '\n'
+        )
 
     return StreamingResponse(events(), media_type="text/event-stream")

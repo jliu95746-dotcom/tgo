@@ -45,7 +45,10 @@ async def review_chat_target(
     source_channel: str | None = None,
     execution_id: UUID | None = None,
 ) -> WorkflowAfterSalesChatTarget:
-    """Resolve a task's original visitor through current tenant and chat access."""
+    (
+        "Resolve a task's original visitor through current tenant and chat "
+        'access.'
+    )
     require_customer_read(db, staff)
     context = _review_session_context(db, staff, visitor_session_id)
     if context is None:
@@ -196,7 +199,10 @@ async def list_review_files(
     staff: Staff,
     visitor_session_id: UUID,
 ) -> list[WorkflowAfterSalesEvidenceFile]:
-    """List metadata only; downloading still uses the normal file access guard."""
+    (
+        'List metadata only; downloading still uses the normal file access '
+        'guard.'
+    )
     require_customer_read(db, staff)
     context = _review_session_context(db, staff, visitor_session_id)
     if context is None:
@@ -247,7 +253,10 @@ def _review_session_context(
     staff: Staff,
     visitor_session_id: UUID,
 ) -> tuple[VisitorSession, UUID] | None:
-    """Resolve the current customer session without trusting the review ID alone."""
+    (
+        'Resolve the current customer session without trusting the review ID '
+        'alone.'
+    )
     session = db.scalar(
         select(VisitorSession)
         .where(
