@@ -116,7 +116,12 @@ async def list_installed_plugins(
                     installed_at=p.installed_at,
                     updated_at=p.updated_at,
                     pid=pid,
-                    last_error=p.last_error,
+                    last_error=(
+                        public_plugin_failure(
+                            p.last_error, "Plugin operation failed"
+                        )
+                        if p.last_error else p.last_error
+                    ),
                     is_dev_mode=False,
                     capabilities=capabilities,
                 )

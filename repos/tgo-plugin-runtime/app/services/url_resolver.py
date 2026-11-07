@@ -5,6 +5,8 @@ import httpx
 import yaml
 from typing import Optional, Dict, Any
 from app.core.logging import get_logger
+from app.services.plugin_failures import log_plugin_failure
+from app.domain.business_tools.target_transport import business_query_log_scope
 
 logger = get_logger("services.url_resolver")
 
@@ -65,9 +67,7 @@ class PluginURLResolver:
         if config:
             return self._resolve_relative_urls(config, base_url)
 
-        raise ValueError(
-            f"Could not fetch or parse plugin configuration from {raw_url}"
-        )
+        raise ValueError("Could not fetch or parse plugin configuration")
 
     async def _resolve_gitee_blob(self, match) -> Dict[str, Any]:
         user, repo, branch, path = match.groups()
@@ -79,9 +79,7 @@ class PluginURLResolver:
         if config:
             return self._resolve_relative_urls(config, base_url)
 
-        raise ValueError(
-            f"Could not fetch or parse plugin configuration from {raw_url}"
-        )
+        raise ValueError("Could not fetch or parse plugin configuration")
 
     async def _resolve_github(self, match) -> Dict[str, Any]:
         user, repo, branch, path = match.groups()
@@ -169,18 +167,22 @@ class PluginURLResolver:
             fetch_url = url
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(fetch_url, follow_redirects=True)
-                if response.status_code == 200:
-                    try:
-                        return yaml.safe_load(response.text)
-                    except yaml.YAMLError as e:
-                        logger.error(
-                            f"Failed to parse YAML from {fetch_url}: {e}"
-                        )
-                        return None
+            with business_query_log_scope():
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.get(
+                        fetch_url, follow_redirects=True,
+                    )
+                    if response.status_code == 200:
+                        try:
+                            config = yaml.safe_load(response.text)
+                            if isinstance(config, dict) and all(
+                                isinstance(key, str) for key in config
+                            ):
+                                return config
+                        except yaml.YAMLError as error:
+                            log_plugin_failure("parse_plugin_source", error)
         except Exception as e:
-            logger.error(f"Failed to fetch {fetch_url}: {e}")
+            log_plugin_failure("fetch_plugin_source", e)
         return None
 
     def _resolve_relative_urls(
@@ -192,11 +194,19 @@ class PluginURLResolver:
         )
         if "source" in config:
             source = config["source"]
+            if not isinstance(source, dict):
+                raise ValueError("Invalid plugin source configuration")
             # Handle binary source
-            if "binary" in source and "url" in source["binary"]:
-                url = source["binary"]["url"]
-                if not url.startswith(("http://", "https://")):
-                    source["binary"]["url"] = urljoin(base_url, url)
+            binary = source.get("binary")
+            if binary is not None:
+                if not isinstance(binary, dict):
+                    raise ValueError("Invalid plugin binary configuration")
+                if "url" in binary:
+                    url = binary["url"]
+                    if not isinstance(url, str):
+                        raise ValueError("Plugin binary URL must be a string")
+                    if not url.startswith(("http://", "https://")):
+                        binary["url"] = urljoin(base_url, url)
 
             # Handle github source path (if it were relative to the yml, but
             # usually it's repo-based)

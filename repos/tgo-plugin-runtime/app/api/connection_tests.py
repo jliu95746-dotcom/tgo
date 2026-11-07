@@ -12,6 +12,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.config import settings
+from app.core.request_validation import safe_validation_issues
 from app.domain.business_tools.connection_runner import ConnectionTestRunner
 from app.schemas.connection_test_protocol import (
     ConnectionTestCommand,
@@ -35,10 +36,7 @@ class PrivateTestRoute(APIRoute):
                 return JSONResponse(
                     status_code=422,
                     content={
-                        "detail": [
-                            {"loc": list(item["loc"]), "type": item["type"]}
-                            for item in error.errors()
-                        ]
+                        "detail": safe_validation_issues(request, error),
                     },
                 )
 

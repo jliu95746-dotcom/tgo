@@ -4,9 +4,11 @@ import asyncio
 import importlib
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 
 from app.config import settings
 from app.core.logging import setup_logging, startup_log
+from app.core.request_validation import safe_request_validation
 
 # Setup logging
 setup_logging()
@@ -96,6 +98,7 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+app.add_exception_handler(RequestValidationError, safe_request_validation)
 
 
 @app.get("/")

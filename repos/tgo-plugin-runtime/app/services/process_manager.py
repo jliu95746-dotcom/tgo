@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.core.logging import get_logger
+from app.core.plugin_log_privacy import (
+    MAX_LOG_LINE_BYTES, OVERSIZED_LINE, PluginLogPrivacy,
+)
 from app.config import settings as _settings
 from app.config import settings
 from app.core.database import SessionLocal
@@ -32,14 +35,17 @@ class ManagedPlugin:
     """Represents a plugin process managed by this service."""
 
     id: str
-    config: Dict[str, Any]
+    config: Dict[str, Any] = field(repr=False)
     process: Optional[asyncio.subprocess.Process] = None
     status: str = "stopped"  # stopped, running, starting, error
     pid: Optional[int] = None
-    last_error: Optional[str] = None
+    last_error: Optional[str] = field(default=None, repr=False)
     restart_count: int = 0
-    logs: collections.deque = field(
-        default_factory=lambda: collections.deque(maxlen=1000)
+    logs: collections.deque[str] = field(
+        default_factory=lambda: collections.deque(maxlen=1000), repr=False,
+    )
+    _log_privacy: PluginLogPrivacy = field(
+        default_factory=PluginLogPrivacy, repr=False,
     )
     _stop_requested: bool = False
     _restart_task: Optional[asyncio.Task] = None
@@ -241,6 +247,8 @@ class ProcessManager:
         cmd = []
         env = os.environ.copy()
         env.update(runtime_config.get("env", {}))
+        privacy = PluginLogPrivacy().extend(config, env)
+        managed._log_privacy = privacy
 
         # Set socket path for plugin SDK to connect
         env["TGO_SOCKET_PATH"] = settings.PLUGIN_SOCKET_PATH
@@ -310,7 +318,7 @@ class ProcessManager:
             managed.process = process
             managed.pid = process.pid
             # Start logging task
-            asyncio.create_task(self._read_logs(managed, process))
+            asyncio.create_task(self._read_logs(managed, process, privacy))
             await self._update_db_status(
                 plugin_id, "starting", pid=managed.pid
             )
@@ -353,21 +361,47 @@ class ProcessManager:
             return False, managed.last_error
 
     async def _read_logs(
-        self, managed: ManagedPlugin, process: asyncio.subprocess.Process
-    ):
+        self, managed: ManagedPlugin, process: asyncio.subprocess.Process,
+        privacy: PluginLogPrivacy | None = None,
+    ) -> None:
         """Read process output and store in buffer."""
         if not process.stdout:
             return
 
-        while True:
-            line = await process.stdout.readline()
-            if not line:
-                break
-
-            decoded_line = line.decode(errors="replace").strip()
-            managed.logs.append(decoded_line)
-            # Optional: also log to system logger
-            # logger.debug(f"[{managed.id}] {decoded_line}")
+        if privacy is None:
+            privacy = PluginLogPrivacy().extend(managed.config, os.environ)
+            managed._log_privacy = privacy
+        pending = bytearray()
+        oversized = False
+        try:
+            while chunk := await process.stdout.read(4096):
+                pieces = chunk.split(b"\n")
+                for index, piece in enumerate(pieces):
+                    if not oversized:
+                        if len(pending) + len(piece) > MAX_LOG_LINE_BYTES:
+                            pending.clear()
+                            oversized = True
+                        else:
+                            pending.extend(piece)
+                    if index < len(pieces) - 1:
+                        managed.logs.append(
+                            OVERSIZED_LINE if oversized else
+                            privacy.sanitize(
+                                pending.decode(errors="replace").strip()
+                            )
+                        )
+                        pending.clear()
+                        oversized = False
+            if pending or oversized:
+                managed.logs.append(
+                    OVERSIZED_LINE if oversized else
+                    privacy.sanitize(
+                        pending.decode(errors="replace").strip()
+                    )
+                )
+        except Exception as error:
+            log_plugin_failure("read_plugin_output", error)
+            managed.logs.append("Plugin output could not be read")
 
     async def stop_plugin(self, plugin_id: str) -> bool:
         """Stop a plugin process."""
@@ -427,7 +461,12 @@ class ProcessManager:
         """Get the latest logs for a plugin."""
         managed = self._managed_plugins.get(plugin_id)
         if managed:
-            return list(managed.logs)
+            managed._log_privacy = managed._log_privacy.extend(
+                managed.config, os.environ,
+            )
+            return [
+                managed._log_privacy.sanitize(line) for line in managed.logs
+            ]
         return []
 
     def get_status(self, plugin_id: str) -> Dict[str, Any]:
@@ -439,7 +478,11 @@ class ProcessManager:
                 "status": managed.status,
                 "pid": managed.pid,
                 "restart_count": managed.restart_count,
-                "last_error": managed.last_error,
+                "last_error": (
+                    public_plugin_failure(
+                        managed.last_error, "Plugin operation failed"
+                    ) if managed.last_error else managed.last_error
+                ),
             }
         return {"id": plugin_id, "status": "not_managed"}
 
