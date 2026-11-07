@@ -4,7 +4,7 @@ from typing import Dict, List, Literal, Optional
 from uuid import UUID
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
 
 from app.config import settings
@@ -61,10 +61,13 @@ class WorkflowBatchResponse(BaseModel):
     not_found: List[str] = Field(description="Workflow IDs that were not found")
 
 
+_workflow_batch = TypeAdapter(List[WorkflowData])
+
+
 class WorkflowServiceClient:
     """Client for interacting with the external Workflow service."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the Workflow service client."""
         self.base_url = settings.workflow_service_url
         self.timeout = 30.0
@@ -87,8 +90,8 @@ class WorkflowServiceClient:
         if not workflow_ids:
             return []
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.get(
                     f"{self.base_url}/v1/workflows/batch",
                     params={
@@ -98,31 +101,30 @@ class WorkflowServiceClient:
                 )
 
                 if response.status_code == 200:
-                    data = response.json()
-                    # The API returns a list of workflows directly according to OpenAPI docs
-                    return [WorkflowData(**item) for item in data]
-                elif response.status_code == 422:
-                    error_data = response.json()
-                    raise ValidationError(
-                        f"Invalid workflow IDs: {error_data.get('detail', 'Unknown validation error')}",
-                        "workflows",
-                        {"status_code": response.status_code, "detail": error_data}
-                    )
+                    result = _workflow_batch.validate_python(response.json())
+                    found = [row.id for row in result]
+                    if (
+                        len(found) != len(set(found))
+                        or not set(found).issubset(workflow_ids)
+                    ):
+                        raise ValueError("Unexpected workflow batch IDs")
+                    return result
+                if response.status_code == 422:
+                    message = "Invalid workflow IDs"
                 else:
-                    response.raise_for_status()
-                    return [] # Should not reach here due to raise_for_status
-
-            except httpx.RequestError as e:
-                raise NotFoundError(
-                    "Workflow Service",
-                    f"Unable to connect to Workflow service: {str(e)}"
-                )
-            except httpx.HTTPStatusError as e:
+                    message = (
+                        f"Workflow service error: {response.status_code}"
+                    )
                 raise ValidationError(
-                    f"Workflow service error: {e.response.status_code}",
-                    "workflows",
-                    {"status_code": e.response.status_code}
+                    message, "workflows",
+                    {"status_code": response.status_code},
                 )
+        except httpx.RequestError:
+            raise NotFoundError("Workflow Service") from None
+        except ValueError:
+            raise ValidationError(
+                "Invalid workflow batch response", "workflows"
+            ) from None
 
     async def resolve_published_bindings(
         self, workflow_ids: List[str], project_id: str,
@@ -199,7 +201,7 @@ class WorkflowServiceClient:
         if missing_ids:
             raise NotFoundError(
                 "Workflow",
-                f"Workflows not found: {', '.join(missing_ids)}"
+                details={"missing_ids": sorted(missing_ids)},
             )
 
 

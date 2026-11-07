@@ -111,6 +111,11 @@ class AgentService:
             tool_ids = [tool.tool_id for tool in agent_data.tools]
             await self._validate_tools_belong_to_project(tool_ids, project_id)
 
+        if agent_data.collections:
+            await self._validate_collections_belong_to_project(
+                agent_data.collections, project_id
+            )
+
         if len(agent_data.workflows or []) != len(set(agent_data.workflows or [])):
             raise ValidationError("工作流关联不能重复", "workflows")
         if not set(agent_data.workflow_release_versions).issubset(

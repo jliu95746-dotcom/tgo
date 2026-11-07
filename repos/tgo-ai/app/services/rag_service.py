@@ -1,6 +1,7 @@
 """RAG Service client for external collection data retrieval."""
 
 import uuid
+from collections import Counter
 from typing import Any, Dict, List, Optional
 
 from app.services.service_identity import rag_service_headers
@@ -38,10 +39,25 @@ class CollectionBatchResponse(BaseModel):
     not_found: List[str] = Field(description="Collection IDs that were not found")
 
 
+def _check_collection_batch(
+    result: CollectionBatchResponse, collection_ids: List[str]
+) -> None:
+    requested = Counter(uuid.UUID(value) for value in collection_ids)
+    found = [row.id for row in result.collections]
+    missing = Counter(uuid.UUID(value) for value in result.not_found)
+    if (
+        len(found) != len(set(found))
+        or set(found) & missing.keys()
+        or set(found) | missing.keys() != requested.keys()
+        or any(count > requested[value] for value, count in missing.items())
+    ):
+        raise ValueError("Collection batch does not match the requested IDs")
+
+
 class RAGServiceClient:
     """Client for interacting with the external RAG service."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the RAG service client."""
         self.base_url = settings.rag_service_url
         self.timeout = 30.0
@@ -81,8 +97,10 @@ class RAGServiceClient:
         if not collection_ids:
             return CollectionBatchResponse(collections=[], not_found=[])
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=rag_service_headers()) as client:
-            try:
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=rag_service_headers()
+            ) as client:
                 response = await client.post(
                     f"{self.base_url}/v1/collections/batch",
                     params={"project_id": project_id},
@@ -91,42 +109,31 @@ class RAGServiceClient:
                 )
 
                 if response.status_code == 200:
-                    data = response.json()
-                    return CollectionBatchResponse(**data)
-                elif response.status_code == 400:
-                    raise ValidationError(
-                        "Bad request to RAG service",
-                        "collections",
-                        {"status_code": response.status_code}
+                    result = CollectionBatchResponse.model_validate(
+                        response.json()
                     )
-                elif response.status_code == 422:
-                    error_data = response.json()
-                    raise ValidationError(
-                        f"Invalid collection IDs: {error_data.get('detail', 'Unknown validation error')}",
-                        "collections",
-                        {"status_code": response.status_code, "detail": error_data}
-                    )
-                else:
-                    response.raise_for_status()
-
-            except httpx.RequestError as e:
-                raise NotFoundError(
-                    "RAG Service",
-                    f"Unable to connect to RAG service: {str(e)}"
-                )
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
-                    # All collections not found
+                    _check_collection_batch(result, collection_ids)
+                    return result
+                if response.status_code == 404:
                     return CollectionBatchResponse(
-                        collections=[],
-                        not_found=collection_ids
+                        collections=[], not_found=collection_ids
                     )
+                if response.status_code == 400:
+                    message = "Bad request to RAG service"
+                elif response.status_code == 422:
+                    message = "Invalid collection IDs"
                 else:
-                    raise ValidationError(
-                        f"RAG service error: {e.response.status_code}",
-                        "collections",
-                        {"status_code": e.response.status_code}
-                    )
+                    message = f"RAG service error: {response.status_code}"
+                raise ValidationError(
+                    message, "collections",
+                    {"status_code": response.status_code},
+                )
+        except httpx.RequestError:
+            raise NotFoundError("RAG Service") from None
+        except ValueError:
+            raise ValidationError(
+                "Invalid collection batch response", "collections"
+            ) from None
 
     async def validate_collections_exist(
         self,
@@ -152,7 +159,7 @@ class RAGServiceClient:
         if batch_response.not_found:
             raise NotFoundError(
                 "Collection",
-                f"Collections not found: {', '.join(batch_response.not_found)}"
+                details={"missing_ids": batch_response.not_found},
             )
 
     async def get_collection(
