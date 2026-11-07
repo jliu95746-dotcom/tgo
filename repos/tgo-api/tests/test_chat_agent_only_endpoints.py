@@ -35,6 +35,7 @@ def isolate_employee_settings(monkeypatch):
             return SimpleNamespace(
                 routing_target="auto_reply", tool_context=None,
                 excluded_tool_ids=(), handoff_result=None,
+                contextual_reply=None,
             )
 
     monkeypatch.setattr(chat_endpoints, "MessageIntentOrchestrator", _IntentStub)

@@ -57,9 +57,6 @@ from app.schemas.chat import (
     AssistDraftResponse,
     ChatCompletionRequest,
     OpenAIChatCompletionChoice,
-    OpenAIChatCompletionChunk,
-    OpenAIChatCompletionChunkChoice,
-    OpenAIChatCompletionDelta,
     OpenAIChatCompletionRequest,
     OpenAIChatCompletionResponse,
     OpenAIChatCompletionUsage,
@@ -78,6 +75,7 @@ from app.schemas.staff_delivery import (
     StaffDeliveryResponse,
 )
 from app.services import chat_service
+from app.services.openai_chat_stream import openai_chat_stream
 from app.services import staff_delivery
 from app.services.platform_message_client import forward_staff_platform_message
 from app.services.staff_message_target import resolve_staff_message_target
@@ -1861,6 +1859,7 @@ async def create_chat_file_access(
 
 @router.post(
     "/completions",
+    response_model=None,
     summary="OpenAI-compatible chat completion",
     tags=["Chat"],
     description="""
@@ -1892,7 +1891,7 @@ async def chat_completion_openai_compatible(
     credentials: HTTPAuthorizationCredentials
     | None = Depends(HTTPBearer(auto_error=False)),
     x_saas_service_token: str | None = Header(None),
-):
+) -> StreamingResponse | OpenAIChatCompletionResponse:
     """OpenAI-compatible chat completion endpoint."""
     # 1) Validate Platform API key and get project
     platform, project = chat_service.validate_platform_and_project(
@@ -2056,73 +2055,27 @@ async def chat_completion_openai_compatible(
 
     # 10) Handle streaming vs non-streaming response
     if req.stream:
-
-        async def openai_stream_generator():
-            try:
-                async for event_payload in chat_service.process_ai_stream_to_wukongim(
-                    visitor_chat_access=access,
-                    project_id=str(project.id),
-                    user_id=str(visitor.id),
-                    message=user_message,
-                    channel_id=channel_id_enc,
-                    channel_type=channel_type,
-                    client_msg_no=response_client_msg_no,
-                    from_uid=wukongim_from_uid,
-                    session_id=session_id,
-                    system_message=system_message,
-                    **agent_runtime_kwargs,
-                ):
-                    event_type = event_payload.get("event_type")
-                    data = event_payload.get("data") or {}
-
-                    if event_type == "agent_content_chunk":
-                        chunk_text = data.get("content_chunk") or data.get(
-                            "content"
-                        )
-                        if chunk_text:
-                            chunk = OpenAIChatCompletionChunk(
-                                id=completion_id,
-                                created=created_timestamp,
-                                model=model_name,
-                                choices=[
-                                    OpenAIChatCompletionChunkChoice(
-                                        index=0,
-                                        delta=OpenAIChatCompletionDelta(
-                                            content=chunk_text
-                                        ),
-                                        finish_reason=None,
-                                    )
-                                ],
-                            )
-                            yield f"data: {chunk.model_dump_json()}\n\n"
-                    elif event_type in (
-                        "workflow_completed",
-                        "agent_response_complete",
-                    ):
-                        final_chunk = OpenAIChatCompletionChunk(
-                            id=completion_id,
-                            created=created_timestamp,
-                            model=model_name,
-                            choices=[
-                                OpenAIChatCompletionChunkChoice(
-                                    index=0,
-                                    delta=OpenAIChatCompletionDelta(),
-                                    finish_reason="stop",
-                                )
-                            ],
-                        )
-                        yield f"data: {final_chunk.model_dump_json()}\n\n"
-                        yield "data: [DONE]\n\n"
-                        break
-
-            except Exception as e:
-                error_chunk = {
-                    "error": {"message": str(e), "type": "server_error"}
-                }
-                yield f"data: {json.dumps(error_chunk)}\n\n"
+        events = chat_service.process_ai_stream_to_wukongim(
+            visitor_chat_access=access,
+            project_id=str(project.id),
+            user_id=str(visitor.id),
+            message=user_message,
+            channel_id=channel_id_enc,
+            channel_type=channel_type,
+            client_msg_no=response_client_msg_no,
+            from_uid=wukongim_from_uid,
+            session_id=session_id,
+            system_message=system_message,
+            **agent_runtime_kwargs,
+        )
 
         return StreamingResponse(
-            openai_stream_generator(),
+            openai_chat_stream(
+                events,
+                completion_id=completion_id,
+                created=created_timestamp,
+                model=model_name,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
