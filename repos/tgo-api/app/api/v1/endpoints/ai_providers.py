@@ -657,7 +657,7 @@ async def update_ai_provider(
 
                     try:
                         current_caps = json.loads(current_caps)
-                    except:
+                    except Exception:
                         current_caps = {}
                 if current_caps != new_caps:
                     existing_model.capabilities = new_caps

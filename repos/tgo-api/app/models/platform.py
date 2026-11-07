@@ -21,7 +21,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.engine import Connection
-from sqlalchemy.orm import Mapped, Mapper, mapped_column, relationship, foreign
+from sqlalchemy.orm import Mapped, Mapper, mapped_column, relationship
 
 from app.core.database import Base
 

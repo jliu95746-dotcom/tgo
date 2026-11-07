@@ -221,7 +221,6 @@ async def transfer_to_staff(
     prompt_used: Optional[str] = None
     waiting_queue_entry: Optional[VisitorWaitingQueue] = None
     queue_position: Optional[int] = None
-    no_staff_reason: Optional[str] = None
 
     try:
         if settings.SAAS_BILLING_ENABLED:

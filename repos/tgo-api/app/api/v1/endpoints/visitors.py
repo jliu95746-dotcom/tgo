@@ -16,7 +16,7 @@ from fastapi import (
     status,
     Query,
 )
-from sqlalchemy import case, select
+from sqlalchemy import case, select, true
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.config import settings
@@ -276,7 +276,8 @@ async def list_visitors(
     if recent_online_minutes is not None:
         cutoff = datetime.utcnow() - timedelta(minutes=recent_online_minutes)
         query = query.filter(
-            (Visitor.is_online == True) | (Visitor.last_offline_time >= cutoff)
+            (Visitor.is_online == true())
+            | (Visitor.last_offline_time >= cutoff)
         )
 
     # Filter by tags
@@ -324,9 +325,9 @@ async def list_visitors(
             # offline first)
             # 4. NULL last_offline_time values go last
             query = query.order_by(
-                case((Visitor.is_online == True, 0), else_=1).asc(),
+                case((Visitor.is_online == true(), 0), else_=1).asc(),
                 case(
-                    (Visitor.is_online == True, Visitor.created_at),
+                    (Visitor.is_online == true(), Visitor.created_at),
                     else_=Visitor.last_offline_time,
                 )
                 .desc()
@@ -335,9 +336,9 @@ async def list_visitors(
         else:
             # Opposite of desc: offline first, then by oldest offline time
             query = query.order_by(
-                case((Visitor.is_online == True, 1), else_=0).asc(),
+                case((Visitor.is_online == true(), 1), else_=0).asc(),
                 case(
-                    (Visitor.is_online == True, Visitor.created_at),
+                    (Visitor.is_online == true(), Visitor.created_at),
                     else_=Visitor.last_offline_time,
                 )
                 .asc()
@@ -430,7 +431,7 @@ async def create_visitor(
             .filter(
                 Platform.project_id == current_user.project_id,
                 Platform.type == visitor_data.platform_type,
-                Platform.is_active == True,
+                Platform.is_active == true(),
                 Platform.deleted_at.is_(None),
             )
             .first()
@@ -535,7 +536,7 @@ async def register_visitor(
         db.query(Platform)
         .filter(
             Platform.api_key == req.platform_api_key,
-            Platform.is_active == True,
+            Platform.is_active == true(),
             Platform.deleted_at.is_(None),
         )
         .first()
@@ -829,7 +830,7 @@ async def record_visitor_activity(
         db.query(Platform)
         .filter(
             Platform.api_key == api_key,
-            Platform.is_active == True,
+            Platform.is_active == true(),
             Platform.deleted_at.is_(None),
         )
         .first()

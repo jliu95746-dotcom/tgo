@@ -231,7 +231,6 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
         if not isinstance(msg, dict):
             continue
 
-        from_uid = msg.get("from_uid")
         channel_id = msg.get("channel_id")
         channel_type = msg.get("channel_type")
 

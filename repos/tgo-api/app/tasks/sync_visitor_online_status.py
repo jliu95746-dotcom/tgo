@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import true
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -39,7 +40,7 @@ async def _process_online_status_sync() -> int:
     try:
         # 1) Find all visitors currently marked as online in DB
         online_visitors = (
-            db.query(Visitor).filter(Visitor.is_online == True).all()
+            db.query(Visitor).filter(Visitor.is_online == true()).all()
         )
 
         if not online_visitors:

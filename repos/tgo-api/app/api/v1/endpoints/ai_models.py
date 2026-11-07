@@ -3,7 +3,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, true
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -46,7 +46,7 @@ async def list_ai_models(
         .join(AIProvider, AIModel.provider_id == AIProvider.id)
         .where(
             AIProvider.project_id == project_id,
-            AIProvider.is_active == True,
+            AIProvider.is_active == true(),
             AIProvider.deleted_at.is_(None),
             AIModel.deleted_at.is_(None),
         )

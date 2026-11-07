@@ -335,23 +335,19 @@ async def download_file(
         # Handle error responses from RAG service
 
         if not response.is_success:
-            try:
-                error_data = response.json()
-            except:
-                error_data = {
-                    "error": {"message": response.text or "Unknown error"}
-                }
             logger.warning(
-                f"RAG service download error: {response.status_code}",
+                "RAG service download error",
                 extra={
                     "file_id": str(file_id),
                     "status_code": response.status_code,
-                    "error_data": error_data,
                 },
             )
 
             raise HTTPException(
-                status_code=response.status_code, detail=error_data
+                status_code=response.status_code,
+                detail={
+                    "error": {"message": "RAG service file download failed"}
+                },
             )
         # Extract headers from RAG service response
 
@@ -372,8 +368,6 @@ async def download_file(
             "RAG file download successful",
             extra={
                 "file_id": str(file_id),
-                "content_type": content_type,
-                "content_length": content_length,
             },
         )
 
@@ -388,15 +382,15 @@ async def download_file(
         # Re-raise HTTP exceptions (already handled)
 
         raise
-    except Exception as e:
+    except Exception:
         logger.error(
-            f"Unexpected error during file download: {e}",
-            extra={"file_id": str(file_id), "error": str(e)},
+            "Unexpected error during file download",
+            extra={"file_id": str(file_id)},
         )
         raise HTTPException(
             status_code=500,
             detail="Internal server error during file download",
-        )
+        ) from None
 
 
 @router.delete(

@@ -119,9 +119,6 @@ from app.services.wechat_media import (
     normalize_wechat_upload,
 )
 from app.utils.wechat_local import is_wechat_local_source
-from app.services.chat_service import (
-    get_or_create_visitor as get_or_create_visitor,
-)
 from app.services.humanization_service import (
     ASSIST_FACT_GATHERING_PROMPT,
     get_humanization_skill_prompt,
@@ -150,6 +147,9 @@ from app.utils.encoding import (
 )
 
 logger = get_logger(__name__)
+
+# Preserve the existing compatibility entry used by callers and extensions.
+get_or_create_visitor = chat_service.get_or_create_visitor
 
 router = APIRouter(route_class=BusinessContextChatRoute)
 
@@ -1990,7 +1990,6 @@ async def chat_completion_openai_compatible(
         )
 
     # 4) Prepare correlation and session IDs
-    client_msg_no = f"openai_{uuid4().hex}"
     channel_id_enc = build_visitor_channel_id(visitor.id)
     channel_type = CHANNEL_TYPE_CUSTOMER_SERVICE
     session_id = get_session_id(

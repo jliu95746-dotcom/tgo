@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import text
+from sqlalchemy import text, true
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -339,7 +339,6 @@ async def create_admin(
 
     platform_type_definitions = db.query(PlatformTypeDefinition).all()
     platforms: list[Platform] = []
-    website_platform: Optional[Platform] = None
 
     if not platform_type_definitions:
         logger.error(
@@ -366,7 +365,6 @@ async def create_admin(
                     "widget_title": "TGO AI Chatbot",
                 }
                 platform.is_active = True
-                website_platform = platform
             db.add(platform)
             platforms.append(platform)
         db.flush()  # Ensure platform IDs are available
@@ -784,7 +782,7 @@ async def verify_setup(
             db.query(AIProvider)
             .filter(
                 AIProvider.deleted_at.is_(None),
-                AIProvider.is_active == True,
+                AIProvider.is_active == true(),
             )
             .count()
         )
