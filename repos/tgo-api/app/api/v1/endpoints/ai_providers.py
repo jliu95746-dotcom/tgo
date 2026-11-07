@@ -834,12 +834,13 @@ async def enable_ai_provider(
 
     try:
         await sync_provider_with_retry_and_update(db, item)
-    except Exception as e:
+    except Exception:
         logger.warning(
             "AIProvider sync after enable failed",
-            extra={"id": str(item.id), "error": str(e)},
+            extra={"id": str(item.id)},
         )
         db.refresh(item)
+    return _to_response(item)
 
 
 @router.post(

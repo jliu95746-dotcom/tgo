@@ -1,20 +1,28 @@
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from typing import Optional, Sequence
 from datetime import datetime
 
 import httpx
+from pydantic import JsonValue
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.ai_provider import AIProvider
+from app.services.ai_config_sync_receipt import SyncResult, read_sync_receipt
+from app.services.ai_transport import JsonObject
 from app.utils.crypto import decrypt_str
 
 
-def _map_kind_and_vendor(provider: str, config: Optional[dict] = None) -> tuple[str, Optional[str]]:
+def _map_kind_and_vendor(
+    provider: str, config: Optional[JsonObject] = None,
+) -> tuple[str, Optional[str]]:
     p = (provider or "").lower()
     vendor_cfg = None
     if config and isinstance(config, dict):
         vendor_cfg = config.get("vendor")
+    if vendor_cfg is not None and not isinstance(vendor_cfg, str):
+        raise ValueError("Invalid provider vendor")
     if p in {"openai", "oai", "gpt"}:
         return "openai", vendor_cfg or "openai"
     if p in {"anthropic", "claude"}:
@@ -27,7 +35,7 @@ def _map_kind_and_vendor(provider: str, config: Optional[dict] = None) -> tuple[
     return "openai_compatible", vendor_cfg or p or None
 
 
-def _provider_to_upsert(item: AIProvider) -> dict[str, Any]:
+def _provider_to_upsert(item: AIProvider) -> JsonObject:
     provider_kind, vendor = _map_kind_and_vendor(item.provider, item.config)
     org = None
     timeout = None
@@ -38,7 +46,7 @@ def _provider_to_upsert(item: AIProvider) -> dict[str, Any]:
     api_key_plain = decrypt_str(item.api_key) if item.api_key else None
     
     # Available models for this provider
-    models = []
+    models: list[JsonValue] = []
     if item.models:
         for m in item.models:
             if m.deleted_at is None:
@@ -56,7 +64,7 @@ def _provider_to_upsert(item: AIProvider) -> dict[str, Any]:
                     "store_resource_id": str(m.store_resource_id) if m.store_resource_id else None,
                 })
     
-    upsert: dict[str, Any] = {
+    upsert: JsonObject = {
         "id": str(item.id),  # required by tgo-ai LLMProviderUpsert schema
         "provider_kind": provider_kind,
         "vendor": vendor,
@@ -81,28 +89,23 @@ def _build_headers() -> dict[str, str]:
     return headers
 
 
-async def sync_providers(items: Sequence[AIProvider]) -> tuple[bool, Optional[str], Optional[dict]]:
+async def sync_providers(items: Sequence[AIProvider]) -> SyncResult:
     url = f"{settings.AI_SERVICE_URL.rstrip('/')}/api/v1/llm-providers/sync"
-    payload = {"providers": [_provider_to_upsert(x) for x in items]}
     try:
+        payload = {"providers": [_provider_to_upsert(x) for x in items]}
+        expected_ids = [str(x.id) for x in items]
         async with httpx.AsyncClient(timeout=settings.AI_SERVICE_TIMEOUT) as client:
             resp = await client.post(url, json=payload, headers=_build_headers())
-        if resp.status_code >= 400:
-            return False, f"{resp.status_code} {resp.text}", None
-        try:
-            data = resp.json()
-        except Exception:
-            data = None
-        return True, None, data
-    except httpx.TimeoutException as te:
-        return False, f"timeout: {te}", None
-    except httpx.RequestError as re:
-        return False, f"request_error: {re}", None
-    except Exception as e:  # pragma: no cover
-        return False, f"unexpected_error: {e}", None
+        return read_sync_receipt(resp, expected_ids, "id")
+    except httpx.TimeoutException:
+        return False, "timeout", None
+    except httpx.RequestError:
+        return False, "request_error", None
+    except Exception:
+        return False, "unexpected_error", None
 
 
-async def sync_provider(item: AIProvider) -> tuple[bool, Optional[str], Optional[dict]]:
+async def sync_provider(item: AIProvider) -> SyncResult:
     return await sync_providers([item])
 
 
@@ -112,7 +115,7 @@ async def sync_provider_with_retry(
     item: AIProvider,
     max_retries: Optional[int] = None,
     initial_delay: Optional[int] = None,
-) -> tuple[bool, Optional[str], Optional[dict]]:
+) -> SyncResult:
     """Sync a single provider with exponential backoff retry.
 
     Returns (ok, err_msg, response_data).
@@ -158,7 +161,7 @@ async def sync_providers_with_retry(
     items: Sequence[AIProvider],
     max_retries: Optional[int] = None,
     initial_delay: Optional[int] = None,
-) -> tuple[bool, Optional[str], Optional[dict]]:
+) -> SyncResult:
     """Batch sync providers with exponential backoff retry as a group."""
     import asyncio
     from app.core.logging import get_logger
@@ -192,12 +195,13 @@ async def sync_providers_with_retry(
     return False, last_err, None
 
 
-async def sync_provider_with_retry_and_update(db, item: AIProvider) -> tuple[bool, Optional[str]]:
+async def sync_provider_with_retry_and_update(
+    db: Session, item: AIProvider,
+) -> tuple[bool, Optional[str]]:
     """Sync one provider with retries and update its sync fields in DB.
 
     Returns (ok, err_msg).
     """
-    from sqlalchemy.orm import Session  # local import to avoid header changes
     assert isinstance(db, Session)
 
     # Ensure the item and its relationships (models) are up to date from DB
