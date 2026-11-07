@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload, selectinload, aliased
+from sqlalchemy.orm import Session, selectinload, aliased
 
 from app.core.database import get_db
 from app.core.logging import get_logger
@@ -37,13 +37,11 @@ from app.schemas.wukongim import (
     WuKongIMChannelMessageSyncResponse,
     WuKongIMConversation,
     WuKongIMConversationSyncRequest,
-    WuKongIMConversationSyncResponse,
     WuKongIMConversationWithChannelsResponse,
     WuKongIMDeleteConversationRequest,
     WuKongIMSetUnreadRequest,
 )
 from app.schemas.visitor import (
-    VisitorResponse,
     resolve_visitor_display_name,
     set_visitor_display_nickname,
 )
@@ -78,19 +76,19 @@ async def _build_channels_for_conversations(
     include_closed_and_queued: bool = False,
 ) -> List[ChannelInfo]:
     (
-        '\n'
-        '    Build channel information list for conversations with batch '
-        'query optimization.\n'
-        '    \n'
-        '    Args:\n'
-        '        db: Database session\n'
-        '        conversations: List of WuKongIM conversations\n'
-        '        project_id: Current project ID\n'
-        '        user_language: User language preference\n'
-        '        \n'
-        '    Returns:\n'
-        '        List of ChannelInfo for each conversation\n'
-        '    '
+        "\n"
+        "    Build channel information list for conversations with batch "
+        "query optimization.\n"
+        "    \n"
+        "    Args:\n"
+        "        db: Database session\n"
+        "        conversations: List of WuKongIM conversations\n"
+        "        project_id: Current project ID\n"
+        "        user_language: User language preference\n"
+        "        \n"
+        "    Returns:\n"
+        "        List of ChannelInfo for each conversation\n"
+        "    "
     )
     if not conversations:
         return []
@@ -264,8 +262,8 @@ async def sync_my_conversations(
     manual_service_contain: bool = Query(
         default=False,
         description=(
-            '如果为 true，则仅返回 tags 中包含“转人工(Manual Service)”标签的访客会话（可与 tag_ids '
-            '组合，AND 关系）。'
+            "如果为 true，则仅返回 tags 中包含“转人工(Manual Service)”标签的访客会话（可与 tag_ids "
+            "组合，AND 关系）。"
         ),
     ),
     db: Session = Depends(get_db),
@@ -273,12 +271,12 @@ async def sync_my_conversations(
     user_language: UserLanguage = Depends(get_user_language),
 ) -> WuKongIMConversationWithChannelsResponse:
     (
-        '\n'
-        '    同步当前客服的会话列表。\n'
-        '    \n'
-        '    直接从 WuKongIM 获取当前客服参与的所有会话及其最近消息记录，\n'
-        '    包括已关闭的历史会话。同时返回每个会话对应的频道详细信息。\n'
-        '    '
+        "\n"
+        "    同步当前客服的会话列表。\n"
+        "    \n"
+        "    直接从 WuKongIM 获取当前客服参与的所有会话及其最近消息记录，\n"
+        "    包括已关闭的历史会话。同时返回每个会话对应的频道详细信息。\n"
+        "    "
     )
     staff_uid = f"{current_user.id}-staff"
 
@@ -305,10 +303,10 @@ async def sync_my_conversations(
 
         logger.info(
             (
-                f'Successfully synced '
-                f'{len(conversations)}'
-                f' conversations for staff '
-                f'{current_user.username}'
+                f"Successfully synced "
+                f"{len(conversations)}"
+                f" conversations for staff "
+                f"{current_user.username}"
             )
         )
 
@@ -404,10 +402,10 @@ async def sync_my_conversations(
     except Exception as e:
         logger.error(
             (
-                f'Failed to sync conversations for staff '
-                f'{current_user.username}'
-                f': '
-                f'{e}'
+                f"Failed to sync conversations for staff "
+                f"{current_user.username}"
+                f": "
+                f"{e}"
             )
         )
         raise HTTPException(
@@ -436,14 +434,14 @@ async def sync_all_conversations(
     current_user: Staff = Depends(get_current_active_user),
 ) -> WuKongIMConversationPaginatedResponse:
     (
-        '\n'
-        '    获取当前客服服务过的所有访客会话（支持分页）。\n'
-        '    \n'
-        '    查询 VisitorSession 表中 staff_id 为当前客服的所有会话（包括已关闭的），\n'
-        '    对访客进行去重后，从 WuKongIM 获取这些会话的最近消息。\n'
-        '    \n'
-        '    如果当前用户是 admin 角色，则返回项目下所有的会话。\n'
-        '    '
+        "\n"
+        "    获取当前客服服务过的所有访客会话（支持分页）。\n"
+        "    \n"
+        "    查询 VisitorSession 表中 staff_id 为当前客服的所有会话（包括已关闭的），\n"
+        "    对访客进行去重后，从 WuKongIM 获取这些会话的最近消息。\n"
+        "    \n"
+        "    如果当前用户是 admin 角色，则返回项目下所有的会话。\n"
+        "    "
     )
     # Check if current user is admin
     is_admin = current_user.role == StaffRole.ADMIN.value
@@ -565,15 +563,15 @@ async def sync_all_conversations(
 
     logger.info(
         (
-            f'Fetching '
+            f"Fetching "
             f"{('all project' if is_admin else 'staff')}"
-            f' conversations for '
-            f'{len(channels)}'
-            f' visitors (page offset='
-            f'{offset}'
-            f', limit='
-            f'{limit}'
-            f')'
+            f" conversations for "
+            f"{len(channels)}"
+            f" visitors (page offset="
+            f"{offset}"
+            f", limit="
+            f"{limit}"
+            f")"
         ),
         extra={
             "staff_id": str(current_user.id),
@@ -606,10 +604,10 @@ async def sync_all_conversations(
 
         logger.info(
             (
-                f'Successfully fetched '
-                f'{len(conversations)}'
-                f' conversations for staff '
-                f'{current_user.username}'
+                f"Successfully fetched "
+                f"{len(conversations)}"
+                f" conversations for staff "
+                f"{current_user.username}"
             ),
             extra={
                 "staff_id": str(current_user.id),
@@ -635,10 +633,10 @@ async def sync_all_conversations(
     except Exception as e:
         logger.error(
             (
-                f'Failed to fetch conversations for staff '
-                f'{current_user.username}'
-                f': '
-                f'{e}'
+                f"Failed to fetch conversations for staff "
+                f"{current_user.username}"
+                f": "
+                f"{e}"
             )
         )
         raise HTTPException(
@@ -663,12 +661,12 @@ async def sync_waiting_conversations(
     current_user: Staff = Depends(require_permission("visitors:read")),
 ) -> WuKongIMConversationPaginatedResponse:
     (
-        '\n'
-        '    获取等待中访客的会话列表（支持分页）。\n'
-        '    \n'
-        '    此接口获取当前项目中所有状态为 WAITING 的访客的 WuKongIM 会话信息，\n'
-        '    包括最近的消息记录。用于客服人员查看待接入访客的对话内容。\n'
-        '    '
+        "\n"
+        "    获取等待中访客的会话列表（支持分页）。\n"
+        "    \n"
+        "    此接口获取当前项目中所有状态为 WAITING 的访客的 WuKongIM 会话信息，\n"
+        "    包括最近的消息记录。用于客服人员查看待接入访客的对话内容。\n"
+        "    "
     )
     if restricted_staff(current_user):
         from app.services.company_queue import queue_previews
@@ -752,13 +750,13 @@ async def sync_waiting_conversations(
 
     logger.info(
         (
-            f'Fetching conversations for '
-            f'{len(waiting_channels)}'
-            f' waiting visitors (page offset='
-            f'{offset}'
-            f', limit='
-            f'{limit}'
-            f')'
+            f"Fetching conversations for "
+            f"{len(waiting_channels)}"
+            f" waiting visitors (page offset="
+            f"{offset}"
+            f", limit="
+            f"{limit}"
+            f")"
         ),
         extra={
             "staff_id": str(current_user.id),
@@ -789,9 +787,9 @@ async def sync_waiting_conversations(
 
         logger.info(
             (
-                f'Successfully fetched '
-                f'{len(conversations)}'
-                f' conversations for waiting visitors'
+                f"Successfully fetched "
+                f"{len(conversations)}"
+                f" conversations for waiting visitors"
             ),
             extra={
                 "staff_id": str(current_user.id),
@@ -827,8 +825,8 @@ async def sync_waiting_conversations(
     response_model=WuKongIMConversationWithChannelsPaginatedResponse,
     summary="按访客标签获取最近会话",
     description=(
-        '按访客标签（tag_id，支持多个）筛选访客，并返回这些访客的最近会话列表（按最新会话时间倒序），支持分页。返回结果包含 '
-        'conversations + channels（channels.extra 与 /channels/info 保持一致）。'
+        "按访客标签（tag_id，支持多个）筛选访客，并返回这些访客的最近会话列表（按最新会话时间倒序），支持分页。返回结果包含 "
+        "conversations + channels（channels.extra 与 /channels/info 保持一致）。"
     ),
 )
 async def sync_recent_conversations_by_visitor_tags(
@@ -839,8 +837,8 @@ async def sync_recent_conversations_by_visitor_tags(
     manual_service_contain: bool = Query(
         default=False,
         description=(
-            '如果为 true，则要求访客 tags 中包含“转人工(Manual Service)”标签（可与 tag_ids '
-            '组合，AND 关系）'
+            "如果为 true，则要求访客 tags 中包含“转人工(Manual Service)”标签（可与 tag_ids "
+            "组合，AND 关系）"
         ),
     ),
     msg_count: int = Query(
@@ -1057,10 +1055,10 @@ async def set_conversation_unread(
     except Exception as e:
         logger.error(
             (
-                f'Failed to set unread count for staff '
-                f'{current_user.username}'
-                f': '
-                f'{e}'
+                f"Failed to set unread count for staff "
+                f"{current_user.username}"
+                f": "
+                f"{e}"
             )
         )
         raise HTTPException(
@@ -1107,8 +1105,8 @@ async def delete_conversation(
 
         logger.info(
             (
-                f'Successfully deleted conversation for staff '
-                f'{current_user.username}'
+                f"Successfully deleted conversation for staff "
+                f"{current_user.username}"
             )
         )
 
@@ -1117,10 +1115,10 @@ async def delete_conversation(
     except Exception as e:
         logger.error(
             (
-                f'Failed to delete conversation for staff '
-                f'{current_user.username}'
-                f': '
-                f'{e}'
+                f"Failed to delete conversation for staff "
+                f"{current_user.username}"
+                f": "
+                f"{e}"
             )
         )
         raise HTTPException(
@@ -1199,10 +1197,10 @@ async def sync_channel_messages(
         message_count = len(result.messages)
         logger.info(
             (
-                f'Successfully synced '
-                f'{message_count}'
-                f' channel messages for staff '
-                f'{current_user.username}'
+                f"Successfully synced "
+                f"{message_count}"
+                f" channel messages for staff "
+                f"{current_user.username}"
             )
         )
 
@@ -1216,10 +1214,10 @@ async def sync_channel_messages(
     except Exception as e:
         logger.error(
             (
-                f'Failed to sync channel messages for staff '
-                f'{current_user.username}'
-                f': '
-                f'{e}'
+                f"Failed to sync channel messages for staff "
+                f"{current_user.username}"
+                f": "
+                f"{e}"
             )
         )
         raise HTTPException(

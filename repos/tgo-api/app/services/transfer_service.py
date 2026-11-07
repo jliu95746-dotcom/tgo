@@ -26,8 +26,6 @@ from app.schemas.staff_data_access import StaffDataAccess
 from app.core.logging import get_logger
 from app.models import (
     Visitor,
-    VisitorServiceStatus,
-    UNASSIGNED_STATUSES,
     VisitorSession,
     VisitorAssignmentHistory,
     VisitorAssignmentRule,
@@ -37,7 +35,6 @@ from app.models import (
     AssignmentSource,
     SessionStatus,
     Staff,
-    StaffRole,
 )
 from app.services.queue_lifecycle import (
     assign_waiting_entries,
@@ -132,44 +129,44 @@ async def transfer_to_staff(
     operation_id: UUID | None = None,
 ) -> TransferResult:
     (
-        '\n'
-        '    Transfer a visitor to staff service.\n'
-        '    \n'
-        '    Assignment logic:\n'
-        '    1. If target_staff_id specified, assign directly\n'
-        '    2. Otherwise, get available staff candidates based on rules\n'
-        '    3. If candidates > 1 and LLM enabled, use LLM to select\n'
-        '    4. If candidates > 1 and LLM disabled, use load balancing\n'
-        '    5. If candidates = 1, assign directly\n'
-        '    6. If candidates = 0 and add_to_queue_if_no_staff=True, add to '
-        'waiting queue\n'
-        '    \n'
-        '    Args:\n'
-        '        db: Database session\n'
-        '        visitor_id: ID of the visitor to transfer\n'
-        '        project_id: ID of the project\n'
-        '        source: Source of the transfer (MANUAL, LLM, RULE, '
-        'TRANSFER)\n'
-        '        visitor_message: Message that triggered the transfer\n'
-        '        assigned_by_staff_id: Staff who initiated the transfer (for '
-        'manual transfers)\n'
-        '        target_staff_id: Specific staff to assign (optional)\n'
-        '        session_id: Existing session ID (optional)\n'
-        '        platform_id: Platform ID for new sessions\n'
-        '        notes: Additional notes\n'
-        '        skip_queue_status_check: Skip visitor status check (for '
-        'queue processing)\n'
-        '        auto_commit: Whether to auto-commit changes (default True)\n'
-        '        ai_disabled: Whether to disable AI responses (None=keep '
-        'current, True=disable, False=enable)\n'
-        '        add_to_queue_if_no_staff: Whether to add to waiting queue '
-        'if no staff available (default True)\n'
-        '        send_notification: Whether to send staff assigned system '
-        'message (default True)\n'
-        '        \n'
-        '    Returns:\n'
-        '        TransferResult with success status and related objects\n'
-        '    '
+        "\n"
+        "    Transfer a visitor to staff service.\n"
+        "    \n"
+        "    Assignment logic:\n"
+        "    1. If target_staff_id specified, assign directly\n"
+        "    2. Otherwise, get available staff candidates based on rules\n"
+        "    3. If candidates > 1 and LLM enabled, use LLM to select\n"
+        "    4. If candidates > 1 and LLM disabled, use load balancing\n"
+        "    5. If candidates = 1, assign directly\n"
+        "    6. If candidates = 0 and add_to_queue_if_no_staff=True, add to "
+        "waiting queue\n"
+        "    \n"
+        "    Args:\n"
+        "        db: Database session\n"
+        "        visitor_id: ID of the visitor to transfer\n"
+        "        project_id: ID of the project\n"
+        "        source: Source of the transfer (MANUAL, LLM, RULE, "
+        "TRANSFER)\n"
+        "        visitor_message: Message that triggered the transfer\n"
+        "        assigned_by_staff_id: Staff who initiated the transfer (for "
+        "manual transfers)\n"
+        "        target_staff_id: Specific staff to assign (optional)\n"
+        "        session_id: Existing session ID (optional)\n"
+        "        platform_id: Platform ID for new sessions\n"
+        "        notes: Additional notes\n"
+        "        skip_queue_status_check: Skip visitor status check (for "
+        "queue processing)\n"
+        "        auto_commit: Whether to auto-commit changes (default True)\n"
+        "        ai_disabled: Whether to disable AI responses (None=keep "
+        "current, True=disable, False=enable)\n"
+        "        add_to_queue_if_no_staff: Whether to add to waiting queue "
+        "if no staff available (default True)\n"
+        "        send_notification: Whether to send staff assigned system "
+        "message (default True)\n"
+        "        \n"
+        "    Returns:\n"
+        "        TransferResult with success status and related objects\n"
+        "    "
     )
     if mutation_scope is not None:
         if (
@@ -298,10 +295,10 @@ async def transfer_to_staff(
         ):
             logger.info(
                 (
-                    f'Visitor '
-                    f'{visitor_id}'
-                    f' cannot enter queue, current status: '
-                    f'{visitor.service_status}'
+                    f"Visitor "
+                    f"{visitor_id}"
+                    f" cannot enter queue, current status: "
+                    f"{visitor.service_status}"
                 )
             )
             return TransferResult(
@@ -313,9 +310,9 @@ async def transfer_to_staff(
                 waiting_queue=None,
                 queue_position=None,
                 message=(
-                    f'Visitor cannot enter queue (current status: '
-                    f'{visitor.service_status}'
-                    f'). Only NEW or CLOSED status allowed.'
+                    f"Visitor cannot enter queue (current status: "
+                    f"{visitor.service_status}"
+                    f"). Only NEW or CLOSED status allowed."
                 ),
             )
 
@@ -609,18 +606,18 @@ async def transfer_to_staff(
 
         logger.info(
             (
-                f'Transferred visitor '
-                f'{visitor_id}'
-                f' to human service. Session: '
-                f'{session.id}'
-                f', Assigned staff: '
-                f'{assigned_staff_id}'
-                f', Source: '
-                f'{source.value}'
-                f', Candidates: '
-                f'{len(candidate_staff_ids)}'
-                f', In queue: '
-                f'{waiting_queue_entry is not None}'
+                f"Transferred visitor "
+                f"{visitor_id}"
+                f" to human service. Session: "
+                f"{session.id}"
+                f", Assigned staff: "
+                f"{assigned_staff_id}"
+                f", Source: "
+                f"{source.value}"
+                f", Candidates: "
+                f"{len(candidate_staff_ids)}"
+                f", In queue: "
+                f"{waiting_queue_entry is not None}"
             )
         )
 
@@ -693,31 +690,31 @@ async def assign_staff(
     lock_assignment_configuration: bool = True,
 ) -> StaffAssignmentResult:
     (
-        '\n'
-        '    Assign a staff member to handle a visitor.\n'
-        '    \n'
-        '    Assignment logic:\n'
-        '    1. If target_staff_id specified, assign directly\n'
-        '    2. Otherwise, get available staff candidates based on rules\n'
-        '    3. Prioritize last serving staff if available\n'
-        '    4. If candidates > 1 and LLM enabled, use LLM to select\n'
-        '    5. If candidates > 1 and LLM disabled, use load balancing\n'
-        '    6. If candidates = 1, assign directly\n'
-        '    7. If candidates = 0, return None\n'
-        '    \n'
-        '    Args:\n'
-        '        db: Database session\n'
-        '        visitor_id: ID of the visitor\n'
-        '        project_id: ID of the project\n'
-        '        target_staff_id: Specific staff to assign (optional)\n'
-        '        visitor_message: Message that triggered the transfer (for '
-        'LLM context)\n'
-        '        assignment_rule: Assignment rule for the project (optional)\n'
-        '        \n'
-        '    Returns:\n'
-        '        StaffAssignmentResult with assigned_staff_id and candidate '
-        'info\n'
-        '    '
+        "\n"
+        "    Assign a staff member to handle a visitor.\n"
+        "    \n"
+        "    Assignment logic:\n"
+        "    1. If target_staff_id specified, assign directly\n"
+        "    2. Otherwise, get available staff candidates based on rules\n"
+        "    3. Prioritize last serving staff if available\n"
+        "    4. If candidates > 1 and LLM enabled, use LLM to select\n"
+        "    5. If candidates > 1 and LLM disabled, use load balancing\n"
+        "    6. If candidates = 1, assign directly\n"
+        "    7. If candidates = 0, return None\n"
+        "    \n"
+        "    Args:\n"
+        "        db: Database session\n"
+        "        visitor_id: ID of the visitor\n"
+        "        project_id: ID of the project\n"
+        "        target_staff_id: Specific staff to assign (optional)\n"
+        "        visitor_message: Message that triggered the transfer (for "
+        "LLM context)\n"
+        "        assignment_rule: Assignment rule for the project (optional)\n"
+        "        \n"
+        "    Returns:\n"
+        "        StaffAssignmentResult with assigned_staff_id and candidate "
+        "info\n"
+        "    "
     )
     assigned_staff_id: Optional[UUID] = None
     candidate_staff_ids: List[UUID] = []
@@ -770,9 +767,9 @@ async def assign_staff(
                 raise changed()
             logger.warning(
                 (
-                    f'Target staff '
-                    f'{target_staff_id}'
-                    f' not found, will try auto-assignment'
+                    f"Target staff "
+                    f"{target_staff_id}"
+                    f" not found, will try auto-assignment"
                 )
             )
 
@@ -831,10 +828,10 @@ async def assign_staff(
                         assigned_staff_id = last_staff_id
                         logger.info(
                             (
-                                f'Prioritizing last serving staff '
-                                f'{last_staff_id}'
-                                f' for visitor '
-                                f'{visitor_id}'
+                                f"Prioritizing last serving staff "
+                                f"{last_staff_id}"
+                                f" for visitor "
+                                f"{visitor_id}"
                             ),
                             extra={
                                 "visitor_id": str(visitor_id),
@@ -853,9 +850,9 @@ async def assign_staff(
                     # Use LLM to select
                     logger.info(
                         (
-                            f'Multiple candidates ('
-                            f'{len(candidates)}'
-                            f'), using LLM assignment'
+                            f"Multiple candidates ("
+                            f"{len(candidates)}"
+                            f"), using LLM assignment"
                         )
                     )
                     result = await _llm_assign_staff(
@@ -890,9 +887,9 @@ async def assign_staff(
                     # Use load balancing (select staff with least active chats)
                     logger.info(
                         (
-                            f'Multiple candidates ('
-                            f'{len(candidates)}'
-                            f'), using load balancing'
+                            f"Multiple candidates ("
+                            f"{len(candidates)}"
+                            f"), using load balancing"
                         )
                     )
                     assigned_staff_id = await _load_balance_assign(candidates)
@@ -968,23 +965,23 @@ async def _add_to_waiting_queue(
     ai_disabled: Optional[bool],
 ) -> tuple[VisitorWaitingQueue, int]:
     (
-        '\n'
-        '    Add visitor to the waiting queue.\n'
-        '    \n'
-        '    Args:\n'
-        '        db: Database session\n'
-        '        project_id: Project ID\n'
-        '        visitor_id: Visitor ID\n'
-        '        visitor: Visitor object\n'
-        '        session_id: Session ID\n'
-        '        visitor_message: Message that triggered the transfer\n'
-        '        reason: Reason for entering queue\n'
-        '        assignment_rule: Assignment rule for timeout config\n'
-        '        ai_disabled: AI disabled flag\n'
-        '        \n'
-        '    Returns:\n'
-        '        Tuple of (waiting_queue_entry, queue_position)\n'
-        '    '
+        "\n"
+        "    Add visitor to the waiting queue.\n"
+        "    \n"
+        "    Args:\n"
+        "        db: Database session\n"
+        "        project_id: Project ID\n"
+        "        visitor_id: Visitor ID\n"
+        "        visitor: Visitor object\n"
+        "        session_id: Session ID\n"
+        "        visitor_message: Message that triggered the transfer\n"
+        "        reason: Reason for entering queue\n"
+        "        assignment_rule: Assignment rule for timeout config\n"
+        "        ai_disabled: AI disabled flag\n"
+        "        \n"
+        "    Returns:\n"
+        "        Tuple of (waiting_queue_entry, queue_position)\n"
+        "    "
     )
     # Check if already in waiting queue
     existing_queue = (
@@ -1000,10 +997,10 @@ async def _add_to_waiting_queue(
     if existing_queue:
         logger.info(
             (
-                f'Visitor '
-                f'{visitor_id}'
-                f' already in waiting queue at position '
-                f'{existing_queue.position}'
+                f"Visitor "
+                f"{visitor_id}"
+                f" already in waiting queue at position "
+                f"{existing_queue.position}"
             )
         )
         return existing_queue, existing_queue.position
@@ -1046,10 +1043,10 @@ async def _add_to_waiting_queue(
 
     logger.info(
         (
-            f'Added visitor '
-            f'{visitor_id}'
-            f' to waiting queue at position '
-            f'{queue_position}'
+            f"Added visitor "
+            f"{visitor_id}"
+            f" to waiting queue at position "
+            f"{queue_position}"
         ),
         extra={
             "visitor_id": str(visitor_id),
@@ -1086,7 +1083,7 @@ async def _add_staff_to_channel(
         or assignment_history.visitor_id != visitor_id
         or assignment_history.assigned_staff_id != staff_id
     ):
-        raise ValueError('A matching assignment is required for channel work')
+        raise ValueError("A matching assignment is required for channel work")
     return stage_assignment_channel(
         db,
         assignment_history,
@@ -1118,12 +1115,12 @@ def _create_assignment_history(
     candidate_scores: Optional[dict[str, JsonValue]],
 ) -> VisitorAssignmentHistory:
     (
-        '\n'
-        '    Create assignment history record.\n'
-        '    \n'
-        '    Returns:\n'
-        '        VisitorAssignmentHistory object (not yet committed)\n'
-        '    '
+        "\n"
+        "    Create assignment history record.\n"
+        "    \n"
+        "    Returns:\n"
+        "        VisitorAssignmentHistory object (not yet committed)\n"
+        "    "
     )
     assignment_history = VisitorAssignmentHistory(
         project_id=project_id,
@@ -1209,18 +1206,18 @@ def is_within_service_hours(
     assignment_rule: Optional[VisitorAssignmentRule],
 ) -> bool:
     (
-        '\n'
-        '    Check if current time is within configured service hours.\n'
-        '    \n'
-        '    The service hours are evaluated in the configured timezone '
-        '(default: Asia/Shanghai).\n'
-        '    \n'
-        '    Returns True if:\n'
-        '    - No assignment rule configured\n'
-        '    - Service hours not configured (all fields are None)\n'
-        '    - Current time is within service hours (in the configured '
-        'timezone)\n'
-        '    '
+        "\n"
+        "    Check if current time is within configured service hours.\n"
+        "    \n"
+        "    The service hours are evaluated in the configured timezone "
+        "(default: Asia/Shanghai).\n"
+        "    \n"
+        "    Returns True if:\n"
+        "    - No assignment rule configured\n"
+        "    - Service hours not configured (all fields are None)\n"
+        "    - Current time is within service hours (in the configured "
+        "timezone)\n"
+        "    "
     )
     if not assignment_rule:
         return True
@@ -1246,12 +1243,12 @@ def is_within_service_hours(
         if current_weekday not in assignment_rule.service_weekdays:
             logger.debug(
                 (
-                    f'Current weekday '
-                    f'{current_weekday}'
-                    f' (tz='
-                    f'{tz_name}'
-                    f') not in service weekdays '
-                    f'{assignment_rule.service_weekdays}'
+                    f"Current weekday "
+                    f"{current_weekday}"
+                    f" (tz="
+                    f"{tz_name}"
+                    f") not in service weekdays "
+                    f"{assignment_rule.service_weekdays}"
                 )
             )
             return False
@@ -1271,14 +1268,14 @@ def is_within_service_hours(
                 if not (start_time <= current_time <= end_time):
                     logger.debug(
                         (
-                            f'Current time '
-                            f'{current_time}'
-                            f' (tz='
-                            f'{tz_name}'
-                            f') not in service hours '
-                            f'{start_time}'
-                            f'-'
-                            f'{end_time}'
+                            f"Current time "
+                            f"{current_time}"
+                            f" (tz="
+                            f"{tz_name}"
+                            f") not in service hours "
+                            f"{start_time}"
+                            f"-"
+                            f"{end_time}"
                         )
                     )
                     return False
@@ -1289,14 +1286,14 @@ def is_within_service_hours(
                 ):
                     logger.debug(
                         (
-                            f'Current time '
-                            f'{current_time}'
-                            f' (tz='
-                            f'{tz_name}'
-                            f') not in overnight service hours '
-                            f'{start_time}'
-                            f'-'
-                            f'{end_time}'
+                            f"Current time "
+                            f"{current_time}"
+                            f" (tz="
+                            f"{tz_name}"
+                            f") not in overnight service hours "
+                            f"{start_time}"
+                            f"-"
+                            f"{end_time}"
                         )
                     )
                     return False
@@ -1314,15 +1311,15 @@ async def _get_available_staff_candidates(
     assignment_rule: Optional[VisitorAssignmentRule] = None,
 ) -> List[StaffCandidate]:
     (
-        '\n'
-        '    Get available staff candidates for assignment.\n'
-        '    \n'
-        '    Filters:\n'
-        '    - Not deleted\n'
-        '    - Role is user only (not admin or agent)\n'
-        '    - Within service hours (if configured)\n'
-        '    - Within max_concurrent_chats limit (if configured)\n'
-        '    '
+        "\n"
+        "    Get available staff candidates for assignment.\n"
+        "    \n"
+        "    Filters:\n"
+        "    - Not deleted\n"
+        "    - Role is user only (not admin or agent)\n"
+        "    - Within service hours (if configured)\n"
+        "    - Within max_concurrent_chats limit (if configured)\n"
+        "    "
     )
     # Check if within service hours
     if not is_within_service_hours(assignment_rule):
@@ -1370,13 +1367,13 @@ async def _get_available_staff_candidates(
         if max_concurrent and active_session_count >= max_concurrent:
             logger.debug(
                 (
-                    f'Staff '
-                    f'{staff.id}'
-                    f' at max capacity ('
-                    f'{active_session_count}'
-                    f'/'
-                    f'{max_concurrent}'
-                    f')'
+                    f"Staff "
+                    f"{staff.id}"
+                    f" at max capacity ("
+                    f"{active_session_count}"
+                    f"/"
+                    f"{max_concurrent}"
+                    f")"
                 )
             )
             continue
@@ -1583,19 +1580,19 @@ async def assign_from_waiting_queue(
     queue_entry_id: Optional[UUID] = None,
 ) -> Optional[TransferResult]:
     (
-        '\n'
-        '    Assign the next visitor from waiting queue to a staff member.\n'
-        '    \n'
-        '    Args:\n'
-        '        db: Database session\n'
-        '        staff_id: Staff member to assign visitor to\n'
-        '        project_id: Project ID\n'
-        '        queue_entry_id: Specific queue entry to assign (optional, '
-        'defaults to next in line)\n'
-        '        \n'
-        '    Returns:\n'
-        '        TransferResult if successful, None if queue is empty\n'
-        '    '
+        "\n"
+        "    Assign the next visitor from waiting queue to a staff member.\n"
+        "    \n"
+        "    Args:\n"
+        "        db: Database session\n"
+        "        staff_id: Staff member to assign visitor to\n"
+        "        project_id: Project ID\n"
+        "        queue_entry_id: Specific queue entry to assign (optional, "
+        "defaults to next in line)\n"
+        "        \n"
+        "    Returns:\n"
+        "        TransferResult if successful, None if queue is empty\n"
+        "    "
     )
     # Validate staff exists
     staff = (
@@ -1645,10 +1642,10 @@ async def assign_from_waiting_queue(
 
     logger.info(
         (
-            f'Assigning visitor '
-            f'{queue_entry.visitor_id}'
-            f' from queue to staff '
-            f'{staff_id}'
+            f"Assigning visitor "
+            f"{queue_entry.visitor_id}"
+            f" from queue to staff "
+            f"{staff_id}"
         )
     )
 
@@ -1662,9 +1659,9 @@ async def assign_from_waiting_queue(
         session_id=queue_entry.session_id,
         visitor_message=queue_entry.visitor_message,
         notes=(
-            f'Assigned from waiting queue (position: '
-            f'{queue_entry.position}'
-            f')'
+            f"Assigned from waiting queue (position: "
+            f"{queue_entry.position}"
+            f")"
         ),
         ai_disabled=queue_entry.ai_disabled,
         expected_queue_entry_id=queue_entry.id,
@@ -1690,7 +1687,7 @@ def get_visitor_queue_position(
 ) -> Optional[int]:
     (
         "Get a visitor's position in the waiting queue, or None if not in "
-        'queue.'
+        "queue."
     )
     queue_entry = (
         db.query(VisitorWaitingQueue)
@@ -1732,11 +1729,11 @@ async def cancel_visitor_from_queue(
     project_id: UUID,
 ) -> bool:
     (
-        '\n'
+        "\n"
         "    Cancel a visitor's waiting queue entry.\n"
-        '    \n'
-        '    Returns True if cancelled, False if not in queue.\n'
-        '    '
+        "    \n"
+        "    Returns True if cancelled, False if not in queue.\n"
+        "    "
     )
     queue_entry = (
         db.query(VisitorWaitingQueue)

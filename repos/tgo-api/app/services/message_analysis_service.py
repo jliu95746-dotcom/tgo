@@ -6,7 +6,6 @@ import hashlib
 import json
 from dataclasses import dataclass
 from typing import Literal
-from collections.abc import Sequence
 from uuid import UUID
 
 from fastapi import status
@@ -117,8 +116,8 @@ class MessageAnalysisService:
         request: MediaResultUpsertRequest,
     ) -> MediaAnalysisResult:
         (
-            'Persist a result after an in-process caller already resolved '
-            'the platform.'
+            "Persist a result after an in-process caller already resolved "
+            "the platform."
         )
         self._require_active_platform(platform)
         self._require_scoped_visitor(platform, request.visitor_id)
@@ -186,8 +185,8 @@ class MessageAnalysisService:
         analysis_mode: Literal["active", "shadow"] = "active",
     ) -> MessageIntentResult:
         (
-            'Persist an intent result for a trusted in-process platform '
-            'context.'
+            "Persist an intent result for a trusted in-process platform "
+            "context."
         )
         self._require_active_platform(platform)
         self._require_scoped_visitor(platform, request.visitor_id)

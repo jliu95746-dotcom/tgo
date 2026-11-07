@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKey, String, Text, func, Integer
+from sqlalchemy import ForeignKey, String, func, Integer
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
 class VisitorCustomerUpdate(Base):
     (
-        'Audit log for visitor customer info updates received from external '
-        'services.'
+        "Audit log for visitor customer info updates received from external "
+        "services."
     )
 
     __tablename__ = "api_visitor_customer_updates"
@@ -86,9 +86,9 @@ class VisitorCustomerUpdate(Base):
 
     def __repr__(self) -> str:
         return (
-            f'<VisitorCustomerUpdate(id='
-            f'{self.id}'
-            f', visitor_id='
-            f'{self.visitor_id}'
-            f')>'
+            f"<VisitorCustomerUpdate(id="
+            f"{self.id}"
+            f", visitor_id="
+            f"{self.visitor_id}"
+            f")>"
         )

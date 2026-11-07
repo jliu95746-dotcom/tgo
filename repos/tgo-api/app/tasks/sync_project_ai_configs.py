@@ -19,8 +19,8 @@ _task: Optional[asyncio.Task] = None
 
 async def _sync_pending_failed_once() -> None:
     (
-        'Scan DB for ProjectAIConfig needing sync and perform batch sync '
-        'with retry.'
+        "Scan DB for ProjectAIConfig needing sync and perform batch sync "
+        "with retry."
     )
     db = SessionLocal()
     try:
@@ -103,7 +103,9 @@ def start_project_ai_config_sync_task() -> None:
         logger.info(
             "ProjectAIConfig periodic sync task started",
             extra={
-                "interval_minutes": settings.PROJECT_AI_CONFIG_SYNC_INTERVAL_MINUTES
+                "interval_minutes": (
+                    settings.PROJECT_AI_CONFIG_SYNC_INTERVAL_MINUTES
+                )
             },
         )
     except Exception as e:

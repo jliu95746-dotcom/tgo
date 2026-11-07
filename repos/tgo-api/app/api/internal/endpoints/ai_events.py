@@ -55,10 +55,10 @@ VISITOR_UID_SUFFIX = "-vtr"
 
 def parse_user_id(user_id: str) -> tuple[str, str]:
     (
-        'Parse user_id and return (user_type, real_id).\n'
-        '    \n'
+        "Parse user_id and return (user_type, real_id).\n"
+        "    \n"
         "    Types: 'visitor', 'staff'\n"
-        '    '
+        "    "
     )
     if user_id.endswith(VISITOR_UID_SUFFIX):
         return "visitor", user_id[: -len(VISITOR_UID_SUFFIX)]
@@ -130,8 +130,8 @@ async def _handle_manual_service_request(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    'session_id must follow {channel_id}@{channel_type} '
-                    'format'
+                    "session_id must follow {channel_id}@{channel_type} "
+                    "format"
                 ),
             )
         channel_id, channel_type_raw = session_parts
@@ -145,8 +145,8 @@ async def _handle_manual_service_request(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                'metadata.request_id must be a nonempty string of at most '
-                '252 characters'
+                "metadata.request_id must be a nonempty string of at most "
+                "252 characters"
             ),
         )
     return await request_human_handoff(
@@ -215,8 +215,8 @@ async def _handle_visitor_info_update(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    'session_id must follow {channel_id}@{channel_type} '
-                    'format'
+                    "session_id must follow {channel_id}@{channel_type} "
+                    "format"
                 ),
             )
         channel_id = parts[0].strip() or None
@@ -267,7 +267,7 @@ async def _handle_visitor_info_update(
         if old_value != extra_info_raw:
             custom_attributes[attr_key] = extra_info_raw
             custom_attrs_modified = True
-            changes[f"custom.extra_info"] = {
+            changes["custom.extra_info"] = {
                 "old": old_value,
                 "new": extra_info_raw,
             }
@@ -377,8 +377,8 @@ async def _handle_visitor_sentiment_update(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    'session_id must follow {channel_id}@{channel_type} '
-                    'format'
+                    "session_id must follow {channel_id}@{channel_type} "
+                    "format"
                 ),
             )
         channel_id = parts[0].strip() or None
@@ -624,47 +624,47 @@ def _handle_visitor_tag(
 
 
 INTERNAL_AI_EVENTS_DESCRIPTION = (
-    '\n'
-    '**Internal endpoint for AI Service (shared service key required).**\n'
-    '\n'
-    'This endpoint is designed for inter-service communication and should '
-    'only be\n'
-    'accessible from the internal network. It requires `X-Internal-API-Key`.\n'
-    '\n'
-    '**Security Note**: This endpoint runs on a separate port (8001) and '
-    'should be\n'
-    'protected by network-level security (firewall, VPC, etc.).\n'
-    '\n'
-    'Supported event types:\n'
-    '\n'
-    '* `manual_service.request` — create a manual service request record.\n'
-    '* `user_info.update` — update user profile using provided user data.\n'
-    '* `user_sentiment.update` — update user sentiment metrics.\n'
-    '* `user_tag.add` — add tags to a user.\n'
-    '\n'
-    '**Backward Compatibility**: The following legacy event types are also '
-    'supported:\n'
-    '* `visitor_sentiment.update` (mapped to `user_sentiment.update`)\n'
-    '* `visitor_tag.add` (mapped to `user_tag.add`)\n'
-    '\n'
-    '**User ID Format**:\n'
-    '- Visitor: `{visitor_uuid}-vtr`\n'
-    '- Staff: `{staff_uuid}-staff`\n'
-    '- Legacy (Visitor): `{visitor_uuid}` (no suffix)\n'
-    '\n'
-    '**Required Fields**:\n'
-    '- `event_type`: The type of event (see above)\n'
-    '- `user_id`: The ID of the user (visitor or staff)\n'
-    '- `payload`: Event-specific payload\n'
-    '-\n'
+    "\n"
+    "**Internal endpoint for AI Service (shared service key required).**\n"
+    "\n"
+    "This endpoint is designed for inter-service communication and should "
+    "only be\n"
+    "accessible from the internal network. It requires `X-Internal-API-Key`.\n"
+    "\n"
+    "**Security Note**: This endpoint runs on a separate port (8001) and "
+    "should be\n"
+    "protected by network-level security (firewall, VPC, etc.).\n"
+    "\n"
+    "Supported event types:\n"
+    "\n"
+    "* `manual_service.request` — create a manual service request record.\n"
+    "* `user_info.update` — update user profile using provided user data.\n"
+    "* `user_sentiment.update` — update user sentiment metrics.\n"
+    "* `user_tag.add` — add tags to a user.\n"
+    "\n"
+    "**Backward Compatibility**: The following legacy event types are also "
+    "supported:\n"
+    "* `visitor_sentiment.update` (mapped to `user_sentiment.update`)\n"
+    "* `visitor_tag.add` (mapped to `user_tag.add`)\n"
+    "\n"
+    "**User ID Format**:\n"
+    "- Visitor: `{visitor_uuid}-vtr`\n"
+    "- Staff: `{staff_uuid}-staff`\n"
+    "- Legacy (Visitor): `{visitor_uuid}` (no suffix)\n"
+    "\n"
+    "**Required Fields**:\n"
+    "- `event_type`: The type of event (see above)\n"
+    "- `user_id`: The ID of the user (visitor or staff)\n"
+    "- `payload`: Event-specific payload\n"
+    "-\n"
     "**Note**: The project is automatically determined from the visitor's "
-    'project association.\n'
-    'You do not need to provide `project_id` in the request.\n'
-    '\n'
-    '**Example Request**:\n'
-    '\n'
-    '```json\n'
-    '{\n'
+    "project association.\n"
+    "You do not need to provide `project_id` in the request.\n"
+    "\n"
+    "**Example Request**:\n"
+    "\n"
+    "```json\n"
+    "{\n"
     '  "event_type": "manual_service.request",\n'
     '  "user_id": "ffffffff-gggg-hhhh-iiii-jjjjjjjjjjjj",\n'
     '  "payload": {\n'
@@ -675,10 +675,10 @@ INTERNAL_AI_EVENTS_DESCRIPTION = (
     '    "session_id": "ffffffff-gggg-hhhh-iiii-jjjjjjjjjjjj-vtr@251",\n'
     '    "metadata": {\n'
     '      "conversation_id": "conv-12345"\n'
-    '    }\n'
-    '  }\n'
-    '}\n'
-    '```\n'
+    "    }\n"
+    "  }\n"
+    "}\n"
+    "```\n"
 )
 
 
@@ -693,18 +693,18 @@ async def ingest_ai_event_internal(
     db: Session = Depends(get_db),
 ) -> dict:
     (
-        '\n'
-        '    Ingest events from AI service after internal service '
-        'authentication.\n'
-        '\n'
-        '    This endpoint is designed for the AI Service to send events '
-        'with a shared key.\n'
+        "\n"
+        "    Ingest events from AI service after internal service "
+        "authentication.\n"
+        "\n"
+        "    This endpoint is designed for the AI Service to send events "
+        "with a shared key.\n"
         "    The project is automatically determined from the user's project "
-        'association.\n'
-        '\n'
-        '    Security: This endpoint should only be accessible from the '
-        'internal network.\n'
-        '    '
+        "association.\n"
+        "\n"
+        "    Security: This endpoint should only be accessible from the "
+        "internal network.\n"
+        "    "
     )
     # Validate user_id is provided (required to determine project)
     if not event.user_id:

@@ -14,7 +14,6 @@ from typing import Optional, Set
 from uuid import UUID
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
@@ -52,22 +51,22 @@ def _get_semaphore() -> asyncio.Semaphore:
 
 async def _process_fallback_batch() -> None:
     (
-        '\n'
-        '    Fallback batch processing for queue entries that may have been '
-        'missed.\n'
-        '    \n'
-        '    This runs at low frequency (default 2 minutes) to catch:\n'
-        '    - Entries missed due to event trigger failures\n'
-        '    - Entries present after system restart\n'
-        '    - Entries where staff became available without triggering '
-        'events\n'
-        '    \n'
-        '    Only processes entries that:\n'
-        '    - Are in WAITING status\n'
-        '    - Are not expired (expired_at > now or expired_at is null)\n'
+        "\n"
+        "    Fallback batch processing for queue entries that may have been "
+        "missed.\n"
+        "    \n"
+        "    This runs at low frequency (default 2 minutes) to catch:\n"
+        "    - Entries missed due to event trigger failures\n"
+        "    - Entries present after system restart\n"
+        "    - Entries where staff became available without triggering "
+        "events\n"
+        "    \n"
+        "    Only processes entries that:\n"
+        "    - Are in WAITING status\n"
+        "    - Are not expired (expired_at > now or expired_at is null)\n"
         "    - Haven't been attempted recently (last_attempt_at < now - "
-        'fallback_interval)\n'
-        '    '
+        "fallback_interval)\n"
+        "    "
     )
     db = SessionLocal()
     try:
@@ -120,9 +119,9 @@ async def _process_fallback_batch() -> None:
 
         logger.info(
             (
-                f'Fallback processor: processing '
-                f'{len(entries_to_process)}'
-                f' entries'
+                f"Fallback processor: processing "
+                f"{len(entries_to_process)}"
+                f" entries"
             ),
             extra={"count": len(entries_to_process)},
         )
@@ -172,9 +171,9 @@ async def _process_fallback_batch() -> None:
                                 visitor_message=fresh_entry.visitor_message,
                                 session_id=fresh_entry.session_id,
                                 notes=(
-                                    f'Fallback processing (entry_id='
-                                    f'{fresh_entry.id}'
-                                    f')'
+                                    f"Fallback processing (entry_id="
+                                    f"{fresh_entry.id}"
+                                    f")"
                                 ),
                                 skip_queue_status_check=True,
                                 auto_commit=False,
@@ -188,10 +187,10 @@ async def _process_fallback_batch() -> None:
                                 assigned += 1
                                 logger.info(
                                     (
-                                        f'Fallback: entry '
-                                        f'{fresh_entry.id}'
-                                        f' assigned to '
-                                        f'{result.assigned_staff_id}'
+                                        f"Fallback: entry "
+                                        f"{fresh_entry.id}"
+                                        f" assigned to "
+                                        f"{result.assigned_staff_id}"
                                     ),
                                     extra={
                                         "entry_id": str(fresh_entry.id),
@@ -209,10 +208,10 @@ async def _process_fallback_batch() -> None:
                         except Exception as e:
                             logger.error(
                                 (
-                                    f'Fallback: error processing entry '
-                                    f'{entry.id}'
-                                    f': '
-                                    f'{e}'
+                                    f"Fallback: error processing entry "
+                                    f"{entry.id}"
+                                    f": "
+                                    f"{e}"
                                 )
                             )
                             try:
@@ -245,7 +244,7 @@ async def _process_fallback_batch() -> None:
                 _processing_ids.discard(e.id)
 
         logger.info(
-            f"Fallback processor: batch complete",
+            "Fallback processor: batch complete",
             extra={
                 "total": len(entries_to_process),
                 "processed": total_processed,
@@ -321,7 +320,9 @@ def start_queue_tasks() -> None:
                 logger.info(
                     "Queue fallback processor started",
                     extra={
-                        "interval_seconds": settings.QUEUE_FALLBACK_INTERVAL_SECONDS
+                        "interval_seconds": (
+                            settings.QUEUE_FALLBACK_INTERVAL_SECONDS
+                        )
                     },
                 )
             except Exception as e:
@@ -377,15 +378,15 @@ async def stop_queue_tasks() -> None:
 
 async def trigger_process_entry(entry_id: UUID) -> None:
     (
-        '\n'
-        '    Trigger processing of a queue entry.\n'
-        '    \n'
-        '    This is a backward-compatible wrapper that delegates to the\n'
-        '    new queue_trigger_service.\n'
-        '    \n'
-        '    Args:\n'
-        '        entry_id: UUID of the VisitorWaitingQueue entry to process\n'
-        '    '
+        "\n"
+        "    Trigger processing of a queue entry.\n"
+        "    \n"
+        "    This is a backward-compatible wrapper that delegates to the\n"
+        "    new queue_trigger_service.\n"
+        "    \n"
+        "    Args:\n"
+        "        entry_id: UUID of the VisitorWaitingQueue entry to process\n"
+        "    "
     )
     from app.services.queue_trigger_service import trigger_queue_for_entry
 

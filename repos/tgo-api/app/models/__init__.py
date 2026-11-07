@@ -3,29 +3,31 @@
 from app.models.platform import Platform, PlatformType, PlatformTypeDefinition
 from app.models.project import Project
 from app.models.business_customer_identity import (
-    BusinessCustomerBinding,
-    BusinessCustomerIdentityPolicy,
+    BusinessCustomerBinding as BusinessCustomerBinding,
+    BusinessCustomerIdentityPolicy as BusinessCustomerIdentityPolicy,
 )
 from app.models.visitor_business_scope import VisitorBusinessScope
 from app.models.platform_operator import PlatformOperator
 from app.models.billing import (
-    BillingPlan,
-    BillingQuote,
-    BillingOrder,
-    SubscriptionPeriod,
-    SeatAddon,
-    PaymentEvent,
-    BillingJob,
-    BillingRefund,
-    BillingAudit,
-    InvoiceRequest,
+    BillingPlan as BillingPlan,
+    BillingQuote as BillingQuote,
+    BillingOrder as BillingOrder,
+    SubscriptionPeriod as SubscriptionPeriod,
+    SeatAddon as SeatAddon,
+    PaymentEvent as PaymentEvent,
+    BillingJob as BillingJob,
+    BillingRefund as BillingRefund,
+    BillingAudit as BillingAudit,
+    InvoiceRequest as InvoiceRequest,
 )
-from app.models.company_invitation import CompanyInvitation
+from app.models.company_invitation import (
+    CompanyInvitation as CompanyInvitation,
+)
 from app.models.company_account import (
-    CompanyAccount,
-    EmailAction,
-    EmailOutbox,
-    AICreditBatch,
+    CompanyAccount as CompanyAccount,
+    EmailAction as EmailAction,
+    EmailOutbox as EmailOutbox,
+    AICreditBatch as AICreditBatch,
 )
 from app.models.system_setup import SystemSetup
 from app.models.staff import Staff, StaffRole, StaffStatus
@@ -46,7 +48,9 @@ from app.models.chat_file import ChatFile
 from app.models.assist_draft_record import AssistDraftRecord
 from app.models.shadow_draft_review import ShadowDraftReview
 from app.models.shadow_review_adjudication import ShadowReviewAdjudication
-from app.models.shadow_gate_signoff import ShadowGateSignoff
+from app.models.shadow_gate_signoff import (
+    ShadowGateSignoff as ShadowGateSignoff,
+)
 from app.models.shadow_review_batch import (
     ShadowReviewBatch,
     ShadowReviewBatchItem,
@@ -200,15 +204,49 @@ __all__ = [
     "TagCategory",
     "ClearanceUserType",
     "AIInteractionRunStatus",
+    # Existing public types registered by this package.
+    "BusinessCustomerBinding",
+    "BusinessCustomerIdentityPolicy",
+    "BillingPlan",
+    "BillingQuote",
+    "BillingOrder",
+    "SubscriptionPeriod",
+    "SeatAddon",
+    "PaymentEvent",
+    "BillingJob",
+    "BillingRefund",
+    "BillingAudit",
+    "InvoiceRequest",
+    "CompanyInvitation",
+    "CompanyAccount",
+    "EmailAction",
+    "EmailOutbox",
+    "AICreditBatch",
+    "ShadowGateSignoff",
+    "AIUsageReservation",
+    "AIUsageMovement",
+    "BillingReconciliation",
+    "TrialPolicy",
+    "TrialActivationCode",
+    "CustomerTurn",
+    "CustomerTurnPart",
+    "WeChatStaffDelivery",
 ]
-from app.models.ai_usage import AIUsageReservation, AIUsageMovement
-from app.models.billing_reconciliation import BillingReconciliation
+from app.models.ai_usage import (
+    AIUsageReservation as AIUsageReservation,
+    AIUsageMovement as AIUsageMovement,
+)
+from app.models.billing_reconciliation import (
+    BillingReconciliation as BillingReconciliation,
+)
 from app.models.workflow_event_subscription import (
     WorkflowEventSubscription,
     WorkflowEventDelivery,
 )
-from app.models.trial_policy import TrialPolicy
-from app.models.trial_activation_code import TrialActivationCode
+from app.models.trial_policy import TrialPolicy as TrialPolicy
+from app.models.trial_activation_code import (
+    TrialActivationCode as TrialActivationCode,
+)
 from app.models.customer_turn import (
     CustomerTurn as CustomerTurn,
     CustomerTurnPart as CustomerTurnPart,

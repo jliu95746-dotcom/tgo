@@ -15,7 +15,6 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models import Platform, Visitor
-from app.models.platform import DIRECT_VISITOR_PLATFORM_TYPES
 from app.models.ai_interaction_run import AIInteractionRun
 from app.models.platform import DIRECT_VISITOR_PLATFORM_TYPES
 from app.services import ai_usage
@@ -119,8 +118,8 @@ def _reserve(
                 if run is None or platform.type != "wecom":
                     raise ValueError(
                         (
-                            'This SaaS channel has no verified billing '
-                            'delivery adapter'
+                            "This SaaS channel has no verified billing "
+                            "delivery adapter"
                         )
                     )
                 receipt.update(

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -114,16 +114,16 @@ class Staff(Base):
         nullable=False,
         default=True,
         comment=(
-            'Whether staff is active for service (long-term switch, e.g., '
-            'off-duty, resigned)'
+            "Whether staff is active for service (long-term switch, e.g., "
+            "off-duty, resigned)"
         ),
     )
     service_paused: Mapped[bool] = mapped_column(
         nullable=False,
         default=False,
         comment=(
-            'Whether staff has temporarily paused accepting new visitors '
-            '(short-term switch)'
+            "Whether staff has temporarily paused accepting new visitors "
+            "(short-term switch)"
         ),
     )
 
@@ -161,12 +161,12 @@ class Staff(Base):
     def __repr__(self) -> str:
         """String representation of the staff."""
         return (
-            f'<Staff(id='
-            f'{self.id}'
+            f"<Staff(id="
+            f"{self.id}"
             f", username='"
-            f'{self.username}'
+            f"{self.username}"
             f"', role='"
-            f'{self.role}'
+            f"{self.role}"
             f"')>"
         )
 

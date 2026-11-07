@@ -165,7 +165,9 @@ class BusinessExecutionContextService:
             binding_id=verified.binding_id,
             binding_revision=verified.revision,
             policy_revision=verified.policy_revision,
-            connection_configuration_revision=verified.connection_configuration_revision,
+            connection_configuration_revision=(
+                verified.connection_configuration_revision
+            ),
             expires_at=verified.expires_at,
         )
 

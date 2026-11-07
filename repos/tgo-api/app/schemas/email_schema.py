@@ -1,6 +1,5 @@
 """Email service schemas."""
 
-from typing import Optional
 
 from pydantic import Field, field_validator
 
@@ -41,8 +40,8 @@ class EmailConnectionTestRequest(BaseSchema):
     smtp_use_tls: bool = Field(
         default=True,
         description=(
-            'Whether to use TLS/STARTTLS for SMTP connection (recommended '
-            'for ports 587, 25)'
+            "Whether to use TLS/STARTTLS for SMTP connection (recommended "
+            "for ports 587, 25)"
         ),
     )
 
@@ -77,17 +76,17 @@ class EmailConnectionTestRequest(BaseSchema):
     imap_use_ssl: bool = Field(
         default=True,
         description=(
-            'Whether to use SSL for IMAP connection (recommended for port '
-            '993)'
+            "Whether to use SSL for IMAP connection (recommended for port "
+            "993)"
         ),
     )
 
-    @field_validator('smtp_port', 'imap_port')
+    @field_validator("smtp_port", "imap_port")
     @classmethod
     def validate_port(cls, v: int) -> int:
         """Validate port number is in valid range."""
         if not 1 <= v <= 65535:
-            raise ValueError('Port must be between 1 and 65535')
+            raise ValueError("Port must be between 1 and 65535")
         return v
 
 

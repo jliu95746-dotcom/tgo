@@ -60,7 +60,11 @@ def _extract_text_message(message: Dict[str, Any]) -> str | None:
     if payload_type not in (1, "1"):
         return None
     content = payload.get("content")
-    return content.strip() if isinstance(content, str) and content.strip() else None
+    return (
+        content.strip()
+        if isinstance(content, str) and content.strip()
+        else None
+    )
 
 
 def _classify_message_sender(message: Dict[str, Any]) -> str:
@@ -76,7 +80,6 @@ def _classify_message_sender(message: Dict[str, Any]) -> str:
     return "system"
 
 
-
 def _normalize_status_events(payload: Any) -> List[Dict[str, Any]]:
     """Normalize user.onlinestatus payload into a list of event dicts."""
     if isinstance(payload, list):
@@ -89,7 +92,9 @@ def _normalize_status_events(payload: Any) -> List[Dict[str, Any]]:
         if isinstance(data, dict):
             return [data]
         # Some payloads may place the record at top-level
-        if any(key in payload for key in ("uid", "user_id", "userId", "userID")):
+        if any(
+            key in payload for key in ("uid", "user_id", "userId", "userID")
+        ):
             return [payload]
 
     return []
@@ -116,7 +121,14 @@ def _parse_online_flag(entry: Dict[str, Any]) -> Optional[bool]:
             lowered = value.strip().lower()
             if lowered in {"1", "true", "online", "login", "connected", "up"}:
                 return True
-            if lowered in {"0", "false", "offline", "logout", "disconnected", "down"}:
+            if lowered in {
+                "0",
+                "false",
+                "offline",
+                "logout",
+                "disconnected",
+                "down",
+            }:
                 return False
         return None
 
@@ -166,14 +178,15 @@ def _parse_online_flag(entry: Dict[str, Any]) -> Optional[bool]:
     return None
 
 
-
 async def _process_user_online_status(status_payload: Any) -> None:
     """Entry point for handling user.onlinestatus events."""
     db: Session = SessionLocal()
     try:
         await _handle_user_online_status(status_payload, db)
     except Exception as exc:  # pragma: no cover - defensive logging
-        logger.error("Failed to process WuKongIM user.onlinestatus event: %s", exc)
+        logger.error(
+            "Failed to process WuKongIM user.onlinestatus event: %s", exc
+        )
     finally:
         db.close()
 
@@ -191,10 +204,10 @@ async def _process_msg_notify(messages: Any) -> None:
 
 async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
     """Handle msg.notify events to update visitor message stats in batch.
-    
+
     Uses raw SQL UPDATE statements to avoid long-running transactions and
     potential deadlocks with other operations (e.g., staff assignment).
-    
+
     Args:
         messages: List of message notification objects from WuKongIM
         db: Database session
@@ -231,7 +244,7 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
         except Exception:
             logger.warning(
                 "WuKongIM msg.notify contains invalid visitor channel ID",
-                extra={"channel_id": channel_id}
+                extra={"channel_id": channel_id},
             )
             continue
 
@@ -247,7 +260,9 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                         visitor_id,
                         client_msg_no,
                         message_text,
-                        "visitor_message" if is_from_visitor else "staff_message",
+                        "visitor_message"
+                        if is_from_visitor
+                        else "staff_message",
                     )
                 )
                 if is_from_visitor:
@@ -270,7 +285,8 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
 
         stats = visitor_stats[visitor_id]
 
-        # Track the message with highest sequence number for last_message fields
+        # Track the message with highest sequence number for last_message
+        # fields
         if message_seq > stats["max_seq"]:
             stats["max_seq"] = message_seq
             stats["client_msg_no"] = client_msg_no
@@ -292,13 +308,15 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
     now = datetime.utcnow()
     updated_count = 0
 
-    # Use individual UPDATE statements to minimize lock duration and avoid deadlocks
+    # Use individual UPDATE statements to minimize lock duration and avoid
+    # deadlocks
     # Each UPDATE is a short transaction that releases the lock immediately
     # Uses SKIP LOCKED to avoid waiting for rows locked by other transactions
     skipped_count = 0
     for visitor_id, stats in visitor_stats.items():
         try:
-            # Build dynamic UPDATE statement based on which fields need updating
+            # Build dynamic UPDATE statement based on which fields need
+            # updating
             update_parts = [
                 "last_message_at = :last_message_at",
                 "is_last_message_from_visitor = :is_last_from_visitor",
@@ -321,24 +339,31 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 params["last_client_msg_no"] = stats["client_msg_no"]
 
             if stats["send_count"] > 0:
-                update_parts.append("visitor_send_count = visitor_send_count + :send_count")
+                update_parts.append(
+                    "visitor_send_count = visitor_send_count + :send_count"
+                )
                 params["send_count"] = stats["send_count"]
 
-            # Use SKIP LOCKED to avoid waiting for rows locked by other transactions
-            # (e.g., transfer_to_staff with FOR UPDATE). If the row is locked, the
-            # subquery returns empty and the UPDATE is skipped. This prevents deadlocks
+            # Use SKIP LOCKED to avoid waiting for rows locked by other
+            # transactions
+            # (e.g., transfer_to_staff with FOR UPDATE). If the row is locked,
+            # the
+            # subquery returns empty and the UPDATE is skipped. This prevents
+            # deadlocks
             # while the next message will trigger another update attempt.
-            update_sql = text(f"""
-                UPDATE api_visitors 
+            update_sql = text(
+                f"""
+                UPDATE api_visitors\x20
                 SET {", ".join(update_parts)}
                 WHERE id IN (
-                    SELECT id FROM api_visitors 
-                    WHERE id = :visitor_id 
+                    SELECT id FROM api_visitors\x20
+                    WHERE id = :visitor_id\x20
                       AND deleted_at IS NULL
                       AND last_message_seq < :incoming_last_message_seq
                     FOR UPDATE SKIP LOCKED
                 )
-            """)
+            """
+            )
             params["incoming_last_message_seq"] = stats["max_seq"]
 
             # visitor_id is already a UUID object from stats grouping,
@@ -357,32 +382,48 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 if message_count > 0:
                     db.execute(
                         text(
-                            """
-                            UPDATE api_visitor_sessions
-                            SET message_count = message_count + :message_count,
-                                visitor_message_count = visitor_message_count + :visitor_message_count,
-                                staff_message_count = staff_message_count + :staff_message_count,
-                                ai_message_count = ai_message_count + :ai_message_count,
-                                last_message_at = :last_message_at,
-                                last_message_seq = :last_message_seq,
-                                updated_at = now()
-                            WHERE id IN (
-                                SELECT id
-                                FROM api_visitor_sessions
-                                WHERE visitor_id = :visitor_id
-                                  AND status = 'open'
-                                  AND COALESCE(last_message_seq, 0) < :last_message_seq
-                                ORDER BY created_at DESC
-                                LIMIT 1
-                                FOR UPDATE SKIP LOCKED
+                            (
+                                "\n                            UPDATE api_"
+                                "visitor_sessions\n                       "
+                                "     SET message_count = message_count +"
+                                " :message_count,\n                       "
+                                "         visitor_message_count = visitor"
+                                "_message_count + :visitor_message_count,"
+                                "\n                                staff_m"
+                                "essage_count = staff_message_count + :st"
+                                "aff_message_count,\n                     "
+                                "           ai_message_count = ai_message"
+                                "_count + :ai_message_count,\n            "
+                                "                    last_message_at = :l"
+                                "ast_message_at,\n                        "
+                                "        last_message_seq = :last_message"
+                                "_seq,\n                                up"
+                                "dated_at = now()\n                       "
+                                "     WHERE id IN (\n                     "
+                                "           SELECT id\n                   "
+                                "             FROM api_visitor_sessions\n "
+                                "                               WHERE vis"
+                                "itor_id = :visitor_id\n                  "
+                                "                AND status = 'open'\n    "
+                                "                              AND COALES"
+                                "CE(last_message_seq, 0) < :last_message_"
+                                "seq\n                                ORDE"
+                                "R BY created_at DESC\n                   "
+                                "             LIMIT 1\n                   "
+                                "             FOR UPDATE SKIP LOCKED\n    "
+                                "                        )\n              "
+                                "              "
                             )
-                            """
                         ),
                         {
                             "visitor_id": str(visitor_id),
                             "message_count": message_count,
-                            "visitor_message_count": stats["visitor_message_count"],
-                            "staff_message_count": stats["staff_message_count"],
+                            "visitor_message_count": stats[
+                                "visitor_message_count"
+                            ],
+                            "staff_message_count": stats[
+                                "staff_message_count"
+                            ],
                             "ai_message_count": stats["ai_message_count"],
                             "last_message_at": now,
                             "last_message_seq": stats["max_seq"],
@@ -397,8 +438,8 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
             # Rollback and log error for this visitor, continue with others
             db.rollback()
             logger.error(
-                f"Failed to update visitor message stats",
-                extra={"visitor_id": str(visitor_id), "error": str(e)}
+                "Failed to update visitor message stats",
+                extra={"visitor_id": str(visitor_id), "error": str(e)},
             )
 
     if updated_count > 0 or skipped_count > 0:
@@ -408,10 +449,15 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 "total_visitors": len(visitor_stats),
                 "updated_count": updated_count,
                 "skipped_count": skipped_count,
-            }
+            },
         )
 
-    for visitor_id, source_message_id, message_text, message_source in logistics_jobs:
+    for (
+        visitor_id,
+        source_message_id,
+        message_text,
+        message_source,
+    ) in logistics_jobs:
         try:
             visitor = (
                 db.query(Visitor)
@@ -503,7 +549,9 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 and getattr(platform, "agent_id", None) is not None
             ):
                 await HiddenShadowRunService(
-                    db, ai_client=ai_client, im_client=wukong_client,
+                    db,
+                    ai_client=ai_client,
+                    im_client=wukong_client,
                 ).generate(
                     project_id=project.id,
                     platform_id=platform.id,
@@ -526,11 +574,14 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
 
 async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
     if not settings.WUKONGIM_ENABLED:
-        logger.debug("WuKongIM integration disabled; ignoring online status event")
+        logger.debug(
+            "WuKongIM integration disabled; ignoring online status event"
+        )
         return
     events = _normalize_status_events(events_payload)
     if not events and isinstance(events_payload, list):
-        # Handle compact list format like ["uid-deviceFlag-onlineFlag-connectionId-deviceOnlineCount-totalOnlineCount"]
+        # Handle compact list format like ["uid-deviceFlag-onlineFlag-
+        # connectionId-deviceOnlineCount-totalOnlineCount"]
         normalized = []
         for item in events_payload:
             if not isinstance(item, str):
@@ -538,7 +589,14 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
             parts = item.rsplit("-", 5)
             if len(parts) != 6:
                 continue
-            uid_part, device_flag, online_flag, connection_id, device_online_str, total_online_str = parts
+            (
+                uid_part,
+                device_flag,
+                online_flag,
+                connection_id,
+                device_online_str,
+                total_online_str,
+            ) = parts
 
             def _safe_int(value: str) -> Optional[int]:
                 try:
@@ -549,18 +607,22 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
             device_online_count = _safe_int(device_online_str)
             user_total_devices = _safe_int(total_online_str)
 
-            normalized.append({
-                "uid": uid_part,
-                "device_flag": device_flag,
-                "connection_id": connection_id,
-                "status": online_flag,
-                "device_online_count": device_online_count,
-                "user_total_online_devices": user_total_devices,
-            })
+            normalized.append(
+                {
+                    "uid": uid_part,
+                    "device_flag": device_flag,
+                    "connection_id": connection_id,
+                    "status": online_flag,
+                    "device_online_count": device_online_count,
+                    "user_total_online_devices": user_total_devices,
+                }
+            )
         events = normalized
 
     if not events:
-        logger.debug("WuKongIM user.onlinestatus payload empty or unsupported format")
+        logger.debug(
+            "WuKongIM user.onlinestatus payload empty or unsupported format"
+        )
         return
 
     now = datetime.utcnow()
@@ -573,7 +635,10 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
     for entry in events:
         uid_raw = _extract_uid(entry)
         if not uid_raw:
-            logger.warning("WuKongIM user.onlinestatus entry missing uid", extra={"entry": entry})
+            logger.warning(
+                "WuKongIM user.onlinestatus entry missing uid",
+                extra={"entry": entry},
+            )
             continue
 
         is_staff = False
@@ -581,15 +646,18 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
         uid_str = uid_raw
         if uid_raw.endswith(STAFF_UID_SUFFIX):
             is_staff = True
-            uid_str = uid_raw[:-len(STAFF_UID_SUFFIX)]
+            uid_str = uid_raw[: -len(STAFF_UID_SUFFIX)]
         if uid_str.endswith(VISITOR_UID_SUFFIX):
             is_visitor = True
-            uid_str = uid_str[:-len(VISITOR_UID_SUFFIX)]
+            uid_str = uid_str[: -len(VISITOR_UID_SUFFIX)]
 
         try:
             uid = UUID(uid_str)
         except Exception:
-            logger.warning("WuKongIM user.onlinestatus entry contains invalid UID", extra={"uid": uid_raw})
+            logger.warning(
+                "WuKongIM user.onlinestatus entry contains invalid UID",
+                extra={"uid": uid_raw},
+            )
             continue
 
         is_online = _parse_online_flag(entry)
@@ -607,10 +675,17 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
                 .first()
             )
             if not staff:
-                logger.debug("Staff not found for online status update", extra={"staff_id": uid_str})
+                logger.debug(
+                    "Staff not found for online status update",
+                    extra={"staff_id": uid_str},
+                )
                 continue
 
-            desired_status = StaffStatus.ONLINE.value if is_online else StaffStatus.OFFLINE.value
+            desired_status = (
+                StaffStatus.ONLINE.value
+                if is_online
+                else StaffStatus.OFFLINE.value
+            )
             if staff.status != desired_status:
                 staff.status = desired_status
                 dirty = True
@@ -622,7 +697,10 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
                 .first()
             )
             if not visitor:
-                logger.debug("Visitor not found for online status update", extra={"visitor_id": uid_str})
+                logger.debug(
+                    "Visitor not found for online status update",
+                    extra={"visitor_id": uid_str},
+                )
                 continue
 
             record_changed = False
@@ -642,7 +720,9 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
                 visitor_updates += 1
                 visitors_to_notify[str(visitor.id)] = visitor
                 memberships = (
-                    db.query(ChannelMember.channel_id, ChannelMember.channel_type)
+                    db.query(
+                        ChannelMember.channel_id, ChannelMember.channel_type
+                    )
                     .filter(
                         ChannelMember.member_id == visitor.id,
                         ChannelMember.member_type == MEMBER_TYPE_VISITOR,
@@ -652,7 +732,9 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
                 )
 
                 if memberships:
-                    event_type = "visitor.online" if is_online else "visitor.offline"
+                    event_type = (
+                        "visitor.online" if is_online else "visitor.offline"
+                    )
                     event_payload = {
                         "visitor_id": str(visitor.id),
                         "status": "online" if is_online else "offline",
@@ -660,8 +742,12 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
                         "timestamp": now.isoformat() + "Z",
                         "device_flag": entry.get("device_flag"),
                         "connection_id": entry.get("connection_id"),
-                        "device_online_count": entry.get("device_online_count"),
-                        "user_total_online_devices": entry.get("user_total_online_devices"),
+                        "device_online_count": entry.get(
+                            "device_online_count"
+                        ),
+                        "user_total_online_devices": entry.get(
+                            "user_total_online_devices"
+                        ),
                     }
                     for channel_id, channel_type in memberships:
                         payload_with_channel = {
@@ -669,7 +755,9 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
                             "channel_id": channel_id,
                             "channel_type": channel_type,
                         }
-                        client_msg_no = f"presence-{visitor.id}-{uuid.uuid4().hex}"
+                        client_msg_no = (
+                            f"presence-{visitor.id}-{uuid.uuid4().hex}"
+                        )
                         channel_events.append(
                             {
                                 "channel_id": channel_id,
@@ -682,14 +770,18 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
                         )
 
     if not dirty:
-        logger.debug("WuKongIM user.onlinestatus processed with no state changes")
+        logger.debug(
+            "WuKongIM user.onlinestatus processed with no state changes"
+        )
         return
 
     try:
         db.commit()
     except Exception as exc:
         db.rollback()
-        logger.error("Failed to commit WuKongIM user.onlinestatus updates: %s", exc)
+        logger.error(
+            "Failed to commit WuKongIM user.onlinestatus updates: %s", exc
+        )
         return
 
     for evt in channel_events:
@@ -715,7 +807,10 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
 
     logger.info(
         "WuKongIM user.onlinestatus applied",
-        extra={"visitor_updates": visitor_updates, "staff_updates": staff_updates},
+        extra={
+            "visitor_updates": visitor_updates,
+            "staff_updates": staff_updates,
+        },
     )
 
     if visitors_to_notify:
@@ -729,25 +824,36 @@ async def _handle_user_online_status(events_payload: Any, db: Session) -> None:
         for result in notify_results:
             if isinstance(result, Exception):
                 logger.error(
-                    "Failed to dispatch visitor profile update notification after status change",
+                    (
+                        "Failed to dispatch visitor profile updat"
+                        "e notification after status change"
+                    ),
                     exc_info=result,
                 )
 
 
 @router.post("/webhook", status_code=status.HTTP_200_OK)
 async def wukongim_webhook(
-    request: Request, background_tasks: BackgroundTasks,
+    request: Request,
+    background_tasks: BackgroundTasks,
 ) -> dict[str, int | str]:
-    """Keep pre-SaaS migration compatibility; commercial callbacks are internal."""
+    (
+        "Keep pre-SaaS migration compatibility; c"
+        "ommercial callbacks are internal."
+    )
     if settings.SAAS_ENABLED:
         raise HTTPException(status_code=404, detail="Not found")
     return await handle_wukongim_webhook(request, background_tasks)
 
 
 async def handle_wukongim_webhook(
-    request: Request, background_tasks: BackgroundTasks,
+    request: Request,
+    background_tasks: BackgroundTasks,
 ) -> dict[str, int | str]:
-    """Handle events only after the calling application enforces its boundary."""
+    (
+        "Handle events only after the calling app"
+        "lication enforces its boundary."
+    )
 
     event = request.query_params.get("event")
     logger.info("WuKongIM webhook received1", extra={"event": event})
@@ -756,14 +862,18 @@ async def handle_wukongim_webhook(
         try:
             body = await request.json()
         except Exception as exc:
-            logger.error("Failed to parse WuKongIM user.onlinestatus payload: %s", exc)
+            logger.error(
+                "Failed to parse WuKongIM user.onlinestatus payload: %s", exc
+            )
             return {"code": 400, "message": "invalid payload"}
         await _process_user_online_status(body)
     elif event == "msg.notify":
         try:
             body = await request.json()
         except Exception as exc:
-            logger.error("Failed to parse WuKongIM msg.notify payload: %s", exc)
+            logger.error(
+                "Failed to parse WuKongIM msg.notify payload: %s", exc
+            )
             return {"code": 400, "message": "invalid payload"}
         background_tasks.add_task(_process_msg_notify, body)
 

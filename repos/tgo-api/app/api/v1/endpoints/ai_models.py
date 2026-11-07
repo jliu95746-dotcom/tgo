@@ -1,7 +1,6 @@
 """AI Model management endpoints."""
 
 from typing import Optional
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
@@ -31,12 +30,12 @@ async def list_ai_models(
     current_user: Staff = Depends(get_current_active_user),
 ) -> AIModelWithProviderListResponse:
     (
-        'List AI models with provider info.\n'
-        '    \n'
-        '    This endpoint returns a flat list of models available in the '
-        'current project,\n'
-        '    joined with their respective provider information.\n'
-        '    '
+        "List AI models with provider info.\n"
+        "    \n"
+        "    This endpoint returns a flat list of models available in the "
+        "current project,\n"
+        "    joined with their respective provider information.\n"
+        "    "
     )
     project_id = current_user.project_id
 

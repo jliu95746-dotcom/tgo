@@ -193,9 +193,9 @@ from app.schemas.visitor import (
     VisitorSystemInfoResponse,
     VisitorUpdate,
     VisitorAvatarUploadResponse,
-    VisitorRegisterRequest,
-    VisitorRegisterResponse,
-    VisitorMessageSyncRequest,
+    VisitorRegisterRequest as VisitorRegisterRequest,
+    VisitorRegisterResponse as VisitorRegisterResponse,
+    VisitorMessageSyncRequest as VisitorMessageSyncRequest,
     VisitorServiceModeUpdate,
 )
 from app.schemas.visitor_activity import (
@@ -230,8 +230,8 @@ from app.schemas.search import (
 from app.schemas.chat import (
     ChatFileUploadResponse,
     StaffSendPlatformMessageRequest,
-    StaffAgentChatRequest,
-    StaffAgentChatResponse,
+    StaffAgentChatRequest as StaffAgentChatRequest,
+    StaffAgentChatResponse as StaffAgentChatResponse,
     OpenAIChatMessage,
     OpenAIChatCompletionRequest,
     OpenAIChatCompletionChoice,
@@ -451,4 +451,10 @@ __all__ = [
     "WuKongIMSetUnreadRequest",
     "WuKongIMSystemAccountsRequest",
     "WuKongIMUserRegistration",
+    # Existing public types registered by this package.
+    "VisitorRegisterRequest",
+    "VisitorRegisterResponse",
+    "VisitorMessageSyncRequest",
+    "StaffAgentChatRequest",
+    "StaffAgentChatResponse",
 ]

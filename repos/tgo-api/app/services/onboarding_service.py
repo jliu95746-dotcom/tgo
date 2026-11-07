@@ -1,6 +1,6 @@
 """Onboarding progress service for checking step completion status."""
 
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 from uuid import UUID
 
 from sqlalchemy.orm import Session

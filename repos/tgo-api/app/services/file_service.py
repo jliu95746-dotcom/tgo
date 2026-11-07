@@ -3,7 +3,6 @@
 import re
 import unicodedata
 from pathlib import Path
-from urllib.parse import quote
 
 
 def sanitize_filename(name: str, limit: int = 100) -> str:

@@ -1,4 +1,5 @@
-"""Private adapter-only credentials and verified customer for one test claim."""
+"""Private adapter-only credentials and verified customer for \
+one test claim."""
 
 from typing import Literal
 
@@ -13,9 +14,9 @@ from app.schemas.business_connections import BusinessConnectionPrivateSnapshot
 
 class BusinessTrialResolution(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    scope: Literal["employee_business_test_resolution"] = (
+    scope: Literal[
         "employee_business_test_resolution"
-    )
+    ] = "employee_business_test_resolution"
     can_enable: Literal[False] = False
     authority: BusinessTrialAuthority
     snapshot: BusinessConnectionPrivateSnapshot

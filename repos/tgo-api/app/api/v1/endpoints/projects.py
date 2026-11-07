@@ -1,7 +1,6 @@
 """Project endpoints."""
 
 from datetime import datetime
-from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -196,13 +195,13 @@ async def get_project_ai_config(
     current_user: Staff = Depends(get_current_active_user),
 ) -> ProjectAIConfigResponse:
     (
-        'Get default AI model configuration for a project.\n'
-        '\n'
-        '    If a record does not exist yet, create an empty configuration '
-        'and return it (HTTP 200).\n'
-        '    Validates that referenced provider IDs exist and are active; if '
-        'not, returns None for those fields.\n'
-        '    '
+        "Get default AI model configuration for a project.\n"
+        "\n"
+        "    If a record does not exist yet, create an empty configuration "
+        "and return it (HTTP 200).\n"
+        "    Validates that referenced provider IDs exist and are active; if "
+        "not, returns None for those fields.\n"
+        "    "
     )
     # Only allow accessing own project's config
     if current_user.project_id != project_id:
@@ -331,9 +330,9 @@ async def get_project_ai_config(
         if provider_id and provider_id not in valid_provider_ids:
             logger.warning(
                 (
-                    f'Invalid or inactive default_'
-                    f'{capability}'
-                    f'_provider_id detected'
+                    f"Invalid or inactive default_"
+                    f"{capability}"
+                    f"_provider_id detected"
                 ),
                 extra={
                     "project_id": str(project_id),
@@ -354,12 +353,12 @@ async def upsert_project_ai_config(
     current_user: Staff = Depends(require_admin()),
 ) -> ProjectAIConfigResponse:
     (
-        'Upsert default AI model configuration for a project.\n'
-        '\n'
-        '    - Validates provider IDs belong to the same project\n'
-        '    - Optionally validates model is in provider.available_models '
-        'when both provided\n'
-        '    '
+        "Upsert default AI model configuration for a project.\n"
+        "\n"
+        "    - Validates provider IDs belong to the same project\n"
+        "    - Optionally validates model is in provider.available_models "
+        "when both provided\n"
+        "    "
     )
     if shared_models_active(db):
         raise HTTPException(403, "模型由平台统一配置，请联系平台管理员")
@@ -421,7 +420,7 @@ async def upsert_project_ai_config(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=(
                         f"Model '"
-                        f'{model_value}'
+                        f"{model_value}"
                         f"' not in selected provider's available models"
                     ),
                 )

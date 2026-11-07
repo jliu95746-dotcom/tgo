@@ -17,7 +17,6 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.platform import PlatformType
 from app.models.staff_message_delivery import StaffMessageDelivery, utc_now
 from app.models.platform import PlatformType
 from app.schemas.staff_delivery import (
@@ -263,8 +262,8 @@ def _claim(
 
 async def write_delivery_history(row: StaffMessageDelivery) -> None:
     (
-        'Use the same server IM client as AI; never call any channel adapter '
-        'here.'
+        "Use the same server IM client as AI; never call any channel adapter "
+        "here."
     )
     if not wukongim_client.enabled:
         raise RuntimeError("IM_DISABLED")
@@ -339,8 +338,8 @@ async def recover_pending_history(
     project_id: UUID | None = None,
 ) -> int:
     (
-        'Skip locked rows so API workers cannot replay the same pending '
-        'record.'
+        "Skip locked rows so API workers cannot replay the same pending "
+        "record."
     )
     recovered = 0
     # Select IDs first; each attempt commits independently rather than holding

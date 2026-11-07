@@ -1,10 +1,9 @@
 """Email service endpoints."""
 
 import imaplib
-import logging
 import smtplib
 import socket
-from typing import Dict, Any
+from typing import Dict
 
 from fastapi import APIRouter, Depends, status
 
@@ -29,20 +28,20 @@ def test_smtp_connection(
     timeout: int = 30,
 ) -> Dict[str, str]:
     (
-        '\n'
-        '    Test SMTP server connection.\n'
-        '    \n'
-        '    Args:\n'
-        '        host: SMTP server hostname\n'
-        '        port: SMTP server port\n'
-        '        username: SMTP username\n'
-        '        password: SMTP password\n'
-        '        use_tls: Whether to use TLS/STARTTLS\n'
-        '        timeout: Connection timeout in seconds\n'
-        '        \n'
-        '    Returns:\n'
+        "\n"
+        "    Test SMTP server connection.\n"
+        "    \n"
+        "    Args:\n"
+        "        host: SMTP server hostname\n"
+        "        port: SMTP server port\n"
+        "        username: SMTP username\n"
+        "        password: SMTP password\n"
+        "        use_tls: Whether to use TLS/STARTTLS\n"
+        "        timeout: Connection timeout in seconds\n"
+        "        \n"
+        "    Returns:\n"
         "        Dict with 'status' and 'message' keys\n"
-        '    '
+        "    "
     )
     try:
         logger.info(
@@ -107,20 +106,20 @@ def test_imap_connection(
     timeout: int = 30,
 ) -> Dict[str, str]:
     (
-        '\n'
-        '    Test IMAP server connection.\n'
-        '    \n'
-        '    Args:\n'
-        '        host: IMAP server hostname\n'
-        '        port: IMAP server port\n'
-        '        username: IMAP username\n'
-        '        password: IMAP password\n'
-        '        use_ssl: Whether to use SSL\n'
-        '        timeout: Connection timeout in seconds\n'
-        '        \n'
-        '    Returns:\n'
+        "\n"
+        "    Test IMAP server connection.\n"
+        "    \n"
+        "    Args:\n"
+        "        host: IMAP server hostname\n"
+        "        port: IMAP server port\n"
+        "        username: IMAP username\n"
+        "        password: IMAP password\n"
+        "        use_ssl: Whether to use SSL\n"
+        "        timeout: Connection timeout in seconds\n"
+        "        \n"
+        "    Returns:\n"
         "        Dict with 'status' and 'message' keys\n"
-        '    '
+        "    "
     )
     try:
         logger.info(
@@ -173,27 +172,27 @@ def test_imap_connection(
     status_code=status.HTTP_200_OK,
     summary="Test Email Server Connection",
     description=(
-        '\n'
-        '    Test SMTP and IMAP server connections with the provided '
-        'credentials.\n'
-        '\n'
-        '    This endpoint validates email server configurations by '
-        'attempting to:\n'
-        '    1. Connect to the SMTP server and authenticate\n'
-        '    2. Connect to the IMAP server and authenticate\n'
-        '\n'
-        '    Both tests are performed independently, and detailed results '
-        'are returned for each.\n'
-        '\n'
-        '    **Security Notes:**\n'
-        '    - Credentials are not stored or logged\n'
-        '    - Connection timeout is set to 30 seconds\n'
-        '    - This endpoint requires authentication\n'
-        '\n'
-        '    **Common Port Configurations:**\n'
-        '    - SMTP: 587 (TLS), 465 (SSL), 25 (TLS)\n'
-        '    - IMAP: 993 (SSL), 143 (no SSL)\n'
-        '    '
+        "\n"
+        "    Test SMTP and IMAP server connections with the provided "
+        "credentials.\n"
+        "\n"
+        "    This endpoint validates email server configurations by "
+        "attempting to:\n"
+        "    1. Connect to the SMTP server and authenticate\n"
+        "    2. Connect to the IMAP server and authenticate\n"
+        "\n"
+        "    Both tests are performed independently, and detailed results "
+        "are returned for each.\n"
+        "\n"
+        "    **Security Notes:**\n"
+        "    - Credentials are not stored or logged\n"
+        "    - Connection timeout is set to 30 seconds\n"
+        "    - This endpoint requires authentication\n"
+        "\n"
+        "    **Common Port Configurations:**\n"
+        "    - SMTP: 587 (TLS), 465 (SSL), 25 (TLS)\n"
+        "    - IMAP: 993 (SSL), 143 (no SSL)\n"
+        "    "
     ),
 )
 async def test_email_connection(

@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict
 from uuid import UUID
 
-from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
@@ -27,14 +26,14 @@ def _get_project_timeout_hours(
     db: Session, project_id: UUID, cache: Dict[UUID, int]
 ) -> int:
     (
-        '\n'
-        '    Get session timeout hours for a project.\n'
-        '    \n'
-        '    Uses VisitorAssignmentRule.auto_close_hours if configured,\n'
-        '    otherwise falls back to settings.SESSION_DEFAULT_TIMEOUT_HOURS.\n'
-        '    \n'
-        '    Results are cached to avoid repeated database queries.\n'
-        '    '
+        "\n"
+        "    Get session timeout hours for a project.\n"
+        "    \n"
+        "    Uses VisitorAssignmentRule.auto_close_hours if configured,\n"
+        "    otherwise falls back to settings.SESSION_DEFAULT_TIMEOUT_HOURS.\n"
+        "    \n"
+        "    Results are cached to avoid repeated database queries.\n"
+        "    "
     )
     if project_id in cache:
         return cache[project_id]
@@ -56,12 +55,12 @@ def _get_project_timeout_hours(
 
 async def _process_timeout_sessions() -> int:
     (
-        '\n'
-        '    Process and close timed-out sessions.\n'
-        '    \n'
-        '    Returns:\n'
-        '        Number of sessions closed\n'
-        '    '
+        "\n"
+        "    Process and close timed-out sessions.\n"
+        "    \n"
+        "    Returns:\n"
+        "        Number of sessions closed\n"
+        "    "
     )
     db: Session = SessionLocal()
     closed_count = 0
@@ -115,13 +114,13 @@ async def _process_timeout_sessions() -> int:
                 if last_activity >= project_cutoff:
                     logger.debug(
                         (
-                            f'Session '
-                            f'{session.id}'
-                            f' not yet timed out (last_activity='
-                            f'{last_activity}'
-                            f', cutoff='
-                            f'{project_cutoff}'
-                            f')'
+                            f"Session "
+                            f"{session.id}"
+                            f" not yet timed out (last_activity="
+                            f"{last_activity}"
+                            f", cutoff="
+                            f"{project_cutoff}"
+                            f")"
                         )
                     )
                     continue
@@ -184,9 +183,9 @@ async def _run_periodic_task() -> None:
                 if closed_count > 0:
                     logger.info(
                         (
-                            f'Periodic check: closed '
-                            f'{closed_count}'
-                            f' timed-out sessions'
+                            f"Periodic check: closed "
+                            f"{closed_count}"
+                            f" timed-out sessions"
                         )
                     )
         except Exception as e:
@@ -230,14 +229,14 @@ async def stop_session_timeout_task() -> None:
 
 async def trigger_timeout_check() -> int:
     (
-        '\n'
-        '    Manually trigger a session timeout check.\n'
-        '    \n'
-        '    Can be called from an API endpoint for immediate processing.\n'
-        '    \n'
-        '    Returns:\n'
-        '        Number of sessions closed\n'
-        '    '
+        "\n"
+        "    Manually trigger a session timeout check.\n"
+        "    \n"
+        "    Can be called from an API endpoint for immediate processing.\n"
+        "    \n"
+        "    Returns:\n"
+        "        Number of sessions closed\n"
+        "    "
     )
     async with _processing_lock:
         return await _process_timeout_sessions()

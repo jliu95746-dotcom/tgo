@@ -14,7 +14,7 @@ from fastapi import (
     Query,
     BackgroundTasks,
 )
-from sqlalchemy import or_, and_, select, exists, func
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.common_responses import (
@@ -46,10 +46,7 @@ from app.services.provider_connection import (
     build_test_request as _build_test_request,
 )
 from app.api.v1.endpoints.provider_setup import router as setup_router
-from app.services.store_sync import (
-    sync_uninstall_models_to_store,
-    sync_uninstall_all_provider_models,
-)
+from app.services.store_sync import sync_uninstall_all_provider_models
 
 logger = get_logger("endpoints.ai_providers")
 
@@ -222,7 +219,7 @@ async def get_provider_remote_models(
 ) -> RemoteModelListResponse:
     (
         "Fetch available models from the provider's remote API using stored "
-        'credentials.'
+        "credentials."
     )
     item = (
         db.query(AIProvider)
@@ -284,9 +281,9 @@ async def get_provider_remote_models(
                 logger.warning(
                     (
                         f"Failed to parse capabilities filter '"
-                        f'{capabilities}'
+                        f"{capabilities}"
                         f"': "
-                        f'{e}'
+                        f"{e}"
                     )
                 )
         return RemoteModelListResponse(
@@ -795,7 +792,7 @@ async def delete_provider_model(
         db, current_user.project_id, provider_id, {model_id}
     )
     if item.default_model == model_id:
-        raise HTTPException(409, '此模型仍是服务的兼容默认模型，请先指定其他默认模型后删除')
+        raise HTTPException(409, "此模型仍是服务的兼容默认模型，请先指定其他默认模型后删除")
     model.deleted_at = datetime.utcnow()
     db.add(model)
     db.commit()

@@ -4,7 +4,7 @@ import hashlib
 import re
 import uuid
 from datetime import datetime
-from typing import Optional, List, Tuple
+from typing import Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -164,9 +164,9 @@ async def configure_service_mode(
 
 def generate_default_visitor_name(visitor_id: str) -> str:
     """Generate a deterministic visitor name based on the visitor_id."""
-    id_bytes = visitor_id.encode('utf-8')
+    id_bytes = visitor_id.encode("utf-8")
     hash_digest = hashlib.sha256(id_bytes).digest()
-    index = int.from_bytes(hash_digest[:4], byteorder='big') % len(
+    index = int.from_bytes(hash_digest[:4], byteorder="big") % len(
         DEFAULT_VISITOR_NAMES
     )
     return DEFAULT_VISITOR_NAMES[index]
@@ -229,12 +229,12 @@ async def ensure_visitor_channel(
     platform: Platform,
 ) -> None:
     (
-        'Ensure WuKongIM channel exists for a visitor.\n'
-        '    \n'
-        '    This function separates DB operations from external API calls '
-        'to minimize\n'
-        '    transaction duration and prevent deadlocks.\n'
-        '    '
+        "Ensure WuKongIM channel exists for a visitor.\n"
+        "    \n"
+        "    This function separates DB operations from external API calls "
+        "to minimize\n"
+        "    transaction duration and prevent deadlocks.\n"
+        "    "
     )
     channel_id = build_visitor_channel_id(visitor.id)
     subscribers = [str(visitor.id) + "-vtr"]

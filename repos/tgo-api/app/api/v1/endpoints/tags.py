@@ -1,7 +1,6 @@
 """Tag endpoints."""
 
 from datetime import datetime
-from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -17,7 +16,6 @@ from app.services.visitor_tag_access import (
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.core.security import (
-    get_current_active_user,
     get_user_language,
     UserLanguage,
     require_permission,
@@ -48,13 +46,13 @@ async def list_tags(
     user_language: UserLanguage = Depends(get_user_language),
 ) -> TagListResponse:
     (
-        '\n'
-        '    List tags.\n'
-        '    \n'
-        '    Retrieve a paginated list of tags with optional filtering by '
-        'category and search.\n'
-        '    Requires tags:list permission.\n'
-        '    '
+        "\n"
+        "    List tags.\n"
+        "    \n"
+        "    Retrieve a paginated list of tags with optional filtering by "
+        "category and search.\n"
+        "    Requires tags:list permission.\n"
+        "    "
     )
     logger.info(f"User {current_user.username} listing tags")
 
@@ -107,14 +105,14 @@ async def create_tag(
     user_language: UserLanguage = Depends(get_user_language),
 ) -> TagResponse:
     (
-        '\n'
-        '    Create tag.\n'
-        '    \n'
-        '    Create a new tag for categorization. Tag ID is automatically '
-        'generated\n'
-        '    as Base64 encoded string from name and category.\n'
-        '    Requires tags:create permission.\n'
-        '    '
+        "\n"
+        "    Create tag.\n"
+        "    \n"
+        "    Create a new tag for categorization. Tag ID is automatically "
+        "generated\n"
+        "    as Base64 encoded string from name and category.\n"
+        "    Requires tags:create permission.\n"
+        "    "
     )
     logger.info(f"User {current_user.username} creating tag: {tag_data.name}")
 
@@ -195,15 +193,15 @@ async def update_tag(
     user_language: UserLanguage = Depends(get_user_language),
 ) -> TagResponse:
     (
-        '\n'
-        '    Update tag.\n'
-        '    \n'
-        '    Update tag properties like weight, color, description, and '
-        'name_zh.\n'
-        '    Name and category cannot be changed as they determine the tag '
-        'ID.\n'
-        '    Requires tags:update permission.\n'
-        '    '
+        "\n"
+        "    Update tag.\n"
+        "    \n"
+        "    Update tag properties like weight, color, description, and "
+        "name_zh.\n"
+        "    Name and category cannot be changed as they determine the tag "
+        "ID.\n"
+        "    Requires tags:update permission.\n"
+        "    "
     )
     logger.info(f"User {current_user.username} updating tag: {tag_id}")
 
@@ -245,13 +243,13 @@ async def delete_tag(
     current_user: Staff = Depends(require_permission("tags:delete")),
 ) -> None:
     (
-        '\n'
-        '    Delete tag (soft delete).\n'
-        '    \n'
-        '    Soft delete a tag. This also removes all visitor-tag '
-        'associations.\n'
-        '    Requires tags:delete permission.\n'
-        '    '
+        "\n"
+        "    Delete tag (soft delete).\n"
+        "    \n"
+        "    Soft delete a tag. This also removes all visitor-tag "
+        "associations.\n"
+        "    Requires tags:delete permission.\n"
+        "    "
     )
     logger.info(f"User {current_user.username} deleting tag: {tag_id}")
 
@@ -295,8 +293,8 @@ async def create_visitor_tag(
     | None = Depends(original_bearer),
 ) -> VisitorTagResponse:
     (
-        'Associate a real, currently owned customer with an existing project '
-        'tag.'
+        "Associate a real, currently owned customer with an existing project "
+        "tag."
     )
     scope = begin_tag_change(
         db,
@@ -324,8 +322,8 @@ async def delete_visitor_tag(
     | None = Depends(original_bearer),
 ) -> None:
     (
-        'Remove the original association after checking current customer '
-        'ownership.'
+        "Remove the original association after checking current customer "
+        "ownership."
     )
     scope = begin_tag_removal(db, credentials, current_user, visitor_tag_id)
     _, output = commit_tag_change(db, scope)
@@ -347,8 +345,8 @@ async def delete_visitor_tag_by_ids(
     | None = Depends(original_bearer),
 ) -> None:
     (
-        'Resolve the original association once; do not adopt a later '
-        'replacement.'
+        "Resolve the original association once; do not adopt a later "
+        "replacement."
     )
     scope = begin_tag_change(
         db, credentials, current_user, visitor_id, tag_id, remove=True

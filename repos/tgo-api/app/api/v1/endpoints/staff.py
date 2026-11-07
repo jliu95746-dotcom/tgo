@@ -1,7 +1,6 @@
 """Staff endpoints."""
 
 from datetime import datetime, timedelta
-from typing import Dict, List
 from uuid import UUID
 
 from fastapi import (
@@ -25,19 +24,16 @@ from app.core.security import (
     get_current_active_user,
     get_password_hash,
     require_permission,
-    require_admin,
 )
 from app.models import Staff
 from app.models.visitor_assignment_rule import VisitorAssignmentRule
 from app.services.queue_trigger_service import trigger_queue_for_staff
-from app.services.wukongim_client import wukongim_client
 from app.utils.const import CHANNEL_TYPE_PROJECT_STAFF
 from app.utils.encoding import build_project_staff_channel_id
 from app.schemas import (
     StaffCreate,
     StaffListParams,
     StaffListResponse,
-    StaffLogin,
     StaffLoginResponse,
     StaffResponse,
     StaffUpdate,
@@ -51,11 +47,7 @@ from app.schemas.base import PaginationMetadata
 from app.services.wukongim_client import wukongim_client
 from app.services.transfer_service import is_within_service_hours
 from app.services.project_registration import ensure_project_staff_channel
-from app.api.common_responses import (
-    AUTH_RESPONSES,
-    CRUD_RESPONSES,
-    LIST_RESPONSES,
-)
+from app.api.common_responses import AUTH_RESPONSES, LIST_RESPONSES
 from app.services.staff_browser_session import (
     IDLE_SECONDS,
     end_browser_session,
@@ -192,16 +184,16 @@ async def list_staff(
     current_user: Staff = Depends(require_permission("staff:list")),
 ) -> StaffListResponse:
     (
-        '\n'
-        '    List staff members.\n'
-        '    \n'
-        '    Retrieve a paginated list of staff members with optional '
-        'filtering.\n'
-        '    Requires staff:list permission.\n'
-        '    \n'
-        '    Returns is_working field indicating if current time is within '
-        'service hours.\n'
-        '    '
+        "\n"
+        "    List staff members.\n"
+        "    \n"
+        "    Retrieve a paginated list of staff members with optional "
+        "filtering.\n"
+        "    Requires staff:list permission.\n"
+        "    \n"
+        "    Returns is_working field indicating if current time is within "
+        "service hours.\n"
+        "    "
     )
     logger.info(f"User {current_user.username} listing staff members")
 
@@ -256,14 +248,14 @@ async def create_staff(
     current_user: Staff = Depends(require_permission("staff:create")),
 ) -> StaffResponse:
     (
-        '\n'
-        '    Create staff member.\n'
-        '    \n'
-        '    Create a new staff member. Requires staff:create permission '
-        '(admin only by default).\n'
+        "\n"
+        "    Create staff member.\n"
+        "    \n"
+        "    Create a new staff member. Requires staff:create permission "
+        "(admin only by default).\n"
         "    Only staff members with 'user' role can be created through this "
-        'endpoint.\n'
-        '    '
+        "endpoint.\n"
+        "    "
     )
     logger.info(
         f"User {current_user.username} creating staff: {staff_data.username}"
@@ -351,13 +343,13 @@ async def get_current_staff(
     current_user: Staff = Depends(get_current_active_user),
 ) -> StaffResponse:
     (
-        '\n'
-        '    Get current staff member info.\n'
-        '    \n'
+        "\n"
+        "    Get current staff member info.\n"
+        "    \n"
         "    Returns the current authenticated staff member's information.\n"
-        '    Includes is_working field based on VisitorAssignmentRule '
-        'service hours.\n'
-        '    '
+        "    Includes is_working field based on VisitorAssignmentRule "
+        "service hours.\n"
+        "    "
     )
     assignment_rule = (
         db.query(VisitorAssignmentRule)
@@ -381,12 +373,12 @@ async def toggle_my_service_paused(
     current_user: Staff = Depends(get_current_active_user),
 ) -> StaffResponse:
     (
-        '\n'
+        "\n"
         "    Toggle current staff's service paused status.\n"
-        '    \n'
-        '    When paused is True, the staff member will not be assigned new '
-        'visitors.\n'
-        '    '
+        "    \n"
+        "    When paused is True, the staff member will not be assigned new "
+        "visitors.\n"
+        "    "
     )
     logger.info(
         f"Staff {current_user.username} setting service_paused to {paused}"
@@ -400,10 +392,10 @@ async def toggle_my_service_paused(
 
     logger.info(
         (
-            f'Staff '
-            f'{current_user.username}'
-            f' service_paused is now '
-            f'{current_user.service_paused}'
+            f"Staff "
+            f"{current_user.username}"
+            f" service_paused is now "
+            f"{current_user.service_paused}"
         )
     )
 
@@ -428,7 +420,7 @@ async def toggle_my_service_paused(
     summary="Toggle Service Active Status",
     description=(
         "Toggle current staff member's service active status (start/stop "
-        'service).'
+        "service)."
     ),
 )
 async def toggle_my_is_active(
@@ -437,13 +429,13 @@ async def toggle_my_is_active(
     current_user: Staff = Depends(get_current_active_user),
 ) -> StaffResponse:
     (
-        '\n'
+        "\n"
         "    Toggle current staff's service active status.\n"
-        '    \n'
-        '    When active is False, the staff member is stopped from service '
-        '(long-term, e.g., off-duty).\n'
-        '    When active is True, the staff member starts service.\n'
-        '    '
+        "    \n"
+        "    When active is False, the staff member is stopped from service "
+        "(long-term, e.g., off-duty).\n"
+        "    When active is True, the staff member starts service.\n"
+        "    "
     )
     logger.info(f"Staff {current_user.username} setting is_active to {active}")
 
@@ -455,10 +447,10 @@ async def toggle_my_is_active(
 
     logger.info(
         (
-            f'Staff '
-            f'{current_user.username}'
-            f' is_active is now '
-            f'{current_user.is_active}'
+            f"Staff "
+            f"{current_user.username}"
+            f" is_active is now "
+            f"{current_user.is_active}"
         )
     )
 
@@ -521,12 +513,12 @@ async def update_staff(
     current_user: Staff = Depends(require_permission("staff:update")),
 ) -> StaffResponse:
     (
-        '\n'
-        '    Update staff member.\n'
-        '    \n'
-        '    Update staff member information. Requires staff:update '
-        'permission.\n'
-        '    '
+        "\n"
+        "    Update staff member.\n"
+        "    \n"
+        "    Update staff member information. Requires staff:update "
+        "permission.\n"
+        "    "
     )
     logger.info(f"User {current_user.username} updating staff: {staff_id}")
 
@@ -596,7 +588,7 @@ async def update_staff(
     summary="Set Staff Service Paused Status",
     description=(
         "Set a staff member's service paused status. Requires staff:update "
-        'permission.'
+        "permission."
     ),
 )
 async def set_staff_service_paused(
@@ -606,22 +598,22 @@ async def set_staff_service_paused(
     current_user: Staff = Depends(require_permission("staff:update")),
 ) -> StaffResponse:
     (
-        '\n'
+        "\n"
         "    Set staff member's service paused status.\n"
-        '    \n'
-        '    When paused is True, the staff member will not be assigned new '
-        'visitors.\n'
-        '    Requires staff:update permission.\n'
-        '    '
+        "    \n"
+        "    When paused is True, the staff member will not be assigned new "
+        "visitors.\n"
+        "    Requires staff:update permission.\n"
+        "    "
     )
     logger.info(
         (
-            f'User '
-            f'{current_user.username}'
-            f' setting service_paused to '
-            f'{paused}'
-            f' for staff '
-            f'{staff_id}'
+            f"User "
+            f"{current_user.username}"
+            f" setting service_paused to "
+            f"{paused}"
+            f" for staff "
+            f"{staff_id}"
         )
     )
 
@@ -672,7 +664,7 @@ async def set_staff_service_paused(
     summary="Set Staff Service Active Status",
     description=(
         "Set a staff member's service active status (start/stop service). "
-        'Requires staff:update permission.'
+        "Requires staff:update permission."
     ),
 )
 async def set_staff_is_active(
@@ -682,23 +674,23 @@ async def set_staff_is_active(
     current_user: Staff = Depends(require_permission("staff:update")),
 ) -> StaffResponse:
     (
-        '\n'
+        "\n"
         "    Set staff member's service active status.\n"
-        '    \n'
-        '    When active is False, the staff member is stopped from service '
-        '(long-term, e.g., off-duty).\n'
-        '    When active is True, the staff member starts service.\n'
-        '    Requires staff:update permission.\n'
-        '    '
+        "    \n"
+        "    When active is False, the staff member is stopped from service "
+        "(long-term, e.g., off-duty).\n"
+        "    When active is True, the staff member starts service.\n"
+        "    Requires staff:update permission.\n"
+        "    "
     )
     logger.info(
         (
-            f'User '
-            f'{current_user.username}'
-            f' setting is_active to '
-            f'{active}'
-            f' for staff '
-            f'{staff_id}'
+            f"User "
+            f"{current_user.username}"
+            f" setting is_active to "
+            f"{active}"
+            f" for staff "
+            f"{staff_id}"
         )
     )
 
@@ -748,11 +740,11 @@ async def delete_staff(
     current_user: Staff = Depends(require_permission("staff:delete")),
 ) -> None:
     (
-        '\n'
-        '    Delete staff member (soft delete).\n'
-        '    \n'
-        '    Soft delete a staff member. Requires staff:delete permission.\n'
-        '    '
+        "\n"
+        "    Delete staff member (soft delete).\n"
+        "    \n"
+        "    Soft delete a staff member. Requires staff:delete permission.\n"
+        "    "
     )
     logger.info(f"User {current_user.username} deleting staff: {staff_id}")
 
@@ -833,8 +825,8 @@ async def delete_staff(
     response_model=WuKongIMIntegrationStatus,
     summary="Get WuKongIM Integration Status",
     description=(
-        'Get the current status of WuKongIM integration including '
-        'configuration and health.'
+        "Get the current status of WuKongIM integration including "
+        "configuration and health."
     ),
 )
 async def get_wukongim_status(
@@ -866,11 +858,11 @@ async def check_staff_online_status(
     """Check online status of staff members in WuKongIM."""
     logger.info(
         (
-            f'User '
-            f'{current_user.username}'
-            f' checking online status for '
-            f'{len(request.uids)}'
-            f' users'
+            f"User "
+            f"{current_user.username}"
+            f" checking online status for "
+            f"{len(request.uids)}"
+            f" users"
         )
     )
 

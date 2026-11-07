@@ -9,9 +9,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import startup_log
-from app.core.security import get_password_hash
-from app.models.project import Project
-from app.models.staff import Staff, StaffRole, StaffStatus
 from app.models.permission import (
     Permission,
     RolePermission,
@@ -113,17 +110,17 @@ DEFAULT_USER_GLOBAL_PERMISSIONS: List[Tuple[str, str]] = [
 
 def ensure_permissions_seed(db: Optional[Session] = None) -> None:
     (
-        '\n'
-        '    Ensure default permissions are seeded in the database.\n'
-        '    \n'
-        '    This function seeds:\n'
-        '    1. Permission definitions (api_permissions table)\n'
-        '    2. Global role permissions (api_role_permissions table) - '
-        'inherited by all projects\n'
-        '    \n'
-        '    This function is idempotent - it will only create records that '
+        "\n"
+        "    Ensure default permissions are seeded in the database.\n"
+        "    \n"
+        "    This function seeds:\n"
+        "    1. Permission definitions (api_permissions table)\n"
+        "    2. Global role permissions (api_role_permissions table) - "
+        "inherited by all projects\n"
+        "    \n"
+        "    This function is idempotent - it will only create records that "
         "don't exist.\n"
-        '    '
+        "    "
     )
     close_session = False
     if db is None:
@@ -166,10 +163,10 @@ def ensure_permissions_seed(db: Optional[Session] = None) -> None:
             if not permission_id:
                 logger.warning(
                     (
-                        f'Permission not found for global role: '
-                        f'{resource}'
-                        f':'
-                        f'{action}'
+                        f"Permission not found for global role: "
+                        f"{resource}"
+                        f":"
+                        f"{action}"
                     )
                 )
                 continue
@@ -214,23 +211,23 @@ def add_project_role_permission(
     db: Optional[Session] = None,
 ) -> bool:
     (
-        '\n'
-        '    Add a project-specific permission for a role.\n'
-        '    \n'
-        '    This adds an ADDITIONAL permission on top of global '
-        'permissions.\n'
-        '    Projects can only ADD permissions, not remove global ones.\n'
-        '    \n'
-        '    Args:\n'
-        '        project_id: The project ID\n'
-        '        role: The role name (user, agent)\n'
-        '        resource: The resource name\n'
-        '        action: The action name\n'
-        '        db: Optional database session\n'
-        '    \n'
-        '    Returns:\n'
-        '        True if permission was added, False if it already exists\n'
-        '    '
+        "\n"
+        "    Add a project-specific permission for a role.\n"
+        "    \n"
+        "    This adds an ADDITIONAL permission on top of global "
+        "permissions.\n"
+        "    Projects can only ADD permissions, not remove global ones.\n"
+        "    \n"
+        "    Args:\n"
+        "        project_id: The project ID\n"
+        "        role: The role name (user, agent)\n"
+        "        resource: The resource name\n"
+        "        action: The action name\n"
+        "        db: Optional database session\n"
+        "    \n"
+        "    Returns:\n"
+        "        True if permission was added, False if it already exists\n"
+        "    "
     )
     close_session = False
     if db is None:
@@ -277,14 +274,14 @@ def add_project_role_permission(
 
         logger.info(
             (
-                f'Added project permission '
-                f'{resource}'
-                f':'
-                f'{action}'
-                f' for role '
-                f'{role}'
-                f' in project '
-                f'{project_id}'
+                f"Added project permission "
+                f"{resource}"
+                f":"
+                f"{action}"
+                f" for role "
+                f"{role}"
+                f" in project "
+                f"{project_id}"
             )
         )
         return True

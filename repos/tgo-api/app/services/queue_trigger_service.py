@@ -8,24 +8,15 @@ This service provides methods to trigger queue processing when:
 from __future__ import annotations
 
 import asyncio
-from typing import List, Optional, Set
+from typing import Optional, Set
 from uuid import UUID
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import get_logger
-from app.models import (
-    Staff,
-    StaffRole,
-    VisitorAssignmentRule,
-    VisitorSession,
-    SessionStatus,
-    VisitorWaitingQueue,
-    WaitingStatus,
-)
+from app.models import VisitorWaitingQueue, WaitingStatus
 
 logger = get_logger("services.queue_trigger")
 
@@ -45,18 +36,18 @@ def _get_semaphore() -> asyncio.Semaphore:
 
 async def trigger_queue_for_project(project_id: UUID) -> None:
     (
-        '\n'
-        '    Trigger queue processing for a specific project.\n'
-        '    \n'
-        '    This should be called when staff becomes available in a '
-        'project:\n'
-        '    - Staff resumes service (service_paused = False)\n'
-        '    - Staff activates service (is_active = True)\n'
-        '    - Staff session closes (frees up a slot)\n'
-        '    \n'
-        '    Args:\n'
-        '        project_id: The project ID to process queue for\n'
-        '    '
+        "\n"
+        "    Trigger queue processing for a specific project.\n"
+        "    \n"
+        "    This should be called when staff becomes available in a "
+        "project:\n"
+        "    - Staff resumes service (service_paused = False)\n"
+        "    - Staff activates service (is_active = True)\n"
+        "    - Staff session closes (frees up a slot)\n"
+        "    \n"
+        "    Args:\n"
+        "        project_id: The project ID to process queue for\n"
+        "    "
     )
     # Check if already processing this project
     async with _processing_lock:
@@ -80,24 +71,24 @@ async def trigger_queue_for_project(project_id: UUID) -> None:
 
 async def trigger_queue_for_staff(staff_id: UUID, project_id: UUID) -> None:
     (
-        '\n'
-        '    Trigger queue processing when a specific staff becomes '
-        'available.\n'
-        '    \n'
-        '    This is a convenience wrapper that triggers project-level '
-        'processing.\n'
-        '    \n'
-        '    Args:\n'
-        '        staff_id: The staff ID that became available\n'
-        '        project_id: The project ID the staff belongs to\n'
-        '    '
+        "\n"
+        "    Trigger queue processing when a specific staff becomes "
+        "available.\n"
+        "    \n"
+        "    This is a convenience wrapper that triggers project-level "
+        "processing.\n"
+        "    \n"
+        "    Args:\n"
+        "        staff_id: The staff ID that became available\n"
+        "        project_id: The project ID the staff belongs to\n"
+        "    "
     )
     logger.info(
         (
-            f'Staff '
-            f'{staff_id}'
-            f' triggered queue processing for project '
-            f'{project_id}'
+            f"Staff "
+            f"{staff_id}"
+            f" triggered queue processing for project "
+            f"{project_id}"
         ),
         extra={"staff_id": str(staff_id), "project_id": str(project_id)},
     )
@@ -106,11 +97,11 @@ async def trigger_queue_for_staff(staff_id: UUID, project_id: UUID) -> None:
 
 async def _process_project_queue_internal(project_id: UUID) -> None:
     (
-        '\n'
-        '    Internal method to process waiting queue for a project.\n'
-        '    \n'
-        '    Attempts to assign waiting visitors to available staff.\n'
-        '    '
+        "\n"
+        "    Internal method to process waiting queue for a project.\n"
+        "    \n"
+        "    Attempts to assign waiting visitors to available staff.\n"
+        "    "
     )
     # Import here to avoid circular imports
     from app.services.transfer_service import transfer_to_staff
@@ -151,10 +142,10 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
 
                 logger.info(
                     (
-                        f'Processing '
-                        f'{len(waiting_entries)}'
-                        f' waiting entries for project '
-                        f'{project_id}'
+                        f"Processing "
+                        f"{len(waiting_entries)}"
+                        f" waiting entries for project "
+                        f"{project_id}"
                     ),
                     extra={
                         "project_id": str(project_id),
@@ -186,10 +177,10 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
                             assigned_count += 1
                             logger.info(
                                 (
-                                    f'Queue entry '
-                                    f'{entry.id}'
-                                    f' assigned to staff '
-                                    f'{result.assigned_staff_id}'
+                                    f"Queue entry "
+                                    f"{entry.id}"
+                                    f" assigned to staff "
+                                    f"{result.assigned_staff_id}"
                                 ),
                                 extra={
                                     "entry_id": str(entry.id),
@@ -203,9 +194,9 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
                             db.commit()  # Commit the attempt record
                             logger.debug(
                                 (
-                                    f'No staff available for entry '
-                                    f'{entry.id}'
-                                    f', stopping batch'
+                                    f"No staff available for entry "
+                                    f"{entry.id}"
+                                    f", stopping batch"
                                 ),
                                 extra={"entry_id": str(entry.id)},
                             )
@@ -245,19 +236,19 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
 
 async def trigger_queue_for_entry(entry_id: UUID) -> bool:
     (
-        '\n'
-        '    Trigger immediate processing for a specific queue entry.\n'
-        '    \n'
-        '    This should be called when a visitor enters the queue to\n'
-        '    attempt immediate assignment.\n'
-        '    \n'
-        '    Args:\n'
-        '        entry_id: The queue entry ID to process\n'
-        '        \n'
-        '    Returns:\n'
-        '        True if the entry was successfully assigned, False '
-        'otherwise\n'
-        '    '
+        "\n"
+        "    Trigger immediate processing for a specific queue entry.\n"
+        "    \n"
+        "    This should be called when a visitor enters the queue to\n"
+        "    attempt immediate assignment.\n"
+        "    \n"
+        "    Args:\n"
+        "        entry_id: The queue entry ID to process\n"
+        "        \n"
+        "    Returns:\n"
+        "        True if the entry was successfully assigned, False "
+        "otherwise\n"
+        "    "
     )
     # Import here to avoid circular imports
     from app.services.transfer_service import transfer_to_staff
@@ -304,10 +295,10 @@ async def trigger_queue_for_entry(entry_id: UUID) -> bool:
                     db.commit()
                     logger.info(
                         (
-                            f'Queue entry '
-                            f'{entry_id}'
-                            f' immediately assigned to staff '
-                            f'{result.assigned_staff_id}'
+                            f"Queue entry "
+                            f"{entry_id}"
+                            f" immediately assigned to staff "
+                            f"{result.assigned_staff_id}"
                         ),
                         extra={
                             "entry_id": str(entry_id),
@@ -319,9 +310,9 @@ async def trigger_queue_for_entry(entry_id: UUID) -> bool:
                     db.commit()  # Commit the attempt record
                     logger.debug(
                         (
-                            f'No staff available for immediate assignment of '
-                            f'entry '
-                            f'{entry_id}'
+                            f"No staff available for immediate assignment of "
+                            f"entry "
+                            f"{entry_id}"
                         )
                     )
                     return False

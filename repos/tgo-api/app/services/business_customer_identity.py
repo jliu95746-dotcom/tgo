@@ -181,7 +181,9 @@ class BusinessCustomerIdentityService:
             platform_ids=[UUID(value) for value in row.platform_ids],
             enabled=row.enabled,
             revision=row.revision,
-            connection_configuration_revision=row.connection_configuration_revision,
+            connection_configuration_revision=(
+                row.connection_configuration_revision
+            ),
             max_session_seconds=row.max_session_seconds,
             signing_key_configured=bool(row.signing_ciphertext),
         )
@@ -389,7 +391,9 @@ class BusinessCustomerIdentityService:
                     identifier,
                 ),
                 policy_revision=policy.revision,
-                connection_configuration_revision=connection.configuration_revision,
+                connection_configuration_revision=(
+                    connection.configuration_revision
+                ),
                 revision=1,
                 issued_at=datetime.fromtimestamp(claims.issued_at, UTC),
                 expires_at=datetime.fromtimestamp(claims.expires_at, UTC),
@@ -488,7 +492,9 @@ class BusinessCustomerIdentityService:
             binding_id=row.id,
             revision=row.revision,
             policy_revision=row.policy_revision,
-            connection_configuration_revision=row.connection_configuration_revision,
+            connection_configuration_revision=(
+                row.connection_configuration_revision
+            ),
             expires_at=utc(row.expires_at),
             customer_id=customer,
         )

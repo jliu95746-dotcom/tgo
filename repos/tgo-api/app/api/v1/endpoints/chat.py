@@ -5,11 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
-import os
 import re
 import secrets
 import time
-import unicodedata
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any, Dict, Optional, TypedDict
@@ -35,11 +33,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.core.security import (
-    get_current_active_user,
-    require_permission,
-    verify_token,
-)
+from app.core.security import require_permission
 from app.models import (
     ChannelMember,
     ChannelMemoryClearance,
@@ -56,11 +50,8 @@ from app.schemas.chat import (
     AssistDraftRequest,
     AssistDraftResponse,
     ChatCompletionRequest,
-    OpenAIChatCompletionChoice,
     OpenAIChatCompletionRequest,
     OpenAIChatCompletionResponse,
-    OpenAIChatCompletionUsage,
-    OpenAIChatMessage,
     StaffAgentChatRequest,
     StaffAgentChatResponse,
     UIUserActionRequest,
@@ -113,13 +104,7 @@ from app.services.staff_record_access import (
     require_staff_record_access,
 )
 
-logger = get_logger(__name__)
 from app.models import AssignmentSource
-from app.models.platform import PlatformType
-from app.utils.wechat_local import (
-    is_filehelper_identity,
-    is_wechat_local_source,
-)
 from app.services.ai_client import AIServiceClient
 from app.services.ai_interaction_run_service import (
     AIInteractionIdentity,
@@ -134,7 +119,9 @@ from app.services.wechat_media import (
     normalize_wechat_upload,
 )
 from app.utils.wechat_local import is_wechat_local_source
-from app.services.chat_service import get_or_create_visitor
+from app.services.chat_service import (
+    get_or_create_visitor as get_or_create_visitor,
+)
 from app.services.humanization_service import (
     ASSIST_FACT_GATHERING_PROMPT,
     get_humanization_skill_prompt,
@@ -161,6 +148,8 @@ from app.utils.encoding import (
     build_visitor_channel_id,
     get_session_id,
 )
+
+logger = get_logger(__name__)
 
 router = APIRouter(route_class=BusinessContextChatRoute)
 
@@ -238,60 +227,60 @@ def _append_trusted_system_context(
     summary="流式聊天完成接口",
     tags=["Chat"],
     description=(
-        '\n'
-        '## 概述\n'
-        '访客聊天接口，支持 Server-Sent Events (SSE) 流式响应和非流式 JSON 响应。\n'
-        '\n'
-        '## 认证方式\n'
-        '通过请求体中的 `api_key` 字段选择平台。网站访客还须在 `Authorization: Bearer <im_token>` '
-        '中提供注册所得的当前访客凭据；`from_uid`、`channel_id` 必须属于该访客。\n'
-        '服务端渠道须使用内部 `X-SaaS-Service-Token`，不可向浏览器或移动客户端提供该凭据。\n'
-        '\n'
-        '## 请求参数\n'
-        '| 参数 | 类型 | 必填 | 说明 |\n'
-        '|------|------|------|------|\n'
-        '| api_key | string | ✅ | 平台 API Key |\n'
-        '| message | string | ✅ | 用户消息内容 |\n'
-        '| from_uid | string | ✅ | 平台用户唯一标识 |\n'
-        '| extra | object | ❌ | 额外数据（会随消息转发） |\n'
-        '| timeout_seconds | int | ❌ | 超时时间（默认120秒） |\n'
-        '| channel_id | string | ❌ | 自定义频道ID |\n'
-        '| channel_type | int | ❌ | 频道类型（默认251=客服） |\n'
-        '| system_message | string | ❌ | AI系统提示词 |\n'
-        '| expected_output | string | ❌ | 期望的输出格式描述 |\n'
-        '| wukongim_only | bool | ❌ | 是否仅发送到WuKongIM不返回流（默认false） |\n'
-        '| stream | bool | ❌ | 是否使用流式响应（默认true）。false返回完整JSON |\n'
-        '\n'
-        '## 响应模式\n'
-        '\n'
-        '### 1. 流式响应（stream=true，默认）\n'
-        '返回 `text/event-stream` 格式的 SSE 流。\n'
-        '\n'
-        '### 2. 非流式响应（stream=false）\n'
-        '返回 JSON 格式的完整响应：\n'
-        '```json\n'
-        '{\n'
+        "\n"
+        "## 概述\n"
+        "访客聊天接口，支持 Server-Sent Events (SSE) 流式响应和非流式 JSON 响应。\n"
+        "\n"
+        "## 认证方式\n"
+        "通过请求体中的 `api_key` 字段选择平台。网站访客还须在 `Authorization: Bearer <im_token>` "
+        "中提供注册所得的当前访客凭据；`from_uid`、`channel_id` 必须属于该访客。\n"
+        "服务端渠道须使用内部 `X-SaaS-Service-Token`，不可向浏览器或移动客户端提供该凭据。\n"
+        "\n"
+        "## 请求参数\n"
+        "| 参数 | 类型 | 必填 | 说明 |\n"
+        "|------|------|------|------|\n"
+        "| api_key | string | ✅ | 平台 API Key |\n"
+        "| message | string | ✅ | 用户消息内容 |\n"
+        "| from_uid | string | ✅ | 平台用户唯一标识 |\n"
+        "| extra | object | ❌ | 额外数据（会随消息转发） |\n"
+        "| timeout_seconds | int | ❌ | 超时时间（默认120秒） |\n"
+        "| channel_id | string | ❌ | 自定义频道ID |\n"
+        "| channel_type | int | ❌ | 频道类型（默认251=客服） |\n"
+        "| system_message | string | ❌ | AI系统提示词 |\n"
+        "| expected_output | string | ❌ | 期望的输出格式描述 |\n"
+        "| wukongim_only | bool | ❌ | 是否仅发送到WuKongIM不返回流（默认false） |\n"
+        "| stream | bool | ❌ | 是否使用流式响应（默认true）。false返回完整JSON |\n"
+        "\n"
+        "## 响应模式\n"
+        "\n"
+        "### 1. 流式响应（stream=true，默认）\n"
+        "返回 `text/event-stream` 格式的 SSE 流。\n"
+        "\n"
+        "### 2. 非流式响应（stream=false）\n"
+        "返回 JSON 格式的完整响应：\n"
+        "```json\n"
+        "{\n"
         '  "success": true,\n'
         '  "message": "AI回复的完整内容...",\n'
         '  "visitor_id": "访客UUID"\n'
-        '}\n'
-        '```\n'
-        '\n'
-        '## SSE 响应事件类型（仅 stream=true 时）\n'
-        '\n'
-        '### 成功事件\n'
-        '| event_type | 说明 | data 结构 |\n'
-        '|------------|------|-----------|\n'
-        '| `agent_execution_started` | AI开始处理 | `{}` |\n'
+        "}\n"
+        "```\n"
+        "\n"
+        "## SSE 响应事件类型（仅 stream=true 时）\n"
+        "\n"
+        "### 成功事件\n"
+        "| event_type | 说明 | data 结构 |\n"
+        "|------------|------|-----------|\n"
+        "| `agent_execution_started` | AI开始处理 | `{}` |\n"
         '| `agent_content_chunk` | AI输出内容块 | `{"content_chunk": "文本块"}` |\n'
-        '| `agent_response_complete` | AI回复完成 | `{}` |\n'
-        '| `workflow_completed` | AI工作流完成 | `{}` |\n'
+        "| `agent_response_complete` | AI回复完成 | `{}` |\n"
+        "| `workflow_completed` | AI工作流完成 | `{}` |\n"
         '| `accepted` | 请求已接受（wukongim_only=true时） | `{"message": "Request '
         'accepted..."}` |\n'
-        '\n'
-        '### 错误/状态事件\n'
-        '| event_type | 说明 | data 结构 |\n'
-        '|------------|------|-----------|\n'
+        "\n"
+        "### 错误/状态事件\n"
+        "| event_type | 说明 | data 结构 |\n"
+        "|------------|------|-----------|\n"
         '| `error` | 发生错误 | `{"message": "错误信息", "visitor_id": "..."}` |\n'
         '| `queued` | 访客已加入等待队列（无可用客服） | `{"message": "...", "visitor_id": '
         '"...", "queue_position": 1}` |\n'
@@ -300,131 +289,131 @@ def _append_trusted_system_context(
         '| `assist_mode` | AI处于辅助模式（人工优先） | `{"message": "Human service '
         'requested, AI is in assist mode"}` |\n'
         '| `workflow_failed` | AI工作流执行失败 | `{"message": "错误详情"}` |\n'
-        '\n'
-        '## 错误场景\n'
-        '\n'
-        '### 1. 无效的 API Key\n'
-        '返回 HTTP 401:\n'
-        '```json\n'
+        "\n"
+        "## 错误场景\n"
+        "\n"
+        "### 1. 无效的 API Key\n"
+        "返回 HTTP 401:\n"
+        "```json\n"
         '{"detail": "Invalid platform API key"}\n'
-        '```\n'
-        '\n'
-        '### 2. 平台未关联项目\n'
-        '返回 HTTP 400:\n'
-        '```json\n'
+        "```\n"
+        "\n"
+        "### 2. 平台未关联项目\n"
+        "返回 HTTP 400:\n"
+        "```json\n"
         '{"detail": "Platform not associated with any project"}\n'
-        '```\n'
-        '\n'
-        '### 3. 客服分配失败\n'
-        '\n'
-        '**stream=true（SSE）:**\n'
-        '```\n'
+        "```\n"
+        "\n"
+        "### 3. 客服分配失败\n"
+        "\n"
+        "**stream=true（SSE）:**\n"
+        "```\n"
         'data: {"event_type": "error", "data": {"success": false, '
         '"event_type": "error", "message": "...", "visitor_id": "..."}}\n'
-        '```\n'
-        '\n'
-        '**stream=false（JSON）:**\n'
-        '```json\n'
+        "```\n"
+        "\n"
+        "**stream=false（JSON）:**\n"
+        "```json\n"
         '{"success": false, "event_type": "error", "message": "Transfer '
         'failed: ...", "visitor_id": "..."}\n'
-        '```\n'
-        '\n'
-        '### 4. 无可用客服（已加入队列）\n'
-        '\n'
-        '**stream=true（SSE）:**\n'
-        '```\n'
+        "```\n"
+        "\n"
+        "### 4. 无可用客服（已加入队列）\n"
+        "\n"
+        "**stream=true（SSE）:**\n"
+        "```\n"
         'data: {"event_type": "queued", "data": {"success": false, '
         '"message": "...", "visitor_id": "...", "queue_position": 1}}\n'
-        '```\n'
-        '\n'
-        '**stream=false（JSON）:**\n'
-        '```json\n'
+        "```\n"
+        "\n"
+        "**stream=false（JSON）:**\n"
+        "```json\n"
         '{"success": false, "event_type": "queued", "message": "Added to '
         'waiting queue at position 1", "visitor_id": "...", '
         '"queue_position": 1}\n'
-        '```\n'
-        '\n'
-        '### 5. 无分配客服\n'
-        '\n'
-        '**stream=true（SSE）:**\n'
-        '```\n'
+        "```\n"
+        "\n"
+        "### 5. 无分配客服\n"
+        "\n"
+        "**stream=true（SSE）:**\n"
+        "```\n"
         'data: {"event_type": "error", "data": {"message": "No staff '
         'assigned to this visitor", "visitor_id": "..."}}\n'
-        '```\n'
-        '\n'
-        '**stream=false（HTTP 503）:**\n'
-        '```json\n'
+        "```\n"
+        "\n"
+        "**stream=false（HTTP 503）:**\n"
+        "```json\n"
         '{"detail": {"success": false, "event_type": "error", "message": "No '
         'staff assigned to this visitor", "visitor_id": "..."}}\n'
-        '```\n'
-        '\n'
-        '### 6. AI已禁用\n'
-        '\n'
-        '**stream=true（SSE）:**\n'
-        '```\n'
+        "```\n"
+        "\n"
+        "### 6. AI已禁用\n"
+        "\n"
+        "**stream=true（SSE）:**\n"
+        "```\n"
         'data: {"event_type": "ai_disabled", "data": {"message": "AI '
         'responses are disabled..."}}\n'
-        '```\n'
-        '\n'
-        '**stream=false（HTTP 403）:**\n'
-        '```json\n'
+        "```\n"
+        "\n"
+        "**stream=false（HTTP 403）:**\n"
+        "```json\n"
         '{"detail": {"success": false, "event_type": "ai_disabled", '
         '"message": "AI responses are disabled..."}}\n'
-        '```\n'
-        '\n'
-        '### 7. AI服务错误\n'
-        '\n'
-        '**stream=true（SSE）:**\n'
-        '```\n'
+        "```\n"
+        "\n"
+        "### 7. AI服务错误\n"
+        "\n"
+        "**stream=true（SSE）:**\n"
+        "```\n"
         'data: {"event_type": "error", "data": {"message": "AI service '
         'error: ..."}}\n'
-        '```\n'
-        '\n'
-        '**stream=false（HTTP 500）:**\n'
-        '```json\n'
+        "```\n"
+        "\n"
+        "**stream=false（HTTP 500）:**\n"
+        "```json\n"
         '{"detail": "AI service error: ..."}\n'
-        '```\n'
-        '\n'
-        '## SSE 响应格式示例\n'
-        '```\n'
+        "```\n"
+        "\n"
+        "## SSE 响应格式示例\n"
+        "```\n"
         'data: {"event_type": "agent_execution_started", "data": {}}\n'
-        '\n'
+        "\n"
         'data: {"event_type": "agent_content_chunk", "data": '
         '{"content_chunk": "你好"}}\n'
-        '\n'
+        "\n"
         'data: {"event_type": "agent_content_chunk", "data": '
         '{"content_chunk": "，有什么"}}\n'
-        '\n'
+        "\n"
         'data: {"event_type": "agent_content_chunk", "data": '
         '{"content_chunk": "可以帮助您的？"}}\n'
-        '\n'
+        "\n"
         'data: {"event_type": "workflow_completed", "data": {}}\n'
-        '```\n'
-        '\n'
-        '## 前端使用示例\n'
-        '```javascript\n'
+        "```\n"
+        "\n"
+        "## 前端使用示例\n"
+        "```javascript\n"
         "const response = await fetch('/v1/chat/completion', {\n"
         "  method: 'POST',\n"
-        '  headers: {\n'
+        "  headers: {\n"
         "    'Content-Type': 'application/json',\n"
         "    'Authorization': `Bearer ${registeredVisitor.im_token}`\n"
-        '  },\n'
-        '  body: JSON.stringify({\n'
+        "  },\n"
+        "  body: JSON.stringify({\n"
         "    api_key: 'your-api-key',\n"
         "    message: '你好',\n"
-        '    from_uid: registeredVisitor.id,\n'
-        '    channel_id: registeredVisitor.channel_id,\n'
-        '    channel_type: 251,\n'
-        '    stream: false\n'
-        '  })\n'
-        '});\n'
-        '\n'
-        'if (!response.ok) throw new Error(`HTTP ${response.status}`);\n'
-        'const result = await response.json();\n'
-        '// 发布到界面前核验 registeredVisitor 仍是当前访客。\n'
-        '// stream=true 时使用 fetch ReadableStream；浏览器 EventSource 不支持 POST 或 '
-        'Authorization。\n'
-        '```\n'
+        "    from_uid: registeredVisitor.id,\n"
+        "    channel_id: registeredVisitor.channel_id,\n"
+        "    channel_type: 251,\n"
+        "    stream: false\n"
+        "  })\n"
+        "});\n"
+        "\n"
+        "if (!response.ok) throw new Error(`HTTP ${response.status}`);\n"
+        "const result = await response.json();\n"
+        "// 发布到界面前核验 registeredVisitor 仍是当前访客。\n"
+        "// stream=true 时使用 fetch ReadableStream；浏览器 EventSource 不支持 POST 或 "
+        "Authorization。\n"
+        "```\n"
     ),
     responses={
         200: {
@@ -434,7 +423,7 @@ def _append_trusted_system_context(
                     "example": (
                         'data: {"event_type": "agent_content_chunk", "data": '
                         '{"content_chunk": "你好"}}\n'
-                        '\n'
+                        "\n"
                     )
                 },
                 "application/json": {
@@ -1029,13 +1018,13 @@ async def chat_completion(
         event_type = "assist_mode" if is_assist_mode else "ai_disabled"
         message = (
             (
-                'Human service requested, AI is in assist mode (requires '
-                'staff response)'
+                "Human service requested, AI is in assist mode (requires "
+                "staff response)"
             )
             if is_assist_mode
             else (
-                'AI responses are disabled for this visitor/platform (check '
-                'platform settings)'
+                "AI responses are disabled for this visitor/platform (check "
+                "platform settings)"
             )
         )
 
@@ -1143,7 +1132,7 @@ async def chat_completion(
             "success": True,
             "event_type": "accepted",
             "message": (
-                'Duplicate source message suppressed; existing AI run reused'
+                "Duplicate source message suppressed; existing AI run reused"
             ),
             "visitor_id": str(visitor.id),
             "source_message_id": source_message_id,
@@ -1278,29 +1267,33 @@ async def chat_completion(
     async def ai_event_generator() -> AsyncIterator[str]:
         stream_error: str | None = None
         try:
-            async for event_payload in chat_service.process_ai_stream_to_wukongim(
-                visitor_chat_access=access,
-                project_id=str(project.id),
-                user_id=str(visitor.id),
-                message=req.message,
-                channel_id=channel_id_enc,
-                channel_type=channel_type,
-                client_msg_no=response_client_msg_no,
-                from_uid=wukongim_from_uid,
-                session_id=session_id,
-                system_message=req.system_message,
-                expected_output=req.expected_output,
-                excluded_tool_ids=excluded_tool_ids,
-                media_input=media_input,
-                interaction_run_id=interaction_claim.run.id,
-                **agent_runtime_kwargs,
+            async for event_payload in (
+                chat_service.process_ai_stream_to_wukongim(
+                    visitor_chat_access=access,
+                    project_id=str(project.id),
+                    user_id=str(visitor.id),
+                    message=req.message,
+                    channel_id=channel_id_enc,
+                    channel_type=channel_type,
+                    client_msg_no=response_client_msg_no,
+                    from_uid=wukongim_from_uid,
+                    session_id=session_id,
+                    system_message=req.system_message,
+                    expected_output=req.expected_output,
+                    excluded_tool_ids=excluded_tool_ids,
+                    media_input=media_input,
+                    interaction_run_id=interaction_claim.run.id,
+                    **agent_runtime_kwargs,
+                )
             ):
                 if event_payload.get("event_type") == "workflow_failed":
                     stream_error = "ai_workflow_failed"
                     event_payload = {
                         "event_type": "workflow_failed",
                         "data": {
-                            "error_message": chat_service.PUBLIC_AI_FAILURE_MESSAGE
+                            "error_message": (
+                                chat_service.PUBLIC_AI_FAILURE_MESSAGE
+                            )
                         },
                     }
                 yield chat_service.sse_format(event_payload)
@@ -1567,10 +1560,10 @@ async def generate_assist_draft(
     summary="Send message via platform service",
     description=(
         (
-            'Forward a staff-authenticated outbound message to the Platform '
-            'Service (`/v1/messages/send`). This endpoint enriches the '
-            'payload with the platform API key and staff identifier and '
-            'returns the Platform Service response.'
+            "Forward a staff-authenticated outbound message to the Platform "
+            "Service (`/v1/messages/send`). This endpoint enriches the "
+            "payload with the platform API key and staff identifier and "
+            "returns the Platform Service response."
         )
     ),
 )
@@ -1658,7 +1651,7 @@ async def staff_delivery_status(
 ) -> StaffDeliveryResponse:
     (
         "Read the current sender's receipt; this never submits/resends a "
-        'message.'
+        "message."
     )
     target = resolve_staff_message_target(
         db, current_user, channel_id, channel_type
@@ -1683,7 +1676,7 @@ async def staff_pending_deliveries(
 ) -> list[StaffDeliveryRecord]:
     (
         "Restore only the current sender's unsettled messages in an assigned "
-        'channel.'
+        "channel."
     )
     target = resolve_staff_message_target(
         db, current_user, channel_id, channel_type
@@ -1917,36 +1910,36 @@ async def create_chat_file_access(
     summary="OpenAI-compatible chat completion",
     tags=["Chat"],
     description=(
-        '\n'
-        '    OpenAI ChatGPT API-compatible chat completion endpoint.\n'
-        '\n'
-        '    This endpoint provides a fully compatible interface with '
+        "\n"
+        "    OpenAI ChatGPT API-compatible chat completion endpoint.\n"
+        "\n"
+        "    This endpoint provides a fully compatible interface with "
         "OpenAI's ChatGPT API,\n"
-        '    allowing seamless integration with existing OpenAI client '
-        'libraries and tools.\n'
-        '\n'
-        '    **Authentication**: Select the platform with '
-        '`X-Platform-API-Key`.\n'
-        '    Website visitors must also supply their original current '
-        '`Authorization: Bearer <im_token>`.\n'
-        '    If `user` is provided it must belong to that visitor; otherwise '
-        'the registered holder is used.\n'
-        '    Server channels require the private `X-SaaS-Service-Token` '
-        'instead of a browser visitor grant.\n'
-        '\n'
+        "    allowing seamless integration with existing OpenAI client "
+        "libraries and tools.\n"
+        "\n"
+        "    **Authentication**: Select the platform with "
+        "`X-Platform-API-Key`.\n"
+        "    Website visitors must also supply their original current "
+        "`Authorization: Bearer <im_token>`.\n"
+        "    If `user` is provided it must belong to that visitor; otherwise "
+        "the registered holder is used.\n"
+        "    Server channels require the private `X-SaaS-Service-Token` "
+        "instead of a browser visitor grant.\n"
+        "\n"
         "    **Request Format**: Compatible with OpenAI's chat completion "
-        'request format.\n'
-        '    See: https://platform.openai.com/docs/api-reference/chat/create\n'
-        '\n'
+        "request format.\n"
+        "    See: https://platform.openai.com/docs/api-reference/chat/create\n"
+        "\n"
         "    **Response Format**: Compatible with OpenAI's chat completion "
-        'response format.\n'
-        '    See: https://platform.openai.com/docs/api-reference/chat/object\n'
-        '\n'
-        '    **Streaming Support**: Set `stream=true` to receive Server-Sent '
-        'Events (SSE).\n'
-        '    See: https://platform.openai.com/docs/api-reference/chat/streami'
-        'ng\n'
-        '    '
+        "response format.\n"
+        "    See: https://platform.openai.com/docs/api-reference/chat/object\n"
+        "\n"
+        "    **Streaming Support**: Set `stream=true` to receive Server-Sent "
+        "Events (SSE).\n"
+        "    See: https://platform.openai.com/docs/api-reference/chat/streami"
+        "ng\n"
+        "    "
     ),
 )
 async def chat_completion_openai_compatible(
@@ -2097,13 +2090,13 @@ async def chat_completion_openai_compatible(
         )
         detail = (
             (
-                'Human service requested, AI is in assist mode (requires '
-                'staff response)'
+                "Human service requested, AI is in assist mode (requires "
+                "staff response)"
             )
             if is_assist_mode
             else (
-                'AI responses are disabled for this visitor/platform (check '
-                'platform settings)'
+                "AI responses are disabled for this visitor/platform (check "
+                "platform settings)"
             )
         )
         raise HTTPException(status_code=status_code, detail=detail)
@@ -2204,25 +2197,25 @@ async def chat_completion_openai_compatible(
     summary="Staff chat with AI agent",
     tags=["Chat"],
     description=(
-        '\n'
-        '    Staff-to-agent chat endpoint.\n'
-        '\n'
-        '    This endpoint allows authenticated staff members to chat with '
-        'AI agents.\n'
-        '    The AI response is delivered via WuKongIM to the client.\n'
-        '\n'
-        '    **Authentication**: JWT token required (staff authentication).\n'
-        '\n'
-        '    **Request**: `agent_id` is required.\n'
-        '\n'
-        '    **Channel Format**:\n'
-        '    - `agent_id` maps to channel_id = `{agent_id}-agent`\n'
-        '\n'
-        '    **Response Delivery**: AI response is sent via WuKongIM, not '
-        'returned in this endpoint.\n'
-        '    This endpoint returns success/failure status after initiating '
-        'AI processing.\n'
-        '    '
+        "\n"
+        "    Staff-to-agent chat endpoint.\n"
+        "\n"
+        "    This endpoint allows authenticated staff members to chat with "
+        "AI agents.\n"
+        "    The AI response is delivered via WuKongIM to the client.\n"
+        "\n"
+        "    **Authentication**: JWT token required (staff authentication).\n"
+        "\n"
+        "    **Request**: `agent_id` is required.\n"
+        "\n"
+        "    **Channel Format**:\n"
+        "    - `agent_id` maps to channel_id = `{agent_id}-agent`\n"
+        "\n"
+        "    **Response Delivery**: AI response is sent via WuKongIM, not "
+        "returned in this endpoint.\n"
+        "    This endpoint returns success/failure status after initiating "
+        "AI processing.\n"
+        "    "
     ),
 )
 async def staff_agent_chat(
@@ -2298,8 +2291,8 @@ async def staff_agent_chat(
     summary="Handle UI user interaction",
     tags=["Chat", "UI"],
     description=(
-        'Receives a userAction from the json-render UI renderer and routes '
-        'it back to the AI agent as a contextual query.'
+        "Receives a userAction from the json-render UI renderer and routes "
+        "it back to the AI agent as a contextual query."
     ),
     deprecated=True,
 )
@@ -2312,8 +2305,8 @@ async def handle_ui_user_action(
     current_user: Staff = Depends(require_permission("chat:send")),
 ) -> UIUserActionResponse:
     (
-        'Convert a UI user action into an AI query and process it in the '
-        'background.'
+        "Convert a UI user action into an AI query and process it in the "
+        "background."
     )
     from app.services.profile_access import (
         require_profile_access,
@@ -2387,13 +2380,13 @@ async def handle_ui_user_action(
     summary="清除会话记忆",
     tags=["Chat"],
     description=(
-        '\n'
-        '    清除智能体会话的 AI 记忆，并发送系统消息通知。\n'
-        '    \n'
-        '    该接口会将 `channel_id` + `channel_type` 转换为 AI 服务所需的 `session_id` '
-        '并调用清除。\n'
+        "\n"
+        "    清除智能体会话的 AI 记忆，并发送系统消息通知。\n"
+        "    \n"
+        "    该接口会将 `channel_id` + `channel_type` 转换为 AI 服务所需的 `session_id` "
+        "并调用清除。\n"
         "    清除成功后，会向该频道发送一条 'memory_cleared' 类型的系统消息。\n"
-        '    '
+        "    "
     ),
 )
 async def clear_chat_memory(
@@ -2411,9 +2404,7 @@ async def clear_chat_memory(
 
     async def require_access() -> None:
         actor = check_staff_record_permission(db, access, "chat:send")
-        await require_staff_channel_access(
-            db, actor, channel_id, channel_type
-        )
+        await require_staff_channel_access(db, actor, channel_id, channel_type)
         # Agent ownership checks may themselves wait for a remote service.
         check_staff_record_permission(db, access, "chat:send")
 

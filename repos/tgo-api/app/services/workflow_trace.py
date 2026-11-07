@@ -1,4 +1,5 @@
-"""Resolve a stored customer message to the original server-owned AI request."""
+"""Resolve a stored customer message to the original \
+server-owned AI request."""
 
 from collections.abc import Awaitable, Callable
 from uuid import UUID
@@ -19,7 +20,11 @@ def find_business_request_for_message(
     visitor_session_id: UUID,
     source_message_id: str,
 ) -> UUID | None:
-    """Use persisted tenant, visitor, platform and message scope, not caller identity claims."""
+    (
+        "Use persisted tenant, visitor, platform "
+        "and message scope, not caller identity c"
+        "laims."
+    )
 
     session = db.scalar(
         select(VisitorSession).where(
@@ -74,7 +79,11 @@ def workflow_records_for_ai_request(
     run: AIInteractionRun,
     records: list[WorkflowExecution],
 ) -> list[WorkflowExecution]:
-    """Exclude workflow rows whose saved session does not belong to this request's customer."""
+    (
+        "Exclude workflow rows whose saved sessio"
+        "n does not belong to this request's cust"
+        "omer."
+    )
 
     candidates: list[tuple[WorkflowExecution, UUID]] = []
     session_ids: set[UUID] = set()
@@ -114,7 +123,10 @@ async def page_workflow_records_for_ai_request(
     skip: int,
     fetch_page: Callable[[int, int], Awaitable[list[WorkflowExecution]]],
 ) -> list[WorkflowExecution]:
-    """Page over verified rows, so foreign or malformed rows cannot hide later matches."""
+    (
+        "Page over verified rows, so foreign or m"
+        "alformed rows cannot hide later matches."
+    )
 
     raw_skip = 0
     verified_seen = 0

@@ -1,8 +1,5 @@
 """Visitor endpoints."""
 
-import re
-import uuid
-from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from typing import Optional, List
 from uuid import UUID
@@ -19,13 +16,10 @@ from fastapi import (
     status,
     Query,
 )
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.config import settings
-from app.core.security import verify_token
 
 from app.services.wukongim_client import wukongim_client
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -41,7 +35,7 @@ from app.services.wechat_local_bridge import (
     authorize_bridge_visitor,
     require_scoped_target,
 )
-from app.utils.wechat_local import is_filehelper_identity, is_scoped_identity
+from app.utils.wechat_local import is_scoped_identity
 from app.services.reply_history import reconcile_reply_history
 from app.core.exceptions import TGOAPIException
 from app.services.visitor_data_access import (
@@ -78,9 +72,8 @@ from app.services.employee_style import resolve_employee_style
 from app.services.visitor_notifications import notify_visitor_profile_updated
 from app.services.platform_message_client import prepare_native_mode
 from app.utils.intent import localize_visitor_response_intent
-from app.models.platform import PlatformType
 from app.utils.wechat_local import is_filehelper_identity
-from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE, MEMBER_TYPE_VISITOR
+from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 from app.utils.request import get_client_ip, get_client_language
 from app.services.geoip_service import geoip_service
 import app.services.visitor_service as visitor_service
@@ -104,9 +97,7 @@ from app.models import (
     Staff,
     Visitor,
     VisitorActivity,
-    VisitorSystemInfo,
     VisitorTag,
-    ChannelMember,
     VisitorWaitingQueue,
     WaitingStatus,
     AssignmentSource,
@@ -122,7 +113,6 @@ from app.schemas import (
     VisitorListResponse,
     VisitorResponse,
     VisitorBasicResponse,
-    VisitorSystemInfoRequest,
     VisitorSystemInfoResponse,
     VisitorUpdate,
     TagResponse,
@@ -146,12 +136,13 @@ from app.schemas.base import PaginationMetadata
 from app.services.transfer_service import transfer_to_staff
 
 
-logger = get_logger("endpoints.visitors")
 from app.services.staff_conversation_scope import (
     enforce_visitor_detail_scope,
     owned_visitor_ids,
     restricted_staff,
 )
+
+logger = get_logger("endpoints.visitors")
 
 router = APIRouter(
     route_class=CurrentAccessRoute,
@@ -197,8 +188,8 @@ async def list_visitors(
     recent_online_minutes: Optional[int] = Query(
         None,
         description=(
-            'Filter visitors who were online within this many minutes '
-            '(including currently online)'
+            "Filter visitors who were online within this many minutes "
+            "(including currently online)"
         ),
     ),
     service_status: Optional[List[str]] = Query(
@@ -240,15 +231,15 @@ async def list_visitors(
     """
     logger.info(
         (
-            f'User '
-            f'{current_user.username}'
-            f' listing visitors (tag_ids='
-            f'{tag_ids}'
-            f', recent_online_minutes='
-            f'{recent_online_minutes}'
-            f', service_status='
-            f'{service_status}'
-            f')'
+            f"User "
+            f"{current_user.username}"
+            f" listing visitors (tag_ids="
+            f"{tag_ids}"
+            f", recent_online_minutes="
+            f"{recent_online_minutes}"
+            f", service_status="
+            f"{service_status}"
+            f")"
         )
     )
 
@@ -419,10 +410,10 @@ async def create_visitor(
     """
     logger.info(
         (
-            f'User '
-            f'{current_user.username}'
-            f' creating visitor: '
-            f'{visitor_data.platform_open_id}'
+            f"User "
+            f"{current_user.username}"
+            f" creating visitor: "
+            f"{visitor_data.platform_open_id}"
         )
     )
 
@@ -449,8 +440,8 @@ async def create_visitor(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f'No active platform found for type: '
-                    f'{visitor_data.platform_type}'
+                    f"No active platform found for type: "
+                    f"{visitor_data.platform_type}"
                 ),
             )
         platform_id = platform.id
@@ -964,13 +955,13 @@ async def accept_visitor_direct(
     | None = Depends(HTTPBearer(auto_error=False)),
 ) -> AcceptVisitorResponse:
     (
-        '\n'
-        '    客服接入访客。\n'
-        '    \n'
-        '    - 无论访客是否在等待队列中均可接入\n'
-        '    - 如果访客在等待队列中，会自动更新其队列条目状态\n'
-        '    - 调用 transfer_to_staff 完成实际分配和 WuKongIM 关联\n'
-        '    '
+        "\n"
+        "    客服接入访客。\n"
+        "    \n"
+        "    - 无论访客是否在等待队列中均可接入\n"
+        "    - 如果访客在等待队列中，会自动更新其队列条目状态\n"
+        "    - 调用 transfer_to_staff 完成实际分配和 WuKongIM 关联\n"
+        "    "
     )
     scope = begin_mutation(
         db,
@@ -1089,15 +1080,15 @@ async def get_visitor_by_channel(
     | None = Depends(HTTPBearer(auto_error=False)),
 ) -> VisitorResponse:
     (
-        'Get visitor details by channel identifiers. Requires visitors:read '
-        'permission.\n'
-        '\n'
-        '    Logic:\n'
-        '    - channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE (251): '
+        "Get visitor details by channel identifiers. Requires visitors:read "
+        "permission.\n"
+        "\n"
+        "    Logic:\n"
+        "    - channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE (251): "
         'channel_id format is "{visitor_uuid}-vtr"\n'
-        '    - channel_type == 1: channel_id is the visitor_id directly\n'
-        '    - otherwise: 400 unsupported channel type\n'
-        '    '
+        "    - channel_type == 1: channel_id is the visitor_id directly\n"
+        "    - otherwise: 400 unsupported channel type\n"
+        "    "
     )
     # Resolve visitor_id from channel info
     if channel_type == CHANNEL_TYPE_CUSTOMER_SERVICE:
@@ -1170,8 +1161,8 @@ async def get_visitor_basic(
     user_language: UserLanguage = Depends(get_user_language),
 ) -> VisitorBasicResponse | VisitorPublicProfile:
     (
-        'Staff sees current owned details; a visitor sees only their own '
-        'display.'
+        "Staff sees current owned details; a visitor sees only their own "
+        "display."
     )
     access = require_profile_access(db, credentials, x_platform_api_key)
     visitor = require_profile_visitor(db, access, visitor_id)
@@ -1529,7 +1520,7 @@ async def delete_visitor(
     summary="Visitor: Sync Channel Messages",
     description=(
         "Retrieve the current visitor's own history using the platform key "
-        'and signed visitor Bearer grant.'
+        "and signed visitor Bearer grant."
     ),
 )
 async def sync_visitor_channel_messages(
@@ -1635,7 +1626,7 @@ async def sync_visitor_channel_messages(
         require_owned_history_batch(
             access, req.channel_id, req.channel_type, reconciled
         )
-        response.headers['Cache-Control'] = 'no-store'
+        response.headers["Cache-Control"] = "no-store"
         return reconciled
     except (HTTPException, TGOAPIException):
         raise
@@ -1657,7 +1648,7 @@ async def sync_visitor_channel_messages(
     response_model=VisitorAvatarUploadResponse,
     summary="Upload visitor avatar",
     description=(
-        'Staff authorization required; JPEG, PNG, GIF or WebP, up to 5MB.'
+        "Staff authorization required; JPEG, PNG, GIF or WebP, up to 5MB."
     ),
     tags=["Visitors"],
 )
@@ -1704,8 +1695,8 @@ async def upload_visitor_avatar(
     "/{visitor_id}/avatar",
     summary="Get private visitor avatar",
     description=(
-        'Staff or original visitor authorization required in request '
-        'headers. No public image access.'
+        "Staff or original visitor authorization required in request "
+        "headers. No public image access."
     ),
     tags=["Visitors"],
     responses={

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Optional, List
-from uuid import UUID
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -24,15 +23,15 @@ _processing_lock = asyncio.Lock()
 
 async def _process_online_status_sync() -> int:
     (
-        '\n'
-        '    Sync visitor online status with WuKongIM.\n'
-        '    \n'
-        '    Only checks visitors who are currently marked as online in the '
-        'database.\n'
-        '    \n'
-        '    Returns:\n'
-        '        Number of visitors marked offline\n'
-        '    '
+        "\n"
+        "    Sync visitor online status with WuKongIM.\n"
+        "    \n"
+        "    Only checks visitors who are currently marked as online in the "
+        "database.\n"
+        "    \n"
+        "    Returns:\n"
+        "        Number of visitors marked offline\n"
+        "    "
     )
     db: Session = SessionLocal()
     marked_offline_count = 0
@@ -80,9 +79,9 @@ async def _process_online_status_sync() -> int:
 
                         logger.info(
                             (
-                                f'Visitor '
-                                f'{visitor.id}'
-                                f' corrected to offline (sync)'
+                                f"Visitor "
+                                f"{visitor.id}"
+                                f" corrected to offline (sync)"
                             ),
                             extra={"visitor_id": str(visitor.id)},
                         )
@@ -161,12 +160,12 @@ async def stop_visitor_online_sync_task() -> None:
 
 async def trigger_online_status_sync() -> int:
     (
-        '\n'
-        '    Manually trigger a visitor online status sync.\n'
-        '    \n'
-        '    Returns:\n'
-        '        Number of visitors corrected to offline\n'
-        '    '
+        "\n"
+        "    Manually trigger a visitor online status sync.\n"
+        "    \n"
+        "    Returns:\n"
+        "        Number of visitors corrected to offline\n"
+        "    "
     )
     async with _processing_lock:
         return await _process_online_status_sync()

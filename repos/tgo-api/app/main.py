@@ -1,5 +1,6 @@
 """FastAPI application entry point with extension support."""
 
+import logging
 from typing import Callable, List, Optional, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -26,7 +27,6 @@ from app.services.platform_type_seed import ensure_platform_types_seed
 setup_logging()
 
 # Configure uvicorn logging for cleaner startup
-import logging
 
 logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
@@ -39,34 +39,34 @@ def create_app(
     shutdown_hooks: Optional[List[Callable]] = None,
 ) -> FastAPI:
     (
-        '\n'
-        '    Create and configure the FastAPI application instance.\n'
-        '    \n'
-        '    This factory function allows extensions (like SaaS modules) to '
-        'inject\n'
-        '    additional routers, middlewares, and lifecycle hooks.\n'
-        '    \n'
-        '    Args:\n'
-        '        additional_routers: List of APIRouter instances to include\n'
-        '        additional_middlewares: List of (middleware_class, kwargs) '
-        'tuples\n'
-        '        startup_hooks: List of async functions to run on startup\n'
-        '        shutdown_hooks: List of async functions to run on shutdown\n'
-        '    \n'
-        '    Returns:\n'
-        '        Configured FastAPI application instance\n'
-        '    \n'
-        '    Example:\n'
-        '        # In SaaS extension:\n'
-        '        from app.main import create_app\n'
-        '        from .routers import billing_router\n'
-        '        from .middlewares import UsageMiddleware\n'
-        '        \n'
-        '        app = create_app(\n'
-        '            additional_routers=[billing_router],\n'
-        '            additional_middlewares=[(UsageMiddleware, {})],\n'
-        '        )\n'
-        '    '
+        "\n"
+        "    Create and configure the FastAPI application instance.\n"
+        "    \n"
+        "    This factory function allows extensions (like SaaS modules) to "
+        "inject\n"
+        "    additional routers, middlewares, and lifecycle hooks.\n"
+        "    \n"
+        "    Args:\n"
+        "        additional_routers: List of APIRouter instances to include\n"
+        "        additional_middlewares: List of (middleware_class, kwargs) "
+        "tuples\n"
+        "        startup_hooks: List of async functions to run on startup\n"
+        "        shutdown_hooks: List of async functions to run on shutdown\n"
+        "    \n"
+        "    Returns:\n"
+        "        Configured FastAPI application instance\n"
+        "    \n"
+        "    Example:\n"
+        "        # In SaaS extension:\n"
+        "        from app.main import create_app\n"
+        "        from .routers import billing_router\n"
+        "        from .middlewares import UsageMiddleware\n"
+        "        \n"
+        "        app = create_app(\n"
+        "            additional_routers=[billing_router],\n"
+        "            additional_middlewares=[(UsageMiddleware, {})],\n"
+        "        )\n"
+        "    "
     )
     application = TGOApplication(
         title=settings.PROJECT_NAME,
@@ -256,7 +256,7 @@ def create_app(
             for hook in startup_hooks:
                 try:
                     result = hook()
-                    if hasattr(result, '__await__'):
+                    if hasattr(result, "__await__"):
                         await result
                 except Exception:
                     # best-effort; don't block startup
@@ -264,9 +264,9 @@ def create_app(
 
         # Server ready
         startup_log("🌐 Server starting...")
-        startup_log(f"   📍 Listening on: http://0.0.0.0:8000")
-        startup_log(f"   📚 API Docs: http://localhost:8000/v1/docs")
-        startup_log(f"   🏥 Health Check: http://localhost:8000/health")
+        startup_log("   📍 Listening on: http://0.0.0.0:8000")
+        startup_log("   📚 API Docs: http://localhost:8000/v1/docs")
+        startup_log("   🏥 Health Check: http://localhost:8000/health")
         startup_log("")
         startup_log("🎉 TGO-Tech API Service is ready!")
         startup_log("═" * 64)
@@ -373,7 +373,7 @@ def create_app(
             for hook in shutdown_hooks:
                 try:
                     result = hook()
-                    if hasattr(result, '__await__'):
+                    if hasattr(result, "__await__"):
                         await result
                 except Exception:
                     pass

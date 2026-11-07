@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from jose import JWTError, jwt
 from pydantic import ValidationError
-from sqlalchemy import and_, or_
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -74,8 +74,8 @@ def issue_visitor_im_token(
 
 def read_visitor_im_access(token: str) -> VisitorIMAccessClaims:
     (
-        'Read signed visitor claims; callers must also check current '
-        'database scope.'
+        "Read signed visitor claims; callers must also check current "
+        "database scope."
     )
     try:
         claims = jwt.decode(
@@ -113,8 +113,8 @@ def authenticate_visitor_im_claims(
     claims: VisitorIMAccessClaims,
 ) -> Visitor:
     (
-        'Recheck already verified claims, including their original expiry '
-        'and owner.'
+        "Recheck already verified claims, including their original expiry "
+        "and owner."
     )
     if claims.exp <= int(datetime.now(timezone.utc).timestamp()):
         raise _unauthorized()

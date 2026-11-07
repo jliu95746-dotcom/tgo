@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any, Optional, Sequence
-from datetime import datetime
 
 import httpx
 

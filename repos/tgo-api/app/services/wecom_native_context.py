@@ -44,18 +44,20 @@ class NativeVisitorState(Protocol):
 
 class ContextTurn(Protocol):
     @property
-    def role(self) -> str: ...
+    def role(self) -> str:
+        ...
 
     @property
-    def content(self) -> str: ...
+    def content(self) -> str:
+        ...
 
 
 def preserve_native_config(
     current: dict[str, object], proposed: dict[str, object]
 ) -> dict[str, object]:
     (
-        'Older channel forms only submit credentials; retain server-managed '
-        'routing.'
+        "Older channel forms only submit credentials; retain server-managed "
+        "routing."
     )
     merged = dict(proposed)
     for key in (
@@ -231,8 +233,11 @@ async def mirror_native_event(
                 sender = f"{visitor.id}-vtr"
             else:
                 sender = (
-                    f"{uuid5(platform.project_id, 'wecom-native:' + event.servicer_userid)}"
-                    f'-staff'
+                    f"""{uuid5(
+                        platform.project_id,
+                        'wecom-native:' + event.servicer_userid,
+                    )}"""
+                    "-staff"
                 )
             receipt = await wukongim_client.send_message(
                 from_uid=sender,

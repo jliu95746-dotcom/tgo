@@ -1,18 +1,10 @@
 """AI Model catalog (global) model."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import (
-    Boolean,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-    func,
-)
+from sqlalchemy import Boolean, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,8 +16,8 @@ if TYPE_CHECKING:
 
 class AIModel(Base):
     (
-        'Concrete AI models supported by each provider (global, not '
-        'project-scoped).'
+        "Concrete AI models supported by each provider (global, not "
+        "project-scoped)."
     )
 
     __tablename__ = "api_ai_models"
@@ -70,8 +62,8 @@ class AIModel(Base):
         JSONB,
         nullable=True,
         comment=(
-            'Model capabilities JSON, e.g., {vision: true, function_calling: '
-            'true}'
+            "Model capabilities JSON, e.g., {vision: true, function_calling: "
+            "true}"
         ),
     )
     context_window: Mapped[Optional[int]] = mapped_column(
@@ -114,11 +106,11 @@ class AIModel(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug repr
         return (
-            f'<AIModel(id='
-            f'{self.id}'
-            f', provider='
-            f'{self.provider}'
-            f', model_id='
-            f'{self.model_id}'
-            f')>'
+            f"<AIModel(id="
+            f"{self.id}"
+            f", provider="
+            f"{self.provider}"
+            f", model_id="
+            f"{self.model_id}"
+            f")>"
         )

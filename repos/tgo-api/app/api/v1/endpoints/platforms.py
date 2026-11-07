@@ -38,8 +38,6 @@ from app.services.platform_knowledge import platform_knowledge_availability
 from app.schemas.knowledge_availability import AgentKnowledgeAvailability
 from app.models.platform import PlatformType
 from app.services.platform_configuration import is_platform_configured
-from app.services.visitor_data_access import require_visitor_data_access
-from app.services.wechat_local_bridge import WeChatLocalStatus, bridge_status
 from app.services.wechat_local_bridge import (
     WeChatLocalHeartbeat,
     WeChatLocalPairCode,
@@ -121,19 +119,19 @@ def _build_platform_list_item(
     platform: Platform, language: str = "zh"
 ) -> PlatformListItemResponse:
     (
-        'Build PlatformListItemResponse with language-aware '
-        'name/display_name.\n'
-        '\n'
-        '    Priority:\n'
-        '    1) If ``Platform.name`` is set, always use it.\n'
-        '    2) Otherwise, pick from the related PlatformTypeDefinition '
-        'based on language:\n'
-        '       - ``zh`` (default): use ``name`` (Chinese), fallback to '
+        "Build PlatformListItemResponse with language-aware "
+        "name/display_name.\n"
+        "\n"
+        "    Priority:\n"
+        "    1) If ``Platform.name`` is set, always use it.\n"
+        "    2) Otherwise, pick from the related PlatformTypeDefinition "
+        "based on language:\n"
+        "       - ``zh`` (default): use ``name`` (Chinese), fallback to "
         '"未命名平台".\n'
-        '       - non-``zh``: use ``name_en`` when available, otherwise '
-        '``name``,\n'
+        "       - non-``zh``: use ``name_en`` when available, otherwise "
+        "``name``,\n"
         '         finally "Unnamed Platform".\n'
-        '    '
+        "    "
     )
     item = PlatformListItemResponse.model_validate(platform)
     item.is_configured = is_platform_configured(platform.type, platform.config)
@@ -205,8 +203,8 @@ async def list_platform_types(
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> list[PlatformTypeDefinitionResponse]:
     (
-        'List available platform type definitions. Requires platforms:list '
-        'permission.'
+        "List available platform type definitions. Requires platforms:list "
+        "permission."
     )
     logger.info(f"User {current_user.username} listing platform types")
 
@@ -248,13 +246,13 @@ async def list_platforms(
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformListResponse:
     (
-        '\n'
-        '    List platforms.\n'
-        '\n'
-        '    Retrieve a paginated list of communication platforms with '
-        'optional filtering.\n'
-        '    Requires platforms:list permission.\n'
-        '    '
+        "\n"
+        "    List platforms.\n"
+        "\n"
+        "    Retrieve a paginated list of communication platforms with "
+        "optional filtering.\n"
+        "    Requires platforms:list permission.\n"
+        "    "
     )
     logger.info(f"User {current_user.username} listing platforms")
 
@@ -316,8 +314,8 @@ async def list_platforms(
     response_model_exclude_none=True,
     summary="Platform: Get Platform Info",
     description=(
-        'Retrieve platform information using Platform API key '
-        '(visitor-facing).'
+        "Retrieve platform information using Platform API key "
+        "(visitor-facing)."
     ),
 )
 async def get_platform_info(
@@ -327,14 +325,14 @@ async def get_platform_info(
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PublicPlatformResponse:
     (
-        'Get platform information by Platform API key.\n'
-        '\n'
-        '    - Auth: API key in query param `platform_api_key` or header '
-        '`X-Platform-API-Key`\n'
-        '    - Returns: public widget presentation; no administrator '
-        'configuration\n'
-        '    - Errors: 401 (invalid/missing), 403 (disabled/deleted)\n'
-        '    '
+        "Get platform information by Platform API key.\n"
+        "\n"
+        "    - Auth: API key in query param `platform_api_key` or header "
+        "`X-Platform-API-Key`\n"
+        "    - Returns: public widget presentation; no administrator "
+        "configuration\n"
+        "    - Errors: 401 (invalid/missing), 403 (disabled/deleted)\n"
+        "    "
     )
     api_key = platform_api_key or x_platform_api_key
     if not api_key:
@@ -421,9 +419,9 @@ async def create_platform(
     """
     logger.info(
         (
-            f'User '
-            f'{current_user.username}'
-            f' creating platform: '
+            f"User "
+            f"{current_user.username}"
+            f" creating platform: "
             f"{platform_data.name or '[auto]'}"
         )
     )
@@ -734,13 +732,13 @@ async def delete_platform(
     current_user: Staff = Depends(require_permission("platforms:delete")),
 ) -> None:
     (
-        '\n'
-        '    Delete platform (soft delete).\n'
-        '\n'
-        '    Soft delete a platform. This also affects all visitors '
-        'associated with this platform.\n'
-        '    Requires platforms:delete permission.\n'
-        '    '
+        "\n"
+        "    Delete platform (soft delete).\n"
+        "\n"
+        "    Soft delete a platform. This also affects all visitors "
+        "associated with this platform.\n"
+        "    Requires platforms:delete permission.\n"
+        "    "
     )
     logger.info(
         f"User {current_user.username} deleting platform: {platform_id}"
@@ -781,15 +779,15 @@ async def regenerate_platform_api_key(
     current_user: Staff = Depends(require_permission("platforms:update")),
 ) -> PlatformAPIKeyResponse:
     (
-        'Regenerate the API key for a platform. Requires platforms:update '
-        'permission.'
+        "Regenerate the API key for a platform. Requires platforms:update "
+        "permission."
     )
     logger.info(
         (
-            f'User '
-            f'{current_user.username}'
-            f' regenerating API key for platform: '
-            f'{platform_id}'
+            f"User "
+            f"{current_user.username}"
+            f" regenerating API key for platform: "
+            f"{platform_id}"
         )
     )
 
@@ -828,8 +826,8 @@ async def enable_platform(
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
     (
-        'Enable a platform (set is_active=True). Requires platforms:update '
-        'permission.'
+        "Enable a platform (set is_active=True). Requires platforms:update "
+        "permission."
     )
     logger.info(
         "User %s enabling platform %s", current_user.username, str(platform_id)
@@ -881,8 +879,8 @@ async def disable_platform(
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
     (
-        'Disable a platform (set is_active=False). Requires platforms:update '
-        'permission.'
+        "Disable a platform (set is_active=False). Requires platforms:update "
+        "permission."
     )
     logger.info(
         "User %s disabling platform %s",
@@ -942,8 +940,8 @@ async def _setup_telegram_webhook(platform: Platform) -> None:
     # Build webhook URL
     webhook_url = (
         f"{settings.API_BASE_URL.rstrip('/')}"
-        f'/v1/platforms/callback/'
-        f'{platform.api_key}'
+        f"/v1/platforms/callback/"
+        f"{platform.api_key}"
     )
     webhook_secret = config.get("webhook_secret")
 
@@ -1016,12 +1014,12 @@ async def _delete_telegram_webhook(platform: Platform) -> None:
 
 async def _notify_slack_platform_reload(platform: Platform) -> None:
     (
-        'Notify tgo-platform to start Slack Socket Mode handler for a '
-        'platform.'
+        "Notify tgo-platform to start Slack Socket Mode handler for a "
+        "platform."
     )
     platform_base_url = (
         settings.PLATFORM_BASE_URL
-        if hasattr(settings, 'PLATFORM_BASE_URL')
+        if hasattr(settings, "PLATFORM_BASE_URL")
         else "http://tgo-platform:8003"
     )
     url = f"{platform_base_url.rstrip('/')}/internal/slack/reload"
@@ -1067,7 +1065,7 @@ async def _notify_slack_platform_stop(platform_id: str) -> None:
     """Notify tgo-platform to stop Slack Socket Mode handler for a platform."""
     platform_base_url = (
         settings.PLATFORM_BASE_URL
-        if hasattr(settings, 'PLATFORM_BASE_URL')
+        if hasattr(settings, "PLATFORM_BASE_URL")
         else "http://tgo-platform:8003"
     )
     url = f"{platform_base_url.rstrip('/')}/internal/slack/stop/{platform_id}"
@@ -1100,8 +1098,8 @@ async def enable_ai_for_platform(
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
     (
-        'Enable AI for a platform (set ai_mode=auto). Requires '
-        'platforms:update permission.'
+        "Enable AI for a platform (set ai_mode=auto). Requires "
+        "platforms:update permission."
     )
     logger.info(
         "User %s enabling AI for platform %s",
@@ -1147,8 +1145,8 @@ async def disable_ai_for_platform(
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
     (
-        'Disable AI for a platform (set ai_mode=off). Requires '
-        'platforms:update permission.'
+        "Disable AI for a platform (set ai_mode=off). Requires "
+        "platforms:update permission."
     )
     logger.info(
         "User %s disabling AI for platform %s",
@@ -1194,14 +1192,14 @@ async def upload_platform_logo(
     x_user_language: str = Header("zh", alias="X-User-Language"),
 ) -> PlatformResponse:
     (
-        'Upload or replace the logo image for a platform. Requires '
-        'platforms:update permission.\n'
-        '\n'
-        '    - Auth: JWT staff via get_current_active_user\n'
+        "Upload or replace the logo image for a platform. Requires "
+        "platforms:update permission.\n"
+        "\n"
+        "    - Auth: JWT staff via get_current_active_user\n"
         "    - File: multipart/form-data field 'file'\n"
-        '    - Validates MIME type and file size; stores under '
-        'PLATFORM_LOGO_UPLOAD_DIR/{platform_id}/\n'
-        '    '
+        "    - Validates MIME type and file size; stores under "
+        "PLATFORM_LOGO_UPLOAD_DIR/{platform_id}/\n"
+        "    "
     )
     # 1) Lookup platform and authz
     platform = (
@@ -1369,17 +1367,17 @@ async def wecom_callback_verify(
     db: Session = Depends(get_db),
 ) -> Response:
     (
-        'WeCom (企业微信/企业微信机器人) callback URL verification (GET).\n'
-        '\n'
-        '    WeCom sends msg_signature, timestamp, nonce, and echostr for '
-        'verification.\n'
-        '    We verify the signature and decrypt echostr (if encryption '
-        'enabled), then\n'
-        '    return the decrypted plain text as the response body.\n'
-        '    \n'
+        "WeCom (企业微信/企业微信机器人) callback URL verification (GET).\n"
+        "\n"
+        "    WeCom sends msg_signature, timestamp, nonce, and echostr for "
+        "verification.\n"
+        "    We verify the signature and decrypt echostr (if encryption "
+        "enabled), then\n"
+        "    return the decrypted plain text as the response body.\n"
+        "    \n"
         "    Supports both 'wecom' (企业微信) and 'wecom_bot' (企业微信机器人) platform "
-        'types.\n'
-        '    '
+        "types.\n"
+        "    "
     )
     # 1) Validate platform
     platform = (
@@ -1479,14 +1477,14 @@ async def platform_callback_forward(
     db: Session = Depends(get_db),
 ) -> Response:
     (
-        'Forward third-party platform callbacks to the TGO Platform Service.\n'
-        '\n'
-        '    - Validates the platform_api_key against platforms table (must '
-        'be active and not soft-deleted)\n'
-        '    - Forwards body and query parameters to Platform Service\n'
-        '    - Returns Platform Service response verbatim (status, headers, '
-        'body)\n'
-        '    '
+        "Forward third-party platform callbacks to the TGO Platform Service.\n"
+        "\n"
+        "    - Validates the platform_api_key against platforms table (must "
+        "be active and not soft-deleted)\n"
+        "    - Forwards body and query parameters to Platform Service\n"
+        "    - Returns Platform Service response verbatim (status, headers, "
+        "body)\n"
+        "    "
     )
     # Validate platform_api_key
     platform = (
@@ -1508,8 +1506,8 @@ async def platform_callback_forward(
     # Build target URL
     target_url = (
         f"{settings.PLATFORM_SERVICE_URL.rstrip('/')}"
-        f'/v1/platforms/callback/'
-        f'{platform_api_key}'
+        f"/v1/platforms/callback/"
+        f"{platform_api_key}"
     )
 
     # Read original request

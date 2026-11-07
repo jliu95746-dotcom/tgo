@@ -1,9 +1,9 @@
-from typing import Any, List, Optional
+from typing import Any, List
 from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
@@ -214,7 +214,7 @@ async def install_model_from_store(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                'Project not bound to Store. Please bind credentials first.'
+                "Project not bound to Store. Please bind credentials first."
             ),
         )
 
@@ -377,18 +377,18 @@ async def proxy_store_request(
     current_user: Staff = Depends(get_current_active_user),
 ) -> Response:
     (
-        '\n'
-        '    透明代理 Store API 请求，不解析参数，直接转发。\n'
-        '    支持 GET, POST, PUT, DELETE, PATCH 等方法。\n'
-        '    \n'
-        '    认证处理:\n'
-        '    - 如果请求头包含 X-Store-Authorization，则使用它作为商店的 Authorization 头\n'
-        '    - 否则移除 TGO 的 Authorization 头（商店不认识）\n'
-        '    '
+        "\n"
+        "    透明代理 Store API 请求，不解析参数，直接转发。\n"
+        "    支持 GET, POST, PUT, DELETE, PATCH 等方法。\n"
+        "    \n"
+        "    认证处理:\n"
+        "    - 如果请求头包含 X-Store-Authorization，则使用它作为商店的 Authorization 头\n"
+        "    - 否则移除 TGO 的 Authorization 头（商店不认识）\n"
+        "    "
     )
-    if path.strip('/').split('/')[0] in ('agents', 'tools') or path.strip(
-        '/'
-    ).startswith('install/tool/'):
+    if path.strip("/").split("/")[0] in ("agents", "tools") or path.strip(
+        "/"
+    ).startswith("install/tool/"):
         raise HTTPException(
             status_code=410, detail="This store feature is no longer available"
         )
@@ -417,8 +417,8 @@ async def proxy_store_request(
 
     # 伪装浏览器 User-Agent，防止被 WAF 拦截
     headers["user-agent"] = (
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
-        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 
     # 3. 处理商店认证

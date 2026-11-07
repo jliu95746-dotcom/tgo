@@ -19,7 +19,6 @@ from app.models import (
     Visitor,
     VisitorTag,
     VisitorActivity,
-    Platform,
     VisitorSession,
     SessionStatus,
 )
@@ -79,24 +78,24 @@ class ChannelInfoResponse(BaseModel):
         None,
         description=(
             (
-                'Scenario 1 – Customer Service Channel (channel_type == '
-                '251):\n'
-                '- extra contains the complete VisitorResponse as a '
-                'dictionary.\n'
-                '\n'
-                'Scenario 2 – Personal Channel - Staff (channel_type == 1 '
+                "Scenario 1 – Customer Service Channel (channel_type == "
+                "251):\n"
+                "- extra contains the complete VisitorResponse as a "
+                "dictionary.\n"
+                "\n"
+                "Scenario 2 – Personal Channel - Staff (channel_type == 1 "
                 "AND channel_id ends with '-staff'):\n"
-                '- extra contains staff metadata: staff_id, username, role.\n'
-                '\n'
-                'Scenario 3 – Personal Channel - Agent (channel_type == 1 '
+                "- extra contains staff metadata: staff_id, username, role.\n"
+                "\n"
+                "Scenario 3 – Personal Channel - Agent (channel_type == 1 "
                 "AND channel_id ends with '-agent'):\n"
-                '- extra contains agent metadata from AI service: id, name, '
-                'instruction, model, is_default, config, tools, collections.\n'
-                '\n'
-                'Scenario 4 – Personal Channel - Visitor (channel_type == 1 '
+                "- extra contains agent metadata from AI service: id, name, "
+                "instruction, model, is_default, config, tools, collections.\n"
+                "\n"
+                "Scenario 4 – Personal Channel - Visitor (channel_type == 1 "
                 "AND channel_id does NOT end with '-staff' or '-agent'):\n"
-                '- Same as Scenario 1: extra contains the complete '
-                'VisitorResponse as a dictionary.'
+                "- Same as Scenario 1: extra contains the complete "
+                "VisitorResponse as a dictionary."
             )
         ),
         json_schema_extra={
@@ -134,8 +133,8 @@ def _build_enriched_visitor_payload(
     user_language: UserLanguage = "en",
 ) -> VisitorResponse:
     (
-        'Build enriched visitor payload with tags, AI profile/insights, '
-        'system info, and activities.'
+        "Build enriched visitor payload with tags, AI profile/insights, "
+        "system info, and activities."
     )
     active_tags = [
         vt.tag
@@ -292,17 +291,17 @@ def _build_staff_channel_response(
                             "value": {
                                 "name": "Jane Doe",
                                 "avatar": (
-                                    'https://cdn.example.com/avatars/jane.png'
+                                    "https://cdn.example.com/avatars/jane.png"
                                 ),
                                 "channel_id": "AbC62xyz",
                                 "channel_type": 251,
                                 "entity_type": "visitor",
                                 "extra": {
                                     "id": (
-                                        '550e8400-e29b-41d4-a716-446655440000'
+                                        "550e8400-e29b-41d4-a716-446655440000"
                                     ),
                                     "platform_id": (
-                                        '00000000-0000-0000-0000-000000000001'
+                                        "00000000-0000-0000-0000-000000000001"
                                     ),
                                     "platform_type": "website",
                                     "name": "Jane Doe",
@@ -315,18 +314,18 @@ def _build_staff_channel_response(
                             "value": {
                                 "name": "Alice Support",
                                 "avatar": (
-                                    'https://cdn.example.com/avatars/alice.pn'
-                                    'g'
+                                    "https://cdn.example.com/avatars/alice.pn"
+                                    "g"
                                 ),
                                 "channel_id": (
-                                    '7b7d3d6e-8a7d-4a23-9a2f-1f1c9c7f8f00-sta'
-                                    'ff'
+                                    "7b7d3d6e-8a7d-4a23-9a2f-1f1c9c7f8f00-sta"
+                                    "ff"
                                 ),
                                 "channel_type": 1,
                                 "entity_type": "staff",
                                 "extra": {
                                     "staff_id": (
-                                        '7b7d3d6e-8a7d-4a23-9a2f-1f1c9c7f8f00'
+                                        "7b7d3d6e-8a7d-4a23-9a2f-1f1c9c7f8f00"
                                     ),
                                     "username": "support.alice",
                                     "role": "user",
@@ -339,19 +338,19 @@ def _build_staff_channel_response(
                                 "name": "Customer Support Agent",
                                 "avatar": "",
                                 "channel_id": (
-                                    'a1b2c3d4-5678-90ab-cdef-1234567890ab-age'
-                                    'nt'
+                                    "a1b2c3d4-5678-90ab-cdef-1234567890ab-age"
+                                    "nt"
                                 ),
                                 "channel_type": 1,
                                 "entity_type": "agent",
                                 "extra": {
                                     "id": (
-                                        'a1b2c3d4-5678-90ab-cdef-1234567890ab'
+                                        "a1b2c3d4-5678-90ab-cdef-1234567890ab"
                                     ),
                                     "name": "Customer Support Agent",
                                     "instruction": (
-                                        'You are a helpful customer support '
-                                        'agent...'
+                                        "You are a helpful customer support "
+                                        "agent..."
                                     ),
                                     "model": "gpt-4",
                                     "is_default": True,
@@ -366,19 +365,19 @@ def _build_staff_channel_response(
                             "value": {
                                 "name": "John Smith",
                                 "avatar": (
-                                    'https://cdn.example.com/avatars/john.png'
+                                    "https://cdn.example.com/avatars/john.png"
                                 ),
                                 "channel_id": (
-                                    '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
+                                    "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
                                 ),
                                 "channel_type": 1,
                                 "entity_type": "visitor",
                                 "extra": {
                                     "id": (
-                                        '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
+                                        "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
                                     ),
                                     "platform_id": (
-                                        '00000000-0000-0000-0000-000000000002'
+                                        "00000000-0000-0000-0000-000000000002"
                                     ),
                                     "platform_type": "wechat",
                                     "name": "John Smith",
@@ -407,17 +406,17 @@ async def get_channel_info(
     user_language: UserLanguage = Depends(get_user_language),
 ) -> ChannelInfoResponse:
     (
-        'Retrieve channel information for a given channel_id and '
-        'channel_type.\n'
-        '\n'
-        '    Security:\n'
-        '    - Current staff JWT: tenant ownership and current conversation '
-        'assignment.\n'
-        '    - Current website visitor grant: own display or an assigned '
-        'sender; no private metadata.\n'
-        '    - Platform API key alone grants no profile or AI configuration '
-        'access.\n'
-        '    '
+        "Retrieve channel information for a given channel_id and "
+        "channel_type.\n"
+        "\n"
+        "    Security:\n"
+        "    - Current staff JWT: tenant ownership and current conversation "
+        "assignment.\n"
+        "    - Current website visitor grant: own display or an assigned "
+        "sender; no private metadata.\n"
+        "    - Platform API key alone grants no profile or AI configuration "
+        "access.\n"
+        "    "
     )
     accept_language = request.headers.get("Accept-Language")
 
@@ -693,8 +692,8 @@ def _get_personal_visitor_channel_info(
     user_language: UserLanguage = "en",
 ) -> ChannelInfoResponse:
     (
-        'Get channel info for visitor personal channel (with or without -vtr '
-        'suffix).'
+        "Get channel info for visitor personal channel (with or without -vtr "
+        "suffix)."
     )
     # Handle both formats: raw UUID or UUID with -vtr suffix
 
