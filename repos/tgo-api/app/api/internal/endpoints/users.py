@@ -24,7 +24,7 @@ STAFF_UID_SUFFIX = "-staff"
 VISITOR_UID_SUFFIX = "-vtr"
 
 
-def parse_user_id(user_id: str) -> tuple[str, str]:
+def parse_user_id(user_id: object) -> tuple[str, str]:
     (
         'Parse user_id and return (user_type, real_id).\n'
         '    \n'

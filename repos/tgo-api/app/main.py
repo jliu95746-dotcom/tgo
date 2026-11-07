@@ -6,9 +6,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 from pydantic import ValidationError
-from fastapi.openapi.utils import get_openapi
 
 from app.api.v1.router import api_router
+from app.api.openapi import TGOApplication
 from app.core.config import settings
 from app.core.dev_data import log_startup_banner, ensure_permissions_seed
 from app.core.exceptions import (
@@ -18,7 +18,6 @@ from app.core.exceptions import (
     tgo_api_exception_handler,
     validation_exception_handler,
 )
-from app.schemas.base import ErrorResponse
 from app.core.logging import setup_logging
 from app.services.platform_type_seed import ensure_platform_types_seed
 
@@ -69,7 +68,7 @@ def create_app(
         '        )\n'
         '    '
     )
-    application = FastAPI(
+    application = TGOApplication(
         title=settings.PROJECT_NAME,
         description=settings.PROJECT_DESCRIPTION,
         version=settings.PROJECT_VERSION,
@@ -116,71 +115,6 @@ def create_app(
     if additional_routers:
         for router in additional_routers:
             application.include_router(router, prefix=settings.API_V1_STR)
-
-    # Setup OpenAPI customization
-    def custom_openapi() -> dict:
-        """Generate OpenAPI schema with unified error responses."""
-        if application.openapi_schema:
-            return application.openapi_schema
-
-        openapi_schema = get_openapi(
-            title=settings.PROJECT_NAME,
-            version=settings.PROJECT_VERSION,
-            description=settings.PROJECT_DESCRIPTION,
-            routes=application.routes,
-        )
-
-        components = openapi_schema.setdefault("components", {}).setdefault(
-            "schemas", {}
-        )
-        error_schema = ErrorResponse.model_json_schema(
-            ref_template="#/components/schemas/{model}"
-        )
-        defs = error_schema.pop("$defs", {})
-        for name, schema in defs.items():
-            components[name] = schema
-        components["ErrorResponse"] = error_schema
-
-        # Remove FastAPI's default validation schemas
-        components.pop("HTTPValidationError", None)
-        components.pop("ValidationError", None)
-
-        for path_item in openapi_schema.get("paths", {}).values():
-            for operation in list(path_item.values()):
-                if not isinstance(operation, dict):
-                    continue
-                responses = operation.setdefault("responses", {})
-                for status_code, response in list(responses.items()):
-                    content = response.get("content")
-                    if not content:
-                        continue
-                    for content_type, media in list(content.items()):
-                        schema = media.get("schema")
-                        if not schema:
-                            continue
-                        ref = schema.get("$ref")
-                        if ref and ref.endswith("HTTPValidationError"):
-                            media["schema"] = {
-                                "$ref": "#/components/schemas/ErrorResponse"
-                            }
-                if "422" in responses:
-                    responses["422"] = {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": (
-                                        '#/components/schemas/ErrorResponse'
-                                    )
-                                }
-                            }
-                        },
-                    }
-
-        application.openapi_schema = openapi_schema
-        return application.openapi_schema
-
-    application.openapi = custom_openapi
 
     # Register startup event
     @application.on_event("startup")

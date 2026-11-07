@@ -83,7 +83,7 @@ def lock_permission(
                 Permission.resource == resource,
                 Permission.action == action,
             )
-            .with_for_update(read=True, of=(RolePermission, Permission))
+            .with_for_update(read=True, of=(RolePermission.id, Permission.id))
             .all()
         )
         project_grants = (
@@ -95,7 +95,9 @@ def lock_permission(
                 Permission.resource == resource,
                 Permission.action == action,
             )
-            .with_for_update(read=True, of=(ProjectRolePermission, Permission))
+            .with_for_update(
+                read=True, of=(ProjectRolePermission.id, Permission.id)
+            )
             .all()
         )
         if not inherited and not project_grants:

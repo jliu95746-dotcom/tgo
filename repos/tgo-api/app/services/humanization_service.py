@@ -183,11 +183,12 @@ async def recent_customer_messages(
             if before_source_message_id is None:
                 break
             for index, message in enumerate(messages):
-                payload = message.payload
+                anchor_payload = message.payload
                 if message.from_uid != login_uid:
                     continue
                 extra = (
-                    payload.get("extra") if isinstance(payload, dict) else None
+                    anchor_payload.get("extra")
+                    if isinstance(anchor_payload, dict) else None
                 )
                 external_id = (
                     extra.get("message_id")
@@ -211,7 +212,7 @@ async def recent_customer_messages(
         turns: list[ConversationTurn] = []
         native_staff_indices: list[int] = []
         for message in messages:
-            payload = message.payload
+            payload: object = message.payload
             if not isinstance(payload, dict):
                 continue
             extra = payload.get("extra")

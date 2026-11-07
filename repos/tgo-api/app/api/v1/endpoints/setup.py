@@ -701,11 +701,11 @@ async def skip_llm_configuration(
         f"setup_completed_at={setup.setup_completed_at}",
     )
 
-    return SkipLLMConfigResponse(
-        message="LLM configuration step skipped successfully",
-        is_installed=setup.is_installed,
-        setup_completed_at=setup.setup_completed_at,
-    )
+    return SkipLLMConfigResponse.model_validate({
+        "message": "LLM configuration step skipped successfully",
+        "is_installed": setup.is_installed,
+        "setup_completed_at": setup.setup_completed_at,
+    })
 
 
 @router.get(

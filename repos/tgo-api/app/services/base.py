@@ -1,17 +1,43 @@
 """Base service class for business logic."""
 
-from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
+from collections.abc import Mapping
+from typing import (
+    Generic, List, Optional, Protocol, Type, TypeVar, runtime_checkable,
+)
 from uuid import UUID
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import DeclarativeBase, Session
+from sqlalchemy.orm.attributes import QueryableAttribute
 
-from app.core.database import Base
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 
-ModelType = TypeVar("ModelType", bound=Base)
-CreateSchemaType = TypeVar("CreateSchemaType")
-UpdateSchemaType = TypeVar("UpdateSchemaType")
+
+@runtime_checkable
+class _ModernCreateSchema(Protocol):
+    def model_dump(self) -> dict[str, object]: ...
+
+
+class _LegacyCreateSchema(Protocol):
+    def dict(self) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class _ModernUpdateSchema(Protocol):
+    def model_dump(self, *, exclude_unset: bool) -> dict[str, object]: ...
+
+
+class _LegacyUpdateSchema(Protocol):
+    def dict(self, *, exclude_unset: bool) -> dict[str, object]: ...
+
+
+ModelType = TypeVar("ModelType", bound=DeclarativeBase)
+CreateSchemaType = TypeVar(
+    "CreateSchemaType", bound=_ModernCreateSchema | _LegacyCreateSchema
+)
+UpdateSchemaType = TypeVar(
+    "UpdateSchemaType", bound=_ModernUpdateSchema | _LegacyUpdateSchema
+)
 
 logger = get_logger("services.base")
 
@@ -24,11 +50,17 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self.model = model
         self.model_name = model.__name__
 
-    def get(self, db: Session, id: Any) -> Optional[ModelType]:
-        """Get a single record by ID."""
-        return db.query(self.model).filter(self.model.id == id).first()
+    def _column(self, name: str) -> QueryableAttribute[object]:
+        attribute = getattr(self.model, name)
+        if not isinstance(attribute, QueryableAttribute):
+            raise TypeError(f"{self.model_name}.{name} is not a mapped field")
+        return attribute
 
-    def get_or_404(self, db: Session, id: Any) -> ModelType:
+    def get(self, db: Session, id: object) -> Optional[ModelType]:
+        """Get a single record by ID."""
+        return db.query(self.model).filter(self._column("id") == id).first()
+
+    def get_or_404(self, db: Session, id: object) -> ModelType:
         """Get a single record by ID or raise 404."""
         obj = self.get(db, id)
         if not obj:
@@ -41,7 +73,7 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         *,
         skip: int = 0,
         limit: int = 100,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: Optional[Mapping[str, object]] = None,
     ) -> List[ModelType]:
         """Get multiple records with pagination and filtering."""
         query = db.query(self.model)
@@ -57,7 +89,7 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     def count(
         self,
         db: Session,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: Optional[Mapping[str, object]] = None,
     ) -> int:
         """Count records with optional filtering."""
         query = db.query(self.model)
@@ -74,14 +106,16 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         """Create a new record."""
         obj_in_data = (
             obj_in.model_dump()
-            if hasattr(obj_in, 'model_dump')
+            if isinstance(obj_in, _ModernCreateSchema)
             else obj_in.dict()
         )
         db_obj = self.model(**obj_in_data)
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
-        logger.info(f"Created {self.model_name} with ID: {db_obj.id}")
+        logger.info(
+            f"Created {self.model_name} with ID: {getattr(db_obj, 'id')}"
+        )
         return db_obj
 
     def update(
@@ -94,7 +128,7 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         """Update an existing record."""
         obj_data = (
             obj_in.model_dump(exclude_unset=True)
-            if hasattr(obj_in, 'model_dump')
+            if isinstance(obj_in, _ModernUpdateSchema)
             else obj_in.dict(exclude_unset=True)
         )
 
@@ -110,12 +144,14 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
-        logger.info(f"Updated {self.model_name} with ID: {db_obj.id}")
+        logger.info(
+            f"Updated {self.model_name} with ID: {getattr(db_obj, 'id')}"
+        )
         return db_obj
 
-    def remove(self, db: Session, *, id: Any) -> ModelType:
+    def remove(self, db: Session, *, id: object) -> ModelType:
         """Remove a record (hard delete)."""
-        obj = db.query(self.model).get(id)
+        obj = db.get(self.model, id)
         if not obj:
             raise NotFoundError(self.model_name, str(id))
         db.delete(obj)
@@ -123,9 +159,9 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         logger.info(f"Deleted {self.model_name} with ID: {id}")
         return obj
 
-    def soft_delete(self, db: Session, *, id: Any) -> ModelType:
+    def soft_delete(self, db: Session, *, id: object) -> ModelType:
         """Soft delete a record (if model supports it)."""
-        obj = db.query(self.model).get(id)
+        obj = db.get(self.model, id)
         if not obj:
             raise NotFoundError(self.model_name, str(id))
         if hasattr(obj, 'deleted_at'):
@@ -151,7 +187,7 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         project_id: UUID,
         skip: int = 0,
         limit: int = 100,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: Optional[Mapping[str, object]] = None,
     ) -> List[ModelType]:
         """Get records filtered by project ID (for multi-tenant models)."""
         query = db.query(self.model)
@@ -159,11 +195,11 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         # Add project filter if model has project_id
 
         if hasattr(self.model, 'project_id'):
-            query = query.filter(self.model.project_id == project_id)
+            query = query.filter(self._column("project_id") == project_id)
         # Add soft delete filter if model supports it
 
         if hasattr(self.model, 'deleted_at'):
-            query = query.filter(self.model.deleted_at.is_(None))
+            query = query.filter(self._column("deleted_at").is_(None))
         # Apply additional filters
 
         if filters:
@@ -177,7 +213,7 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db: Session,
         *,
         project_id: UUID,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: Optional[Mapping[str, object]] = None,
     ) -> int:
         """Count records filtered by project ID."""
         query = db.query(self.model)
@@ -185,11 +221,11 @@ class BaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         # Add project filter if model has project_id
 
         if hasattr(self.model, 'project_id'):
-            query = query.filter(self.model.project_id == project_id)
+            query = query.filter(self._column("project_id") == project_id)
         # Add soft delete filter if model supports it
 
         if hasattr(self.model, 'deleted_at'):
-            query = query.filter(self.model.deleted_at.is_(None))
+            query = query.filter(self._column("deleted_at").is_(None))
         # Apply additional filters
 
         if filters:

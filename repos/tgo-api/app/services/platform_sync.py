@@ -208,7 +208,9 @@ async def _retry_loop() -> None:
 
                 base = settings.PLATFORM_SYNC_RETRY_INTERVAL_SECONDS
                 delay = base * (2 ** min(retry_count, 5))
-                last = p.last_synced_at or p.updated_at or p.created_at
+                last: Optional[datetime] = (
+                    p.last_synced_at or p.updated_at or p.created_at
+                )
                 if last is None:
                     last = _now()
                 else:

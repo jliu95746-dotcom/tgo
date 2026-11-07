@@ -179,7 +179,7 @@ async def get_onboarding_progress(
     ),
 )
 async def skip_onboarding(
-    request: SkipOnboardingRequest = None,
+    request: SkipOnboardingRequest | None = None,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
 ) -> OnboardingProgressResponse:
