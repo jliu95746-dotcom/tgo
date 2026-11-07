@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 async def batch_sync_embedding_configs(
     request: EmbeddingConfigBatchSyncRequest,
     db: AsyncSession = Depends(get_db_session_dependency),
-):
+) -> EmbeddingConfigBatchSyncResponse:
     """Batch upsert embedding configs.
 
     Behavior per item:
@@ -40,7 +40,7 @@ async def batch_sync_embedding_configs(
     - Continue on errors; return summary
     """
     success_count = 0
-    errors: List[dict] = []
+    errors: List[dict[str, str]] = []
 
     for cfg in request.configs:
         # Validate dimensions (phase 1 constraint)
@@ -93,11 +93,11 @@ async def batch_sync_embedding_configs(
             logger.error(
                 "Failed to upsert embedding config",
                 project_id=str(cfg.project_id),
-                error=str(e),
+                error_type=type(e).__name__,
             )
             errors.append({
                 "project_id": str(cfg.project_id),
-                "message": str(e),
+                "message": "Embedding configuration synchronization failed",
             })
             # The nested transaction is rolled back; outer transaction remains usable
             continue

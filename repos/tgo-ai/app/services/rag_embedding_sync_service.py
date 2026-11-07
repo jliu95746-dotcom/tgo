@@ -12,6 +12,7 @@ Design notes:
 from __future__ import annotations
 
 import asyncio
+import uuid
 from datetime import datetime, timezone
 from typing import Iterable, List, Optional
 
@@ -23,9 +24,11 @@ from app.database import AsyncSessionLocal
 from app.models.llm_provider import LLMProvider
 from app.models.project_ai_config import ProjectAIConfig
 from app.services.rag_service import (
-    EmbeddingConfigCreate,
+    SAFE_EMBEDDING_ERROR,
     EmbeddingConfigBatchSyncResponse,
+    EmbeddingConfigCreate,
     rag_service_client,
+    validate_embedding_receipt,
 )
 
 
@@ -138,7 +141,10 @@ async def dispatch_to_rag_with_retry(
     attempt = 0
     while True:
         try:
-            resp = await rag_service_client.batch_sync_embedding_configs(configs)
+            resp = validate_embedding_receipt(
+                await rag_service_client.batch_sync_embedding_configs(configs),
+                configs,
+            )
             logger.info(
                 "Embedding configs synced to RAG",
                 success_count=resp.success_count,
@@ -150,7 +156,7 @@ async def dispatch_to_rag_with_retry(
             if attempt >= max_retries:
                 logger.error(
                     "Embedding sync failed after retries",
-                    error=str(e),
+                    error_type=type(e).__name__,
                     attempts=attempt,
                 )
                 return None
@@ -159,7 +165,7 @@ async def dispatch_to_rag_with_retry(
                 "Embedding sync attempt failed; retrying",
                 attempt=attempt,
                 delay_seconds=delay,
-                error=str(e),
+                error_type=type(e).__name__,
             )
             await asyncio.sleep(delay)
 
@@ -204,15 +210,28 @@ def fire_and_forget_embedding_sync(configs: List[EmbeddingConfigCreate]) -> None
                     await session.commit()
 
                     try:
-                        resp = await rag_service_client.batch_sync_embedding_configs(configs)
-                        # Success: mark success with timestamp
+                        resp = await (
+                            rag_service_client.batch_sync_embedding_configs(
+                                configs
+                            )
+                        )
+                        resp = validate_embedding_receipt(resp, configs)
+                        failed_projects = {
+                            uuid.UUID(str(error["project_id"]))
+                            for error in resp.errors or []
+                        }
+                        # Advance the sync timestamp for successful projects.
                         now = datetime.now(timezone.utc)
                         res = await session.execute(select(ProjectAIConfig).where(ProjectAIConfig.project_id.in_(project_ids)))
                         rows = res.scalars().all()
                         for r in rows:
-                            r.sync_status = "success"
-                            r.sync_error = None
-                            r.last_sync_at = now
+                            if r.project_id in failed_projects:
+                                r.sync_status = "failed"
+                                r.sync_error = SAFE_EMBEDDING_ERROR
+                            else:
+                                r.sync_status = "success"
+                                r.sync_error = None
+                                r.last_sync_at = now
                         await session.commit()
                         logger.info(
                             "Embedding configs synced to RAG",
@@ -227,16 +246,28 @@ def fire_and_forget_embedding_sync(configs: List[EmbeddingConfigCreate]) -> None
                             rows = res.scalars().all()
                             for r in rows:
                                 r.sync_status = "failed"
-                                r.sync_error = str(e)
+                                r.sync_error = SAFE_EMBEDDING_ERROR
                             await session.commit()
-                            logger.error("Embedding sync failed after retries", error=str(e), attempts=attempt)
+                            logger.error(
+                                "Embedding sync failed after retries",
+                                error_type=type(e).__name__,
+                                attempts=attempt,
+                            )
                             break
                         delay = base_delay * (2 ** (attempt - 1))
-                        logger.warning("Embedding sync attempt failed; retrying", attempt=attempt, delay_seconds=delay, error=str(e))
+                        logger.warning(
+                            "Embedding sync attempt failed; retrying",
+                            attempt=attempt,
+                            delay_seconds=delay,
+                            error_type=type(e).__name__,
+                        )
                         await asyncio.sleep(delay)
             except Exception as e:  # pragma: no cover - defensive
                 # Ensure exceptions from background tasks are not left unhandled
-                logger.error("Embedding sync background task crashed", error=str(e))
+                logger.error(
+                    "Embedding sync background task crashed",
+                    error_type=type(e).__name__,
+                )
 
     # Schedule on current loop
     try:

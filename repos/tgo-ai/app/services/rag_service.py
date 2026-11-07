@@ -2,16 +2,37 @@
 
 import uuid
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from app.services.service_identity import rag_service_headers
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue, TypeAdapter
 
 from app.config import settings
 from app.exceptions import NotFoundError, ValidationError
 from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.knowledge_availability import KnowledgeAvailability
+from app.schemas.rag_client import AutomaticSearchResponse
+
+SAFE_EMBEDDING_ERROR = "Embedding configuration synchronization failed"
+_json_object = TypeAdapter(dict[str, JsonValue])
+
+
+def _rag_object(response: httpx.Response, field: str) -> dict[str, JsonValue]:
+    if response.status_code != 200:
+        raise ValidationError(
+            f"RAG service error: {response.status_code}",
+            field,
+            {"status_code": response.status_code},
+        )
+    return _json_object.validate_python(response.json())
+
+
+def _same_resource_id(left: str, right: str) -> bool:
+    try:
+        return uuid.UUID(left) == uuid.UUID(right)
+    except ValueError:
+        return left == right
 
 
 class CollectionData(BaseModel):
@@ -20,7 +41,9 @@ class CollectionData(BaseModel):
     id: uuid.UUID = Field(description="Collection ID")
     display_name: str = Field(description="Human-readable collection name")
     description: Optional[str] = Field(default=None, description="Collection description")
-    collection_metadata: Optional[Dict] = Field(default=None, description="Collection metadata")
+    collection_metadata: Optional[dict[str, JsonValue]] = Field(
+        default=None, description="Collection metadata"
+    )
     created_at: str = Field(description="Creation timestamp")
     updated_at: str = Field(description="Last update timestamp")
     deleted_at: Optional[str] = Field(default=None, description="Deletion timestamp")
@@ -65,15 +88,35 @@ class RAGServiceClient:
     async def knowledge_availability(
         self, project_id: str, channel: KnowledgeChannel
     ) -> KnowledgeAvailability:
-        async with httpx.AsyncClient(
-            timeout=self.timeout, headers=rag_service_headers()
-        ) as client:
-            response = await client.get(
-                f"{self.base_url}/v1/knowledge-governance/availability",
-                params={"project_id": project_id, "channel": channel.value},
-            )
-            response.raise_for_status()
-            return KnowledgeAvailability.model_validate(response.json())
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=rag_service_headers()
+            ) as client:
+                response = await client.get(
+                    f"{self.base_url}/v1/knowledge-governance/availability",
+                    params={"project_id": project_id, "channel": channel.value},
+                )
+                result = KnowledgeAvailability.model_validate(
+                    _rag_object(response, "knowledge")
+                )
+                identifiers = [row.id for row in result.collections]
+                if (
+                    result.project_id != uuid.UUID(project_id)
+                    or result.channel != channel
+                    or len(identifiers) != len(set(identifiers))
+                    or any(
+                        row.eligible_chunk_count > row.total_chunk_count
+                        for row in result.collections
+                    )
+                ):
+                    raise ValueError("Knowledge availability scope mismatch")
+                return result
+        except (httpx.RequestError, httpx.InvalidURL):
+            raise NotFoundError("RAG Service") from None
+        except ValueError:
+            raise ValidationError(
+                "Invalid knowledge availability response", "knowledge"
+            ) from None
 
     async def get_collections_batch(
         self,
@@ -193,7 +236,7 @@ class RAGServiceClient:
         query: str,
         knowledge_channel: KnowledgeChannel | str,
         limit: int = 10,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, JsonValue]:
         """
         Search documents in a collection.
 
@@ -208,14 +251,16 @@ class RAGServiceClient:
         """
         try:
             channel = KnowledgeChannel(knowledge_channel)
-        except ValueError as exc:
+        except ValueError:
             raise ValidationError(
                 "A supported knowledge channel is required for RAG search",
                 "knowledge_channel",
-            ) from exc
+            ) from None
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=rag_service_headers()) as client:
-            try:
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=rag_service_headers()
+            ) as client:
                 response = await client.post(
                     (
                         f"{self.base_url}/v1/collections/{collection_id}"
@@ -230,19 +275,20 @@ class RAGServiceClient:
                     },
                     headers={"Content-Type": "application/json"},
                 )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                raise ValidationError(
-                    f"RAG search error: {e.response.status_code}",
-                    "collections",
-                    {"status_code": e.response.status_code, "detail": e.response.text}
-                )
-            except httpx.RequestError as e:
-                raise NotFoundError(
-                    "RAG Service",
-                    f"Unable to connect to RAG service for search: {str(e)}"
-                )
+                data = _rag_object(response, "collections")
+                result = AutomaticSearchResponse.model_validate(data)
+                if any(
+                    not _same_resource_id(row.collection_id, collection_id)
+                    for row in result.results
+                ):
+                    raise ValueError("Knowledge search scope mismatch")
+                return data
+        except (httpx.RequestError, httpx.InvalidURL):
+            raise NotFoundError("RAG Service") from None
+        except ValueError:
+            raise ValidationError(
+                "Invalid RAG search response", "collections"
+            ) from None
 
 
     async def batch_sync_embedding_configs(
@@ -261,40 +307,26 @@ class RAGServiceClient:
 
         payload = {"configs": [c.model_dump(mode="json", exclude_none=True) for c in configs]}
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=rag_service_headers()) as client:
-            try:
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=rag_service_headers()
+            ) as client:
                 response = await client.post(
                     f"{self.base_url}/v1/embedding-configs/batch-sync",
                     json=payload,
                     headers={"Content-Type": "application/json"},
                 )
 
-                if response.status_code == 200:
-                    data = response.json()
-                    return EmbeddingConfigBatchSyncResponse(**data)
-                elif response.status_code == 422:
-                    # Validation error from RAG service; include details
-                    data = response.json()
-                    raise ValidationError(
-                        "Invalid embedding config payload",
-                        "embedding-configs",
-                        {"detail": data},
-                    )
-                else:
-                    response.raise_for_status()
-
-            except httpx.RequestError as e:
-                raise NotFoundError(
-                    "RAG Service",
-                    f"Unable to connect to RAG service for embedding sync: {str(e)}",
+                result = EmbeddingConfigBatchSyncResponse.model_validate(
+                    _rag_object(response, "embedding-configs")
                 )
-            except httpx.HTTPStatusError as e:
-                # Bubble up as validation error with status
-                raise ValidationError(
-                    f"RAG service error during embedding sync: {e.response.status_code}",
-                    "embedding-configs",
-                    {"status_code": e.response.status_code},
-                )
+                return validate_embedding_receipt(result, configs)
+        except (httpx.RequestError, httpx.InvalidURL):
+            raise NotFoundError("RAG Service") from None
+        except ValueError:
+            raise ValidationError(
+                "Invalid embedding synchronization response", "embedding-configs"
+            ) from None
 
 
 # Global RAG service client instance
@@ -321,6 +353,50 @@ class EmbeddingConfigBatchSyncRequest(BaseModel):
 
 
 class EmbeddingConfigBatchSyncResponse(BaseModel):
-    success_count: int
-    failed_count: int
-    errors: Optional[List[Dict]] = None
+    success_count: int = Field(ge=0, strict=True)
+    failed_count: int = Field(ge=0, strict=True)
+    errors: Optional[List[dict[str, JsonValue]]] = None
+
+
+def validate_embedding_receipt(
+    receipt: EmbeddingConfigBatchSyncResponse,
+    configs: List[EmbeddingConfigCreate],
+) -> EmbeddingConfigBatchSyncResponse:
+    """Check item accounting before exposing or persisting sync results."""
+    try:
+        requested = Counter(item.project_id for item in configs)
+        errors = receipt.errors or []
+        if (
+            type(receipt.success_count) is not int
+            or type(receipt.failed_count) is not int
+            or receipt.success_count < 0
+            or receipt.failed_count < 0
+            or receipt.success_count + receipt.failed_count != len(configs)
+            or receipt.failed_count != len(errors)
+        ):
+            raise ValueError("Invalid embedding batch counts")
+        failures: Counter[uuid.UUID] = Counter()
+        safe_errors: list[dict[str, JsonValue]] = []
+        for error in errors:
+            value = error.get("project_id")
+            if not isinstance(value, str):
+                raise ValueError("Missing failed project identity")
+            project_id = uuid.UUID(value)
+            failures[project_id] += 1
+            if failures[project_id] > requested[project_id]:
+                raise ValueError("Unexpected failed project identity")
+            message = error.get("message")
+            if message != (
+                "Invalid dimensions: only 1536 is supported in phase 1"
+            ):
+                message = SAFE_EMBEDDING_ERROR
+            safe_errors.append({"project_id": value, "message": message})
+        return receipt.model_copy(
+            update={
+                "errors": safe_errors if receipt.errors is not None else None,
+            }
+        )
+    except (ValueError, TypeError):
+        raise ValidationError(
+            "Invalid embedding synchronization receipt", "embedding-configs"
+        ) from None

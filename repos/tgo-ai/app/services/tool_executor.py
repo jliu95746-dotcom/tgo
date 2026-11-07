@@ -2,6 +2,7 @@ import json
 import uuid
 import httpx
 from contextlib import AsyncExitStack
+from html import escape
 from typing import Any, Dict, List, Optional
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,7 @@ from app.services.http_tool_errors import http_tool_error
 from app.services.plugin_result import plugin_result_text
 from app.schemas.plugin_execution import PluginExecutionContext
 from app.schemas.mcp_connection import mcp_connection_headers
+from app.schemas.rag_client import AutomaticSearchResponse
 
 logger = get_logger(__name__)
 
@@ -271,18 +273,17 @@ class ToolExecutor:
                 knowledge_channel=knowledge_channel,
                 limit=limit,
             )
-        except Exception as e:
-            return f"<error>RAG search failed: {str(e)}</error>"
-        
-        documents = results.get("results", [])
-        if not documents:
-            return "<documents />"
-
-        serialized = [
-            f'<document id="{doc.get("document_id", "unknown")}">{doc.get("content_preview", "")}</document>'
-            for doc in documents
-        ]
-        return "<documents>" + "".join(serialized) + "</documents>"
+            documents = AutomaticSearchResponse.model_validate(results).results
+            if not documents:
+                return "<documents />"
+            serialized = [
+                f'<document id="{escape(doc.document_id, quote=True)}">'
+                f"{escape(doc.content)}</document>"
+                for doc in documents
+            ]
+            return "<documents>" + "".join(serialized) + "</documents>"
+        except Exception:
+            return "<error>RAG search failed: knowledge unavailable</error>"
 
     async def _execute_mcp(self, tool_model: Tool, args: Dict[str, Any]) -> str:
         if not tool_model.endpoint:
