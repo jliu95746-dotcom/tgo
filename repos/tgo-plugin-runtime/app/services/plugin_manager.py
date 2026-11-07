@@ -14,6 +14,7 @@ from jose import jwt, JWTError
 
 from app.config import settings
 from app.core.logging import get_logger
+from app.services.plugin_failures import log_plugin_failure
 from app.schemas.plugin import (
     PluginCapability,
     PluginInfo,
@@ -124,6 +125,7 @@ class PluginManager:
 
         # 1. Try to identify by dev_token first
         if dev_token:
+            invalid_token = False
             try:
                 payload = jwt.decode(
                     dev_token, settings.SECRET_KEY, algorithms=["HS256"]
@@ -132,33 +134,15 @@ class PluginManager:
                     project_id = payload.get("project_id")
                     dev_user_id = payload.get("user_id")
                     is_dev_mode = True
-                    logger.info(
-                        (
-                            "Plugin "
-                            f'{plugin_id}'
-                            " registered in DEV mode for project "
-                            f'{project_id}'
-                        )
-                    )
+                    logger.info("Plugin registered in DEV mode")
                 else:
-                    logger.warning(
-                        (
-                            "Registration rejected for "
-                            f'{plugin_id}'
-                            ": invalid token type"
-                        )
-                    )
+                    logger.warning("Registration rejected: invalid token type")
                     raise ValueError("Invalid dev_token type")
             except JWTError as e:
-                logger.warning(
-                    (
-                        "Registration rejected for "
-                        f'{plugin_id}'
-                        ": token verification failed: "
-                        f'{e}'
-                    )
-                )
-                raise ValueError(f"Invalid dev_token: {str(e)}")
+                log_plugin_failure("verify_plugin_dev_token", e)
+                invalid_token = True
+            if invalid_token:
+                raise ValueError("Invalid dev_token")
 
         # 2. If not dev mode, check if it's an installed plugin in DB
         if not is_dev_mode and plugin_id:
@@ -175,28 +159,13 @@ class PluginManager:
                     db_project_id = result.scalar_one_or_none()
                     if db_project_id:
                         project_id = str(db_project_id)
-                        logger.info(
-                            (
-                                "Plugin "
-                                f'{plugin_id}'
-                                " identified as installed plugin for project "
-                                f'{project_id}'
-                            )
-                        )
+                        logger.info("Installed plugin identified")
             except Exception as e:
                 # Table might not exist yet
                 if "pg_installed_plugins" in str(e):
-                    logger.info(
-                        (
-                            "Table pg_installed_plugins does not exist yet, sk"
-                            "ipping lookup for "
-                            f'{plugin_id}'
-                        )
-                    )
+                    logger.info("Installed plugin table is not available yet")
                 else:
-                    logger.error(
-                        f"Error checking installed plugin {plugin_id}: {e}"
-                    )
+                    log_plugin_failure("lookup_installed_plugin", e)
 
         # 3. Final check for debug connection security
         # Requirement: If connecting via TCP and not recognized as an installed
@@ -204,13 +173,7 @@ class PluginManager:
         # it MUST have had a valid dev_token (which would have set is_dev_mode
         # to True).
         if is_tcp and not is_dev_mode and not project_id:
-            logger.warning(
-                (
-                    "Registration rejected for "
-                    f'{plugin_id}'
-                    ": unknown TCP connection requires dev_token"
-                )
-            )
+            logger.warning("Unknown TCP connection requires dev_token")
             raise ValueError("Debug connection requires dev_token")
 
         plugin = PluginConnection(
@@ -230,13 +193,7 @@ class PluginManager:
         async with self._lock:
             self._plugins[plugin_id] = plugin
 
-        logger.info(
-            f"Plugin registered: {name} v{version} (id={plugin_id})",
-            extra={
-                "plugin_id": plugin_id,
-                "capabilities": [c.type for c in caps],
-            },
-        )
+        logger.info("Plugin registered")
 
         # Sync tools to tgo-ai if mcp_tools capability is present
         if self._tool_sync:
@@ -259,7 +216,7 @@ class PluginManager:
             plugin = self._plugins.pop(plugin_id, None)
 
         if plugin:
-            logger.info(f"Plugin unregistered: {plugin.name} (id={plugin_id})")
+            logger.info("Plugin unregistered")
 
             # Remove tools from tgo-ai
             if self._tool_sync:
@@ -293,16 +250,7 @@ class PluginManager:
             and plugin.project_id
             and plugin.project_id != project_id
         ):
-            logger.warning(
-                (
-                    "Project "
-                    f'{project_id}'
-                    " attempted to access plugin "
-                    f'{plugin_id}'
-                    " associated with "
-                    f'{plugin.project_id}'
-                )
-            )
+            logger.warning("Plugin access rejected: project mismatch")
             return None
 
         return plugin
@@ -392,7 +340,7 @@ class PluginManager:
         )
         plugin = self.get_plugin(plugin_id, project_id=project_id)
         if not plugin or not plugin.writer or plugin.writer.is_closing():
-            logger.warning(f"Plugin not available: {plugin_id}")
+            logger.warning("Plugin not available")
             return None
 
         timeout = timeout or settings.PLUGIN_REQUEST_TIMEOUT
@@ -417,10 +365,10 @@ class PluginManager:
             result = await asyncio.wait_for(future, timeout=timeout)
             return result
         except asyncio.TimeoutError:
-            logger.error(f"Plugin request timeout: {plugin_id} {method}")
+            logger.error("Plugin request timed out")
             return None
         except Exception as e:
-            logger.error(f"Plugin request error: {plugin_id} {method}: {e}")
+            log_plugin_failure("send_plugin_request", e)
             return None
         finally:
             plugin._pending_requests.pop(request_id, None)
@@ -436,8 +384,7 @@ class PluginManager:
         future = plugin._pending_requests.get(request_id)
         if future and not future.done():
             if "error" in message:
-                error = message["error"]
-                logger.warning(f"Plugin error response: {error}")
+                logger.warning("Plugin returned an error response")
                 future.set_result(None)
             else:
                 future.set_result(message.get("result"))
@@ -505,14 +452,7 @@ class PluginManager:
                         ui=ui_resp,
                     )
                 except Exception as e:
-                    logger.error(
-                        (
-                            "Failed to parse plugin render response from "
-                            f'{plugin.id}'
-                            ": "
-                            f'{e}'
-                        )
-                    )
+                    log_plugin_failure("parse_plugin_panel", e)
                     return None
             return None
 
@@ -524,7 +464,7 @@ class PluginManager:
             if isinstance(r, PluginPanelItem):
                 panels.append(r)
             elif isinstance(r, Exception):
-                logger.error(f"Error rendering visitor panel: {r}")
+                log_plugin_failure("render_plugin_panel", r)
 
         panels.sort(key=lambda x: x.priority)
         return panels

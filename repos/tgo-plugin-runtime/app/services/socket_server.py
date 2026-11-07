@@ -11,6 +11,9 @@ from typing import Optional
 from app.config import settings
 from app.core.logging import get_logger
 from app.services.plugin_manager import plugin_manager, PluginConnection
+from app.services.plugin_failures import (
+    log_plugin_failure, public_registration_failure,
+)
 
 logger = get_logger("services.socket_server")
 
@@ -33,7 +36,7 @@ async def _recv_message(reader: asyncio.StreamReader) -> Optional[dict]:
     except asyncio.IncompleteReadError:
         return None
     except Exception as e:
-        logger.error(f"Error receiving message: {e}")
+        log_plugin_failure("receive_plugin_message", e)
         return None
 
 
@@ -53,15 +56,13 @@ async def _handle_client(
     plugin: Optional[PluginConnection] = None
     peer = writer.get_extra_info("peername") or "unknown"
 
-    logger.info(f"New plugin connection from {peer}")
+    logger.info("New plugin connection")
 
     try:
         # First message must be a 'register' request
         first_msg = await asyncio.wait_for(_recv_message(reader), timeout=30)
         if not first_msg or first_msg.get("method") != "register":
-            logger.warning(
-                f"Invalid first message from {peer}, expected 'register'"
-            )
+            logger.warning("Invalid first plugin message, expected 'register'")
             await _send_message(
                 writer,
                 {
@@ -104,13 +105,16 @@ async def _handle_client(
                 is_tcp=is_tcp,
             )
         except ValueError as e:
-            logger.warning(f"Registration failed for {peer}: {e}")
+            log_plugin_failure("register_plugin_connection", e)
             await _send_message(
                 writer,
                 {
                     "jsonrpc": "2.0",
                     "id": first_msg.get("id"),
-                    "error": {"code": -32000, "message": str(e)},
+                    "error": {
+                        "code": -32000,
+                        "message": public_registration_failure(e),
+                    },
                 },
             )
             return
@@ -129,13 +133,13 @@ async def _handle_client(
             },
         )
 
-        logger.info(f"Plugin {name} v{version} registered as {plugin_id}")
+        logger.info("Plugin connection registered")
 
         # Main message loop
         while True:
             message = await _recv_message(reader)
             if message is None:
-                logger.info(f"Plugin {plugin_id} disconnected")
+                logger.info("Plugin connection disconnected")
                 break
 
             # Handle response (from our requests to the plugin)
@@ -143,27 +147,14 @@ async def _handle_client(
                 await plugin_manager.handle_response(plugin, message)
             else:
                 # This shouldn't happen in normal flow - plugins only respond
-                logger.warning(
-                    (
-                        "Unexpected message from plugin "
-                        f'{plugin_id}'
-                        ": "
-                        f"{message.get('method')}"
-                    )
-                )
+                logger.warning("Unexpected message from plugin")
 
     except asyncio.TimeoutError:
-        logger.warning(
-            f"Plugin connection from {peer} timed out during registration"
-        )
+        logger.warning("Plugin connection timed out during registration")
     except asyncio.CancelledError:
-        logger.info(
-            f"Plugin connection handler cancelled for {plugin_id or peer}"
-        )
+        logger.info("Plugin connection handler cancelled")
     except Exception as e:
-        logger.error(
-            f"Error handling plugin connection {plugin_id or peer}: {e}"
-        )
+        log_plugin_failure("handle_plugin_connection", e)
     finally:
         # Cleanup
         if plugin_id:
@@ -203,14 +194,7 @@ async def start_socket_server():
                 try:
                     os.unlink(socket_path)
                 except Exception as e:
-                    logger.error(
-                        (
-                            "Failed to remove existing socket file "
-                            f'{socket_path}'
-                            ": "
-                            f'{e}'
-                        )
-                    )
+                    log_plugin_failure("remove_plugin_socket", e)
 
             _unix_server = await asyncio.start_unix_server(
                 _handle_client,
@@ -221,11 +205,9 @@ async def start_socket_server():
             try:
                 os.chmod(socket_path, 0o666)
             except Exception as e:
-                logger.warning(f"Failed to set socket permissions: {e}")
+                log_plugin_failure("set_plugin_socket_permissions", e)
 
-            logger.info(
-                f"Plugin socket server listening on UNIX {socket_path}"
-            )
+            logger.info("Plugin socket server listening on UNIX")
 
             async def serve_unix():
                 async with _unix_server:
@@ -240,14 +222,7 @@ async def start_socket_server():
                 host=settings.PLUGIN_TCP_HOST,
                 port=tcp_port,
             )
-            logger.info(
-                (
-                    "Plugin socket server listening on TCP "
-                    f'{settings.PLUGIN_TCP_HOST}'
-                    ":"
-                    f'{tcp_port}'
-                )
-            )
+            logger.info("Plugin socket server listening on TCP")
 
             async def serve_tcp():
                 async with _tcp_server:
@@ -265,7 +240,7 @@ async def start_socket_server():
             )
         )
     except Exception as e:
-        logger.exception(f"Failed to start plugin socket server: {e}")
+        log_plugin_failure("start_plugin_socket", e)
         await stop_socket_server()
         raise
 

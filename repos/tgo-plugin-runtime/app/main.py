@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from app.config import settings
 from app.core.logging import setup_logging, startup_log
 from app.core.request_validation import safe_request_validation
+from app.services.plugin_failures import log_plugin_failure
 
 # Setup logging
 setup_logging()
@@ -18,7 +19,9 @@ setup_logging()
 async def lifespan(application: FastAPI):
     """Application lifespan manager."""
     # Startup logic
-    from app.services.socket_server import start_socket_server
+    from app.services.socket_server import (
+        start_socket_server, stop_socket_server,
+    )
     from app.services.tool_sync import setup_tool_sync
     from app.services.process_manager import process_manager
     from app.core.database import SessionLocal
@@ -33,11 +36,24 @@ async def lifespan(application: FastAPI):
     # Setup tool sync with plugin manager
     setup_tool_sync()
 
-    # Start socket server FIRST so plugins can connect on startup
-    await start_socket_server()
-
-    # Start process manager monitor
-    await process_manager.start()
+    # Transport must be ready before starting the process monitor.
+    startup_failed = False
+    try:
+        await start_socket_server()
+        await process_manager.start()
+    except Exception as error:
+        log_plugin_failure("initialize_plugin_runtime", error)
+        startup_failed = True
+        for operation, cleanup in (
+            ("cleanup_plugin_monitor", process_manager.stop),
+            ("cleanup_plugin_transport", stop_socket_server),
+        ):
+            try:
+                await cleanup()
+            except Exception as cleanup_error:
+                log_plugin_failure(operation, cleanup_error)
+    if startup_failed:
+        raise RuntimeError("Plugin runtime initialization failed")
 
     # Auto-start installed plugins
     try:
@@ -66,7 +82,8 @@ async def lifespan(application: FastAPI):
                         process_manager.start_plugin(p.plugin_id, config)
                     )
     except Exception as e:
-        startup_log(f"❌ Failed to auto-start plugins: {e}")
+        log_plugin_failure("auto_start_installed_plugins", e)
+        startup_log("❌ Failed to auto-start installed plugins")
 
     startup_log(f"   📍 HTTP API: http://0.0.0.0:{settings.PORT}")
     startup_log(f"   📚 API Docs: http://localhost:{settings.PORT}/docs")

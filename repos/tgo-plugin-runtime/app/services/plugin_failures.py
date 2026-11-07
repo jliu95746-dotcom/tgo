@@ -1,4 +1,4 @@
-"""Controlled lifecycle messages never contain subprocess or exception data."""
+"""Controlled plugin failures never contain subprocess or exception data."""
 
 from app.core.logging import get_logger
 
@@ -59,6 +59,18 @@ logger = get_logger("services.plugin_failures")
 def public_plugin_failure(message: str, fallback: str = INSTALL_FAILED) -> str:
     """Only exact, controlled messages can cross a lifecycle boundary."""
     return message if message in _PUBLIC_FAILURES else fallback
+
+
+def public_registration_failure(error: Exception) -> str:
+    """Return declared reasons without publishing validator details."""
+    reason = error.args[0] if error.args else None
+    if isinstance(reason, str) and reason in {
+        "Invalid dev_token",
+        "Invalid dev_token type",
+        "Debug connection requires dev_token",
+    }:
+        return reason
+    return "Plugin registration failed"
 
 
 def log_plugin_failure(operation: str, error: Exception) -> None:

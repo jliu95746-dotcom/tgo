@@ -7,6 +7,8 @@ import httpx
 from app.config import settings
 from app.core.logging import get_logger
 from app.services.plugin_manager import PluginConnection
+from app.services.plugin_failures import log_plugin_failure
+from app.domain.business_tools.target_transport import business_query_log_scope
 
 logger = get_logger("services.tool_sync")
 
@@ -25,27 +27,10 @@ class PluginToolSyncService:
             "ach MCP tool the plugin provides.\n        "
         )
         if not plugin.project_id:
-            logger.info(
-                (
-                    "Skipping tool sync for plugin "
-                    f'{plugin.name}'
-                    " (id="
-                    f'{plugin.id}'
-                    "): no project_id associated."
-                )
-            )
+            logger.info("Skipping plugin tool sync: no project associated")
             return
 
-        logger.info(
-            (
-                "Syncing tools for plugin: "
-                f'{plugin.name}'
-                " (id="
-                f'{plugin.id}'
-                ") in project "
-                f'{plugin.project_id}'
-            )
-        )
+        logger.info("Syncing plugin tools")
 
         for cap in plugin.capabilities:
             if cap.type == "mcp_tools" and cap.tools:
@@ -71,7 +56,7 @@ class PluginToolSyncService:
         """
         Remove plugin tools from tgo-ai when a plugin disconnects.
         """
-        logger.info(f"Removing tools for plugin: {plugin_id}")
+        logger.info("Removing plugin tools")
         await self._delete_tools_by_prefix(f"plugin:{plugin_id}:")
 
     async def _register_tool(self, tool_data: Dict[str, Any]):
@@ -79,50 +64,45 @@ class PluginToolSyncService:
         url = f"{self.ai_base_url}/api/v1/tools/plugin"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    url,
-                    json=tool_data,
-                    headers={"Content-Type": "application/json"},
-                )
+            with business_query_log_scope():
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(
+                        url,
+                        json=tool_data,
+                        headers={"Content-Type": "application/json"},
+                    )
 
                 if response.status_code in (200, 201):
-                    logger.info(f"Synced tool: {tool_data['name']}")
+                    logger.info("Synced plugin tool")
                 else:
                     logger.warning(
-                        f"Failed to sync tool {tool_data[(
-                            "name"
-                        )]}: {response.status_code} {response.text}"
+                        "Failed to sync plugin tool",
+                        extra={"status_code": response.status_code},
                     )
         except Exception as e:
-            logger.error(f"Error syncing tool {tool_data['name']}: {e}")
+            log_plugin_failure("sync_plugin_tool", e)
 
     async def _delete_tools_by_prefix(self, prefix: str):
         """Delete tools with names starting with prefix."""
         url = f"{self.ai_base_url}/api/v1/tools/plugin/by-prefix"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.delete(
-                    url,
-                    params={"prefix": prefix},
-                )
+            with business_query_log_scope():
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.delete(
+                        url,
+                        params={"prefix": prefix},
+                    )
 
                 if response.status_code in (200, 204):
-                    logger.info(f"Removed tools with prefix: {prefix}")
+                    logger.info("Removed plugin tools")
                 else:
                     logger.warning(
-                        (
-                            "Failed to remove tools with prefix "
-                            f'{prefix}'
-                            ": "
-                            f'{response.status_code}'
-                            " "
-                            f'{response.text}'
-                        )
+                        "Failed to remove plugin tools",
+                        extra={"status_code": response.status_code},
                     )
         except Exception as e:
-            logger.error(f"Error removing tools with prefix {prefix}: {e}")
+            log_plugin_failure("remove_plugin_tools", e)
 
 
 # Global instance
