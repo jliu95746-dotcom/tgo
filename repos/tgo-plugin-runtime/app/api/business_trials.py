@@ -1,10 +1,17 @@
-"""Dedicated private purpose; normal plugin/config routes cannot run this test."""
+"""Dedicated private purpose; normal plugin/config routes cannot run this\
+ test."""
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.connection_tests import PrivateTestRoute, require_connection_service
+from app.api.connection_tests import (
+    PrivateTestRoute,
+    require_connection_service,
+)
 from app.domain.business_tools.trial_runner import BusinessTrialRunner
-from app.schemas.agent_business_trials import BusinessTrialCommand, BusinessTrialReceipt
+from app.schemas.agent_business_trials import (
+    BusinessTrialCommand,
+    BusinessTrialReceipt,
+)
 
 router = APIRouter(
     prefix="/business/trials",
@@ -19,7 +26,8 @@ def get_runner() -> BusinessTrialRunner:
 
 @router.post("/query", response_model=BusinessTrialReceipt)
 async def query(
-    command: BusinessTrialCommand, runner: BusinessTrialRunner = Depends(get_runner)
+    command: BusinessTrialCommand,
+    runner: BusinessTrialRunner = Depends(get_runner),
 ) -> BusinessTrialReceipt:
     try:
         return await runner.run(command)

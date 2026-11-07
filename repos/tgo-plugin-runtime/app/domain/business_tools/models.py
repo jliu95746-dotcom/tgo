@@ -7,7 +7,13 @@ from hashlib import sha256
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 Identifier = Annotated[
     str,
@@ -71,12 +77,18 @@ class BusinessQueryContext(StrictBusinessModel):
     conversation_id: Identifier
     request_id: Identifier
     actor_id: Identifier
-    source_message_id: str | None = Field(default=None, min_length=1, max_length=255)
-    response_client_msg_no: str | None = Field(default=None, min_length=1, max_length=100)
+    source_message_id: str | None = Field(
+        default=None, min_length=1, max_length=255
+    )
+    response_client_msg_no: str | None = Field(
+        default=None, min_length=1, max_length=100
+    )
 
     @model_validator(mode="after")
     def complete_message_scope(self) -> "BusinessQueryContext":
-        if (self.source_message_id is None) != (self.response_client_msg_no is None):
+        if (self.source_message_id is None) != (
+            self.response_client_msg_no is None
+        ):
             raise ValueError("Message audit scope is incomplete")
         return self
 
@@ -144,7 +156,10 @@ class OwnedLogisticsQueryResult(StrictBusinessModel):
 
 
 BusinessQueryOperation = Literal[
-    "order_query", "logistics_query", "customer_profile_query", "membership_query"
+    "order_query",
+    "logistics_query",
+    "customer_profile_query",
+    "membership_query",
 ]
 BusinessQueryOutcome = Literal["success", "denied", "timeout", "failed"]
 
@@ -166,7 +181,9 @@ class BusinessQueryAuditEvent(StrictBusinessModel):
 
     @model_validator(mode="after")
     def complete_message_scope(self) -> "BusinessQueryAuditEvent":
-        if (self.source_message_digest is None) != (self.response_message_digest is None):
+        if (self.source_message_digest is None) != (
+            self.response_message_digest is None
+        ):
             raise ValueError("Message audit scope is incomplete")
         return self
 

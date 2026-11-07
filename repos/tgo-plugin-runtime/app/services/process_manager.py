@@ -8,13 +8,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.core.logging import get_logger
+from app.config import settings as _settings
 from app.config import settings
 from app.core.database import SessionLocal
 from app.models.plugin import InstalledPlugin
-from app.services.plugin_paths import plugin_directory, plugin_python, contained_path
+from app.services.plugin_paths import (
+    plugin_directory,
+    plugin_python,
+    contained_path,
+)
 from app.services.plugin_manager import plugin_manager
 from app.services.plugin_failures import (
-    START_FAILED, log_plugin_failure, public_plugin_failure,
+    START_FAILED,
+    log_plugin_failure,
+    public_plugin_failure,
 )
 
 logger = get_logger("services.process_manager")
@@ -23,6 +30,7 @@ logger = get_logger("services.process_manager")
 @dataclass
 class ManagedPlugin:
     """Represents a plugin process managed by this service."""
+
     id: str
     config: Dict[str, Any]
     process: Optional[asyncio.subprocess.Process] = None
@@ -30,14 +38,16 @@ class ManagedPlugin:
     pid: Optional[int] = None
     last_error: Optional[str] = None
     restart_count: int = 0
-    logs: collections.deque = field(default_factory=lambda: collections.deque(maxlen=1000))
+    logs: collections.deque = field(
+        default_factory=lambda: collections.deque(maxlen=1000)
+    )
     _stop_requested: bool = False
     _restart_task: Optional[asyncio.Task] = None
 
 
 class ProcessManager:
     """Service to manage plugin processes."""
-    
+
     def __init__(self, base_path: str = "/var/lib/tgo/plugins"):
         self.base_path = Path(base_path)
         self._managed_plugins: Dict[str, ManagedPlugin] = {}
@@ -55,22 +65,37 @@ class ProcessManager:
         if self._monitor_task:
             self._monitor_task.cancel()
             self._monitor_task = None
-            
+
         async with self._lock:
             for plugin_id in list(self._managed_plugins.keys()):
-                resume = self._managed_plugins[plugin_id].status in ("running", "starting")
+                resume = self._managed_plugins[plugin_id].status in (
+                    "running",
+                    "starting",
+                )
                 stopped = await self._stop_plugin_inner(plugin_id)
                 if resume and stopped:
                     # A service shutdown is not an explicit user stop.
-                    await self._update_db_status(plugin_id, "starting", pid=None)
-        
+                    await self._update_db_status(
+                        plugin_id, "starting", pid=None
+                    )
+
         logger.info("Process manager stopped")
 
-    async def _update_db_status(self, plugin_id: str, status: str, pid: Optional[int] = None, last_error: Optional[str] = None):
+    async def _update_db_status(
+        self,
+        plugin_id: str,
+        status: str,
+        pid: Optional[int] = None,
+        last_error: Optional[str] = None,
+    ):
         """Update plugin status in database."""
         try:
             with SessionLocal() as db:
-                plugin = db.query(InstalledPlugin).filter(InstalledPlugin.plugin_id == plugin_id).first()
+                plugin = (
+                    db.query(InstalledPlugin)
+                    .filter(InstalledPlugin.plugin_id == plugin_id)
+                    .first()
+                )
                 if plugin:
                     plugin.status = status
                     plugin.pid = pid
@@ -86,21 +111,59 @@ class ProcessManager:
             try:
                 await asyncio.sleep(5)
                 async with self._lock:
-                    for plugin_id, managed in list(self._managed_plugins.items()):
+                    for plugin_id, managed in list(
+                        self._managed_plugins.items()
+                    ):
                         if managed.status == "running" and managed.process:
                             # Check if process is still alive
                             if managed.process.returncode is not None:
-                                logger.warning(f"Plugin {plugin_id} exited with code {managed.process.returncode}")
+                                logger.warning(
+                                    (
+                                        "Plugin "
+                                        f'{plugin_id}'
+                                        " exited with code "
+                                        f'{managed.process.returncode}'
+                                    )
+                                )
                                 managed.status = "error"
                                 managed.pid = None
-                                await self._update_db_status(plugin_id, "error", pid=None, last_error=f"Exited with code {managed.process.returncode}")
-                                
+                                await self._update_db_status(
+                                    plugin_id,
+                                    "error",
+                                    pid=None,
+                                    last_error=(
+                                        "Exited with code "
+                                        f'{managed.process.returncode}'
+                                    ),
+                                )
+
                                 # Auto restart if configured
-                                runtime_config = managed.config.get("runtime") or {}
-                                if runtime_config.get("auto_restart", True) and not managed._stop_requested:
-                                    delay = runtime_config.get("restart_delay", 5)
-                                    logger.info(f"Auto-restarting plugin {plugin_id} in {delay}s...")
-                                    managed._restart_task = asyncio.create_task(self._delayed_restart(plugin_id, delay))
+                                runtime_config = (
+                                    managed.config.get("runtime") or {}
+                                )
+                                if (
+                                    runtime_config.get("auto_restart", True)
+                                    and not managed._stop_requested
+                                ):
+                                    delay = runtime_config.get(
+                                        "restart_delay", 5
+                                    )
+                                    logger.info(
+                                        (
+                                            "Auto-restarting plugin "
+                                            f'{plugin_id}'
+                                            " in "
+                                            f'{delay}'
+                                            "s..."
+                                        )
+                                    )
+                                    managed._restart_task = (
+                                        asyncio.create_task(
+                                            self._delayed_restart(
+                                                plugin_id, delay
+                                            )
+                                        )
+                                    )
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -111,15 +174,23 @@ class ProcessManager:
         await asyncio.sleep(delay)
         async with self._lock:
             managed = self._managed_plugins.get(plugin_id)
-            if managed and not managed._stop_requested and managed.status == "error":
+            if (
+                managed
+                and not managed._stop_requested
+                and managed.status == "error"
+            ):
                 await self._start_plugin_inner(plugin_id, managed.config)
 
-    async def start_plugin(self, plugin_id: str, config: Dict[str, Any]) -> Tuple[bool, str]:
+    async def start_plugin(
+        self, plugin_id: str, config: Dict[str, Any]
+    ) -> Tuple[bool, str]:
         """Start a plugin process."""
         async with self._lock:
             return await self._start_plugin_inner(plugin_id, config)
 
-    async def _start_plugin_inner(self, plugin_id: str, config: Dict[str, Any]) -> Tuple[bool, str]:
+    async def _start_plugin_inner(
+        self, plugin_id: str, config: Dict[str, Any]
+    ) -> Tuple[bool, str]:
         """Internal start_plugin without lock."""
         try:
             success, message = await self._launch_plugin(plugin_id, config)
@@ -132,66 +203,84 @@ class ProcessManager:
             if managed:
                 managed.status = "error"
                 managed.last_error = message
-            await self._update_db_status(plugin_id, "error", last_error=message)
+            await self._update_db_status(
+                plugin_id, "error", last_error=message
+            )
         return success, message
 
-    async def _launch_plugin(self, plugin_id: str, config: Dict[str, Any]) -> Tuple[bool, str]:
+    async def _launch_plugin(
+        self, plugin_id: str, config: Dict[str, Any]
+    ) -> Tuple[bool, str]:
         if plugin_id in self._managed_plugins:
             managed = self._managed_plugins[plugin_id]
-            if managed.status == "running" and managed.process and managed.process.returncode is None:
+            if (
+                managed.status == "running"
+                and managed.process
+                and managed.process.returncode is None
+            ):
                 return True, "Already running"
         else:
             managed = ManagedPlugin(id=plugin_id, config=config)
             self._managed_plugins[plugin_id] = managed
-        
+
         managed.config = config  # Update config
         managed.status = "starting"
         managed._stop_requested = False
-        
+
         # Prepare command
         install_dir = plugin_directory(self.base_path, plugin_id)
         if not install_dir.exists():
             managed.status = "error"
             managed.last_error = "Plugin installation directory is missing"
             return False, managed.last_error
-        
+
         build_config = config.get("build") or {}
         runtime_config = config.get("runtime") or {}
         lang = build_config.get("language", "").lower()
-        
+
         cmd = []
         env = os.environ.copy()
         env.update(runtime_config.get("env", {}))
-        
+
         # Set socket path for plugin SDK to connect
         env["TGO_SOCKET_PATH"] = settings.PLUGIN_SOCKET_PATH
         if settings.PLUGIN_TCP_PORT:
             env["TGO_TCP_PORT"] = str(settings.PLUGIN_TCP_PORT)
-            env["TGO_TCP_HOST"] = "127.0.0.1" if settings.PLUGIN_TCP_HOST in ("0.0.0.0", "::") else settings.PLUGIN_TCP_HOST
+            env["TGO_TCP_HOST"] = (
+                "127.0.0.1"
+                if settings.PLUGIN_TCP_HOST in ("0.0.0.0", "::")
+                else settings.PLUGIN_TCP_HOST
+            )
         env["TGO_PLUGIN_ID"] = plugin_id
-        
+
         if lang == "go":
             # Entrypoint is the compiled binary
-            binary_name = (build_config.get("go") or {}).get("output", "plugin")
+            binary_name = (build_config.get("go") or {}).get(
+                "output", "plugin"
+            )
             binary_path = contained_path(install_dir, binary_name)
             if not binary_path.exists():
                 # Fallback to 'plugin'
                 binary_path = install_dir / "plugin"
-            
+
             if not binary_path.exists():
                 managed.status = "error"
                 managed.last_error = "Plugin binary was not found"
                 return False, managed.last_error
-            
+
             cmd = [str(binary_path)]
-            
+
         elif lang == "python":
-            entrypoint = (build_config.get("python") or {}).get("entrypoint", "main.py")
+            entrypoint = (build_config.get("python") or {}).get(
+                "entrypoint", "main.py"
+            )
             contained_path(install_dir, entrypoint)
             cmd = [plugin_python(install_dir), entrypoint]
-            
+
         elif lang == "nodejs":
-            entrypoint = (build_config.get("nodejs") or {}).get("entrypoint", "index.js")
+            entrypoint = (build_config.get("nodejs") or {}).get(
+                "entrypoint", "index.js"
+            )
             contained_path(install_dir, entrypoint)
             cmd = ["node", entrypoint]
         else:
@@ -204,58 +293,77 @@ class ProcessManager:
                 managed.last_error = "No entrypoint or binary found for plugin"
                 return False, managed.last_error
             cmd = [str(binary_path)]
-        
+
         # Add arguments
         cmd.extend(runtime_config.get("args", []))
-        
+
         logger.info(f"Starting plugin {plugin_id}")
-        
+
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=str(install_dir),
                 env=env,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT
+                stderr=asyncio.subprocess.STDOUT,
             )
             managed.process = process
             managed.pid = process.pid
             # Start logging task
             asyncio.create_task(self._read_logs(managed, process))
-            await self._update_db_status(plugin_id, "starting", pid=managed.pid)
-            deadline = asyncio.get_running_loop().time() + settings.PLUGIN_REQUEST_TIMEOUT
+            await self._update_db_status(
+                plugin_id, "starting", pid=managed.pid
+            )
+            deadline = (
+                asyncio.get_running_loop().time()
+                + settings.PLUGIN_REQUEST_TIMEOUT
+            )
             while asyncio.get_running_loop().time() < deadline:
                 if process.returncode is not None:
                     raise RuntimeError("Plugin exited before registration")
-                connection = plugin_manager.get_plugin(plugin_id, config.get("project_id"))
-                if connection and connection.writer and not connection.writer.is_closing():
+                connection = plugin_manager.get_plugin(
+                    plugin_id, config.get("project_id")
+                )
+                if (
+                    connection
+                    and connection.writer
+                    and not connection.writer.is_closing()
+                ):
                     break
                 await asyncio.sleep(0.1)
             else:
-                raise RuntimeError("Plugin did not register before the startup timeout")
+                raise RuntimeError(
+                    "Plugin did not register before the startup timeout"
+                )
             managed.status = "running"
             managed.last_error = None
             managed.restart_count += 1
-            await self._update_db_status(plugin_id, "running", pid=managed.pid, last_error="")
+            await self._update_db_status(
+                plugin_id, "running", pid=managed.pid, last_error=""
+            )
             return True, "Started successfully"
         except Exception as e:
             await self._stop_plugin_inner(plugin_id)
             managed.status = "error"
             managed.last_error = public_plugin_failure(str(e), START_FAILED)
             log_plugin_failure("launch_process", e)
-            await self._update_db_status(plugin_id, "error", last_error=managed.last_error)
+            await self._update_db_status(
+                plugin_id, "error", last_error=managed.last_error
+            )
             return False, managed.last_error
 
-    async def _read_logs(self, managed: ManagedPlugin, process: asyncio.subprocess.Process):
+    async def _read_logs(
+        self, managed: ManagedPlugin, process: asyncio.subprocess.Process
+    ):
         """Read process output and store in buffer."""
         if not process.stdout:
             return
-            
+
         while True:
             line = await process.stdout.readline()
             if not line:
                 break
-            
+
             decoded_line = line.decode(errors="replace").strip()
             managed.logs.append(decoded_line)
             # Optional: also log to system logger
@@ -271,9 +379,12 @@ class ProcessManager:
         managed = self._managed_plugins.get(plugin_id)
         if not managed or managed.status == "stopped":
             return True
-        
+
         managed._stop_requested = True
-        if managed._restart_task and managed._restart_task is not asyncio.current_task():
+        if (
+            managed._restart_task
+            and managed._restart_task is not asyncio.current_task()
+        ):
             managed._restart_task.cancel()
             managed._restart_task = None
         if managed.process and managed.process.returncode is None:
@@ -290,8 +401,10 @@ class ProcessManager:
                 return False
         connection = plugin_manager.get_plugin(plugin_id)
         if connection:
-            await plugin_manager.unregister(plugin_id, expected_connection=connection)
-        
+            await plugin_manager.unregister(
+                plugin_id, expected_connection=connection
+            )
+
         managed.status = "stopped"
         managed.pid = None
         managed.process = None
@@ -304,7 +417,7 @@ class ProcessManager:
             managed = self._managed_plugins.get(plugin_id)
             if not managed:
                 return False, "Plugin not managed"
-            
+
             config = managed.config
             if not await self._stop_plugin_inner(plugin_id):
                 return False, "Plugin could not be stopped; restart aborted"
@@ -326,13 +439,10 @@ class ProcessManager:
                 "status": managed.status,
                 "pid": managed.pid,
                 "restart_count": managed.restart_count,
-                "last_error": managed.last_error
+                "last_error": managed.last_error,
             }
         return {"id": plugin_id, "status": "not_managed"}
 
 
 # Global instance
-from app.config import settings as _settings
-
 process_manager = ProcessManager(base_path=_settings.PLUGIN_BASE_PATH)
-

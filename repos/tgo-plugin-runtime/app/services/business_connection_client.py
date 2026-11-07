@@ -1,4 +1,5 @@
-"""The adapter obtains no credentials from its public caller or global defaults."""
+"""The adapter obtains no credentials from its public caller or global de\
+faults."""
 
 import httpx
 from pydantic import ValidationError
@@ -43,7 +44,9 @@ class BusinessConnectionOwnerClient:
                 response = await client.post(
                     url,
                     json=body,
-                    headers={"X-Business-Service-Token": key.get_secret_value()},
+                    headers={
+                        "X-Business-Service-Token": key.get_secret_value()
+                    },
                 )
             if response.status_code != 200 or len(response.content) > 65_536:
                 raise ConnectionAuthorityUnavailable()
@@ -58,8 +61,10 @@ class BusinessConnectionOwnerClient:
                 or connection.project_id != command.project_id
                 or connection.id != command.connection_id
                 or connection.revision != command.expected_revision
-                or connection.configuration_revision != command.configuration_revision
-                or connection.authorization_revision != command.authorization_revision
+                or connection.configuration_revision
+                != command.configuration_revision
+                or connection.authorization_revision
+                != command.authorization_revision
                 or connection.resource_revision != command.resource_revision
                 or command.operation not in connection.capabilities
             ):

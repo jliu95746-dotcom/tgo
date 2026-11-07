@@ -53,7 +53,9 @@ def unpack_package(archive: Path, install_dir: Path, url: str) -> None:
                     target.mkdir(parents=True, exist_ok=True)
                 else:
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    with package.open(member) as source, target.open("wb") as output:
+                    with package.open(member) as source, target.open(
+                        "wb"
+                    ) as output:
                         shutil.copyfileobj(source, output)
                     target.chmod((member.external_attr >> 16) & 0o777 or 0o755)
     elif suffix.endswith((".tar.gz", ".tgz")):
@@ -83,6 +85,8 @@ def unpack_package(archive: Path, install_dir: Path, url: str) -> None:
                         shutil.copyfileobj(tar_source, output)
                     target.chmod(tar_member.mode & 0o777)
     else:
-        target = install_dir / ("plugin.exe" if suffix.endswith(".exe") else "plugin")
+        target = install_dir / (
+            "plugin.exe" if suffix.endswith(".exe") else "plugin"
+        )
         shutil.copy2(archive, target)
         target.chmod(0o755)

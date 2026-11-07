@@ -39,7 +39,9 @@ class Settings(BaseSettings):
     )
     PLUGIN_TCP_PORT: Optional[int] = Field(
         default=None,
-        description="TCP port for plugin communication (alternative to Unix socket)",
+        description=(
+            "TCP port for plugin communication (alternative to Unix socket)"
+        ),
     )
     PLUGIN_REQUEST_TIMEOUT: int = Field(
         default=30,
@@ -70,7 +72,7 @@ class Settings(BaseSettings):
 
     # Security
     BUSINESS_CONNECTION_SERVICE_TOKEN: Optional[SecretStr] = None
-    BUSINESS_CONNECTION_API_URL: str = 'http://tgo-api:8001'
+    BUSINESS_CONNECTION_API_URL: str = "http://tgo-api:8001"
     SECRET_KEY: str = Field(
         default="secret-key-at-least-32-chars-long!!",
         description="Secret key for JWT verification (must match tgo-api)",
@@ -81,7 +83,9 @@ class Settings(BaseSettings):
     )
     BUSINESS_QUERY_MODE: Literal["disabled", "demo", "http"] = Field(
         default="disabled",
-        description="Read-only business provider mode: disabled, demo, or http",
+        description=(
+            "Read-only business provider mode: disabled, demo, or http"
+        ),
     )
     BUSINESS_QUERY_TIMEOUT: float = Field(default=5.0, gt=0)
     BUSINESS_API_BASE_URL: Optional[str] = None
@@ -133,7 +137,9 @@ class Settings(BaseSettings):
         """Get synchronous database URL."""
         url = str(self.DATABASE_URL)
         if "postgresql+asyncpg://" in url:
-            return url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+            return url.replace(
+                "postgresql+asyncpg://", "postgresql+psycopg2://"
+            )
         return url
 
     @property
@@ -144,4 +150,3 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
-

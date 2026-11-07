@@ -14,7 +14,10 @@ from app.services.installer import installer
 from app.services.process_manager import process_manager
 from app.services.plugin_paths import plugin_directory, validate_plugin_id
 from app.services.plugin_failures import (
-    INSTALL_FAILED, START_FAILED, log_plugin_failure, public_plugin_failure,
+    INSTALL_FAILED,
+    START_FAILED,
+    log_plugin_failure,
+    public_plugin_failure,
 )
 
 Progress = Callable[[str, str], Awaitable[None]]
@@ -26,7 +29,9 @@ def plugin_lifecycle_lock(plugin_id: str) -> asyncio.Lock:
     return _install_locks.setdefault(plugin_id, asyncio.Lock())
 
 
-def apply_plugin_config(plugin: InstalledPlugin, request: PluginInstallRequest) -> None:
+def apply_plugin_config(
+    plugin: InstalledPlugin, request: PluginInstallRequest
+) -> None:
     plugin.name = request.name
     plugin.version = request.version
     plugin.latest_version = request.version
@@ -56,7 +61,9 @@ async def install_plugin_operation(
     async with lock:
         async with AsyncSessionLocal() as session:
             row = await session.execute(
-                select(InstalledPlugin).where(InstalledPlugin.plugin_id == request.id)
+                select(InstalledPlugin).where(
+                    InstalledPlugin.plugin_id == request.id
+                )
             )
             plugin = row.scalar_one_or_none()
             if plugin is not None and plugin.project_id != project_id:
@@ -68,7 +75,9 @@ async def install_plugin_operation(
                     "Plugin already installed; use upgrade instead", 409
                 )
             if plugin is None:
-                plugin = InstalledPlugin(plugin_id=request.id, project_id=project_id)
+                plugin = InstalledPlugin(
+                    plugin_id=request.id, project_id=project_id
+                )
                 session.add(plugin)
             apply_plugin_config(plugin, request)
             plugin.status = "installing"
@@ -129,7 +138,11 @@ async def install_plugin_operation(
                 )
             )
             plugin = row.scalar_one()
-            result = InstalledPluginInfo.model_validate(plugin, from_attributes=True)
+            result = InstalledPluginInfo.model_validate(
+                plugin, from_attributes=True
+            )
         if progress:
-            await progress("complete", "Installation successful; plugin connected")
+            await progress(
+                "complete", "Installation successful; plugin connected"
+            )
         return result

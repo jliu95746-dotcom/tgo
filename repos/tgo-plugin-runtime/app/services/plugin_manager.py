@@ -29,6 +29,7 @@ logger = get_logger("services.plugin_manager")
 @dataclass
 class PluginConnection:
     """Represents a connected plugin."""
+
     id: str
     name: str
     version: str
@@ -39,8 +40,8 @@ class PluginConnection:
     reader: Optional[asyncio.StreamReader] = None
     writer: Optional[asyncio.StreamWriter] = None
     project_id: Optional[str] = None  # Associated project ID (for dev mode)
-    is_dev_mode: bool = False         # Whether plugin is in dev mode
-    dev_user_id: Optional[str] = None # User who owns the dev connection
+    is_dev_mode: bool = False  # Whether plugin is in dev mode
+    dev_user_id: Optional[str] = None  # User who owns the dev connection
     _request_id: int = 0
     _pending_requests: Dict[int, asyncio.Future] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -58,19 +59,21 @@ class PluginConnection:
             author=self.author,
             capabilities=self.capabilities,
             connected_at=self.connected_at,
-            status="connected" if self.writer and not self.writer.is_closing() else "disconnected",
-            is_dev_mode=self.is_dev_mode
+            status="connected"
+            if self.writer and not self.writer.is_closing()
+            else "disconnected",
+            is_dev_mode=self.is_dev_mode,
         )
 
 
 class PluginManager:
-    """
-    Singleton Plugin Manager.
-    
-    Manages plugin connections, registration, and request dispatching.
-    """
+    (
+        "\n    Singleton Plugin Manager.\n    \n    Manages plugin connections"
+        ", registration, and request dispatching.\n    "
+    )
+
     _instance: Optional["PluginManager"] = None
-    
+
     def __new__(cls) -> "PluginManager":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -83,7 +86,9 @@ class PluginManager:
         self._initialized = True
         self._plugins: Dict[str, PluginConnection] = {}
         self._lock = asyncio.Lock()
-        self._tool_sync = None  # Will be set after import to avoid circular imports
+        self._tool_sync = (
+            None  # Will be set after import to avoid circular imports
+        )
         logger.info("PluginManager initialized")
 
     def set_tool_sync(self, tool_sync):
@@ -110,57 +115,104 @@ class PluginManager:
         """Register a new plugin connection."""
         if not plugin_id:
             plugin_id = f"plugin_{uuid.uuid4().hex[:8]}"
-        
+
         caps = [PluginCapability(**c) for c in capabilities]
-        
+
         project_id = None
         is_dev_mode = False
         dev_user_id = None
-        
+
         # 1. Try to identify by dev_token first
         if dev_token:
             try:
-                payload = jwt.decode(dev_token, settings.SECRET_KEY, algorithms=["HS256"])
+                payload = jwt.decode(
+                    dev_token, settings.SECRET_KEY, algorithms=["HS256"]
+                )
                 if payload.get("type") == "plugin_dev":
                     project_id = payload.get("project_id")
                     dev_user_id = payload.get("user_id")
                     is_dev_mode = True
-                    logger.info(f"Plugin {plugin_id} registered in DEV mode for project {project_id}")
+                    logger.info(
+                        (
+                            "Plugin "
+                            f'{plugin_id}'
+                            " registered in DEV mode for project "
+                            f'{project_id}'
+                        )
+                    )
                 else:
-                    logger.warning(f"Registration rejected for {plugin_id}: invalid token type")
+                    logger.warning(
+                        (
+                            "Registration rejected for "
+                            f'{plugin_id}'
+                            ": invalid token type"
+                        )
+                    )
                     raise ValueError("Invalid dev_token type")
             except JWTError as e:
-                logger.warning(f"Registration rejected for {plugin_id}: token verification failed: {e}")
+                logger.warning(
+                    (
+                        "Registration rejected for "
+                        f'{plugin_id}'
+                        ": token verification failed: "
+                        f'{e}'
+                    )
+                )
                 raise ValueError(f"Invalid dev_token: {str(e)}")
-        
+
         # 2. If not dev mode, check if it's an installed plugin in DB
         if not is_dev_mode and plugin_id:
             try:
                 from sqlalchemy import select
                 from app.core.database import AsyncSessionLocal
                 from app.models.plugin import InstalledPlugin
-                
+
                 async with AsyncSessionLocal() as session:
-                    stmt = select(InstalledPlugin.project_id).where(InstalledPlugin.plugin_id == plugin_id)
+                    stmt = select(InstalledPlugin.project_id).where(
+                        InstalledPlugin.plugin_id == plugin_id
+                    )
                     result = await session.execute(stmt)
                     db_project_id = result.scalar_one_or_none()
                     if db_project_id:
                         project_id = str(db_project_id)
-                        logger.info(f"Plugin {plugin_id} identified as installed plugin for project {project_id}")
+                        logger.info(
+                            (
+                                "Plugin "
+                                f'{plugin_id}'
+                                " identified as installed plugin for project "
+                                f'{project_id}'
+                            )
+                        )
             except Exception as e:
                 # Table might not exist yet
                 if "pg_installed_plugins" in str(e):
-                    logger.info(f"Table pg_installed_plugins does not exist yet, skipping lookup for {plugin_id}")
+                    logger.info(
+                        (
+                            "Table pg_installed_plugins does not exist yet, sk"
+                            "ipping lookup for "
+                            f'{plugin_id}'
+                        )
+                    )
                 else:
-                    logger.error(f"Error checking installed plugin {plugin_id}: {e}")
+                    logger.error(
+                        f"Error checking installed plugin {plugin_id}: {e}"
+                    )
 
         # 3. Final check for debug connection security
-        # Requirement: If connecting via TCP and not recognized as an installed plugin, 
-        # it MUST have had a valid dev_token (which would have set is_dev_mode to True).
+        # Requirement: If connecting via TCP and not recognized as an installed
+        # plugin,
+        # it MUST have had a valid dev_token (which would have set is_dev_mode
+        # to True).
         if is_tcp and not is_dev_mode and not project_id:
-            logger.warning(f"Registration rejected for {plugin_id}: unknown TCP connection requires dev_token")
+            logger.warning(
+                (
+                    "Registration rejected for "
+                    f'{plugin_id}'
+                    ": unknown TCP connection requires dev_token"
+                )
+            )
             raise ValueError("Debug connection requires dev_token")
-        
+
         plugin = PluginConnection(
             id=plugin_id,
             name=name,
@@ -174,35 +226,47 @@ class PluginManager:
             is_dev_mode=is_dev_mode,
             dev_user_id=dev_user_id,
         )
-        
+
         async with self._lock:
             self._plugins[plugin_id] = plugin
-        
+
         logger.info(
             f"Plugin registered: {name} v{version} (id={plugin_id})",
-            extra={"plugin_id": plugin_id, "capabilities": [c.type for c in caps]}
+            extra={
+                "plugin_id": plugin_id,
+                "capabilities": [c.type for c in caps],
+            },
         )
-        
+
         # Sync tools to tgo-ai if mcp_tools capability is present
         if self._tool_sync:
             asyncio.create_task(self._tool_sync.sync_plugin_tools(plugin))
-        
+
         return plugin_id, plugin
 
-    async def unregister(self, plugin_id: str, expected_connection: Optional[PluginConnection] = None):
+    async def unregister(
+        self,
+        plugin_id: str,
+        expected_connection: Optional[PluginConnection] = None,
+    ):
         """Unregister a plugin."""
         async with self._lock:
-            if expected_connection is not None and self._plugins.get(plugin_id) is not expected_connection:
+            if (
+                expected_connection is not None
+                and self._plugins.get(plugin_id) is not expected_connection
+            ):
                 return
             plugin = self._plugins.pop(plugin_id, None)
-        
+
         if plugin:
             logger.info(f"Plugin unregistered: {plugin.name} (id={plugin_id})")
-            
+
             # Remove tools from tgo-ai
             if self._tool_sync:
-                asyncio.create_task(self._tool_sync.remove_plugin_tools(plugin_id))
-            
+                asyncio.create_task(
+                    self._tool_sync.remove_plugin_tools(plugin_id)
+                )
+
             # Cancel pending requests
             for future in plugin._pending_requests.values():
                 if not future.done():
@@ -215,24 +279,41 @@ class PluginManager:
                 except Exception:
                     pass
 
-    def get_plugin(self, plugin_id: str, project_id: Optional[str] = None) -> Optional[PluginConnection]:
+    def get_plugin(
+        self, plugin_id: str, project_id: Optional[str] = None
+    ) -> Optional[PluginConnection]:
         """Get a plugin by ID, optionally verifying project association."""
         plugin = self._plugins.get(plugin_id)
         if not plugin:
             return None
-            
+
         # If project_id is provided, verify association
-        if project_id and plugin.project_id and plugin.project_id != project_id:
-            logger.warning(f"Project {project_id} attempted to access plugin {plugin_id} associated with {plugin.project_id}")
+        if (
+            project_id
+            and plugin.project_id
+            and plugin.project_id != project_id
+        ):
+            logger.warning(
+                (
+                    "Project "
+                    f'{project_id}'
+                    " attempted to access plugin "
+                    f'{plugin_id}'
+                    " associated with "
+                    f'{plugin.project_id}'
+                )
+            )
             return None
-            
+
         return plugin
 
-    def get_all_plugins(self, project_id: Optional[str] = None) -> List[PluginInfo]:
+    def get_all_plugins(
+        self, project_id: Optional[str] = None
+    ) -> List[PluginInfo]:
         """Get all registered plugins, optionally filtered by project ID."""
         if not project_id:
             return [p.to_info() for p in self._plugins.values()]
-        
+
         # Filter plugins:
         # 1. Global plugins (project_id is None)
         # 2. Plugins specifically for this project
@@ -242,37 +323,57 @@ class PluginManager:
                 result.append(p.to_info())
         return result
 
-    def get_plugins_by_type(self, extension_type: str, project_id: Optional[str] = None) -> List[PluginConnection]:
-        """Get plugins that support a specific extension type, filtered by project."""
+    def get_plugins_by_type(
+        self, extension_type: str, project_id: Optional[str] = None
+    ) -> List[PluginConnection]:
+        (
+            "Get plugins that support a specific extension type, filtered by p"
+            "roject."
+        )
         result = []
         for plugin in self._plugins.values():
             # Check project association
-            if project_id and plugin.project_id and plugin.project_id != project_id:
+            if (
+                project_id
+                and plugin.project_id
+                and plugin.project_id != project_id
+            ):
                 continue
-                
+
             for cap in plugin.capabilities:
                 if cap.type == extension_type:
                     result.append(plugin)
                     break
         return result
 
-    def get_chat_toolbar_buttons(self, project_id: Optional[str] = None) -> List[ChatToolbarButton]:
-        """Get all chat toolbar buttons from registered plugins, filtered by project."""
+    def get_chat_toolbar_buttons(
+        self, project_id: Optional[str] = None
+    ) -> List[ChatToolbarButton]:
+        (
+            "Get all chat toolbar buttons from registered plugins, filtered by"
+            " project."
+        )
         buttons = []
         for plugin in self._plugins.values():
             # Check project association
-            if project_id and plugin.project_id and plugin.project_id != project_id:
+            if (
+                project_id
+                and plugin.project_id
+                and plugin.project_id != project_id
+            ):
                 continue
-                
+
             for cap in plugin.capabilities:
                 if cap.type == "chat_toolbar":
-                    buttons.append(ChatToolbarButton(
-                        plugin_id=plugin.id,
-                        title=cap.title,
-                        icon=cap.icon,
-                        tooltip=cap.tooltip,
-                        shortcut=cap.shortcut,
-                    ))
+                    buttons.append(
+                        ChatToolbarButton(
+                            plugin_id=plugin.id,
+                            title=cap.title,
+                            icon=cap.icon,
+                            tooltip=cap.tooltip,
+                            shortcut=cap.shortcut,
+                        )
+                    )
         return buttons
 
     async def send_request(
@@ -284,11 +385,11 @@ class PluginManager:
         *,
         project_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Send a JSON-RPC request to a plugin and wait for response.
-        
-        Returns the result dict or None on error.
-        """
+        (
+            "\n        Send a JSON-RPC request to a plugin and wait for respon"
+            "se.\n        \n        Returns the result dict or None on error."
+            "\n        "
+        )
         plugin = self.get_plugin(plugin_id, project_id=project_id)
         if not plugin or not plugin.writer or plugin.writer.is_closing():
             logger.warning(f"Plugin not available: {plugin_id}")
@@ -296,7 +397,7 @@ class PluginManager:
 
         timeout = timeout or settings.PLUGIN_REQUEST_TIMEOUT
         request_id = plugin.next_request_id()
-        
+
         request = {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -311,7 +412,7 @@ class PluginManager:
         try:
             # Send message
             await self._send_message(plugin.writer, request)
-            
+
             # Wait for response
             result = await asyncio.wait_for(future, timeout=timeout)
             return result
@@ -324,7 +425,9 @@ class PluginManager:
         finally:
             plugin._pending_requests.pop(request_id, None)
 
-    async def handle_response(self, plugin: PluginConnection, message: Dict[str, Any]):
+    async def handle_response(
+        self, plugin: PluginConnection, message: Dict[str, Any]
+    ):
         """Handle a JSON-RPC response from a plugin."""
         request_id = message.get("id")
         if request_id is None:
@@ -339,7 +442,9 @@ class PluginManager:
             else:
                 future.set_result(message.get("result"))
 
-    async def _send_message(self, writer: asyncio.StreamWriter, message: Dict[str, Any]):
+    async def _send_message(
+        self, writer: asyncio.StreamWriter, message: Dict[str, Any]
+    ):
         """Send a length-prefixed JSON message."""
         json_bytes = json.dumps(message, ensure_ascii=False).encode("utf-8")
         length_prefix = struct.pack(">I", len(json_bytes))
@@ -355,29 +460,43 @@ class PluginManager:
         language: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> List[PluginPanelItem]:
-        """
-        Render all visitor panel plugins.
-        
-        Returns list of PluginPanelItem.
-        """
-        plugins = self.get_plugins_by_type("visitor_panel", project_id=project_id)
+        (
+            "\n        Render all visitor panel plugins.\n        \n        Re"
+            "turns list of PluginPanelItem.\n        "
+        )
+        plugins = self.get_plugins_by_type(
+            "visitor_panel", project_id=project_id
+        )
         if not plugins:
             return []
 
         params = {
             "visitor_id": visitor_id,
             "session_id": session_id,
-            "visitor": visitor.model_dump(exclude_none=True) if visitor else {},
+            "visitor": visitor.model_dump(exclude_none=True)
+            if visitor
+            else {},
             "context": context,
             "language": language,
         }
 
-        async def render_one(plugin: PluginConnection) -> Optional[PluginPanelItem]:
-            result = await self.send_request(plugin.id, "visitor_panel/render", params)
+        async def render_one(
+            plugin: PluginConnection,
+        ) -> Optional[PluginPanelItem]:
+            result = await self.send_request(
+                plugin.id, "visitor_panel/render", params
+            )
             if result:
                 try:
                     ui_resp = PluginRenderResponse(**result)
-                    cap = next((c for c in plugin.capabilities if c.type == "visitor_panel"), None)
+                    cap = next(
+                        (
+                            c
+                            for c in plugin.capabilities
+                            if c.type == "visitor_panel"
+                        ),
+                        None,
+                    )
                     return PluginPanelItem(
                         plugin_id=plugin.id,
                         title=cap.title if cap else plugin.name,
@@ -386,7 +505,14 @@ class PluginManager:
                         ui=ui_resp,
                     )
                 except Exception as e:
-                    logger.error(f"Failed to parse plugin render response from {plugin.id}: {e}")
+                    logger.error(
+                        (
+                            "Failed to parse plugin render response from "
+                            f'{plugin.id}'
+                            ": "
+                            f'{e}'
+                        )
+                    )
                     return None
             return None
 
@@ -406,7 +532,7 @@ class PluginManager:
     async def shutdown_all(self):
         """Shutdown all plugin connections gracefully."""
         logger.info(f"Shutting down {len(self._plugins)} plugins...")
-        
+
         async def shutdown_one(plugin_id: str, plugin: PluginConnection):
             try:
                 await self.send_request(plugin_id, "shutdown", {}, timeout=5)
@@ -414,12 +540,13 @@ class PluginManager:
                 pass
             await self.unregister(plugin_id)
 
-        tasks = [shutdown_one(pid, p) for pid, p in list(self._plugins.items())]
+        tasks = [
+            shutdown_one(pid, p) for pid, p in list(self._plugins.items())
+        ]
         await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         logger.info("All plugins shut down")
 
 
 # Global singleton instance
 plugin_manager = PluginManager()
-

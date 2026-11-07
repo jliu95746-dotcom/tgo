@@ -60,7 +60,9 @@ _CONTACT_PATTERN = re.compile(
 
 def _safe_label(value: str) -> str:
     if _CONTACT_PATTERN.search(value):
-        raise ValueError("contact details cannot be returned as business labels")
+        raise ValueError(
+            "contact details cannot be returned as business labels"
+        )
     return value
 
 
@@ -71,10 +73,15 @@ class CustomerOwnership(StrictCustomerModel):
 
 
 class CustomerProfileResult(StrictCustomerModel):
-    """Only service-safe labels; contact details and private notes are excluded."""
+    (
+        "Only service-safe labels; contact details and private notes are exclu"
+        "ded."
+    )
 
     segment: ShortBusinessText | None = None
-    service_tags: list[ShortBusinessText] = Field(default_factory=list, max_length=8)
+    service_tags: list[ShortBusinessText] = Field(
+        default_factory=list, max_length=8
+    )
 
     @field_validator("segment")
     @classmethod
@@ -113,7 +120,9 @@ class ReadOnlyCustomerProvider(Protocol):
     ) -> OwnedCustomerProfile:
         ...
 
-    async def query_membership(self, context: BusinessQueryContext) -> OwnedMembership:
+    async def query_membership(
+        self, context: BusinessQueryContext
+    ) -> OwnedMembership:
         ...
 
 
@@ -160,10 +169,14 @@ class CustomerHTTPConfig:
         if not self.tenant_id_field or not self.customer_id_field:
             raise ValueError("ownership field mapping is required")
         for name in ("request_customer_id_field", "request_merchant_id_field"):
-            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,99}", getattr(self, name)):
+            if not re.fullmatch(
+                r"[A-Za-z_][A-Za-z0-9_]{0,99}", getattr(self, name)
+            ):
                 raise ValueError(f"{name} is not a safe request parameter")
         if self.request_customer_id_field == self.request_merchant_id_field:
-            raise ValueError("customer and merchant request fields must differ")
+            raise ValueError(
+                "customer and merchant request fields must differ"
+            )
         if self.merchant_id is not None and not re.fullmatch(
             r"[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}", self.merchant_id
         ):
@@ -192,7 +205,10 @@ class CustomerHTTPConfig:
         configuration: BusinessHTTPConfiguration,
         credentials: BusinessConnectionCredentials | None = None,
     ) -> "CustomerHTTPConfig":
-        if not configuration.customer_profile_path or not configuration.membership_path:
+        if (
+            not configuration.customer_profile_path
+            or not configuration.membership_path
+        ):
             raise ValueError("customer query paths are not configured")
         return cls(
             base_url=configuration.base_url,
@@ -226,7 +242,10 @@ class CustomerHTTPConfig:
 
 
 class CustomerHTTPProvider:
-    """POST-only adapter with fixed paths, pinned target and no write methods."""
+    (
+        "POST-only adapter with fixed paths, pinned target and no write method"
+        "s."
+    )
 
     def __init__(
         self,
@@ -256,10 +275,14 @@ class CustomerHTTPProvider:
             raise ValueError("upstream segment is invalid")
         return OwnedCustomerProfile(
             ownership=ownership,
-            result=CustomerProfileResult(segment=segment, service_tags=raw_tags),
+            result=CustomerProfileResult(
+                segment=segment, service_tags=raw_tags
+            ),
         )
 
-    async def query_membership(self, context: BusinessQueryContext) -> OwnedMembership:
+    async def query_membership(
+        self, context: BusinessQueryContext
+    ) -> OwnedMembership:
         data = await self._fetch(self._config.membership_path, context)
         ownership = self._ownership(data, context)
         return OwnedMembership(
@@ -276,7 +299,9 @@ class CustomerHTTPProvider:
         self, path: str, context: BusinessQueryContext
     ) -> dict[str, object]:
         if not context.external_customer_id:
-            raise BusinessProviderAccessDenied("customer identity is not bound")
+            raise BusinessProviderAccessDenied(
+                "customer identity is not bound"
+            )
         headers = {"Accept": "application/json"}
         auth: httpx.Auth | None = None
         if self._config.auth_mode == "bearer":
@@ -300,9 +325,12 @@ class CustomerHTTPProvider:
                     f"{self._config.base_url.rstrip('/')}{path}",
                     headers=headers,
                     json={
-                        self._config.request_merchant_id_field: self._config.merchant_id
-                        or str(context.tenant_id),
-                        self._config.request_customer_id_field: context.external_customer_id,
+                        self._config.request_merchant_id_field: (
+                            self._config.merchant_id or str(context.tenant_id)
+                        ),
+                        self._config.request_customer_id_field: (
+                            context.external_customer_id
+                        ),
                     },
                 )
             )
@@ -317,7 +345,9 @@ class CustomerHTTPProvider:
                 not isinstance(outcome, (str, int, float, bool))
                 or str(outcome) != self._config.success_value
             ):
-                raise ValueError("upstream business outcome was not successful")
+                raise ValueError(
+                    "upstream business outcome was not successful"
+                )
         data = self._value(payload, self._config.data_path)
         if not isinstance(data, dict):
             raise ValueError("upstream data must be an object")
@@ -367,7 +397,10 @@ OwnedResult = OwnedCustomerProfile | OwnedMembership
 
 
 class CustomerQueryService:
-    """Fail closed on identity, ownership, timeout, provider or audit errors."""
+    (
+        "Fail closed on identity, ownership, timeout, provider or audit errors"
+        "."
+    )
 
     def __init__(
         self,
@@ -378,7 +411,9 @@ class CustomerQueryService:
         audit_fingerprint_key: bytes,
     ) -> None:
         if timeout_seconds <= 0 or len(audit_fingerprint_key) < 32:
-            raise ValueError("positive timeout and 32-byte audit key are required")
+            raise ValueError(
+                "positive timeout and 32-byte audit key are required"
+            )
         self._provider = provider
         self._audit_sink = audit_sink
         self._timeout_seconds = timeout_seconds
@@ -394,7 +429,9 @@ class CustomerQueryService:
         )
         return cast(OwnedCustomerProfile, owned).result
 
-    async def query_membership(self, context: BusinessQueryContext) -> MembershipResult:
+    async def query_membership(
+        self, context: BusinessQueryContext
+    ) -> MembershipResult:
         owned = await self._execute(
             "membership_query",
             context,
@@ -413,7 +450,9 @@ class CustomerQueryService:
             await self._audit(operation, "denied", context, start)
             raise BusinessQueryAccessDenied("无法确认客户身份，请转人工核验")
         try:
-            result = await asyncio.wait_for(call(), timeout=self._timeout_seconds)
+            result = await asyncio.wait_for(
+                call(), timeout=self._timeout_seconds
+            )
         except BusinessProviderAccessDenied:
             await self._audit(operation, "denied", context, start)
             raise BusinessQueryAccessDenied("无法确认客户归属，请转人工核验") from None
@@ -462,12 +501,18 @@ class CustomerQueryService:
                         context.external_customer_id or ""
                     ),
                     source_message_digest=(
-                        message_lookup_digest(context.tenant_id, context.source_message_id)
-                        if context.source_message_id is not None else None
+                        message_lookup_digest(
+                            context.tenant_id, context.source_message_id
+                        )
+                        if context.source_message_id is not None
+                        else None
                     ),
                     response_message_digest=(
-                        message_lookup_digest(context.tenant_id, context.response_client_msg_no)
-                        if context.response_client_msg_no is not None else None
+                        message_lookup_digest(
+                            context.tenant_id, context.response_client_msg_no
+                        )
+                        if context.response_client_msg_no is not None
+                        else None
                     ),
                     duration_ms=(monotonic() - start) * 1000,
                 )

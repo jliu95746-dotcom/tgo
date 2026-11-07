@@ -1,6 +1,6 @@
 """Plugin Tool Sync Service - Sync plugin tools to tgo-ai service."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import httpx
 
@@ -19,16 +19,33 @@ class PluginToolSyncService:
         self.timeout = settings.AI_SERVICE_TIMEOUT
 
     async def sync_plugin_tools(self, plugin: PluginConnection):
-        """
-        Sync plugin tools to tgo-ai when a plugin connects.
-        
-        This creates/updates tool records in tgo-ai for each MCP tool the plugin provides.
-        """
+        (
+            "\n        Sync plugin tools to tgo-ai when a plugin connects.\n  "
+            "      \n        This creates/updates tool records in tgo-ai for e"
+            "ach MCP tool the plugin provides.\n        "
+        )
         if not plugin.project_id:
-            logger.info(f"Skipping tool sync for plugin {plugin.name} (id={plugin.id}): no project_id associated.")
+            logger.info(
+                (
+                    "Skipping tool sync for plugin "
+                    f'{plugin.name}'
+                    " (id="
+                    f'{plugin.id}'
+                    "): no project_id associated."
+                )
+            )
             return
 
-        logger.info(f"Syncing tools for plugin: {plugin.name} (id={plugin.id}) in project {plugin.project_id}")
+        logger.info(
+            (
+                "Syncing tools for plugin: "
+                f'{plugin.name}'
+                " (id="
+                f'{plugin.id}'
+                ") in project "
+                f'{plugin.project_id}'
+            )
+        )
 
         for cap in plugin.capabilities:
             if cap.type == "mcp_tools" and cap.tools:
@@ -43,8 +60,10 @@ class PluginToolSyncService:
                         "config": {
                             "plugin_id": plugin.id,
                             "tool_name": tool.name,
-                            "parameters": [p.model_dump() for p in (tool.parameters or [])],
-                        }
+                            "parameters": [
+                                p.model_dump() for p in (tool.parameters or [])
+                            ],
+                        },
                     }
                     await self._register_tool(tool_data)
 
@@ -58,7 +77,7 @@ class PluginToolSyncService:
     async def _register_tool(self, tool_data: Dict[str, Any]):
         """Register a tool in tgo-ai (create or update across all projects)."""
         url = f"{self.ai_base_url}/api/v1/tools/plugin"
-        
+
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
@@ -66,29 +85,42 @@ class PluginToolSyncService:
                     json=tool_data,
                     headers={"Content-Type": "application/json"},
                 )
-                
+
                 if response.status_code in (200, 201):
                     logger.info(f"Synced tool: {tool_data['name']}")
                 else:
-                    logger.warning(f"Failed to sync tool {tool_data['name']}: {response.status_code} {response.text}")
+                    logger.warning(
+                        f"Failed to sync tool {tool_data[(
+                            "name"
+                        )]}: {response.status_code} {response.text}"
+                    )
         except Exception as e:
             logger.error(f"Error syncing tool {tool_data['name']}: {e}")
 
     async def _delete_tools_by_prefix(self, prefix: str):
         """Delete tools with names starting with prefix."""
         url = f"{self.ai_base_url}/api/v1/tools/plugin/by-prefix"
-        
+
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.delete(
                     url,
                     params={"prefix": prefix},
                 )
-                
+
                 if response.status_code in (200, 204):
                     logger.info(f"Removed tools with prefix: {prefix}")
                 else:
-                    logger.warning(f"Failed to remove tools with prefix {prefix}: {response.status_code} {response.text}")
+                    logger.warning(
+                        (
+                            "Failed to remove tools with prefix "
+                            f'{prefix}'
+                            ": "
+                            f'{response.status_code}'
+                            " "
+                            f'{response.text}'
+                        )
+                    )
         except Exception as e:
             logger.error(f"Error removing tools with prefix {prefix}: {e}")
 
@@ -100,5 +132,5 @@ plugin_tool_sync = PluginToolSyncService()
 def setup_tool_sync():
     """Setup tool sync with plugin manager."""
     from app.services.plugin_manager import plugin_manager
-    plugin_manager.set_tool_sync(plugin_tool_sync)
 
+    plugin_manager.set_tool_sync(plugin_tool_sync)

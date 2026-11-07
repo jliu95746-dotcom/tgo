@@ -1,9 +1,9 @@
 """FastAPI application entry point for TGO Plugin Runtime."""
 
 import asyncio
+import importlib
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.core.logging import setup_logging, startup_log
@@ -20,7 +20,8 @@ async def lifespan(application: FastAPI):
     from app.services.tool_sync import setup_tool_sync
     from app.services.process_manager import process_manager
     from app.core.database import SessionLocal
-    import app.models  # Ensure models are loaded
+
+    importlib.import_module("app.models")  # Ensure models are loaded
     from app.models.plugin import InstalledPlugin
 
     startup_log("=" * 64)
@@ -39,12 +40,16 @@ async def lifespan(application: FastAPI):
     # Auto-start installed plugins
     try:
         with SessionLocal() as db:
-            installed_plugins = db.query(InstalledPlugin).filter(
-                InstalledPlugin.status.in_(["running", "starting"])
-            ).all()
-            
+            installed_plugins = (
+                db.query(InstalledPlugin)
+                .filter(InstalledPlugin.status.in_(["running", "starting"]))
+                .all()
+            )
+
             if installed_plugins:
-                startup_log(f"🚀 Auto-starting {len(installed_plugins)} plugins...")
+                startup_log(
+                    f"🚀 Auto-starting {len(installed_plugins)} plugins..."
+                )
                 for p in installed_plugins:
                     config = {
                         "id": p.plugin_id,
@@ -53,9 +58,11 @@ async def lifespan(application: FastAPI):
                         "version": p.version,
                         "source": p.source_config,
                         "build": p.build_config,
-                        "runtime": p.runtime_config
+                        "runtime": p.runtime_config,
                     }
-                    asyncio.create_task(process_manager.start_plugin(p.plugin_id, config))
+                    asyncio.create_task(
+                        process_manager.start_plugin(p.plugin_id, config)
+                    )
     except Exception as e:
         startup_log(f"❌ Failed to auto-start plugins: {e}")
 
@@ -80,7 +87,10 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(
     title=settings.SERVICE_NAME,
-    description="Plugin Runtime Service for TGO - manages plugin connections and provides HTTP APIs",
+    description=(
+        "Plugin Runtime Service for TGO - manages plugin connections and provi"
+        "des HTTP APIs"
+    ),
     version=settings.SERVICE_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -103,18 +113,22 @@ async def health_check():
     return {"status": "healthy"}
 
 
-# Include API routes
-from app.api.routes import router as api_router
-from app.api.business_queries import router as business_query_router
-from app.api.connection_tests import router as connection_test_router
-from app.api.business_trials import router as business_trial_router
-from app.api.business_execution import router as business_execution_router
+def register_routes(application: FastAPI) -> None:
+    """Attach HTTP routes after logging setup and application creation."""
+    from app.api.routes import router as api_router
+    from app.api.business_queries import router as business_query_router
+    from app.api.connection_tests import router as connection_test_router
+    from app.api.business_trials import router as business_trial_router
+    from app.api.business_execution import router as business_execution_router
 
-app.include_router(api_router)
-app.include_router(business_query_router)
-app.include_router(connection_test_router)
-app.include_router(business_trial_router)
-app.include_router(business_execution_router)
+    application.include_router(api_router)
+    application.include_router(business_query_router)
+    application.include_router(connection_test_router)
+    application.include_router(business_trial_router)
+    application.include_router(business_execution_router)
+
+
+register_routes(app)
 
 
 if __name__ == "__main__":
@@ -126,4 +140,3 @@ if __name__ == "__main__":
         port=settings.PORT,
         reload=settings.is_development,
     )
-

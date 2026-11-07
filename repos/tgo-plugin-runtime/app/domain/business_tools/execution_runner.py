@@ -1,4 +1,5 @@
-"""Formal read-only customer operations recheck the original grant after querying."""
+"""Formal read-only customer operations recheck the original grant after \
+querying."""
 
 from datetime import UTC, datetime
 import re
@@ -37,21 +38,34 @@ from app.schemas.agent_business_execution import (
     BusinessExecutionCheck,
     BusinessExecutionReceipt,
 )
-from app.schemas.business_execution_resolution import BusinessExecutionResolution
-from app.schemas.connection_test_protocol import ConnectionTestSummary, ErrorCode
-from app.services.business_execution_owner_client import BusinessExecutionOwnerClient
-from app.services.business_connection_client import ConnectionAuthorityUnavailable
+from app.schemas.business_execution_resolution import (
+    BusinessExecutionResolution,
+)
+from app.schemas.connection_test_protocol import (
+    ConnectionTestSummary,
+    ErrorCode,
+)
+from app.services.business_execution_owner_client import (
+    BusinessExecutionOwnerClient,
+)
+from app.services.business_connection_client import (
+    ConnectionAuthorityUnavailable,
+)
 
 
 class Owner(Protocol):
     async def resolve(
         self, check: BusinessExecutionCheck
-    ) -> BusinessExecutionResolution: ...
+    ) -> BusinessExecutionResolution:
+        ...
 
 
 class BusinessExecutionRunner:
     def __init__(
-        self, owner: Owner | None = None, *, audit: BusinessQueryAuditSink | None = None
+        self,
+        owner: Owner | None = None,
+        *,
+        audit: BusinessQueryAuditSink | None = None,
     ):
         self.owner = owner or BusinessExecutionOwnerClient()
         self.audit = audit or DatabaseBusinessQueryAuditSink()
@@ -61,7 +75,9 @@ class BusinessExecutionRunner:
     ) -> ReadOnlyBusinessProvider:
         return cast(
             ReadOnlyBusinessProvider,
-            ConnectionTestRunner(audit=self.audit)._provider(resolution.snapshot),
+            ConnectionTestRunner(audit=self.audit)._provider(
+                resolution.snapshot
+            ),
         )
 
     def customer_provider(
@@ -127,14 +143,21 @@ class BusinessExecutionRunner:
             ):
                 if item is not None:
                     forbidden.append(item.get_secret_value())
-        if any(private and private in value for private in forbidden) or re.search(
-            r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\d{7,}|https?://|\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b",
+        if any(
+            private and private in value for private in forbidden
+        ) or re.search(
+            (
+                "[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}|\\d{7,}|https?://|\\b[0-9a-"
+                "f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\\b"
+            ),
             value,
         ):
             return "结果标签需配置映射"
         return value
 
-    async def run(self, command: BusinessExecutionCommand) -> BusinessExecutionReceipt:
+    async def run(
+        self, command: BusinessExecutionCommand
+    ) -> BusinessExecutionReceipt:
         original = await self.owner.resolve(
             BusinessExecutionCheck(command=command, phase="before_query")
         )
@@ -167,16 +190,25 @@ class BusinessExecutionRunner:
                     if command.order_no is None:
                         raise ConnectionAuthorityUnavailable()
                     service = BusinessQueryService(
-                        self.provider(original), self.audit,
-                        timeout_seconds=connection.configuration.timeout_seconds,
-                        audit_fingerprint_key=token.get_secret_value().encode(),
+                        self.provider(original),
+                        self.audit,
+                        timeout_seconds=(
+                            connection.configuration.timeout_seconds
+                        ),
+                        audit_fingerprint_key=(
+                            token.get_secret_value().encode()
+                        ),
                     )
                     order = await service.query_order(
-                        OrderQueryInput(order_no=command.order_no.get_secret_value()),
+                        OrderQueryInput(
+                            order_no=command.order_no.get_secret_value()
+                        ),
                         context,
                     )
                     summary = ConnectionTestSummary(
-                        status=self.safe_label(order.status, command, original),
+                        status=self.safe_label(
+                            order.status, command, original
+                        ),
                         amount_minor=order.amount_minor,
                         currency=order.currency,
                     )
@@ -184,9 +216,14 @@ class BusinessExecutionRunner:
                     if command.order_no is None:
                         raise ConnectionAuthorityUnavailable()
                     service = BusinessQueryService(
-                        self.provider(original), self.audit,
-                        timeout_seconds=connection.configuration.timeout_seconds,
-                        audit_fingerprint_key=token.get_secret_value().encode(),
+                        self.provider(original),
+                        self.audit,
+                        timeout_seconds=(
+                            connection.configuration.timeout_seconds
+                        ),
+                        audit_fingerprint_key=(
+                            token.get_secret_value().encode()
+                        ),
                     )
                     logistics = await service.query_logistics(
                         LogisticsQueryInput(
@@ -195,41 +232,65 @@ class BusinessExecutionRunner:
                         context,
                     )
                     summary = ConnectionTestSummary(
-                        status=self.safe_label(logistics.status, command, original),
-                        carrier=self.safe_label(logistics.carrier, command, original),
+                        status=self.safe_label(
+                            logistics.status, command, original
+                        ),
+                        carrier=self.safe_label(
+                            logistics.carrier, command, original
+                        ),
                         tracking_no_masked=logistics.tracking_no_masked,
                     )
                 else:
                     customer_service = CustomerQueryService(
-                        self.customer_provider(original), self.audit,
-                        timeout_seconds=connection.configuration.timeout_seconds,
-                        audit_fingerprint_key=token.get_secret_value().encode(),
+                        self.customer_provider(original),
+                        self.audit,
+                        timeout_seconds=(
+                            connection.configuration.timeout_seconds
+                        ),
+                        audit_fingerprint_key=(
+                            token.get_secret_value().encode()
+                        ),
                     )
                     if command.operation == "customer_profile_query":
                         profile = await customer_service.query_profile(context)
                         summary = ConnectionTestSummary(
                             status="查询完成",
-                            segment=self.safe_customer_label(profile.segment, command, original)
-                            if profile.segment else None,
+                            segment=self.safe_customer_label(
+                                profile.segment, command, original
+                            )
+                            if profile.segment
+                            else None,
                             service_tags=[
-                                self.safe_customer_label(tag, command, original)
+                                self.safe_customer_label(
+                                    tag, command, original
+                                )
                                 for tag in profile.service_tags
                             ],
                         )
                     else:
-                        membership = await customer_service.query_membership(context)
+                        membership = await customer_service.query_membership(
+                            context
+                        )
                         summary = ConnectionTestSummary(
                             status="查询完成",
-                            tier=self.safe_customer_label(membership.tier, command, original),
+                            tier=self.safe_customer_label(
+                                membership.tier, command, original
+                            ),
                             points_balance=membership.points_balance,
                         )
-            if summary.status == "结果标签需配置映射" or (
-                command.operation == "customer_profile_query"
-                and (summary.segment == "结果标签需配置映射"
-                     or "结果标签需配置映射" in (summary.service_tags or []))
-            ) or (
-                command.operation == "membership_query"
-                and summary.tier == "结果标签需配置映射"
+            if (
+                summary.status == "结果标签需配置映射"
+                or (
+                    command.operation == "customer_profile_query"
+                    and (
+                        summary.segment == "结果标签需配置映射"
+                        or "结果标签需配置映射" in (summary.service_tags or [])
+                    )
+                )
+                or (
+                    command.operation == "membership_query"
+                    and summary.tier == "结果标签需配置映射"
+                )
             ):
                 summary, error = None, "business_failed"
         except BusinessQueryAccessDenied:

@@ -39,11 +39,16 @@ from app.core.database import AsyncSessionLocal
 from app.models.plugin import InstalledPlugin
 from app.services.url_resolver import PluginURLResolver
 from app.services.plugin_installation import (
-    install_plugin_operation, PluginInstallationError, plugin_lifecycle_lock,
+    install_plugin_operation,
+    PluginInstallationError,
+    plugin_lifecycle_lock,
 )
 from app.services.plugin_upgrade import upgrade_plugin_operation
 from app.services.plugin_failures import (
-    INSTALL_FAILED, UPGRADE_FAILED, log_plugin_failure, public_plugin_failure,
+    INSTALL_FAILED,
+    UPGRADE_FAILED,
+    log_plugin_failure,
+    public_plugin_failure,
 )
 from sqlalchemy import select
 
@@ -53,34 +58,37 @@ router = APIRouter()
 
 # ==================== Plugin List ====================
 
+
 @router.get("/plugins", response_model=PluginListResponse)
 async def list_plugins(project_id: Optional[str] = None) -> PluginListResponse:
-    """
-    Get all registered plugins.
-    
-    Returns a list of all currently connected plugins with their capabilities.
-    If project_id is provided, only returns global plugins and plugins for that project.
-    """
+    (
+        "\n    Get all registered plugins.\n    \n    Returns a list of all cu"
+        "rrently connected plugins with their capabilities.\n    If project_id"
+        " is provided, only returns global plugins and plugins for that projec"
+        "t.\n    "
+    )
     plugins = plugin_manager.get_all_plugins(project_id=project_id)
     return PluginListResponse(plugins=plugins, total=len(plugins))
 
 
 @router.get("/plugins/installed", response_model=InstalledPluginListResponse)
-async def list_installed_plugins(project_id: Optional[str] = None) -> InstalledPluginListResponse:
+async def list_installed_plugins(
+    project_id: Optional[str] = None,
+) -> InstalledPluginListResponse:
     """
     Get all installed plugins from database, plus active dev plugins.
     """
     infos = []
-    
+
     # 1. Get from DB
     async with AsyncSessionLocal() as session:
         stmt = select(InstalledPlugin)
         if project_id:
             stmt = stmt.where(InstalledPlugin.project_id == project_id)
-        
+
         result = await session.execute(stmt)
         db_plugins = result.scalars().all()
-        
+
         for p in db_plugins:
             # Use process manager to get real-time status if available
             status_info = process_manager.get_status(p.plugin_id)
@@ -88,29 +96,31 @@ async def list_installed_plugins(project_id: Optional[str] = None) -> InstalledP
             if status == "not_managed":
                 status = p.status
             pid = status_info.get("pid", p.pid)
-            
+
             # Get capabilities if plugin is connected
             active_plugin = plugin_manager.get_plugin(p.plugin_id)
             capabilities = active_plugin.capabilities if active_plugin else []
-            
-            infos.append(InstalledPluginInfo(
-                id=p.id,
-                plugin_id=p.plugin_id,
-                name=p.name,
-                version=p.version,
-                description=p.description,
-                author=p.author,
-                status=status,
-                install_type=p.install_type,
-                source_url=p.source_url,
-                latest_version=p.latest_version or p.version,
-                installed_at=p.installed_at,
-                updated_at=p.updated_at,
-                pid=pid,
-                last_error=p.last_error,
-                is_dev_mode=False,
-                capabilities=capabilities
-            ))
+
+            infos.append(
+                InstalledPluginInfo(
+                    id=p.id,
+                    plugin_id=p.plugin_id,
+                    name=p.name,
+                    version=p.version,
+                    description=p.description,
+                    author=p.author,
+                    status=status,
+                    install_type=p.install_type,
+                    source_url=p.source_url,
+                    latest_version=p.latest_version or p.version,
+                    installed_at=p.installed_at,
+                    updated_at=p.updated_at,
+                    pid=pid,
+                    last_error=p.last_error,
+                    is_dev_mode=False,
+                    capabilities=capabilities,
+                )
+            )
 
     # 2. Add active dev plugins
     active_plugins = list(plugin_manager.plugins.values())
@@ -119,31 +129,36 @@ async def list_installed_plugins(project_id: Optional[str] = None) -> InstalledP
             # Check project_id filter
             if project_id and ap.project_id != project_id:
                 continue
-            
-            # Check if this dev plugin is already in the list (unlikely but possible)
+
+            # Check if this dev plugin is already in the list (unlikely but
+            # possible)
             if any(info.plugin_id == ap.id for info in infos):
                 continue
 
-            infos.append(InstalledPluginInfo(
-                id=None,
-                plugin_id=ap.id,
-                name=ap.name,
-                version=ap.version,
-                description=ap.description,
-                author=ap.author,
-                status="running",
-                install_type="dev",
-                installed_at=ap.connected_at,
-                updated_at=ap.connected_at,
-                is_dev_mode=True,
-                capabilities=ap.capabilities
-            ))
-            
+            infos.append(
+                InstalledPluginInfo(
+                    id=None,
+                    plugin_id=ap.id,
+                    name=ap.name,
+                    version=ap.version,
+                    description=ap.description,
+                    author=ap.author,
+                    status="running",
+                    install_type="dev",
+                    installed_at=ap.connected_at,
+                    updated_at=ap.connected_at,
+                    is_dev_mode=True,
+                    capabilities=ap.capabilities,
+                )
+            )
+
     return InstalledPluginListResponse(plugins=infos, total=len(infos))
 
 
 @router.post("/plugins/fetch-info", response_model=PluginFetchResponse)
-async def fetch_plugin_info(request: PluginFetchRequest) -> PluginFetchResponse:
+async def fetch_plugin_info(
+    request: PluginFetchRequest,
+) -> PluginFetchResponse:
     """
     Fetch plugin information from a URL (GitHub, Gitee, or custom).
     """
@@ -157,13 +172,18 @@ async def fetch_plugin_info(request: PluginFetchRequest) -> PluginFetchResponse:
         ) from None
     except Exception as e:
         log_plugin_failure("fetch_plugin_info", e)
-        raise HTTPException(500, "Failed to fetch plugin information") from None
+        raise HTTPException(
+            500, "Failed to fetch plugin information"
+        ) from None
 
 
 # ==================== Generic Plugin Routes ====================
 
+
 @router.get("/plugins/{plugin_id}", response_model=PluginInfo)
-async def get_plugin(plugin_id: str, project_id: Optional[str] = None) -> PluginInfo:
+async def get_plugin(
+    plugin_id: str, project_id: Optional[str] = None
+) -> PluginInfo:
     """
     Get a specific plugin by ID.
     """
@@ -171,80 +191,93 @@ async def get_plugin(plugin_id: str, project_id: Optional[str] = None) -> Plugin
     if not plugin:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Plugin not found: {plugin_id}"
+            detail=f"Plugin not found: {plugin_id}",
         )
     return plugin.to_info()
 
 
 # ==================== Chat Toolbar ====================
 
-@router.get("/plugins/chat-toolbar/buttons", response_model=ChatToolbarResponse)
-async def get_chat_toolbar_buttons(project_id: Optional[str] = None) -> ChatToolbarResponse:
-    """
-    Get all chat toolbar buttons from registered plugins.
-    
-    Returns a list of buttons that should be displayed in the chat toolbar.
-    """
+
+@router.get(
+    "/plugins/chat-toolbar/buttons", response_model=ChatToolbarResponse
+)
+async def get_chat_toolbar_buttons(
+    project_id: Optional[str] = None,
+) -> ChatToolbarResponse:
+    (
+        "\n    Get all chat toolbar buttons from registered plugins.\n    \n  "
+        "  Returns a list of buttons that should be displayed in the chat tool"
+        "bar.\n    "
+    )
     buttons = plugin_manager.get_chat_toolbar_buttons(project_id=project_id)
     return ChatToolbarResponse(buttons=buttons)
 
 
-@router.post("/plugins/chat-toolbar/{plugin_id}/render", response_model=PluginRenderResponse)
+@router.post(
+    "/plugins/chat-toolbar/{plugin_id}/render",
+    response_model=PluginRenderResponse,
+)
 async def render_chat_toolbar_plugin(
     plugin_id: str,
     request: PluginRenderRequest,
     project_id: Optional[str] = None,
 ) -> PluginRenderResponse:
-    """
-    Render a chat toolbar plugin's content.
-    
-    Called when user clicks a toolbar button.
-    """
+    (
+        "\n    Render a chat toolbar plugin's content.\n    \n    Called when "
+        "user clicks a toolbar button.\n    "
+    )
     plugin = plugin_manager.get_plugin(plugin_id, project_id=project_id)
     if not plugin:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Plugin not found: {plugin_id}"
+            detail=f"Plugin not found: {plugin_id}",
         )
-    
+
     params = {
         "action_id": request.action_id,
         "visitor_id": request.visitor_id,
         "session_id": request.session_id,
-        "visitor": request.visitor.model_dump(exclude_none=True) if request.visitor else None,
+        "visitor": request.visitor.model_dump(exclude_none=True)
+        if request.visitor
+        else None,
         "agent_id": request.agent_id,
         "context": request.context,
         "language": request.language,
     }
-    
-    result = await plugin_manager.send_request(plugin_id, "chat_toolbar/render", params)
+
+    result = await plugin_manager.send_request(
+        plugin_id, "chat_toolbar/render", params
+    )
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Plugin did not respond in time"
+            detail="Plugin did not respond in time",
         )
-    
+
     return PluginRenderResponse(**result)
 
 
-@router.post("/plugins/chat-toolbar/{plugin_id}/event", response_model=PluginActionResponse)
+@router.post(
+    "/plugins/chat-toolbar/{plugin_id}/event",
+    response_model=PluginActionResponse,
+)
 async def send_chat_toolbar_event(
     plugin_id: str,
     request: PluginEventRequest,
     project_id: Optional[str] = None,
 ) -> PluginActionResponse:
-    """
-    Send an event to a chat toolbar plugin.
-    
-    Called when user interacts with the toolbar plugin's UI.
-    """
+    (
+        "\n    Send an event to a chat toolbar plugin.\n    \n    Called when "
+        "user interacts with the toolbar plugin's UI.\n    "
+    )
     plugin = plugin_manager.get_plugin(plugin_id, project_id=project_id)
     if not plugin:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Plugin not found: {plugin_id}"
+            detail=f"Plugin not found: {plugin_id}",
         )
-    
+
     params = {
         "event_type": request.event_type,
         "action_id": request.action_id,
@@ -255,29 +288,34 @@ async def send_chat_toolbar_event(
         "form_data": request.form_data,
         "payload": request.payload,
     }
-    
-    result = await plugin_manager.send_request(plugin_id, "chat_toolbar/event", params)
+
+    result = await plugin_manager.send_request(
+        plugin_id, "chat_toolbar/event", params
+    )
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Plugin did not respond in time"
+            detail="Plugin did not respond in time",
         )
-    
+
     return PluginActionResponse(**result)
 
 
 # ==================== Visitor Panel ====================
 
-@router.post("/plugins/visitor-panel/render", response_model=VisitorPanelRenderResponse)
+
+@router.post(
+    "/plugins/visitor-panel/render", response_model=VisitorPanelRenderResponse
+)
 async def render_visitor_panels(
     request: VisitorPanelRenderRequest,
     project_id: Optional[str] = None,
 ) -> VisitorPanelRenderResponse:
-    """
-    Render all visitor panel plugins for a specific visitor.
-    
-    Returns a list of rendered panels from all plugins that support visitor_panel.
-    """
+    (
+        "\n    Render all visitor panel plugins for a specific visitor.\n    "
+        "\n    Returns a list of rendered panels from all plugins that support"
+        " visitor_panel.\n    "
+    )
     panels = await plugin_manager.render_visitor_panels(
         visitor_id=request.visitor_id,
         session_id=request.session_id,
@@ -291,71 +329,75 @@ async def render_visitor_panels(
 
 # ==================== Generic Plugin Routes ====================
 
-@router.post("/plugins/{plugin_id}/render", response_model=PluginRenderResponse)
+
+@router.post(
+    "/plugins/{plugin_id}/render", response_model=PluginRenderResponse
+)
 async def render_plugin(
-    plugin_id: str, 
+    plugin_id: str,
     request: PluginRenderRequest,
     project_id: Optional[str] = None,
 ) -> PluginRenderResponse:
-    """
-    Trigger a plugin to render its UI.
-    
-    Sends a render request to the plugin and returns the JSON-UI response.
-    """
+    (
+        "\n    Trigger a plugin to render its UI.\n    \n    Sends a render re"
+        "quest to the plugin and returns the JSON-UI response.\n    "
+    )
     plugin = plugin_manager.get_plugin(plugin_id, project_id=project_id)
     if not plugin:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Plugin not found: {plugin_id}"
+            detail=f"Plugin not found: {plugin_id}",
         )
-    
+
     # Determine the render method based on plugin capabilities
     method = "visitor_panel/render"
     for cap in plugin.capabilities:
         if cap.type == "chat_toolbar":
             method = "chat_toolbar/render"
             break
-    
+
     params = {
         "visitor_id": request.visitor_id,
         "session_id": request.session_id,
-        "visitor": request.visitor.model_dump(exclude_none=True) if request.visitor else None,
+        "visitor": request.visitor.model_dump(exclude_none=True)
+        if request.visitor
+        else None,
         "agent_id": request.agent_id,
         "action_id": request.action_id,
         "context": request.context,
         "language": request.language,
     }
-    
+
     result = await plugin_manager.send_request(plugin_id, method, params)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Plugin did not respond in time"
+            detail="Plugin did not respond in time",
         )
-    
+
     return PluginRenderResponse(**result)
 
 
 @router.post("/plugins/{plugin_id}/event", response_model=PluginActionResponse)
 async def send_plugin_event(
-    plugin_id: str, 
+    plugin_id: str,
     request: PluginEventRequest,
     project_id: Optional[str] = None,
 ) -> PluginActionResponse:
-    """
-    Send an event to a plugin.
-    
-    Used when user interacts with plugin UI (button click, form submit, etc.).
-    Returns the JSON-ACTION response.
-    """
+    (
+        "\n    Send an event to a plugin.\n    \n    Used when user interacts "
+        "with plugin UI (button click, form submit, etc.).\n    Returns the JS"
+        "ON-ACTION response.\n    "
+    )
     plugin = plugin_manager.get_plugin(plugin_id, project_id=project_id)
     if not plugin:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Plugin not found: {plugin_id}"
+            detail=f"Plugin not found: {plugin_id}",
         )
-    
-    # Determine the event method based on plugin capabilities or explicit extension_type
+
+    # Determine the event method based on plugin capabilities or explicit
+    # extension_type
     method = None
     if request.extension_type:
         method = f"{request.extension_type}/event"
@@ -366,7 +408,7 @@ async def send_plugin_event(
             if cap.type == "chat_toolbar":
                 method = "chat_toolbar/event"
                 break
-    
+
     params = {
         "event_type": request.event_type,
         "action_id": request.action_id,
@@ -377,20 +419,24 @@ async def send_plugin_event(
         "form_data": request.form_data,
         "payload": request.payload,
     }
-    
+
     result = await plugin_manager.send_request(plugin_id, method, params)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Plugin did not respond in time"
+            detail="Plugin did not respond in time",
         )
-    
+
     return PluginActionResponse(**result)
 
 
 # ==================== Tool Execution (MCP) ====================
 
-@router.post("/plugins/tools/execute/{plugin_id}/{tool_name}", response_model=ToolExecuteResponse)
+
+@router.post(
+    "/plugins/tools/execute/{plugin_id}/{tool_name}",
+    response_model=ToolExecuteResponse,
+)
 async def execute_plugin_tool(
     plugin_id: str,
     tool_name: str,
@@ -404,9 +450,9 @@ async def execute_plugin_tool(
     if not plugin:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Plugin not found: {plugin_id}"
+            detail=f"Plugin not found: {plugin_id}",
         )
-    
+
     params = {
         "tool_name": tool_name,
         "arguments": request.arguments,
@@ -415,16 +461,19 @@ async def execute_plugin_tool(
         "agent_id": request.context.agent_id,
         "language": request.context.language,
     }
-    
+
     result = await plugin_manager.send_request(
-        plugin_id, "tool/execute", params, project_id=project_id,
+        plugin_id,
+        "tool/execute",
+        params,
+        project_id=project_id,
     )
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Plugin did not respond in time"
+            detail="Plugin did not respond in time",
         )
-    
+
     return ToolExecuteResponse(**result)
 
 
@@ -432,11 +481,13 @@ async def execute_plugin_tool(
 
 # ==================== Installation & Lifecycle ====================
 
+
 @router.post("/plugins/install-stream")
 async def install_plugin_stream(request: PluginInstallRequest):
     """
     Install a plugin and stream progress via SSE.
     """
+
     async def event_generator():
         queue = asyncio.Queue()
 
@@ -449,10 +500,14 @@ async def install_plugin_stream(request: PluginInstallRequest):
                 await install_plugin_operation(request, progress_callback)
             except Exception as e:
                 log_plugin_failure("install_stream", e)
-                await queue.put({
-                    "stage": "error",
-                    "message": public_plugin_failure(str(e), INSTALL_FAILED),
-                })
+                await queue.put(
+                    {
+                        "stage": "error",
+                        "message": public_plugin_failure(
+                            str(e), INSTALL_FAILED
+                        ),
+                    }
+                )
             finally:
                 # Signal end of stream
                 await queue.put(None)
@@ -499,7 +554,8 @@ async def _lock_plugin_lifecycle(plugin_id: str) -> AsyncIterator[None]:
 
 
 @router.delete(
-    "/plugins/{plugin_id}/uninstall", response_model=Dict[str, Any],
+    "/plugins/{plugin_id}/uninstall",
+    response_model=Dict[str, Any],
     dependencies=[Depends(_lock_plugin_lifecycle)],
 )
 async def uninstall_plugin(plugin_id: str, project_id: Optional[str] = None):
@@ -507,54 +563,67 @@ async def uninstall_plugin(plugin_id: str, project_id: Optional[str] = None):
     Uninstall a plugin.
     """
     async with AsyncSessionLocal() as session:
-        stmt = select(InstalledPlugin).where(InstalledPlugin.plugin_id == plugin_id)
+        stmt = select(InstalledPlugin).where(
+            InstalledPlugin.plugin_id == plugin_id
+        )
         if project_id:
             stmt = stmt.where(InstalledPlugin.project_id == project_id)
-        
+
         result = await session.execute(stmt)
         plugin = result.scalar_one_or_none()
-        
+
         if not plugin:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Plugin {plugin_id} not found in database for this project"
+                detail=(
+                    "Plugin "
+                    f'{plugin_id}'
+                    " not found in database for this project"
+                ),
             )
-        
+
         # Stop process
         if not await process_manager.stop_plugin(plugin_id):
-            raise HTTPException(409, "Plugin could not be stopped; files were preserved")
-        
+            raise HTTPException(
+                409, "Plugin could not be stopped; files were preserved"
+            )
+
         # Remove files
         await installer.uninstall(plugin_id)
-        
+
         # Remove from DB
         await session.delete(plugin)
         await session.commit()
-        
+
         return {"success": True, "message": "Plugin uninstalled"}
 
 
 @router.post(
-    "/plugins/{plugin_id}/start", response_model=PluginLifecycleResponse,
+    "/plugins/{plugin_id}/start",
+    response_model=PluginLifecycleResponse,
     dependencies=[Depends(_lock_plugin_lifecycle)],
 )
 async def start_plugin(
-    plugin_id: str, 
+    plugin_id: str,
     request: Optional[Dict[str, Any]] = None,
-    project_id: Optional[str] = None
+    project_id: Optional[str] = None,
 ):
     """
     Start a plugin process.
     """
     # Even an explicit runtime config must pass the persisted ownership check.
     async with AsyncSessionLocal() as session:
-        stmt = select(InstalledPlugin).where(InstalledPlugin.plugin_id == plugin_id)
+        stmt = select(InstalledPlugin).where(
+            InstalledPlugin.plugin_id == plugin_id
+        )
         if project_id:
             stmt = stmt.where(InstalledPlugin.project_id == project_id)
         result = await session.execute(stmt)
         plugin = result.scalar_one_or_none()
         if not plugin:
-            raise HTTPException(404, "Plugin not found in database for this project")
+            raise HTTPException(
+                404, "Plugin not found in database for this project"
+            )
         config = {
             "id": plugin.plugin_id,
             "project_id": str(plugin.project_id),
@@ -572,20 +641,21 @@ async def start_plugin(
                     400, "Startup configuration has a different plugin ID"
                 )
             config = {**request, "project_id": str(plugin.project_id)}
-            
+
     success, message = await process_manager.start_plugin(plugin_id, config)
     status_info = process_manager.get_status(plugin_id)
-    
+
     return PluginLifecycleResponse(
         success=success,
         message=message,
         status=status_info.get("status"),
-        pid=status_info.get("pid")
+        pid=status_info.get("pid"),
     )
 
 
 @router.post(
-    "/plugins/{plugin_id}/stop", response_model=PluginLifecycleResponse,
+    "/plugins/{plugin_id}/stop",
+    response_model=PluginLifecycleResponse,
     dependencies=[Depends(_lock_plugin_lifecycle)],
 )
 async def stop_plugin(plugin_id: str, project_id: Optional[str] = None):
@@ -594,26 +664,31 @@ async def stop_plugin(plugin_id: str, project_id: Optional[str] = None):
     """
     # Verify ownership
     async with AsyncSessionLocal() as session:
-        stmt = select(InstalledPlugin).where(InstalledPlugin.plugin_id == plugin_id)
+        stmt = select(InstalledPlugin).where(
+            InstalledPlugin.plugin_id == plugin_id
+        )
         if project_id:
             stmt = stmt.where(InstalledPlugin.project_id == project_id)
         result = await session.execute(stmt)
         if not result.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Plugin not found for this project")
+            raise HTTPException(
+                status_code=404, detail="Plugin not found for this project"
+            )
 
     success = await process_manager.stop_plugin(plugin_id)
     status_info = process_manager.get_status(plugin_id)
-    
+
     return PluginLifecycleResponse(
         success=success,
         message="Stopped" if success else "Failed to stop",
         status=status_info.get("status"),
-        pid=status_info.get("pid")
+        pid=status_info.get("pid"),
     )
 
 
 @router.post(
-    "/plugins/{plugin_id}/restart", response_model=PluginLifecycleResponse,
+    "/plugins/{plugin_id}/restart",
+    response_model=PluginLifecycleResponse,
     dependencies=[Depends(_lock_plugin_lifecycle)],
 )
 async def restart_plugin(plugin_id: str, project_id: Optional[str] = None):
@@ -622,21 +697,25 @@ async def restart_plugin(plugin_id: str, project_id: Optional[str] = None):
     """
     # Verify ownership
     async with AsyncSessionLocal() as session:
-        stmt = select(InstalledPlugin).where(InstalledPlugin.plugin_id == plugin_id)
+        stmt = select(InstalledPlugin).where(
+            InstalledPlugin.plugin_id == plugin_id
+        )
         if project_id:
             stmt = stmt.where(InstalledPlugin.project_id == project_id)
         result = await session.execute(stmt)
         if not result.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Plugin not found for this project")
+            raise HTTPException(
+                status_code=404, detail="Plugin not found for this project"
+            )
 
     success, message = await process_manager.restart_plugin(plugin_id)
     status_info = process_manager.get_status(plugin_id)
-    
+
     return PluginLifecycleResponse(
         success=success,
         message=message,
         status=status_info.get("status"),
-        pid=status_info.get("pid")
+        pid=status_info.get("pid"),
     )
 
 
@@ -647,12 +726,16 @@ async def get_plugin_logs(plugin_id: str, project_id: Optional[str] = None):
     """
     # Verify ownership
     async with AsyncSessionLocal() as session:
-        stmt = select(InstalledPlugin).where(InstalledPlugin.plugin_id == plugin_id)
+        stmt = select(InstalledPlugin).where(
+            InstalledPlugin.plugin_id == plugin_id
+        )
         if project_id:
             stmt = stmt.where(InstalledPlugin.project_id == project_id)
         result = await session.execute(stmt)
         if not result.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Plugin not found for this project")
+            raise HTTPException(
+                status_code=404, detail="Plugin not found for this project"
+            )
 
     logs = process_manager.get_logs(plugin_id)
     return PluginLogResponse(plugin_id=plugin_id, logs=logs)
@@ -665,57 +748,73 @@ async def get_plugin_status(plugin_id: str, project_id: Optional[str] = None):
     """
     # Verify ownership
     async with AsyncSessionLocal() as session:
-        stmt = select(InstalledPlugin).where(InstalledPlugin.plugin_id == plugin_id)
+        stmt = select(InstalledPlugin).where(
+            InstalledPlugin.plugin_id == plugin_id
+        )
         if project_id:
             stmt = stmt.where(InstalledPlugin.project_id == project_id)
         result = await session.execute(stmt)
         if not result.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Plugin not found for this project")
+            raise HTTPException(
+                status_code=404, detail="Plugin not found for this project"
+            )
 
     return process_manager.get_status(plugin_id)
 
 
-@router.get("/plugins/{plugin_id}/check-update", response_model=PluginUpdateCheckResponse)
-async def check_plugin_update(plugin_id: str, project_id: Optional[str] = None) -> PluginUpdateCheckResponse:
+@router.get(
+    "/plugins/{plugin_id}/check-update",
+    response_model=PluginUpdateCheckResponse,
+)
+async def check_plugin_update(
+    plugin_id: str, project_id: Optional[str] = None
+) -> PluginUpdateCheckResponse:
     """
     Check if an update is available for an installed plugin.
     """
     async with AsyncSessionLocal() as session:
-        stmt = select(InstalledPlugin).where(InstalledPlugin.plugin_id == plugin_id)
+        stmt = select(InstalledPlugin).where(
+            InstalledPlugin.plugin_id == plugin_id
+        )
         if project_id:
             stmt = stmt.where(InstalledPlugin.project_id == project_id)
-        
+
         result = await session.execute(stmt)
         plugin = result.scalar_one_or_none()
-        
+
         if not plugin:
             raise HTTPException(status_code=404, detail="Plugin not found")
-        
+
         if not plugin.source_url:
             return PluginUpdateCheckResponse(
                 has_update=False,
                 current_version=plugin.version,
                 latest_version=plugin.version,
-                message="No source URL found for this plugin, cannot check for updates."
+                message=(
+                    "No source URL found for this plugin, cannot check for upd"
+                    "ates."
+                ),
             )
-        
+
         resolver = PluginURLResolver()
         try:
             latest_config_dict = await resolver.resolve(plugin.source_url)
-            latest_config = PluginFetchResponse(**latest_config_dict, source_url=plugin.source_url)
-            
+            latest_config = PluginFetchResponse(
+                **latest_config_dict, source_url=plugin.source_url
+            )
+
             # Simple version comparison
             has_update = latest_config.version != plugin.version
-            
+
             # Save latest version to DB
             plugin.latest_version = latest_config.version
             await session.commit()
-            
+
             return PluginUpdateCheckResponse(
                 has_update=has_update,
                 current_version=plugin.version,
                 latest_version=latest_config.version,
-                latest_config=latest_config
+                latest_config=latest_config,
             )
         except Exception as e:
             log_plugin_failure("check_plugin_update", e)
@@ -723,19 +822,20 @@ async def check_plugin_update(plugin_id: str, project_id: Optional[str] = None) 
                 has_update=False,
                 current_version=plugin.version,
                 latest_version=plugin.version,
-                message="Failed to check plugin updates"
+                message="Failed to check plugin updates",
             )
 
 
 @router.post("/plugins/{plugin_id}/upgrade")
 async def upgrade_plugin(
-    plugin_id: str, 
+    plugin_id: str,
     request: PluginUpgradeRequest,
-    project_id: Optional[str] = None
+    project_id: Optional[str] = None,
 ):
     """
     Upgrade an installed plugin and stream progress via SSE.
     """
+
     async def event_generator():
         queue = asyncio.Queue()
 
@@ -744,14 +844,20 @@ async def upgrade_plugin(
 
         async def run_upgrade():
             try:
-                await upgrade_plugin_operation(plugin_id, request, project_id, progress_callback)
+                await upgrade_plugin_operation(
+                    plugin_id, request, project_id, progress_callback
+                )
 
             except Exception as e:
                 log_plugin_failure("upgrade_stream", e)
-                await queue.put({
-                    "stage": "error",
-                    "message": public_plugin_failure(str(e), UPGRADE_FAILED),
-                })
+                await queue.put(
+                    {
+                        "stage": "error",
+                        "message": public_plugin_failure(
+                            str(e), UPGRADE_FAILED
+                        ),
+                    }
+                )
             finally:
                 await queue.put(None)
 
@@ -764,4 +870,3 @@ async def upgrade_plugin(
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-

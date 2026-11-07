@@ -25,7 +25,10 @@ from app.domain.business_tools.models import (
     LogisticsQueryInput,
     OrderQueryInput,
 )
-from app.domain.business_tools.providers import ReadOnlyBusinessProvider
+from app.domain.business_tools.providers import (
+    BusinessQueryAuditSink,
+    ReadOnlyBusinessProvider,
+)
 from app.domain.business_tools.service import (
     BusinessQueryAccessDenied,
     BusinessQueryAuditError,
@@ -42,9 +45,13 @@ InternalAPIKey = Annotated[str | None, Header(alias="X-Internal-API-Key")]
 
 def _require_internal_key(provided_key: str | None) -> None:
     configured_key = settings.INTERNAL_API_KEY or settings.SECRET_KEY
-    if not configured_key or not provided_key or not hmac.compare_digest(
-        configured_key,
-        provided_key,
+    if (
+        not configured_key
+        or not provided_key
+        or not hmac.compare_digest(
+            configured_key,
+            provided_key,
+        )
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -98,6 +105,7 @@ def _build_http_provider_config() -> HTTPBusinessProviderConfig:
 def _build_business_service() -> BusinessQueryService:
     audit_key = hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest()
     provider: ReadOnlyBusinessProvider
+    audit_sink: BusinessQueryAuditSink
     if settings.BUSINESS_QUERY_MODE == "demo":
         provider = DemoHandbagBusinessProvider()
         audit_sink = LoggingBusinessQueryAuditSink()
@@ -133,7 +141,9 @@ async def get_business_query_status(
         configured=configured,
         auth_mode=settings.BUSINESS_API_AUTH_MODE if mode == "http" else None,
         method=settings.BUSINESS_API_METHOD if mode == "http" else None,
-        order_path=settings.BUSINESS_API_ORDER_PATH if mode == "http" else None,
+        order_path=settings.BUSINESS_API_ORDER_PATH
+        if mode == "http"
+        else None,
         logistics_path=(
             settings.BUSINESS_API_LOGISTICS_PATH if mode == "http" else None
         ),
@@ -158,18 +168,20 @@ async def query_business_data(
 
     try:
         if request.operation == "order_query":
-            result = await service.query_order(
+            order_result = await service.query_order(
                 OrderQueryInput(order_no=request.order_no),
                 request.context.to_domain(),
             )
-            return BusinessQueryResponse(operation=request.operation, order=result)
-        result = await service.query_logistics(
+            return BusinessQueryResponse(
+                operation=request.operation, order=order_result
+            )
+        logistics_result = await service.query_logistics(
             LogisticsQueryInput(order_no=request.order_no),
             request.context.to_domain(),
         )
         return BusinessQueryResponse(
             operation=request.operation,
-            logistics=result,
+            logistics=logistics_result,
         )
     except BusinessQueryAccessDenied as exc:
         raise HTTPException(

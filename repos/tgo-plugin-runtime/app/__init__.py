@@ -1,2 +1,1 @@
 """TGO Plugin Runtime Service."""
-

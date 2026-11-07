@@ -102,14 +102,17 @@ class ConnectionTestRunner:
         )
         return HTTPBusinessProvider(config, transport=transport)
 
-    async def run(self, command: ConnectionTestCommand) -> ConnectionTestReceipt:
+    async def run(
+        self, command: ConnectionTestCommand
+    ) -> ConnectionTestReceipt:
         original = await self.owner.resolve(command)
         connection = original.connection
         key = settings.BUSINESS_CONNECTION_SERVICE_TOKEN
         if key is None or len(key.get_secret_value()) < 32:
             raise ConnectionAuthorityUnavailable()
         customer_operation = command.operation in {
-            "customer_profile_query", "membership_query"
+            "customer_profile_query",
+            "membership_query",
         }
         if customer_operation:
             if connection.mode != "http" or connection.configuration is None:
@@ -172,14 +175,17 @@ class ConnectionTestRunner:
                     summary = ConnectionTestSummary(
                         status="查询成功",
                         segment=self._summary_text(profile.segment, command)
-                        if profile.segment else None,
+                        if profile.segment
+                        else None,
                         service_tags=[
                             self._summary_text(tag, command)
                             for tag in profile.service_tags
                         ],
                     )
                 else:
-                    membership = await customer_service.query_membership(context)
+                    membership = await customer_service.query_membership(
+                        context
+                    )
                     summary = ConnectionTestSummary(
                         status="查询成功",
                         tier=self._summary_text(membership.tier, command),
@@ -197,7 +203,8 @@ class ConnectionTestRunner:
             error = "provider_failed"
         current = await self.owner.resolve(command)
         if current.connection != connection:
-            # Even a late rename is not a receipt for the original saved record.
+            # Even a late rename is not a receipt for the original saved
+            # record.
             raise ConnectionAuthorityUnavailable()
         return ConnectionTestReceipt(
             scope="business_connection_test",

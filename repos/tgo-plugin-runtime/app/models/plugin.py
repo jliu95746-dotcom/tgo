@@ -103,4 +103,3 @@ class InstalledPlugin(Base):
         default=func.now(),
         onupdate=func.now(),
     )
-

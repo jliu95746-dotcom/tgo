@@ -1,4 +1,5 @@
-"""Upgrade with the previous files and configuration retained until registration."""
+"""Upgrade with the previous files and configuration retained until regis\
+tration."""
 
 from dataclasses import dataclass
 from uuid import UUID
@@ -24,7 +25,9 @@ from app.services.plugin_installation import (
 from app.services.plugin_paths import contained_path, plugin_directory
 from app.services.process_manager import process_manager
 from app.services.plugin_failures import (
-    UPGRADE_FAILED, log_plugin_failure, public_plugin_failure,
+    UPGRADE_FAILED,
+    log_plugin_failure,
+    public_plugin_failure,
 )
 
 
@@ -63,9 +66,13 @@ async def save_version(
 
 async def restore_previous(previous: PreviousVersion, error: str) -> str:
     config = previous.config
-    await save_version(config, previous.install_path, error, previous.latest_version)
+    await save_version(
+        config, previous.install_path, error, previous.latest_version
+    )
     if not previous.was_running:
-        return "Original files and configuration restored; plugin remains stopped"
+        return (
+            "Original files and configuration restored; plugin remains stopped"
+        )
     started, message = await process_manager.start_plugin(
         config.id, config.model_dump()
     )
@@ -81,7 +88,9 @@ async def upgrade_plugin_operation(
     progress: Progress,
 ) -> None:
     if request.latest_config.id != plugin_id:
-        raise PluginInstallationError("Upgrade configuration has a different plugin ID")
+        raise PluginInstallationError(
+            "Upgrade configuration has a different plugin ID"
+        )
     async with plugin_lifecycle_lock(plugin_id):
         async with AsyncSessionLocal() as session:
             statement = select(InstalledPlugin).where(
@@ -104,7 +113,9 @@ async def upgrade_plugin_operation(
                     description=plugin.description,
                     author=plugin.author,
                     source_url=plugin.source_url,
-                    source=PluginSourceConfig.model_validate(plugin.source_config),
+                    source=PluginSourceConfig.model_validate(
+                        plugin.source_config
+                    ),
                     build=PluginBuildConfig.model_validate(plugin.build_config)
                     if plugin.build_config
                     else None,
@@ -126,7 +137,8 @@ async def upgrade_plugin_operation(
                 "Original installation is missing; upgrade aborted"
             )
         config = PluginInstallRequest(
-            project_id=previous.config.project_id, **request.latest_config.model_dump()
+            project_id=previous.config.project_id,
+            **request.latest_config.model_dump(),
         )
         await progress("stopping", "Stopping plugin process...")
         if not await process_manager.stop_plugin(plugin_id):
@@ -139,16 +151,21 @@ async def upgrade_plugin_operation(
             )
             if not success:
                 message = public_plugin_failure(message, UPGRADE_FAILED)
-                # Installer restores the old directory on download/build failure.
+                # Installer restores the old directory on download/build
+                # failure.
                 if backup.exists():
                     raise RuntimeError(
                         "Upgrade rollback is incomplete; backup preserved"
                     )
                 recovery = await restore_previous(previous, message)
-                await progress("error", f"Upgrade failed: {message}. {recovery}")
+                await progress(
+                    "error", f"Upgrade failed: {message}. {recovery}"
+                )
                 return
             await save_version(config, path)
-            await progress("starting", "Waiting for upgraded plugin to connect...")
+            await progress(
+                "starting", "Waiting for upgraded plugin to connect..."
+            )
             started, message = await process_manager.start_plugin(
                 plugin_id, config.model_dump()
             )
@@ -183,7 +200,8 @@ async def upgrade_plugin_operation(
                 return
             await progress("error", f"Upgrade failed: {message}. {recovery}")
             return
-        # Do not roll back a running version just because backup cleanup failed.
+        # Do not roll back a running version just because backup cleanup
+        # failed.
         try:
             installer.complete_upgrade(plugin_id)
         except Exception as error:

@@ -1,4 +1,5 @@
-"""A configured read query cannot select another origin or an unbounded body."""
+"""A configured read query cannot select another origin or an unbounded b\
+ody."""
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterator
@@ -19,7 +20,10 @@ _private_query: ContextVar[bool] = ContextVar(
 class _QueryLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if _private_query.get():
-            record.msg, record.args = "Business API HTTP operation completed", ()
+            record.msg, record.args = (
+                "Business API HTTP operation completed",
+                (),
+            )
         return True
 
 
@@ -108,7 +112,9 @@ class PinnedBusinessTransport(httpx.AsyncBaseTransport):
             httpx.URL(origin + path).raw_path.split(b"?")[0] for path in paths
         )
         self.resolver = resolver
-        self.inner = inner or httpx.AsyncHTTPTransport(trust_env=False, retries=0)
+        self.inner = inner or httpx.AsyncHTTPTransport(
+            trust_env=False, retries=0
+        )
         self.maximum = max_response_bytes
         if (
             self.origin.scheme != "https"
@@ -117,7 +123,9 @@ class PinnedBusinessTransport(httpx.AsyncBaseTransport):
         ):
             raise BusinessTargetRejected()
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    async def handle_async_request(
+        self, request: httpx.Request
+    ) -> httpx.Response:
         if (
             request.method not in {"GET", "POST"}
             or request.url.scheme != self.origin.scheme

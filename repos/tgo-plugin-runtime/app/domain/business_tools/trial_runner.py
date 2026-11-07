@@ -35,14 +35,21 @@ from app.schemas.agent_business_trials import (
     BusinessTrialCheck,
     BusinessTrialReceipt,
 )
-from app.schemas.connection_test_protocol import ConnectionTestSummary, ErrorCode
+from app.schemas.connection_test_protocol import (
+    ConnectionTestSummary,
+    ErrorCode,
+)
 from app.schemas.business_trial_resolution import BusinessTrialResolution
-from app.services.business_connection_client import ConnectionAuthorityUnavailable
+from app.services.business_connection_client import (
+    ConnectionAuthorityUnavailable,
+)
 from app.services.business_trial_owner_client import BusinessTrialOwnerClient
 
 
 class Owner(Protocol):
-    async def resolve(self, check: BusinessTrialCheck) -> BusinessTrialResolution:
+    async def resolve(
+        self, check: BusinessTrialCheck
+    ) -> BusinessTrialResolution:
         ...
 
 
@@ -101,12 +108,17 @@ SAFE_SUMMARY_LABELS = frozenset(
 
 class BusinessTrialRunner:
     def __init__(
-        self, owner: Owner | None = None, *, audit: BusinessQueryAuditSink | None = None
+        self,
+        owner: Owner | None = None,
+        *,
+        audit: BusinessQueryAuditSink | None = None,
     ):
         self.owner = owner or BusinessTrialOwnerClient()
         self.audit = audit or DatabaseBusinessQueryAuditSink()
 
-    def provider(self, value: BusinessTrialResolution) -> ReadOnlyBusinessProvider:
+    def provider(
+        self, value: BusinessTrialResolution
+    ) -> ReadOnlyBusinessProvider:
         # The same restricted HTTP transport used by configuration tests. Demo
         # must be rejected before this factory can ever be invoked.
         return cast(
@@ -130,7 +142,9 @@ class BusinessTrialRunner:
 
     @staticmethod
     def safe_text(
-        value: str, command: BusinessTrialCommand, resolution: BusinessTrialResolution
+        value: str,
+        command: BusinessTrialCommand,
+        resolution: BusinessTrialResolution,
     ) -> str:
         from re import sub
 
@@ -152,7 +166,8 @@ class BusinessTrialRunner:
                 value = value.replace(private, "[已隐藏]")
         value = sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[已隐藏]", value)
         value = sub(r"\d{7,}", "[已隐藏]", value)
-        # Upstream free text may contain names/addresses even in a status field.
+        # Upstream free text may contain names/addresses even in a status
+        # field.
         # Store only recognized business labels, never that arbitrary text.
         value = value.strip()
         normalized = value if value in SAFE_SUMMARY_LABELS else value.lower()
@@ -165,12 +180,17 @@ class BusinessTrialRunner:
         if (
             original.snapshot.connection.mode != "http"
             or not original.snapshot.connection.enabled
-            or command.operation not in original.snapshot.connection.capabilities
+            or command.operation
+            not in original.snapshot.connection.capabilities
         ):
             raise ConnectionAuthorityUnavailable()
         key = settings.BUSINESS_CONNECTION_SERVICE_TOKEN
         configuration = original.snapshot.connection.configuration
-        if key is None or len(key.get_secret_value()) < 32 or configuration is None:
+        if (
+            key is None
+            or len(key.get_secret_value()) < 32
+            or configuration is None
+        ):
             raise ConnectionAuthorityUnavailable()
         context = BusinessQueryContext(
             tenant_id=command.project_id,
@@ -194,7 +214,9 @@ class BusinessTrialRunner:
                         audit_fingerprint_key=key.get_secret_value().encode(),
                     )
                     order = await service.query_order(
-                        OrderQueryInput(order_no=command.order_no.get_secret_value()),
+                        OrderQueryInput(
+                            order_no=command.order_no.get_secret_value()
+                        ),
                         context,
                     )
                     summary = ConnectionTestSummary(
@@ -218,8 +240,12 @@ class BusinessTrialRunner:
                         context,
                     )
                     summary = ConnectionTestSummary(
-                        status=self.safe_text(logistics.status, command, original),
-                        carrier=self.safe_text(logistics.carrier, command, original),
+                        status=self.safe_text(
+                            logistics.status, command, original
+                        ),
+                        carrier=self.safe_text(
+                            logistics.carrier, command, original
+                        ),
                         tracking_no_masked=logistics.tracking_no_masked,
                     )
                 else:
@@ -239,12 +265,16 @@ class BusinessTrialRunner:
                             if profile.segment
                             else None,
                             service_tags=[
-                                self.safe_customer_label(tag, command, original)
+                                self.safe_customer_label(
+                                    tag, command, original
+                                )
                                 for tag in profile.service_tags
                             ],
                         )
                     else:
-                        membership = await customer_service.query_membership(context)
+                        membership = await customer_service.query_membership(
+                            context
+                        )
                         summary = ConnectionTestSummary(
                             status="查询完成",
                             tier=self.safe_customer_label(
@@ -284,7 +314,9 @@ class BusinessTrialRunner:
 
     @staticmethod
     def safe_customer_label(
-        value: str, command: BusinessTrialCommand, resolution: BusinessTrialResolution
+        value: str,
+        command: BusinessTrialCommand,
+        resolution: BusinessTrialResolution,
     ) -> str:
         from re import search
 
@@ -304,7 +336,10 @@ class BusinessTrialRunner:
                     private.append(item.get_secret_value())
         private.append(str(command.visitor_id))
         if any(secret and secret in value for secret in private) or search(
-            r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\d{7,}|https?://|\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b",
+            (
+                "[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}|\\d{7,}|https?://|\\b[0-9a-"
+                "f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\\b"
+            ),
             value,
         ):
             return "结果标签需配置映射"

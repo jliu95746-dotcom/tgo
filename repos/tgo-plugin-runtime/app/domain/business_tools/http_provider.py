@@ -87,7 +87,8 @@ class HTTPBusinessProviderConfig:
     default_timezone: str = "UTC"
 
     def __post_init__(self) -> None:
-        # Validate saved mapping semantics even for direct, legacy construction.
+        # Validate saved mapping semantics even for direct, legacy
+        # construction.
         names = (
             "merchant_id",
             "request_order_no_field",
@@ -131,10 +132,14 @@ class HTTPBusinessProviderConfig:
                 or "#" in path
                 or ".." in path.split("/")
             ):
-                raise ValueError(f"{field_name} must be a safe absolute API path")
+                raise ValueError(
+                    f"{field_name} must be a safe absolute API path"
+                )
         customer_paths = (self.customer_profile_path, self.membership_path)
         if (customer_paths[0] is None) != (customer_paths[1] is None):
-            raise ValueError("customer query paths must be configured together")
+            raise ValueError(
+                "customer query paths must be configured together"
+            )
         if customer_paths[0] is not None:
             for customer_path in customer_paths:
                 if customer_path is None or (
@@ -144,15 +149,26 @@ class HTTPBusinessProviderConfig:
                     or "#" in customer_path
                     or ".." in customer_path.split("/")
                 ):
-                    raise ValueError("customer query path must be a safe absolute API path")
-            if len(set((self.order_path, self.logistics_path, *customer_paths))) != 4:
+                    raise ValueError(
+                        "customer query path must be a safe absolute API path"
+                    )
+            if (
+                len(
+                    set(
+                        (self.order_path, self.logistics_path, *customer_paths)
+                    )
+                )
+                != 4
+            ):
                 raise ValueError("business query paths must be distinct")
         if self.method not in {"GET", "POST"}:
             raise ValueError("method must be GET or POST")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
         if self.auth_mode in {"bearer", "api_key"} and not self.auth_token:
-            raise ValueError(f"auth_token is required for {self.auth_mode} auth")
+            raise ValueError(
+                f"auth_token is required for {self.auth_mode} auth"
+            )
         if self.auth_mode == "api_key" and not _HEADER_NAME_PATTERN.fullmatch(
             self.api_key_header
         ):
@@ -166,7 +182,10 @@ class HTTPBusinessProviderConfig:
 
 
 class HTTPBusinessProvider:
-    """Query a customer-owned external API without exposing write operations."""
+    (
+        "Query a customer-owned external API without exposing write operations"
+        "."
+    )
 
     def __init__(
         self,
@@ -200,7 +219,9 @@ class HTTPBusinessProvider:
                     self._config.order_no_field,
                 ),
                 status=self._status(
-                    data, self._config.order_status_field, self._config.order_status_map
+                    data,
+                    self._config.order_status_field,
+                    self._config.order_status_map,
                 ),
                 amount_minor=amount,
                 currency=self._optional_text(
@@ -275,7 +296,9 @@ class HTTPBusinessProvider:
             self._config.request_order_no_field: order_no,
             self._config.request_merchant_id_field: self._config.merchant_id
             or str(context.tenant_id),
-            self._config.request_customer_id_field: context.external_customer_id,
+            self._config.request_customer_id_field: (
+                context.external_customer_id
+            ),
         }
         if self._config.request_operation_field is not None:
             payload[self._config.request_operation_field] = (
@@ -350,11 +373,15 @@ class HTTPBusinessProvider:
         if upstream_customer_id != context.external_customer_id:
             raise BusinessProviderAccessDenied("customer ownership mismatch")
         returned_order = self._required_text(data, self._config.order_no_field)
-        returned_merchant = self._required_text(data, self._config.tenant_id_field)
+        returned_merchant = self._required_text(
+            data, self._config.tenant_id_field
+        )
         if returned_order != requested_order_no or returned_merchant != (
             self._config.merchant_id or str(context.tenant_id)
         ):
-            raise BusinessProviderAccessDenied("merchant or order ownership mismatch")
+            raise BusinessProviderAccessDenied(
+                "merchant or order ownership mismatch"
+            )
         return OrderOwnership(
             tenant_id=context.tenant_id,
             visitor_id=context.visitor_id,
@@ -372,14 +399,18 @@ class HTTPBusinessProvider:
         try:
             decimal_value = Decimal(str(value))
         except (InvalidOperation, ValueError) as exc:
-            raise ValueError("configured amount field must be numeric") from exc
+            raise ValueError(
+                "configured amount field must be numeric"
+            ) from exc
         if decimal_value < 0:
             raise ValueError("configured amount field must not be negative")
         if self._config.order_amount_unit == "major":
             decimal_value *= 100
         integral = decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         if decimal_value != integral:
-            raise ValueError("configured amount field has unsupported precision")
+            raise ValueError(
+                "configured amount field has unsupported precision"
+            )
         return int(integral)
 
     def _optional_datetime(
@@ -391,9 +422,13 @@ class HTTPBusinessProvider:
         if value is None:
             return None
         if not isinstance(value, (str, datetime)):
-            raise ValueError(f"configured field {path!r} must be an ISO datetime")
+            raise ValueError(
+                f"configured field {path!r} must be an ISO datetime"
+            )
         try:
-            return normalize_merchant_time(value, self._config.default_timezone)
+            return normalize_merchant_time(
+                value, self._config.default_timezone
+            )
         except ValueError as exc:
             raise ValueError(
                 f"configured field {path!r} must be an ISO datetime"
@@ -402,7 +437,9 @@ class HTTPBusinessProvider:
     @staticmethod
     def _mask_tracking_number(value: str) -> str:
         if "*" in value:
-            if re.fullmatch(r"[A-Za-z0-9-]{0,16}\*{2,}[A-Za-z0-9*-]{0,16}", value):
+            if re.fullmatch(
+                r"[A-Za-z0-9-]{0,16}\*{2,}[A-Za-z0-9*-]{0,16}", value
+            ):
                 return value
             raise ValueError("masked tracking number has an invalid format")
         if not _TRACKING_NUMBER_PATTERN.fullmatch(value):
@@ -443,7 +480,9 @@ class HTTPBusinessProvider:
         try:
             return UUID(value)
         except ValueError as exc:
-            raise ValueError(f"configured field {path!r} must be a UUID") from exc
+            raise ValueError(
+                f"configured field {path!r} must be a UUID"
+            ) from exc
 
     @staticmethod
     def _optional_text(data: dict[str, object], path: str) -> str | None:

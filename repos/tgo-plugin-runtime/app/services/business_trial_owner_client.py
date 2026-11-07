@@ -1,4 +1,5 @@
-"""Only the API owner releases exact-purpose customer identity and credentials."""
+"""Only the API owner releases exact-purpose customer identity and creden\
+tials."""
 
 from datetime import UTC, datetime
 
@@ -8,14 +9,18 @@ from pydantic import ValidationError
 from app.config import settings
 from app.schemas.agent_business_trials import BusinessTrialCheck
 from app.schemas.business_trial_resolution import BusinessTrialResolution
-from app.services.business_connection_client import ConnectionAuthorityUnavailable
+from app.services.business_connection_client import (
+    ConnectionAuthorityUnavailable,
+)
 
 
 class BusinessTrialOwnerClient:
     def __init__(self, *, transport: httpx.AsyncBaseTransport | None = None):
         self.transport = transport
 
-    async def resolve(self, check: BusinessTrialCheck) -> BusinessTrialResolution:
+    async def resolve(
+        self, check: BusinessTrialCheck
+    ) -> BusinessTrialResolution:
         key = settings.BUSINESS_CONNECTION_SERVICE_TOKEN
         if key is None or len(key.get_secret_value()) < 32:
             raise ConnectionAuthorityUnavailable()
@@ -30,9 +35,15 @@ class BusinessTrialOwnerClient:
                 async with client.stream(
                     "POST",
                     settings.BUSINESS_CONNECTION_API_URL.rstrip("/")
-                    + f"/internal/business-connections/{command.connection_id}/business-trial",
+                    + (
+                        "/internal/business-connections/"
+                        f'{command.connection_id}'
+                        "/business-trial"
+                    ),
                     json=check.private_payload(),
-                    headers={"X-Business-Service-Token": key.get_secret_value()},
+                    headers={
+                        "X-Business-Service-Token": key.get_secret_value()
+                    },
                 ) as response:
                     if response.status_code != 200:
                         raise ConnectionAuthorityUnavailable()
@@ -42,8 +53,13 @@ class BusinessTrialOwnerClient:
                         if size > 65_536:
                             raise ConnectionAuthorityUnavailable()
                         chunks.append(chunk)
-            result = BusinessTrialResolution.model_validate_json(b"".join(chunks))
-            authority, connection = result.authority, result.snapshot.connection
+            result = BusinessTrialResolution.model_validate_json(
+                b"".join(chunks)
+            )
+            authority, connection = (
+                result.authority,
+                result.snapshot.connection,
+            )
             now = datetime.now(UTC)
             if (
                 any(
@@ -68,8 +84,10 @@ class BusinessTrialOwnerClient:
                 or connection.project_id != command.project_id
                 or connection.id != command.connection_id
                 or connection.revision != command.expected_revision
-                or connection.configuration_revision != command.configuration_revision
-                or connection.authorization_revision != command.authorization_revision
+                or connection.configuration_revision
+                != command.configuration_revision
+                or connection.authorization_revision
+                != command.authorization_revision
                 or connection.resource_revision != command.resource_revision
                 or command.operation not in connection.capabilities
             ):

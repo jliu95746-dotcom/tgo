@@ -7,8 +7,12 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.schemas.agent_business_execution import BusinessExecutionCheck
-from app.schemas.business_execution_resolution import BusinessExecutionResolution
-from app.services.business_connection_client import ConnectionAuthorityUnavailable
+from app.schemas.business_execution_resolution import (
+    BusinessExecutionResolution,
+)
+from app.services.business_connection_client import (
+    ConnectionAuthorityUnavailable,
+)
 
 
 class BusinessExecutionOwnerClient:
@@ -32,9 +36,15 @@ class BusinessExecutionOwnerClient:
                 async with client.stream(
                     "POST",
                     settings.BUSINESS_CONNECTION_API_URL.rstrip("/")
-                    + f"/internal/business-connections/{command.connection_id}/business-execution",
+                    + (
+                        "/internal/business-connections/"
+                        f'{command.connection_id}'
+                        "/business-execution"
+                    ),
                     json=check.private_payload(),
-                    headers={"X-Business-Service-Token": token.get_secret_value()},
+                    headers={
+                        "X-Business-Service-Token": token.get_secret_value()
+                    },
                 ) as response:
                     if response.status_code != 200:
                         raise ConnectionAuthorityUnavailable()
@@ -44,7 +54,9 @@ class BusinessExecutionOwnerClient:
                         if size > 65536:
                             raise ConnectionAuthorityUnavailable()
                         data.append(chunk)
-            result = BusinessExecutionResolution.model_validate_json(b"".join(data))
+            result = BusinessExecutionResolution.model_validate_json(
+                b"".join(data)
+            )
             authority, connection, principal = (
                 result.authority,
                 result.snapshot.connection,
@@ -63,7 +75,8 @@ class BusinessExecutionOwnerClient:
                 or principal.context_digest != command.context_digest
                 or principal.expires_at <= now
                 or principal.model_dump(
-                    include=set(type(command.context).model_fields) - {"context_token"}
+                    include=set(type(command.context).model_fields)
+                    - {"context_token"}
                 )
                 != command.context.model_dump()
                 or connection.project_id != command.reference.project_id
@@ -73,8 +86,10 @@ class BusinessExecutionOwnerClient:
                 or connection.configuration is None
                 or command.operation not in connection.capabilities
                 or connection.revision != authority.connection_revision
-                or connection.configuration_revision != authority.configuration_revision
-                or connection.authorization_revision != authority.authorization_revision
+                or connection.configuration_revision
+                != authority.configuration_revision
+                or connection.authorization_revision
+                != authority.authorization_revision
                 or connection.resource_revision != authority.resource_revision
             ):
                 raise ConnectionAuthorityUnavailable()

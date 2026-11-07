@@ -32,7 +32,10 @@ class BusinessProviderResultError(ValueError):
 
 
 class ReadOnlyBusinessProvider(Protocol):
-    """A provider that exposes queries and deliberately has no mutation methods."""
+    (
+        "A provider that exposes queries and deliberately has no mutation meth"
+        "ods."
+    )
 
     async def query_order(
         self,
@@ -52,7 +55,10 @@ class ReadOnlyBusinessProvider(Protocol):
 
 
 class BusinessQueryAuditSink(Protocol):
-    """Required audit boundary; implementations persist PII-minimized events."""
+    (
+        "Required audit boundary; implementations persist PII-minimized events"
+        "."
+    )
 
     async def record(self, event: BusinessQueryAuditEvent) -> None:
         """Persist an audit event before query data is returned."""

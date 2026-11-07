@@ -1,4 +1,5 @@
-"""Only the private adapter receives merchant credentials and customer identity."""
+"""Only the private adapter receives merchant credentials and customer id\
+entity."""
 
 from typing import Literal
 
@@ -11,9 +12,9 @@ from app.schemas.business_execution_context import BusinessRequestPrincipal
 
 class BusinessExecutionResolution(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    scope: Literal["employee_business_execution_resolution"] = (
+    scope: Literal[
         "employee_business_execution_resolution"
-    )
+    ] = "employee_business_execution_resolution"
     can_enable: Literal[False] = False
     authority: BusinessExecutionAuthority
     snapshot: BusinessConnectionPrivateSnapshot

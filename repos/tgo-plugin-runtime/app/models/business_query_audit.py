@@ -23,12 +23,18 @@ class BusinessQueryAuditRecord(Base):
         ),
         Index(
             "ix_pg_business_query_audit_tenant_request_created",
-            "tenant_id", "request_id", "created_at", "id",
+            "tenant_id",
+            "request_id",
+            "created_at",
+            "id",
         ),
         Index(
             "ix_pg_business_query_audit_message_created",
-            "tenant_id", "source_message_digest", "response_message_digest",
-            "created_at", "id",
+            "tenant_id",
+            "source_message_digest",
+            "response_message_digest",
+            "created_at",
+            "id",
         ),
     )
 

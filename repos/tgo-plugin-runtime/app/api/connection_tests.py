@@ -1,4 +1,5 @@
-"""Private, purpose-limited entry for company connection configuration tests."""
+"""Private, purpose-limited entry for company connection configuration te\
+sts."""
 
 from collections.abc import Callable, Coroutine
 import hmac
@@ -16,11 +17,15 @@ from app.schemas.connection_test_protocol import (
     ConnectionTestCommand,
     ConnectionTestReceipt,
 )
-from app.services.business_connection_client import ConnectionAuthorityUnavailable
+from app.services.business_connection_client import (
+    ConnectionAuthorityUnavailable,
+)
 
 
 class PrivateTestRoute(APIRoute):
-    def get_route_handler(self) -> Callable[[Request], Coroutine[None, None, Response]]:
+    def get_route_handler(
+        self,
+    ) -> Callable[[Request], Coroutine[None, None, Response]]:
         handler = super().get_route_handler()
 
         async def safe_handler(request: Request) -> Response:
@@ -41,7 +46,8 @@ class PrivateTestRoute(APIRoute):
 
 
 def require_connection_service(
-    provided: str | None = Header(default=None, alias="X-Business-Service-Token"),
+    provided: str
+    | None = Header(default=None, alias="X-Business-Service-Token"),
 ) -> None:
     configured = settings.BUSINESS_CONNECTION_SERVICE_TOKEN
     if (
@@ -78,5 +84,6 @@ async def test_connection(
             raise ConnectionAuthorityUnavailable()
         return result
     except Exception:
-        # Upstream exceptions can include credentials, inputs or provider bodies.
+        # Upstream exceptions can include credentials, inputs or provider
+        # bodies.
         raise HTTPException(503, "业务连接测试暂不可用，请查询原请求后重试") from None

@@ -1,4 +1,5 @@
-"""Portable plugin paths; installation IDs never select arbitrary directories."""
+"""Portable plugin paths; installation IDs never select arbitrary directo\
+ries."""
 
 import os
 import re
@@ -43,7 +44,9 @@ def contained_path(root: Path, relative: str) -> Path:
                 stat.S_ISLNK(info.st_mode)
                 or getattr(info, "st_file_attributes", 0) & 0x400
             ):
-                raise ValueError("Plugin paths cannot follow links or junctions")
+                raise ValueError(
+                    "Plugin paths cannot follow links or junctions"
+                )
     if not target.resolve().is_relative_to(resolved_root):
         raise ValueError("Plugin path escaped its root")
     return target
@@ -54,7 +57,9 @@ def plugin_directory(root: Path, plugin_id: str) -> Path:
 
 
 def plugin_python(install_dir: Path, require_venv: bool = False) -> str:
-    relative = ".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python"
+    relative = (
+        ".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python"
+    )
     # POSIX venvs intentionally symlink the interpreter to the trusted runtime.
     parent, filename = relative.rsplit("/", 1)
     executable = contained_path(install_dir, parent) / filename

@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 
-def normalize_merchant_time(value: str | datetime, timezone_name: str) -> datetime:
+def normalize_merchant_time(
+    value: str | datetime, timezone_name: str
+) -> datetime:
     parsed = (
         value
         if isinstance(value, datetime)

@@ -63,7 +63,10 @@ class BusinessQueryResultError(BusinessQueryProviderError):
 
 
 class BusinessQueryService:
-    """Execute only read operations and verify all returned ownership evidence."""
+    (
+        "Execute only read operations and verify all returned ownership eviden"
+        "ce."
+    )
 
     def __init__(
         self,
@@ -87,7 +90,10 @@ class BusinessQueryService:
         query: OrderQueryInput,
         context: BusinessQueryContext,
     ) -> OrderQueryResult:
-        """Query an order and return it only after ownership and audit checks."""
+        (
+            "Query an order and return it only after ownership and audit check"
+            "s."
+        )
 
         started_at = monotonic()
         try:
@@ -160,7 +166,10 @@ class BusinessQueryService:
         query: LogisticsQueryInput,
         context: BusinessQueryContext,
     ) -> LogisticsQueryResult:
-        """Query logistics and return it only after ownership and audit checks."""
+        (
+            "Query logistics and return it only after ownership and audit chec"
+            "ks."
+        )
 
         started_at = monotonic()
         try:
@@ -270,12 +279,18 @@ class BusinessQueryService:
                         order_no,
                     ),
                     source_message_digest=(
-                        message_lookup_digest(context.tenant_id, context.source_message_id)
-                        if context.source_message_id is not None else None
+                        message_lookup_digest(
+                            context.tenant_id, context.source_message_id
+                        )
+                        if context.source_message_id is not None
+                        else None
                     ),
                     response_message_digest=(
-                        message_lookup_digest(context.tenant_id, context.response_client_msg_no)
-                        if context.response_client_msg_no is not None else None
+                        message_lookup_digest(
+                            context.tenant_id, context.response_client_msg_no
+                        )
+                        if context.response_client_msg_no is not None
+                        else None
                     ),
                     duration_ms=(monotonic() - started_at) * 1000,
                 )

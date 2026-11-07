@@ -1,4 +1,5 @@
-"""Formal protocol capability and query routes require the private business service."""
+"""Formal protocol capability and query routes require the private busine\
+ss service."""
 
 from datetime import UTC, datetime
 from uuid import UUID
@@ -6,7 +7,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.connection_tests import PrivateTestRoute, require_connection_service
+from app.api.connection_tests import (
+    PrivateTestRoute,
+    require_connection_service,
+)
 from app.core.database import get_async_db
 from app.domain.business_tools.execution_runner import BusinessExecutionRunner
 from app.schemas.agent_business_execution import (
@@ -14,8 +18,14 @@ from app.schemas.agent_business_execution import (
     BusinessExecutionReceipt,
     BusinessRuntimeCapabilities,
 )
-from app.schemas.business_query_audit import BusinessMessageAuditQuery, BusinessQueryAuditList
-from app.services.business_query_audit_read import list_message_query_audits, list_query_audits
+from app.schemas.business_query_audit import (
+    BusinessMessageAuditQuery,
+    BusinessQueryAuditList,
+)
+from app.services.business_query_audit_read import (
+    list_message_query_audits,
+    list_query_audits,
+)
 
 router = APIRouter(
     prefix="/business/execution",
@@ -27,7 +37,12 @@ router = APIRouter(
 @router.get("/capabilities", response_model=BusinessRuntimeCapabilities)
 def capabilities() -> BusinessRuntimeCapabilities:
     return BusinessRuntimeCapabilities(
-        operations=["order_query", "logistics_query", "customer_profile_query", "membership_query"],
+        operations=[
+            "order_query",
+            "logistics_query",
+            "customer_profile_query",
+            "membership_query",
+        ],
         checked_at=datetime.now(UTC),
     )
 
