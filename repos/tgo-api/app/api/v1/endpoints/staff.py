@@ -41,6 +41,7 @@ from app.schemas.wukongim import (
     WuKongIMOnlineStatusRequest,
     WuKongIMOnlineStatusResponse,
 )
+from app.schemas.base import PaginationMetadata
 from app.services.wukongim_client import wukongim_client
 from app.services.transfer_service import is_within_service_hours
 from app.services.project_registration import ensure_project_staff_channel
@@ -58,7 +59,9 @@ router = APIRouter()
 router.include_router(profile_router)
 
 
-def _build_staff_response(staff: Staff, is_working: bool = None) -> StaffResponse:
+def _build_staff_response(
+    staff: Staff, is_working: bool | None = None,
+) -> StaffResponse:
     """Build StaffResponse with optional is_working field."""
     data = {
         "id": staff.id,
@@ -79,7 +82,7 @@ def _build_staff_response(staff: Staff, is_working: bool = None) -> StaffRespons
         "updated_at": staff.updated_at,
         "deleted_at": staff.deleted_at,
     }
-    return StaffResponse(**data)
+    return StaffResponse.model_validate(data)
 
 
 @router.post(
@@ -222,13 +225,13 @@ async def list_staff(
     
     return StaffListResponse(
         data=staff_responses,
-        pagination={
-            "total": total,
-            "limit": params.limit,
-            "offset": params.offset,
-            "has_next": params.offset + params.limit < total,
-            "has_prev": params.offset > 0,
-        }
+        pagination=PaginationMetadata(
+            total=total,
+            limit=params.limit,
+            offset=params.offset,
+            has_next=params.offset + params.limit < total,
+            has_prev=params.offset > 0,
+        )
     )
 
 

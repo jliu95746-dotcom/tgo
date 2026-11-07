@@ -1,6 +1,6 @@
 """Conversation management endpoints for WuKongIM."""
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -40,6 +40,7 @@ from app.schemas.wukongim import (
 from app.schemas.visitor import VisitorResponse, resolve_visitor_display_name, set_visitor_display_nickname
 from app.api.v1.endpoints.channels import _build_enriched_visitor_payload
 from app.services.wukongim_client import wukongim_client
+from app.services.ai_transport import JsonObject
 from app.services.reply_history import reconcile_reply_history
 from app.services.staff_conversation_scope import restricted_staff, owned_visitor_ids
 from app.services.channel_access import (
@@ -149,11 +150,11 @@ async def _build_channels_for_conversations(
         if channel_type != CHANNEL_TYPE_CUSTOMER_SERVICE:
             continue
             
-        visitor_id = channel_id_to_visitor_id.get(channel_id)
-        if not visitor_id:
+        matched_visitor_id = channel_id_to_visitor_id.get(channel_id)
+        if not matched_visitor_id:
             continue
             
-        visitor = visitor_map.get(visitor_id)
+        visitor = visitor_map.get(matched_visitor_id)
         if not visitor:
             continue
         
@@ -170,7 +171,7 @@ async def _build_channels_for_conversations(
         set_visitor_display_nickname(visitor_payload, user_language)
         
         # Add assigned_staff_id if exists
-        assigned_staff_id = visitor_to_staff.get(visitor_id)
+        assigned_staff_id = visitor_to_staff.get(matched_visitor_id)
         extra_data = visitor_payload.model_dump()
         if assigned_staff_id:
             extra_data["assigned_staff_id"] = str(assigned_staff_id)
@@ -465,7 +466,7 @@ async def sync_all_conversations(
         )
     
     # 3. Build channel list for WuKongIM
-    channels: List[dict] = []
+    channels: list[JsonObject] = []
     for visitor_id in visitor_ids:
         channel_id = build_visitor_channel_id(visitor_id)
         channels.append({
@@ -610,20 +611,20 @@ async def sync_waiting_conversations(
         )
     
     # 3. Build channel list for WuKongIM
-    channels: List[dict] = []
+    waiting_channels: list[JsonObject] = []
     for entry in waiting_entries:
         channel_id = build_visitor_channel_id(entry.visitor_id)
-        channels.append({
+        waiting_channels.append({
             "channel_id": channel_id,
             "channel_type": CHANNEL_TYPE_CUSTOMER_SERVICE,
         })
     
     logger.info(
-        f"Fetching conversations for {len(channels)} waiting visitors (page offset={offset}, limit={limit})",
+        f"Fetching conversations for {len(waiting_channels)} waiting visitors (page offset={offset}, limit={limit})",
         extra={
             "staff_id": str(current_user.id),
             "total_waiting": total_count,
-            "page_count": len(channels),
+            "page_count": len(waiting_channels),
             "msg_count": msg_count,
             "offset": offset,
             "limit": limit,
@@ -636,7 +637,7 @@ async def sync_waiting_conversations(
     try:
         raw_conversations = await wukongim_client.sync_conversations_by_channels(
             uid=staff_uid,
-            channels=channels,
+            channels=waiting_channels,
             msg_count=msg_count,
         )
         
@@ -953,7 +954,7 @@ async def sync_channel_messages(
     # 2) If clearance record exists, adjust start_message_seq to filter out old messages
     effective_start_seq = request.start_message_seq
     if clearance and clearance.cleared_message_seq > effective_start_seq:
-        effective_start_seq = clearance.cleared_message_seq + 1
+        effective_start_seq = cast(int, clearance.cleared_message_seq) + 1
 
     logger.info(
         f"Staff {current_user.username} syncing channel messages",

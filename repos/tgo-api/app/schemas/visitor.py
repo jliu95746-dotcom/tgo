@@ -1,7 +1,7 @@
 """Visitor schemas."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, TypeVar, Union
 from uuid import UUID
 
 from pydantic import EmailStr, Field, field_validator
@@ -877,10 +877,15 @@ def set_visitor_display_nickname(
     return response
 
 
+_VisitorResponseT = TypeVar(
+    "_VisitorResponseT", bound=Union[VisitorResponse, VisitorBasicResponse],
+)
+
+
 def set_visitor_list_display_nickname(
-    responses: List[Union[VisitorResponse, VisitorBasicResponse]],
+    responses: List[_VisitorResponseT],
     language: str = "en",
-) -> List[Union[VisitorResponse, VisitorBasicResponse]]:
+) -> List[_VisitorResponseT]:
     """
     Set display_nickname field on a list of visitor responses.
 

@@ -25,7 +25,9 @@ class NativeHandbackReceipt(BaseModel):
     service_state: Literal[0, 1, 4]
 
 
-async def prepare_native_mode(visitor: Visitor, desired_mode: str) -> None:
+async def prepare_native_mode(
+    visitor: Visitor, desired_mode: str | None,
+) -> None:
     """Require verified native release before committing workbench AI/assist."""
     if desired_mode not in {"auto", "assist"}:
         return

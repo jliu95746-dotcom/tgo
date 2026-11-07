@@ -10,7 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile, status, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import case
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.config import settings
@@ -103,6 +103,7 @@ from app.schemas.visitor import (
 from app.schemas.tag import set_tag_list_display_name
 
 from app.schemas.wukongim import WuKongIMChannelMessageSyncResponse
+from app.schemas.base import PaginationMetadata
 from app.services.transfer_service import transfer_to_staff
 
 
@@ -200,7 +201,9 @@ async def list_visitors(
             )
             .subquery()
         )
-        query = query.filter(Visitor.id.in_(tag_visitor_ids))
+        query = query.filter(
+            Visitor.id.in_(select(tag_visitor_ids.c.visitor_id))
+        )
 
     if search:
         search_term = f"%{search}%"
@@ -285,13 +288,13 @@ async def list_visitors(
 
     return VisitorListResponse(
         data=visitor_responses,
-        pagination={
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "has_next": offset + limit < total,
-            "has_prev": offset > 0,
-        }
+        pagination=PaginationMetadata(
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_next=offset + limit < total,
+            has_prev=offset > 0,
+        )
     )
 
 
@@ -678,7 +681,7 @@ async def record_visitor_activity(
 
     occurred_at = (
         req.occurred_at
-        if "occurred_at" in data
+        if "occurred_at" in data and req.occurred_at is not None
         else (activity.occurred_at if activity else datetime.utcnow())
     )
     title = req.title.strip()
@@ -832,7 +835,7 @@ async def accept_visitor_direct(
     guard.check()
 
     # 4. 如果之前在排队，更新队列状态
-    wait_duration = 0
+    wait_duration: Optional[int] = 0
     if queue_entry:
         wait_duration = queue_entry.wait_duration_seconds
         # transfer_to_staff updates the queue under the visitor lock.
