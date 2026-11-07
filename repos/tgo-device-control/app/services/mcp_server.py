@@ -37,7 +37,9 @@ class MCPProxy:
             return "Script business execution is not available"
         if principal is None or principal.sub != "tgo-ai":
             return None
-        desired_digest = getattr(connection, "desired_read_policy_digest", None)
+        desired_digest = getattr(
+            connection, "desired_read_policy_digest", None
+        )
         if not isinstance(desired_digest, str):
             return "Device policy is not published"
         if principal.read_policy_digest != desired_digest:
@@ -80,89 +82,131 @@ class MCPProxy:
 
             policy_error = self._policy_rejection_reason(connection, principal)
             if policy_error is not None:
-                return {"error": {
-                    "code": -32001,
-                    "message": policy_error,
-                }}
+                return {
+                    "error": {
+                        "code": -32001,
+                        "message": policy_error,
+                    }
+                }
 
-            desired_digest = getattr(connection, "desired_read_policy_digest", None)
+            desired_digest = getattr(
+                connection, "desired_read_policy_digest", None
+            )
             if isinstance(desired_digest, str) and (
                 getattr(connection, "applied_read_policy_digest", None)
                 != desired_digest
             ):
-                return {"error": {
-                    "code": -32001,
-                    "message": "Device policy is pending acknowledgement",
-                }}
+                return {
+                    "error": {
+                        "code": -32001,
+                        "message": "Device policy is pending acknowledgement",
+                    }
+                }
             if isinstance(desired_digest, str) and (
                 getattr(connection, "read_policy_verified_digest", None)
                 != desired_digest
             ):
-                return {"error": {
-                    "code": -32001,
-                    "message": "Device read action requires a current test",
-                }}
+                return {
+                    "error": {
+                        "code": -32001,
+                        "message": (
+                            "Device read action " "requires a current " "test"
+                        ),
+                    }
+                }
 
             raw_tools = await connection.list_tools()
             # Screen negotiation alone is not durable publication or business
             # verification. Keep these tools private until that path exists.
-            raw_tools = [tool for tool in raw_tools or [] if not (
-                isinstance(tool, dict) and str(tool.get("name", "")).startswith("screen_")
-            )]
+            raw_tools = [
+                tool
+                for tool in raw_tools or []
+                if not (
+                    isinstance(tool, dict)
+                    and str(tool.get("name", "")).startswith("screen_")
+                )
+            ]
             if not isinstance(desired_digest, str):
                 return {"tools": raw_tools or []}
             read_tools = [
-                tool for tool in raw_tools or []
+                tool
+                for tool in raw_tools or []
                 if isinstance(tool, dict) and tool.get("name") == "fs_read"
             ]
             if not read_tools:
-                return {"error": {
-                    "code": -32001,
-                    "message": "Required device read action is unavailable",
-                }}
+                return {
+                    "error": {
+                        "code": -32001,
+                        "message": (
+                            "Required device read " "action is unavailable"
+                        ),
+                    }
+                }
             return {"tools": read_tools}
 
     async def handle_call_tool(
-        self, device_id: str, params: Dict[str, Any],
+        self,
+        device_id: str,
+        params: Dict[str, Any],
         principal: DeviceServicePrincipal | None = None,
     ) -> Dict[str, Any]:
-        """Forward tool call to device as-is (no mapping, no transformation).
-
-        Args:
-            device_id: Target device identifier.
-            params: MCP ``tools/call`` params containing ``name`` and ``arguments``.
-
-        Returns:
-            Raw tool call result from the device.
-        """
+        (
+            "Forward tool call to device as-is (no "
+            "mapping, no transformation).\n\n        "
+            "Args:\n            device_id: Target "
+            "device identifier.\n            params: "
+            "MCP ``tools/call`` params containing "
+            "``name`` and ``arguments``.\n\n        "
+            "Returns:\n            Raw tool call "
+            "result from the device.\n        "
+        )
         if principal is not None and principal.sub != "tgo-ai":
-            raise HTTPException(403, "Device tool execution requires an AI run")
+            raise HTTPException(
+                403, "Device tool execution requires an AI run"
+            )
         name: str = params.get("name", "")
         if principal is not None and principal.sub == "tgo-ai":
             if principal.session_id is None:
                 return {
-                    "content": [{
-                        "type": "text",
-                        "text": "Error: Device execution session required",
-                    }],
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Error: Device execution session required",
+                        }
+                    ],
                     "isError": True,
                 }
             return await record_device_tool(
-                principal, device_id, name,
+                principal,
+                device_id,
+                name,
                 lambda: self._forward_tool(device_id, params, principal),
             )
         return await self._forward_tool(device_id, params, principal)
 
     async def _forward_tool(
-        self, device_id: str, params: Dict[str, Any],
+        self,
+        device_id: str,
+        params: Dict[str, Any],
         principal: DeviceServicePrincipal | None,
     ) -> Dict[str, Any]:
         name: str = params.get("name", "")
         arguments: Dict[str, Any] = params.get("arguments", {})
 
         if isinstance(name, str) and name.startswith("screen_"):
-            return {"content": [{"type": "text", "text":
-                "Error: Screen scope negotiation requires verified publication before business execution"}], "isError": True}
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Error: Screen scope negotiation requires"
+                            " verified publication before business "
+                            "execution"
+                        ),
+                    }
+                ],
+                "isError": True,
+            }
 
         async with tcp_connection_manager.lifecycle_lock(device_id):
             connection = tcp_connection_manager.get_connection(device_id)
@@ -171,7 +215,9 @@ class MCPProxy:
                     "content": [
                         {
                             "type": "text",
-                            "text": f"Error: Device {device_id} is not connected",
+                            "text": (
+                                f"Error: Device {device_id} is not connected"
+                            ),
                         }
                     ],
                     "isError": True,
@@ -180,24 +226,34 @@ class MCPProxy:
             policy_error = self._policy_rejection_reason(connection, principal)
             if policy_error is not None:
                 return {
-                    "content": [{
-                        "type": "text",
-                        "text": f"Error: {policy_error}",
-                    }],
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Error: {policy_error}",
+                        }
+                    ],
                     "isError": True,
                 }
 
-            desired_digest = getattr(connection, "desired_read_policy_digest", None)
+            desired_digest = getattr(
+                connection, "desired_read_policy_digest", None
+            )
             if isinstance(desired_digest, str):
                 if (
                     getattr(connection, "applied_read_policy_digest", None)
                     != desired_digest
                 ):
                     return {
-                        "content": [{
-                            "type": "text",
-                            "text": "Error: Device policy is pending acknowledgement",
-                        }],
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "Error: Device policy is"
+                                    " pending "
+                                    "acknowledgement"
+                                ),
+                            }
+                        ],
                         "isError": True,
                     }
                 if (
@@ -205,10 +261,16 @@ class MCPProxy:
                     != desired_digest
                 ):
                     return {
-                        "content": [{
-                            "type": "text",
-                            "text": "Error: Device read action requires a current test",
-                        }],
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "Error: Device read "
+                                    "action requires a "
+                                    "current test"
+                                ),
+                            }
+                        ],
                         "isError": True,
                     }
                 if name != "fs_read" or not allowed_read_arguments(
@@ -218,10 +280,16 @@ class MCPProxy:
                     arguments,
                 ):
                     return {
-                        "content": [{
-                            "type": "text",
-                            "text": "Error: Action is outside the active device policy",
-                        }],
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "Error: Action is outside"
+                                    " the active device "
+                                    "policy"
+                                ),
+                            }
+                        ],
                         "isError": True,
                     }
 
@@ -245,7 +313,9 @@ class MCPProxy:
     # ------------------------------------------------------------------ #
 
     async def handle_jsonrpc(
-        self, device_id: str, body: Dict[str, Any],
+        self,
+        device_id: str,
+        body: Dict[str, Any],
         principal: DeviceServicePrincipal | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Dispatch a JSON-RPC 2.0 request to the appropriate handler.
@@ -272,11 +342,19 @@ class MCPProxy:
         elif method == "tools/list":
             result = await self.handle_list_tools(device_id, principal)
             if set(result) == {"error"}:
-                return {"jsonrpc": "2.0", "id": request_id, "error": result["error"]}
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": result["error"],
+                }
         elif method == "tools/call":
             result = await self.handle_call_tool(device_id, params, principal)
             if set(result) == {"error"}:
-                return {"jsonrpc": "2.0", "id": request_id, "error": result["error"]}
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": result["error"],
+                }
         elif method == "ping":
             result = {}
         else:

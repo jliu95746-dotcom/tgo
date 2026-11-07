@@ -13,7 +13,9 @@ from app.schemas.device_screen_publication import (
     ScreenPolicyRead,
     ScreenPolicyRevoke,
 )
-from app.services.device_screen_publication import DeviceScreenPublicationService
+from app.services.device_screen_publication import (
+    DeviceScreenPublicationService,
+)
 
 router = APIRouter()
 
@@ -24,7 +26,9 @@ async def local_screen_grant(
     project_id: UUID = Depends(require_management_project),
     db: AsyncSession = Depends(get_async_db),
 ) -> ScreenLocalGrantRead:
-    return await DeviceScreenPublicationService(db).local_grant(project_id, device_id)
+    return await DeviceScreenPublicationService(db).local_grant(
+        project_id, device_id
+    )
 
 
 @router.get("/{device_id}/screen-policy", response_model=ScreenPolicyRead)
@@ -33,7 +37,9 @@ async def get_screen_policy(
     project_id: UUID = Depends(require_management_project),
     db: AsyncSession = Depends(get_async_db),
 ) -> ScreenPolicyRead:
-    policy = await DeviceScreenPublicationService(db).get(project_id, device_id)
+    policy = await DeviceScreenPublicationService(db).get(
+        project_id, device_id
+    )
     if policy is None:
         raise HTTPException(404, "Device screen policy not found")
     return policy
@@ -51,7 +57,9 @@ async def publish_screen_policy(
     )
 
 
-@router.post("/{device_id}/screen-policy/revoke", response_model=ScreenPolicyRead)
+@router.post(
+    "/{device_id}/screen-policy/revoke", response_model=ScreenPolicyRead
+)
 async def revoke_screen_policy(
     device_id: UUID,
     request: ScreenPolicyRevoke,

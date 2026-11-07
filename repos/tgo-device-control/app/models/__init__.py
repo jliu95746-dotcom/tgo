@@ -8,7 +8,11 @@ from app.models.device_script_policy import DeviceScriptPolicy
 from app.models.device_script_execution import DeviceScriptExecution
 
 __all__ = [
-    "Device", "DeviceSession", "DeviceScenarioDraft", "DeviceReadPolicy",
-    "DeviceScreenPolicy", "DeviceScriptPolicy",
+    "Device",
+    "DeviceSession",
+    "DeviceScenarioDraft",
+    "DeviceReadPolicy",
+    "DeviceScreenPolicy",
+    "DeviceScriptPolicy",
     "DeviceScriptExecution",
 ]

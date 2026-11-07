@@ -31,9 +31,11 @@ async def list_sessions(
     db: AsyncSession = Depends(get_async_db),
 ) -> SessionList:
     return await DeviceSessionService(db).list(
-        project, device_id=device_id,
+        project,
+        device_id=device_id,
         workflow_execution_id=workflow_execution_id,
-        skip=skip, limit=limit
+        skip=skip,
+        limit=limit,
     )
 
 

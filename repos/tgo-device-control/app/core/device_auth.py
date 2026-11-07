@@ -1,4 +1,5 @@
-"""Project-scoped internal authentication for device management and tool access."""
+"""Project-scoped internal authentication for device management and tool
+access."""
 
 from uuid import UUID
 
@@ -51,7 +52,10 @@ async def require_management_project(
     principal: DeviceServicePrincipal = Depends(require_service_principal),
     project_id: UUID | None = Query(None),
 ) -> UUID:
-    """A query parameter may narrow/confirm a signed project, never replace it."""
+    (
+        "A query parameter may narrow/confirm"
+        " a signed project, never replace it."
+    )
     if project_id is not None and project_id != principal.project_id:
         raise HTTPException(403, "Device project scope mismatch")
     if principal.device_id is not None:
@@ -67,10 +71,16 @@ async def require_bound_device(
     principal: DeviceServicePrincipal = Depends(require_service_principal),
     db: AsyncSession = Depends(get_async_db),
 ) -> DeviceResponse:
-    """Recheck persisted ownership for every MCP request, including discovery."""
+    (
+        "Recheck persisted ownership for "
+        "every MCP request, including "
+        "discovery."
+    )
     if principal.device_id is not None and device_id != principal.device_id:
         raise HTTPException(403, "Device binding scope mismatch")
-    device = await DeviceService(db).get_device(device_id, principal.project_id)
+    device = await DeviceService(db).get_device(
+        device_id, principal.project_id
+    )
     if device is None:
         raise HTTPException(404, "Device not found")
     return device

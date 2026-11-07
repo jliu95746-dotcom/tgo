@@ -111,7 +111,8 @@ class DeviceSessionService:
             if (
                 existing.device_id != device
                 or existing.agent_id != request.agent_id
-                or existing.workflow_execution_id != request.workflow_execution_id
+                or existing.workflow_execution_id
+                != request.workflow_execution_id
             ):
                 raise HTTPException(409, "Device session identity conflict")
             summary = self._summary(existing, device_row.device_name)
@@ -288,9 +289,9 @@ class DeviceSessionService:
                 for step in steps
             ]
         count = await self.db.scalar(
-            select(func.count()).select_from(DeviceSessionStep).where(
-                DeviceSessionStep.session_id == session
-            )
+            select(func.count())
+            .select_from(DeviceSessionStep)
+            .where(DeviceSessionStep.session_id == session)
         )
         return SessionDetail(
             **summary.model_dump(), steps=steps, step_total=count or 0

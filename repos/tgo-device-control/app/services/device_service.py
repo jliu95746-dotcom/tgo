@@ -17,7 +17,10 @@ from app.schemas.device import (
     DeviceStatus as ResponseDeviceStatus,
 )
 from app.services.bind_code_service import bind_code_service
-from app.services.tcp_connection_manager import TcpDeviceConnection, tcp_connection_manager
+from app.services.tcp_connection_manager import (
+    TcpDeviceConnection,
+    tcp_connection_manager,
+)
 
 logger = get_logger("services.device_service")
 
@@ -29,7 +32,9 @@ class DeviceService:
         self.db = db
 
     @staticmethod
-    def _connections(project_id: uuid.UUID) -> dict[uuid.UUID, TcpDeviceConnection]:
+    def _connections(
+        project_id: uuid.UUID,
+    ) -> dict[uuid.UUID, TcpDeviceConnection]:
         return {
             uuid.UUID(connection.agent_id): connection
             for connection in tcp_connection_manager.list_connections()
@@ -38,22 +43,36 @@ class DeviceService:
 
     @staticmethod
     def _as_utc(value: datetime) -> datetime:
-        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+        return (
+            value.replace(tzinfo=timezone.utc)
+            if value.tzinfo is None
+            else value
+        )
 
-    def _device_response(self, device: Device, connections: dict[uuid.UUID, TcpDeviceConnection]) -> DeviceResponse:
+    def _device_response(
+        self, device: Device, connections: dict[uuid.UUID, TcpDeviceConnection]
+    ) -> DeviceResponse:
         response = DeviceResponse.model_validate(device)
         connection = connections.get(device.id)
-        response.status = ResponseDeviceStatus.ONLINE if connection else ResponseDeviceStatus.OFFLINE
+        response.status = (
+            ResponseDeviceStatus.ONLINE
+            if connection
+            else ResponseDeviceStatus.OFFLINE
+        )
         if connection:
             response.last_seen_at = self._as_utc(connection.last_seen)
         return response
 
-    async def list_connected_devices(self, project_id: uuid.UUID) -> ConnectedDeviceListResponse:
+    async def list_connected_devices(
+        self, project_id: uuid.UUID
+    ) -> ConnectedDeviceListResponse:
         connections = self._connections(project_id)
         if not connections:
             return ConnectedDeviceListResponse(devices=[], count=0)
         result = await self.db.execute(
-            select(Device).where(Device.project_id == project_id, Device.id.in_(connections))
+            select(Device).where(
+                Device.project_id == project_id, Device.id.in_(connections)
+            )
         )
         devices = [
             ConnectedDeviceResponse(
@@ -96,7 +115,13 @@ class DeviceService:
         total = total_result.scalar() or 0
 
         # Get devices
-        query = select(Device).where(and_(*conditions)).order_by(Device.created_at.desc()).offset(skip).limit(limit)
+        query = (
+            select(Device)
+            .where(and_(*conditions))
+            .order_by(Device.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
         result = await self.db.execute(query)
         devices = result.scalars().all()
 
@@ -108,7 +133,9 @@ class DeviceService:
         project_id: uuid.UUID,
     ) -> Optional[DeviceResponse]:
         """Get a device by ID."""
-        query = select(Device).where(and_(Device.id == device_id, Device.project_id == project_id))
+        query = select(Device).where(
+            and_(Device.id == device_id, Device.project_id == project_id)
+        )
         result = await self.db.execute(query)
         device = result.scalar_one_or_none()
 
@@ -162,7 +189,8 @@ class DeviceService:
             await self.db.refresh(device)
 
             logger.info(
-                f"[DEBUG] Device registered successfully: {device_name} ({device.id}) for project {project_id}"
+                f"[DEBUG] Device registered successfully: {device_name} "
+                f"({device.id}) for project {project_id}"
             )
             return device
         except Exception as e:
@@ -176,7 +204,9 @@ class DeviceService:
         update_data: DeviceUpdateRequest,
     ) -> Optional[DeviceResponse]:
         """Update a device."""
-        query = select(Device).where(and_(Device.id == device_id, Device.project_id == project_id))
+        query = select(Device).where(
+            and_(Device.id == device_id, Device.project_id == project_id)
+        )
         result = await self.db.execute(query)
         device = result.scalar_one_or_none()
 
@@ -213,9 +243,15 @@ class DeviceService:
         device_id: uuid.UUID,
         project_id: uuid.UUID,
     ) -> bool:
-        """Revoke the token and close its connection as one lifecycle operation."""
+        (
+            "Revoke the token and close its "
+            "connection as one lifecycle "
+            "operation."
+        )
         async with tcp_connection_manager.lifecycle_lock(str(device_id)):
-            query = select(Device).where(and_(Device.id == device_id, Device.project_id == project_id))
+            query = select(Device).where(
+                and_(Device.id == device_id, Device.project_id == project_id)
+            )
             result = await self.db.execute(query)
             device = result.scalar_one_or_none()
             if not device:
@@ -233,10 +269,14 @@ class DeviceService:
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def disconnect_device(self, device_id: uuid.UUID, project_id: uuid.UUID) -> bool:
+    async def disconnect_device(
+        self, device_id: uuid.UUID, project_id: uuid.UUID
+    ) -> bool:
         """Disconnect an owned device without revoking its reconnect token."""
         async with tcp_connection_manager.lifecycle_lock(str(device_id)):
-            query = select(Device).where(and_(Device.id == device_id, Device.project_id == project_id))
+            query = select(Device).where(
+                and_(Device.id == device_id, Device.project_id == project_id)
+            )
             result = await self.db.execute(query)
             device = result.scalar_one_or_none()
             if not device:

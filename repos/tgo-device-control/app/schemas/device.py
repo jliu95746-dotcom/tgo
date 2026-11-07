@@ -29,7 +29,9 @@ class DeviceBase(BaseModel):
     device_type: DeviceType = Field(default=DeviceType.DESKTOP)
     os: str = Field(..., description="Operating system")
     os_version: Optional[str] = Field(None, description="OS version")
-    screen_resolution: Optional[str] = Field(None, description="Screen resolution")
+    screen_resolution: Optional[str] = Field(
+        None, description="Screen resolution"
+    )
 
 
 class DeviceCreateRequest(DeviceBase):

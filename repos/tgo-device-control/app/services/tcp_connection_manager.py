@@ -40,7 +40,9 @@ class TcpDeviceConnection:
     device_db_id: Optional[
         str
     ] = None  # Database device ID (same as agent_id for new auth)
-    connection_instance_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    connection_instance_id: str = field(
+        default_factory=lambda: uuid.uuid4().hex
+    )
     desired_read_policy_digest: Optional[str] = None
     applied_read_policy_digest: Optional[str] = None
     read_policy_verified_digest: Optional[str] = None
@@ -112,11 +114,14 @@ class TcpDeviceConnection:
             result = await asyncio.wait_for(future, timeout=timeout)
             return result
         except asyncio.TimeoutError:
-            logger.error(f"TCP request timeout: agent={self.agent_id}, method={method}")
+            logger.error(
+                f"TCP request timeout: agent={self.agent_id}, method={method}"
+            )
             return None
         except Exception as e:
             logger.error(
-                f"TCP request error: agent={self.agent_id}, method={method}: {e}"
+                f"TCP request error: agent={self.agent_id}, "
+                f"method={method}: {e}"
             )
             return None
         finally:
@@ -266,21 +271,24 @@ class TcpConnectionManager:
         script_policy_required: bool = False,
         authentication_pending: bool = False,
     ) -> TcpDeviceConnection:
-        """Register a new TCP connection.
-
-        Args:
-            agent_id: Unique agent/device identifier (UUID).
-            name: Device name.
-            version: Client version.
-            capabilities: List of supported capabilities.
-            reader: Async stream reader.
-            writer: Async stream writer.
-            project_id: Associated project ID (from bind code or device record).
-            device_db_id: Database device ID (same as agent_id for registered devices).
-
-        Returns:
-            The registered TcpDeviceConnection.
-        """
+        (
+            "Register a new TCP connection.\n\n        "
+            "Args:\n            agent_id: Unique "
+            "agent/device identifier (UUID)."
+            "\n            name: Device name."
+            "\n            version: Client version."
+            "\n            capabilities: List of "
+            "supported capabilities.\n            "
+            "reader: Async stream reader."
+            "\n            writer: Async stream "
+            "writer.\n            project_id: "
+            "Associated project ID (from bind code or"
+            " device record).\n            "
+            "device_db_id: Database device ID (same "
+            "as agent_id for registered devices)."
+            "\n\n        Returns:\n            The "
+            "registered TcpDeviceConnection.\n        "
+        )
         connection = TcpDeviceConnection(
             agent_id=agent_id,
             name=name,
@@ -324,16 +332,20 @@ class TcpConnectionManager:
             self._connections.pop(agent_id)
 
         if connection:
-            logger.info(f"TCP device unregistered: {connection.name} ({agent_id})")
+            logger.info(
+                f"TCP device unregistered: {connection.name} ({agent_id})"
+            )
             await self._close_connection(connection)
         return True
 
     @staticmethod
     async def _close_connection(connection: TcpDeviceConnection) -> None:
-        # A disconnected device is a tool failure, not cancellation of its caller.
+        # Disconnection is a tool failure; the caller was not cancelled.
         for future in connection._pending_requests.values():
             if not future.done():
-                future.set_exception(ConnectionError("Device connection closed"))
+                future.set_exception(
+                    ConnectionError("Device connection closed")
+                )
         try:
             connection.writer.close()
             await asyncio.wait_for(connection.writer.wait_closed(), timeout=5)
@@ -405,10 +417,16 @@ class TcpConnectionManager:
                         # Send ping
                         try:
                             await connection.send_message(
-                                {"jsonrpc": "2.0", "method": "ping", "params": {}}
+                                {
+                                    "jsonrpc": "2.0",
+                                    "method": "ping",
+                                    "params": {},
+                                }
                             )
                         except Exception as e:
-                            logger.warning(f"Failed to ping TCP device {agent_id}: {e}")
+                            logger.warning(
+                                f"Failed to ping TCP device {agent_id}: {e}"
+                            )
                             disconnected.append(connection)
 
                 # Disconnect timed out devices

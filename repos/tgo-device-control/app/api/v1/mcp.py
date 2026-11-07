@@ -11,7 +11,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.logging import get_logger
-from app.core.device_auth import require_bound_device, require_service_principal
+from app.core.device_auth import (
+    require_bound_device,
+    require_service_principal,
+)
 from app.schemas.device_access import DeviceServicePrincipal
 from app.services.mcp_server import mcp_proxy
 from app.services.tcp_connection_manager import tcp_connection_manager
@@ -62,5 +65,7 @@ async def call_device_tool(
         )
 
     params = {"name": name, "arguments": arguments}
-    result = await mcp_proxy.handle_call_tool(str(device_id), params, principal)
+    result = await mcp_proxy.handle_call_tool(
+        str(device_id), params, principal
+    )
     return result

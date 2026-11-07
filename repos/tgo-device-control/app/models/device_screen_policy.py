@@ -1,4 +1,5 @@
-"""Desired screen scope; connection acknowledgement is deliberately not durable."""
+"""Desired screen scope; connection acknowledgement is deliberately not
+durable."""
 
 import uuid
 from datetime import datetime
@@ -24,7 +25,9 @@ class DeviceScreenPolicy(Base):
         CheckConstraint(
             "revision BETWEEN 1 AND 2147483647", name="ck_dc_screen_revision"
         ),
-        CheckConstraint("max_actions BETWEEN 1 AND 50", name="ck_dc_screen_actions"),
+        CheckConstraint(
+            "max_actions BETWEEN 1 AND 50", name="ck_dc_screen_actions"
+        ),
     )
 
     device_id: Mapped[uuid.UUID] = mapped_column(
@@ -37,12 +40,16 @@ class DeviceScreenPolicy(Base):
     )
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    connection_instance_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    connection_instance_id: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )
     grant_id: Mapped[str] = mapped_column(String(32), nullable=False)
     max_actions: Mapped[int] = mapped_column(Integer, nullable=False)
     allow_click: Mapped[bool] = mapped_column(Boolean, nullable=False)
     allow_text: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    click_regions: Mapped[list[dict[str, int]]] = mapped_column(JSONB, nullable=False)
+    click_regions: Mapped[list[dict[str, int]]] = mapped_column(
+        JSONB, nullable=False
+    )
     digest: Mapped[str] = mapped_column(String(64), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

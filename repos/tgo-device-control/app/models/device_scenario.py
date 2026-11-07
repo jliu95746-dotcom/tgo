@@ -3,7 +3,14 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,7 +20,9 @@ from app.core.database import Base
 class DeviceScenarioDraft(Base):
     __tablename__ = "dc_device_scenario_drafts"
     __table_args__ = (
-        UniqueConstraint("device_id", "scenario", name="uq_dc_device_scenario_draft"),
+        UniqueConstraint(
+            "device_id", "scenario", name="uq_dc_device_scenario_draft"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -30,8 +39,12 @@ class DeviceScenarioDraft(Base):
     )
     scenario: Mapped[str] = mapped_column(String(32), nullable=False)
     purpose: Mapped[str] = mapped_column(String(255), nullable=False)
-    business_system: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    target_directory: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    business_system: Mapped[str | None] = mapped_column(
+        String(120), nullable=True
+    )
+    target_directory: Mapped[str | None] = mapped_column(
+        String(1024), nullable=True
+    )
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

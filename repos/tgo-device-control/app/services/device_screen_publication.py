@@ -1,4 +1,5 @@
-"""Persist versioned screen scope without automatically granting business execution."""
+"""Persist versioned screen scope without automatically granting business
+execution."""
 
 import asyncio
 from datetime import datetime, timezone
@@ -88,20 +89,31 @@ class DeviceScreenPublicationService:
         )
 
     @staticmethod
-    def _connection(project_id: UUID, device_id: UUID) -> TcpDeviceConnection | None:
+    def _connection(
+        project_id: UUID, device_id: UUID
+    ) -> TcpDeviceConnection | None:
         current = tcp_connection_manager.get_connection(str(device_id))
-        return current if current and current.project_id == str(project_id) else None
+        return (
+            current
+            if current and current.project_id == str(project_id)
+            else None
+        )
 
     @staticmethod
     async def _grant(connection: TcpDeviceConnection) -> ScreenGrantStatus:
         raw = await connection.send_request("screen/status", {}, timeout=10)
-        if tcp_connection_manager.get_connection(connection.agent_id) is not connection:
+        if (
+            tcp_connection_manager.get_connection(connection.agent_id)
+            is not connection
+        ):
             raise HTTPException(409, "Device connection changed")
         try:
             return ScreenGrantStatus.model_validate(raw)
         except (ValidationError, ValueError, TypeError):
             clear_screen_confirmation(connection)
-            raise HTTPException(409, "Local screen grant is unavailable") from None
+            raise HTTPException(
+                409, "Local screen grant is unavailable"
+            ) from None
 
     @staticmethod
     def _response(row: DeviceScreenPolicy) -> ScreenPolicyRead:
@@ -123,7 +135,11 @@ class DeviceScreenPublicationService:
             device_id=row.device_id,
             project_id=row.project_id,
             policy=stored_screen_policy(row),
-            status="revoked" if not row.enabled else "active" if active else "pending",
+            status="revoked"
+            if not row.enabled
+            else "active"
+            if active
+            else "pending",
             updated_at=row.updated_at,
             revoked_at=row.revoked_at,
         )
@@ -147,7 +163,9 @@ class DeviceScreenPublicationService:
                 grant=await self._grant(connection),
             )
 
-    async def get(self, project_id: UUID, device_id: UUID) -> ScreenPolicyRead | None:
+    async def get(
+        self, project_id: UUID, device_id: UUID
+    ) -> ScreenPolicyRead | None:
         async with tcp_connection_manager.lifecycle_lock(str(device_id)):
             await self._require_device(project_id, device_id)
             row = await self._row(project_id, device_id)
@@ -157,7 +175,8 @@ class DeviceScreenPublicationService:
             if (
                 row.enabled
                 and connection
-                and connection.connection_instance_id == row.connection_instance_id
+                and connection.connection_instance_id
+                == row.connection_instance_id
             ):
                 try:
                     grant = await self._grant(connection)
@@ -175,10 +194,12 @@ class DeviceScreenPublicationService:
         self, project_id: UUID, device_id: UUID, request: ScreenPolicyPublish
     ) -> ScreenPolicyRead:
         async with tcp_connection_manager.lifecycle_lock(str(device_id)):
-            # Device row serializes even first publication (no existing policy row).
+            # The device row serializes the first publication too.
             await self._require_device(project_id, device_id, lock=True)
             row = await self._row(project_id, device_id)
-            if (row.revision if row else 0) != request.expected_policy_revision:
+            if (
+                row.revision if row else 0
+            ) != request.expected_policy_revision:
                 raise HTTPException(409, "Device screen policy changed")
             read_policy = await self.db.scalar(
                 select(DeviceReadPolicy).where(
@@ -205,17 +226,21 @@ class DeviceScreenPublicationService:
             connection = self._connection(project_id, device_id)
             if (
                 connection is None
-                or connection.connection_instance_id != request.connection_instance_id
+                or connection.connection_instance_id
+                != request.connection_instance_id
                 or (
                     connection.desired_read_policy_digest is not None
                     and (
                         read_policy is None
                         or read_policy.enabled is not False
-                        or connection.desired_read_policy_digest != read_policy.digest
+                        or connection.desired_read_policy_digest
+                        != read_policy.digest
                     )
                 )
             ):
-                raise HTTPException(409, "Current local screen connection is required")
+                raise HTTPException(
+                    409, "Current local screen connection is required"
+                )
             grant = await self._grant(connection)
             scope = ScreenPolicy(
                 protocol_version=1,
@@ -227,13 +252,17 @@ class DeviceScreenPublicationService:
                 click_regions=request.click_regions,
                 digest="0" * 64,
             )
-            scope = scope.model_copy(update={"digest": screen_policy_digest(scope)})
+            scope = scope.model_copy(
+                update={"digest": screen_policy_digest(scope)}
+            )
             if not validate_local_screen_scope(grant, scope):
                 raise HTTPException(
                     422, "Screen policy exceeds the current local grant"
                 )
             if row is None:
-                row = DeviceScreenPolicy(device_id=device_id, project_id=project_id)
+                row = DeviceScreenPolicy(
+                    device_id=device_id, project_id=project_id
+                )
                 self.db.add(row)
             row.revision, row.enabled = scope.revision, True
             row.connection_instance_id, row.grant_id = (
@@ -245,7 +274,9 @@ class DeviceScreenPublicationService:
                 scope.allow_click,
                 scope.allow_text,
             )
-            row.click_regions = [region.model_dump() for region in scope.click_regions]
+            row.click_regions = [
+                region.model_dump() for region in scope.click_regions
+            ]
             row.digest, row.revoked_at = scope.digest, None
             clear_screen_confirmation(connection)
             try:
@@ -254,13 +285,19 @@ class DeviceScreenPublicationService:
                 await self.db.rollback()
                 await self._close(connection)
                 if isinstance(error, IntegrityError):
-                    raise HTTPException(409, "Device screen policy changed") from None
+                    raise HTTPException(
+                        409, "Device screen policy changed"
+                    ) from None
                 raise
-            # Reacquire the durable version before RPC; another process may have
+            # Reacquire the version before RPC; another process may have
             # published/revoked while the commit released its lock.
             await self._require_device(project_id, device_id, lock=True)
             saved = await self._row(project_id, device_id)
-            if saved is None or not saved.enabled or saved.digest != scope.digest:
+            if (
+                saved is None
+                or not saved.enabled
+                or saved.digest != scope.digest
+            ):
                 raise HTTPException(409, "Device screen policy changed")
             try:
                 # Only an explicitly retired file policy may give way to this
@@ -298,7 +335,8 @@ class DeviceScreenPublicationService:
             connection = self._connection(project_id, device_id)
             bound = bool(
                 connection
-                and connection.connection_instance_id == row.connection_instance_id
+                and connection.connection_instance_id
+                == row.connection_instance_id
             )
             if bound and connection:
                 clear_screen_confirmation(connection)
@@ -307,7 +345,9 @@ class DeviceScreenPublicationService:
                     row.revision += 1
                     row.enabled = False
                     row.revoked_at = datetime.now(timezone.utc)
-                    row.digest = screen_policy_digest(stored_screen_policy(row))
+                    row.digest = screen_policy_digest(
+                        stored_screen_policy(row)
+                    )
                     await self.db.commit()
                     await self.db.refresh(row)
             finally:

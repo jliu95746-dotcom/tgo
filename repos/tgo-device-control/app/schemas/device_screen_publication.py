@@ -1,4 +1,5 @@
-"""Management contracts exclude window identity and any client-supplied test pass."""
+"""Management contracts exclude window identity and any client-supplied test
+pass."""
 
 from datetime import datetime
 from typing import Literal
@@ -38,7 +39,9 @@ class ScreenPolicyRevoke(BaseModel):
 class ScreenLocalGrantRead(BaseModel):
     device_id: UUID
     project_id: UUID
-    connection_instance_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    connection_instance_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{32}$"
+    )
     grant: ScreenGrantStatus
 
 

@@ -45,7 +45,9 @@ class Settings(BaseSettings):
     )
 
     # Bind Code Configuration
-    BIND_CODE_LENGTH: int = Field(default=6, description="Length of device bind code")
+    BIND_CODE_LENGTH: int = Field(
+        default=6, description="Length of device bind code"
+    )
     BIND_CODE_EXPIRY_MINUTES: int = Field(
         default=5,
         description="Bind code expiry time in minutes",
@@ -121,7 +123,9 @@ class Settings(BaseSettings):
         """Get synchronous database URL."""
         url = str(self.DATABASE_URL)
         if "postgresql+asyncpg://" in url:
-            return url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+            return url.replace(
+                "postgresql+asyncpg://", "postgresql+psycopg2://"
+            )
         return url
 
     @property

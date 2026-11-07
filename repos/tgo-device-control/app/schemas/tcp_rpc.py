@@ -4,7 +4,6 @@ This module defines Pydantic models for the JSON-RPC 2.0 protocol
 used to communicate with Peekaboo agents over TCP.
 """
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
@@ -22,9 +21,15 @@ class DeviceInfo(BaseModel):
     version: str = Field(..., description="Client version")
     os: Optional[str] = Field(
         default=None,
-        description="Operating system name (required for first-time registration)",
+        description=(
+            "Operating system name "
+            "(required for first-time "
+            "registration)"
+        ),
     )
-    osVersion: Optional[str] = Field(default=None, description="Operating system version")
+    osVersion: Optional[str] = Field(
+        default=None, description="Operating system version"
+    )
     screenResolution: Optional[str] = Field(
         default=None, description="Screen resolution (e.g., '1920x1080')"
     )
@@ -39,7 +44,8 @@ class AuthParams(BaseModel):
     """
 
     bindCode: Optional[str] = Field(
-        default=None, description="6-character bind code for first-time registration"
+        default=None,
+        description="6-character bind code for first-time registration",
     )
     deviceToken: Optional[str] = Field(
         default=None, description="Device token for reconnection"
@@ -51,14 +57,21 @@ class AuthResult(BaseModel):
     """Result of a successful auth request."""
 
     status: str = Field(default="ok", description="Status of authentication")
-    deviceId: str = Field(..., description="Device UUID for subsequent operations")
+    deviceId: str = Field(
+        ..., description="Device UUID for subsequent operations"
+    )
     deviceToken: Optional[str] = Field(
         default=None,
-        description="Device token (only returned on first-time registration, device must save this)",
+        description=(
+            "Device token (only returned on "
+            "first-time registration, device must "
+            "save this)"
+        ),
     )
     projectId: str = Field(..., description="Project ID the device belongs to")
     message: str = Field(
-        default="Authentication successful", description="Human-readable status message"
+        default="Authentication successful",
+        description="Human-readable status message",
     )
 
 
@@ -74,7 +87,11 @@ class AgentInfo(BaseModel):
     version: str = Field(..., description="Agent version")
     capabilities: List[str] = Field(
         default_factory=list,
-        description="List of supported capabilities (e.g., tools/call, tools/list, ping)",
+        description=(
+            "List of supported capabilities "
+            "(e.g., tools/call, tools/list, "
+            "ping)"
+        ),
     )
 
 
@@ -100,7 +117,9 @@ class JsonRpcError(BaseModel):
 
     code: int = Field(..., description="Error code")
     message: str = Field(..., description="Error message")
-    data: Optional[Any] = Field(default=None, description="Additional error data")
+    data: Optional[Any] = Field(
+        default=None, description="Additional error data"
+    )
 
 
 class JsonRpcRequest(BaseModel):
@@ -120,9 +139,15 @@ class JsonRpcResponse(BaseModel):
     """JSON-RPC 2.0 response message."""
 
     jsonrpc: str = Field(default="2.0", description="JSON-RPC version")
-    id: Optional[Union[int, str]] = Field(default=None, description="Request ID")
-    result: Optional[Any] = Field(default=None, description="Result on success")
-    error: Optional[JsonRpcError] = Field(default=None, description="Error on failure")
+    id: Optional[Union[int, str]] = Field(
+        default=None, description="Request ID"
+    )
+    result: Optional[Any] = Field(
+        default=None, description="Result on success"
+    )
+    error: Optional[JsonRpcError] = Field(
+        default=None, description="Error on failure"
+    )
 
 
 class ToolInputSchema(BaseModel):
@@ -142,13 +167,17 @@ class ToolDefinition(BaseModel):
 
     name: str = Field(..., description="Tool name")
     description: str = Field(..., description="Tool description")
-    inputSchema: ToolInputSchema = Field(..., description="Input parameter schema")
+    inputSchema: ToolInputSchema = Field(
+        ..., description="Input parameter schema"
+    )
 
 
 class ToolsListResult(BaseModel):
     """Result of a tools/list request."""
 
-    tools: List[ToolDefinition] = Field(..., description="List of available tools")
+    tools: List[ToolDefinition] = Field(
+        ..., description="List of available tools"
+    )
 
 
 class ToolCallParams(BaseModel):
@@ -165,15 +194,23 @@ class ToolCallContentItem(BaseModel):
 
     type: str = Field(..., description="Content type: 'text' or 'image'")
     text: Optional[str] = Field(default=None, description="Text content")
-    data: Optional[str] = Field(default=None, description="Base64 encoded image data")
-    mimeType: Optional[str] = Field(default=None, description="MIME type for images")
+    data: Optional[str] = Field(
+        default=None, description="Base64 encoded image data"
+    )
+    mimeType: Optional[str] = Field(
+        default=None, description="MIME type for images"
+    )
 
 
 class ToolCallResult(BaseModel):
     """Result of a tools/call request."""
 
-    content: List[ToolCallContentItem] = Field(..., description="Response content")
-    isError: bool = Field(default=False, description="Whether the call resulted in error")
+    content: List[ToolCallContentItem] = Field(
+        ..., description="Response content"
+    )
+    isError: bool = Field(
+        default=False, description="Whether the call resulted in error"
+    )
 
 
 class PingResult(BaseModel):

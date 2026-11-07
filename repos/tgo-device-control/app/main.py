@@ -4,13 +4,17 @@ import json
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from app.config import settings
 from app.core.logging import setup_logging, startup_log
-from app.core.device_auth import require_bound_device, require_management_project, require_service_principal
+from app.core.device_auth import (
+    require_bound_device,
+    require_management_project,
+    require_service_principal,
+)
 from app.schemas.device_access import DeviceServicePrincipal
 from app.schemas.device_debug import DeviceDebugResponse
 
@@ -55,7 +59,9 @@ async def lifespan(application: FastAPI):
 
     startup_log(f"   HTTP API: http://0.0.0.0:{settings.PORT}")
     startup_log(f"   TCP RPC: {settings.TCP_RPC_HOST}:{settings.TCP_RPC_PORT}")
-    startup_log(f"   MCP Endpoint: http://0.0.0.0:{settings.PORT}/mcp/{{device_id}}")
+    startup_log(
+        f"   MCP Endpoint: http://0.0.0.0:{settings.PORT}/mcp/{{device_id}}"
+    )
     startup_log(f"   API Docs: http://localhost:{settings.PORT}/docs")
     startup_log(f"   Health Check: http://localhost:{settings.PORT}/health")
     startup_log("")
@@ -72,7 +78,11 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(
     title=settings.SERVICE_NAME,
-    description="Device Control Service for TGO - MCP transparent proxy for remote devices",
+    description=(
+        "Device Control Service for TGO - MCP"
+        " transparent proxy for remote "
+        "devices"
+    ),
     version=settings.SERVICE_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -106,7 +116,9 @@ async def health_check():
 
     tcp_server_status = "unknown"
     if tcp_rpc_server.server:
-        tcp_server_status = "serving" if tcp_rpc_server.server.is_serving() else "not_serving"
+        tcp_server_status = (
+            "serving" if tcp_rpc_server.server.is_serving() else "not_serving"
+        )
     else:
         tcp_server_status = "not_started"
 
@@ -132,7 +144,8 @@ async def health_check():
 
 @app.post("/mcp/{device_id}", dependencies=[Depends(require_bound_device)])
 async def mcp_streamable_http(
-    device_id: UUID, request: Request,
+    device_id: UUID,
+    request: Request,
     principal: DeviceServicePrincipal = Depends(require_service_principal),
 ):
     """MCP Streamable HTTP endpoint – transparent proxy to a device.
@@ -170,7 +183,9 @@ async def mcp_streamable_http(
             status_code=400,
         )
     try:
-        response = await mcp_proxy.handle_jsonrpc(str(device_id), body, principal)
+        response = await mcp_proxy.handle_jsonrpc(
+            str(device_id), body, principal
+        )
     except HTTPException:
         raise
     except Exception:
@@ -178,7 +193,10 @@ async def mcp_streamable_http(
             {
                 "jsonrpc": "2.0",
                 "id": body.get("id"),
-                "error": {"code": -32603, "message": "Internal device service error"},
+                "error": {
+                    "code": -32603,
+                    "message": "Internal device service error",
+                },
             },
             status_code=500,
         )
@@ -194,14 +212,23 @@ async def mcp_streamable_http(
 #  REST API routes                                                     #
 # ------------------------------------------------------------------ #
 
+
 # Include v1 API routes (devices, mcp REST endpoints)
-from app.api.v1 import router as api_v1_router
+def _load_api_router() -> APIRouter:
+    from app.api.v1 import router
+
+    return router
+
+
+api_v1_router = _load_api_router()
 
 app.include_router(api_v1_router, prefix="/v1")
 
 
 @app.get("/debug/status")
-async def debug_status(project_id: UUID = Depends(require_management_project)) -> DeviceDebugResponse:
+async def debug_status(
+    project_id: UUID = Depends(require_management_project),
+) -> DeviceDebugResponse:
     """Debug endpoint to check service status and connectivity."""
     from app.services.tcp_connection_manager import tcp_connection_manager
     from app.services.tcp_rpc_server import tcp_rpc_server
@@ -225,7 +252,9 @@ async def debug_status(project_id: UUID = Depends(require_management_project)) -
     # TCP Server status
     if tcp_rpc_server.server:
         result["tcp_server"]["is_serving"] = tcp_rpc_server.server.is_serving()
-        result["tcp_server"]["sockets"] = [str(s.getsockname()) for s in tcp_rpc_server.server.sockets]
+        result["tcp_server"]["sockets"] = [
+            str(s.getsockname()) for s in tcp_rpc_server.server.sockets
+        ]
     else:
         result["tcp_server"]["is_serving"] = False
         result["tcp_server"]["error"] = "Server not started"
@@ -236,7 +265,9 @@ async def debug_status(project_id: UUID = Depends(require_management_project)) -
         sock.settimeout(1)
         local_result = sock.connect_ex(("127.0.0.1", settings.TCP_RPC_PORT))
         sock.close()
-        result["tcp_server"]["local_port_check"] = "accessible" if local_result == 0 else f"error_code_{local_result}"
+        result["tcp_server"]["local_port_check"] = (
+            "accessible" if local_result == 0 else f"error_code_{local_result}"
+        )
     except Exception as e:
         result["tcp_server"]["local_port_check"] = f"error: {e}"
 
@@ -244,9 +275,11 @@ async def debug_status(project_id: UUID = Depends(require_management_project)) -
     try:
         await bind_code_service.redis.ping()
         result["redis"]["status"] = "connected"
-        # Diagnostic counts must never reveal one-time registration credentials.
+        # Counts must never reveal one-time registration credentials.
         count = 0
-        async for key in bind_code_service.redis.scan_iter(match="dc:bind_code:*"):
+        async for key in bind_code_service.redis.scan_iter(
+            match="dc:bind_code:*"
+        ):
             if await bind_code_service.redis.get(key) == str(project_id):
                 count += 1
         result["redis"]["active_bind_codes"] = count

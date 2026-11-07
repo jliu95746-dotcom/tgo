@@ -30,15 +30,21 @@ class DeviceReadPolicy(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    allowed_directory: Mapped[str] = mapped_column(String(1024), nullable=False)
+    allowed_directory: Mapped[str] = mapped_column(
+        String(1024), nullable=False
+    )
     max_lines: Mapped[int] = mapped_column(Integer, nullable=False)
     max_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     digest: Mapped[str] = mapped_column(String(64), nullable=False)
     last_tested_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    last_test_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    last_test_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_test_status: Mapped[str | None] = mapped_column(
+        String(16), nullable=True
+    )
+    last_test_digest: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
     last_test_connection_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )

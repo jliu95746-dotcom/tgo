@@ -6,7 +6,6 @@ from enum import Enum as PyEnum
 from typing import Optional
 
 from sqlalchemy import (
-    Column,
     DateTime,
     Enum,
     ForeignKey,
@@ -57,16 +56,28 @@ class Device(Base):
         index=True,
     )
     device_type: Mapped[DeviceType] = mapped_column(
-        Enum(DeviceType, name="dc_device_type", values_callable=lambda x: [e.value for e in x]),
+        Enum(
+            DeviceType,
+            name="dc_device_type",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=DeviceType.DESKTOP,
         nullable=False,
     )
     device_name: Mapped[str] = mapped_column(String(255), nullable=False)
     os: Mapped[str] = mapped_column(String(50), nullable=False)
-    os_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    screen_resolution: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    os_version: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )
+    screen_resolution: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )
     status: Mapped[DeviceStatus] = mapped_column(
-        Enum(DeviceStatus, name="dc_device_status", values_callable=lambda x: [e.value for e in x]),
+        Enum(
+            DeviceStatus,
+            name="dc_device_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=DeviceStatus.OFFLINE,
         nullable=False,
     )
@@ -121,7 +132,9 @@ class DeviceSession(Base):
         index=True,
     )
     workflow_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True, index=True,
+        UUID(as_uuid=True),
+        nullable=True,
+        index=True,
     )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -132,21 +145,32 @@ class DeviceSession(Base):
         DateTime(timezone=True),
         nullable=True,
     )
-    screenshots_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    actions_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    screenshots_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    actions_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
     failed_actions_count: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False
     )
-    agent_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    agent_name: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
     status: Mapped[str] = mapped_column(
-        String(16), default="running", server_default="interrupted", nullable=False
+        String(16),
+        default="running",
+        server_default="interrupted",
+        nullable=False,
     )
     lease_expires_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
     # Relationships
-    device: Mapped["Device"] = relationship("Device", back_populates="sessions")
+    device: Mapped["Device"] = relationship(
+        "Device", back_populates="sessions"
+    )
     steps: Mapped[list["DeviceSessionStep"]] = relationship(
         "DeviceSessionStep", cascade="all, delete-orphan", passive_deletes=True
     )
@@ -163,12 +187,18 @@ class DeviceSessionStep(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("dc_sessions.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        UUID(as_uuid=True),
+        ForeignKey("dc_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     tool_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="running"
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )

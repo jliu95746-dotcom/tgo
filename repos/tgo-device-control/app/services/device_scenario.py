@@ -1,4 +1,5 @@
-"""Save device use-case drafts without changing the device's execution rights."""
+"""Save device use-case drafts without changing the device's execution
+rights."""
 
 from uuid import UUID
 

@@ -1,4 +1,5 @@
-"""Persist desired read scope and verify each connection's client acknowledgement."""
+"""Persist desired read scope and verify each connection's client
+acknowledgement."""
 
 import asyncio
 import hashlib
@@ -42,14 +43,22 @@ def read_policy_digest(
 
 
 def valid_policy_directory(directory: str) -> bool:
-    if not directory or len(directory) > 1024 or any(ord(c) < 32 for c in directory):
+    if (
+        not directory
+        or len(directory) > 1024
+        or any(ord(c) < 32 for c in directory)
+    ):
         return False
     windows = ntpath.isabs(directory) and bool(ntpath.splitdrive(directory)[0])
     posix = posixpath.isabs(directory)
     if not (windows or posix):
         return False
     separator = "\\" if windows else "/"
-    parts = directory.replace("/", separator).replace("\\", separator).split(separator)
+    parts = (
+        directory.replace("/", separator)
+        .replace("\\", separator)
+        .split(separator)
+    )
     if ".." in parts:
         return False
     path_module = ntpath if windows else posixpath
@@ -177,7 +186,9 @@ class DeviceReadPolicyService:
 
     @staticmethod
     def _response(policy: DeviceReadPolicy) -> DeviceReadPolicyRead:
-        connection = tcp_connection_manager.get_connection(str(policy.device_id))
+        connection = tcp_connection_manager.get_connection(
+            str(policy.device_id)
+        )
         active = bool(
             policy.enabled is not False
             and connection
@@ -232,7 +243,10 @@ class DeviceReadPolicyService:
         return self._response(policy) if policy else None
 
     async def publish(
-        self, project_id: UUID, device_id: UUID, request: DeviceReadPolicyPublish
+        self,
+        project_id: UUID,
+        device_id: UUID,
+        request: DeviceReadPolicyPublish,
     ) -> DeviceReadPolicyRead:
         async with tcp_connection_manager.lifecycle_lock(str(device_id)):
             await self._require_device(project_id, device_id, lock=True)
@@ -245,12 +259,17 @@ class DeviceReadPolicyService:
                 )
                 .with_for_update()
             )
-            if draft is None or draft.revision != request.expected_draft_revision:
+            if (
+                draft is None
+                or draft.revision != request.expected_draft_revision
+            ):
                 raise HTTPException(409, "Device scenario draft changed")
             if not draft.target_directory or not valid_policy_directory(
                 draft.target_directory
             ):
-                raise HTTPException(422, "An absolute, scoped directory is required")
+                raise HTTPException(
+                    422, "An absolute, scoped directory is required"
+                )
             policy = await self.db.scalar(
                 select(DeviceReadPolicy)
                 .where(
@@ -284,10 +303,15 @@ class DeviceReadPolicyService:
                 )
             revision = actual_revision + 1
             digest = read_policy_digest(
-                revision, draft.target_directory, request.max_lines, request.max_offset
+                revision,
+                draft.target_directory,
+                request.max_lines,
+                request.max_offset,
             )
             if policy is None:
-                policy = DeviceReadPolicy(device_id=device_id, project_id=project_id)
+                policy = DeviceReadPolicy(
+                    device_id=device_id, project_id=project_id
+                )
                 self.db.add(policy)
             policy.revision = revision
             policy.enabled = True
@@ -304,7 +328,9 @@ class DeviceReadPolicyService:
                 await self.db.commit()
             except IntegrityError:
                 await self.db.rollback()
-                raise HTTPException(409, "Device read policy changed") from None
+                raise HTTPException(
+                    409, "Device read policy changed"
+                ) from None
             await self.db.refresh(policy)
             connection = tcp_connection_manager.get_connection(str(device_id))
             if connection and connection.project_id == str(project_id):
@@ -344,9 +370,13 @@ class DeviceReadPolicyService:
                 policy.max_offset,
                 arguments,
             ):
-                raise HTTPException(422, "Read test is outside the active policy")
+                raise HTTPException(
+                    422, "Read test is outside the active policy"
+                )
             result = await connection.call_tool("fs_read", arguments)
-            content = result.get("content") if isinstance(result, dict) else None
+            content = (
+                result.get("content") if isinstance(result, dict) else None
+            )
             passed = bool(
                 isinstance(result, dict)
                 and result.get("isError") is False
@@ -364,11 +394,16 @@ class DeviceReadPolicyService:
             policy.last_test_connection_id = connection.connection_instance_id
             await self.db.commit()
             await self.db.refresh(policy)
-            connection.read_policy_verified_digest = policy.digest if passed else None
+            connection.read_policy_verified_digest = (
+                policy.digest if passed else None
+            )
             return self._response(policy)
 
     async def revoke(
-        self, project_id: UUID, device_id: UUID, request: DeviceReadPolicyRevoke
+        self,
+        project_id: UUID,
+        device_id: UUID,
+        request: DeviceReadPolicyRevoke,
     ) -> DeviceReadPolicyRead:
         async with tcp_connection_manager.lifecycle_lock(str(device_id)):
             await self._require_device(project_id, device_id, lock=True)

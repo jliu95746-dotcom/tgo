@@ -1,4 +1,5 @@
-"""Negotiate one connection's screen scope; this does not publish business access."""
+"""Negotiate one connection's screen scope; this does not publish business
+access."""
 
 import hashlib
 
@@ -25,11 +26,17 @@ def screen_policy_digest(policy: ScreenPolicy) -> str:
         str(policy.allow_text).lower(),
         str(len(policy.click_regions)),
     ]
-    lines.extend(f"{r.x},{r.y},{r.width},{r.height}" for r in policy.click_regions)
-    return hashlib.sha256(("\n".join(lines) + "\n").encode("utf-8")).hexdigest()
+    lines.extend(
+        f"{r.x},{r.y},{r.width},{r.height}" for r in policy.click_regions
+    )
+    return hashlib.sha256(
+        ("\n".join(lines) + "\n").encode("utf-8")
+    ).hexdigest()
 
 
-def validate_local_screen_scope(local: ScreenGrantStatus, policy: ScreenPolicy) -> bool:
+def validate_local_screen_scope(
+    local: ScreenGrantStatus, policy: ScreenPolicy
+) -> bool:
     if (
         not local.active
         or local.grant_id != policy.grant_id
@@ -54,18 +61,23 @@ def validate_local_screen_scope(local: ScreenGrantStatus, policy: ScreenPolicy) 
 async def apply_screen_policy(
     connection: TcpDeviceConnection, policy: ScreenPolicy
 ) -> bool:
-    """Caller holds the device lifecycle lock. Acknowledgement is not a test pass.
-
-    Old clients report method-not-found and remain pending. Neither reconnect
-    nor a failed/late acknowledgement can reactivate the local grant.
-    """
+    (
+        "Caller holds the device lifecycle lock. "
+        "Acknowledgement is not a test pass."
+        "\n\n    Old clients report "
+        "method-not-found and remain pending. "
+        "Neither reconnect\n    nor a failed/late "
+        "acknowledgement can reactivate the local"
+        " grant.\n    "
+    )
     connection.applied_screen_policy_digest = None
     connection.screen_grant = None
     instance = connection.connection_instance_id
 
     def current() -> bool:
         return (
-            tcp_connection_manager.get_connection(connection.agent_id) is connection
+            tcp_connection_manager.get_connection(connection.agent_id)
+            is connection
             and connection.connection_instance_id == instance
             and getattr(connection, "desired_read_policy_digest", None) is None
         )

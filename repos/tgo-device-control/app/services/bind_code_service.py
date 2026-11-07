@@ -62,7 +62,9 @@ class BindCodeService:
                 logger.error("Bind code creation failed: %s", type(e).__name__)
                 raise
 
-        logger.error("[DEBUG] Failed to generate a unique bind code after 5 attempts")
+        logger.error(
+            "[DEBUG] Failed to generate a unique bind code after 5 attempts"
+        )
         raise Exception("Failed to generate unique bind code")
 
     async def validate(self, code: str) -> Optional[uuid.UUID]:

@@ -1,4 +1,5 @@
-"""Version-one TCP screen scope. No window handle or program identity leaves the client."""
+"""Version-one TCP screen scope. No window handle or program identity leaves
+the client."""
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
@@ -21,7 +22,9 @@ class ScreenGrantStatus(BaseModel):
     dpi: int = Field(default=0, strict=True, ge=0, le=960)
     allow_click: StrictBool = False
     allow_text: StrictBool = False
-    click_regions: list[ScreenRegion] = Field(default_factory=list, max_length=16)
+    click_regions: list[ScreenRegion] = Field(
+        default_factory=list, max_length=16
+    )
     max_actions: int = Field(default=0, strict=True, ge=0, le=50)
     used_actions: int = Field(default=0, strict=True, ge=0, le=50)
 
@@ -41,7 +44,9 @@ class ScreenGrantStatus(BaseModel):
                     self.used_actions,
                 )
             ):
-                raise ValueError("Inactive grants must not advertise stale scope")
+                raise ValueError(
+                    "Inactive grants must not advertise stale scope"
+                )
             return self
         if (
             not self.grant_id
@@ -70,7 +75,9 @@ class ScreenPolicy(BaseModel):
     max_actions: int = Field(strict=True, ge=1, le=50)
     allow_click: StrictBool
     allow_text: StrictBool
-    click_regions: list[ScreenRegion] = Field(default_factory=list, max_length=16)
+    click_regions: list[ScreenRegion] = Field(
+        default_factory=list, max_length=16
+    )
     digest: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
