@@ -29,8 +29,12 @@ from app.services.agent_trial_fingerprint import (
     private_digest,
 )
 from tests.test_agent_device_script_selection import select_command, service
-
-pytest_plugins = ("tests.test_agent_device_script_selection",)
+from tests.test_agent_device_script_selection import (
+    approved_run as approved_run,
+    binding_database as binding_database,
+    selected_db as selected_db,
+    trial_db as trial_db,
+)
 
 
 async def load(db, project, agent):

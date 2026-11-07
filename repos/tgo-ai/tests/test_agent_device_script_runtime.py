@@ -27,8 +27,12 @@ from app.services.agent_business_evidence_revision import (
 from app.services.agent_trial_fingerprint import configuration_fingerprint
 from tests.test_agent_device_script_cases import PRIVATE, service
 from tests.test_agent_device_script_selection import select_command
-
-pytest_plugins = ("tests.test_agent_device_script_selection",)
+from tests.test_agent_device_script_selection import (
+    approved_run as approved_run,
+    binding_database as binding_database,
+    selected_db as selected_db,
+    trial_db as trial_db,
+)
 
 
 async def context_for(db, project, actor, agent, *, start=None, owner=None):

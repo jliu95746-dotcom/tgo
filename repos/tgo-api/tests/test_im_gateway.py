@@ -349,9 +349,14 @@ async def test_registration_returns_credential_registered_with_im(
     from app.models.visitor_business_scope import VisitorBusinessScope
     from app.schemas.visitor_access import VisitorAccessInput
     from app.services.visitor_access import registration_access
+    from app.services import visitor_chat_access
     from starlette.responses import Response
 
     db, _, _, platforms, visitors = records
+    # Preserve the real fresh-session authorization guard within the test DB.
+    monkeypatch.setattr(
+        visitor_chat_access, "SessionLocal", sessionmaker(bind=db.get_bind())
+    )
     for model in (VisitorTag, VisitorAIProfile, VisitorSystemInfo, BusinessCustomerBinding, VisitorBusinessScope):
         model.__table__.create(db.get_bind(), checkfirst=True)
     monkeypatch.setattr(settings, "SAAS_ENABLED", saas)

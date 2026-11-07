@@ -7,8 +7,7 @@ import pytest
 from app.services.agent_execution_reference import policy_revision, reference_for
 from app.services.agent_execution_scope import ExecutionRevoked, track_execution_scope
 from app.schemas.knowledge import KnowledgeChannel
-
-pytest_plugins = ("tests.test_agent_activation_readiness",)
+from tests.test_agent_activation_readiness import setup as setup
 
 
 @pytest.mark.asyncio

@@ -141,7 +141,14 @@ def test_fingerprint_preserves_empty_legacy_agents_and_tracks_binding_revisions(
     from app.services.agent_trial_fingerprint import configuration_fingerprint, private_digest
     now=datetime.now(UTC)
     agent=RuntimeAgent(id=uuid4(),name="员工",model="fixture",created_at=now,updated_at=now)
-    old=agent.model_dump(mode="json",exclude={"name","created_at","updated_at","is_default","business_connections"})
+    # The legacy payload predates both optional business bindings and selection.
+    old = agent.model_dump(
+        mode="json",
+        exclude={
+            "name", "created_at", "updated_at", "is_default",
+            "business_connections", "device_script_selection",
+        },
+    )
     assert configuration_fingerprint(agent)==private_digest(old)
     first=configuration_fingerprint(agent)
     binding=AgentBusinessConnectionRecord(id=uuid4(),project_id=uuid4(),agent_id=agent.id,connection_id=uuid4(),

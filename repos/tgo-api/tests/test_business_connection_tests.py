@@ -121,7 +121,7 @@ def owner_metadata(db, project, actor, connection):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["customer_profile_query", "membership_query"])
-async def test_customer_query_report_is_saved_but_not_exposed_as_employee_operation(
+async def test_customer_query_report_exposes_read_capability_without_activation_grant(
     fixture, operation
 ):
     db, project, actor, _other, connection = fixture
@@ -147,7 +147,13 @@ async def test_customer_query_report_is_saved_but_not_exposed_as_employee_operat
     assert report.applicability.status == "current"
     assert payload.customer_id not in str(db.get(BusinessConnectionTest, report.id).receipt)
     owner = owner_metadata(db, project, actor, connection)
-    assert owner.operations == [] and owner.configuration_tests == []
+    assert owner.operations == [operation]
+    assert len(owner.configuration_tests) == 1
+    evidence = owner.configuration_tests[0]
+    assert evidence.operation == operation and evidence.report_id == report.id
+    assert evidence.status == "current" and evidence.valid_until is not None
+    assert evidence.can_enable is False
+    assert owner.enabled is False
     assert owner.can_enable is False
 
 

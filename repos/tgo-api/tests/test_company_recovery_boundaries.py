@@ -76,12 +76,18 @@ async def test_receipt_failure_is_deferred_without_releasing_credit(
     db.commit()
     monkeypatch.setattr(ai_usage_recovery, "SessionLocal", lambda: nullcontext(db))
     monkeypatch.setattr(ai_usage_recovery, "release_abandoned", lambda: None)
+    # This case exercises an IM receipt; trial/workflow scans have separate tests.
+    trials, workflows = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(ai_usage_recovery, "recover_trials", trials)
+    monkeypatch.setattr(ai_usage_recovery, "reconcile_workflows", workflows)
     monkeypatch.setattr(
         ai_usage_recovery.wukongim_client,
         "get_message_by_client_msg_no",
         AsyncMock(side_effect=RuntimeError("unavailable")),
     )
     await ai_usage_recovery.reconcile_deliveries()
+    trials.assert_awaited_once_with()
+    workflows.assert_awaited_once_with()
     assert row.status == "review"
     assert utc(row.expires_at) > datetime.now(timezone.utc)
     assert batch.remaining == 0

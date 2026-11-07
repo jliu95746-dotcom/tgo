@@ -33,7 +33,12 @@ from app.services.agent_service import AgentService
 from tests.test_agent_device_script_cases import PRIVATE
 from tests.test_agent_device_script_runtime import context_for
 
-pytest_plugins = ("tests.test_agent_device_script_selection",)
+from tests.test_agent_device_script_selection import (
+    approved_run as approved_run,
+    binding_database as binding_database,
+    selected_db as selected_db,
+    trial_db as trial_db,
+)
 
 
 @pytest.mark.asyncio

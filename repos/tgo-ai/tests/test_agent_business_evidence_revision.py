@@ -17,6 +17,7 @@ from app.services.agent_execution_scope import ExecutionRevoked, track_execution
 from tests.test_agent_business_reviews import review_fixture as review_fixture
 from tests.test_agent_business_trials import trial as trial
 from tests.test_agent_knowledge_trial import employee
+from tests.test_agent_activation_readiness import setup as setup
 
 
 @pytest.mark.asyncio
@@ -75,6 +76,3 @@ async def test_knowledge_only_run_keeps_no_business_evidence(setup):
     db, stored, _, _, internal, _, _, _, _ = setup
     reference = await reference_for(db, stored.project_id, internal, KnowledgeChannel.WEB)
     assert reference.business_evidence_revision is None
-
-
-pytest_plugins = ("tests.test_agent_activation_readiness",)
