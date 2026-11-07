@@ -14,8 +14,15 @@ class MCPDiscoverRequest(BaseModel):
     @classmethod
     def validate_endpoint(cls, value: str) -> str:
         parsed = urlsplit(value)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("Use an HTTP(S) service address without embedded credentials")
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError(
+                "Use an HTTP(S) service address without embedded credentials"
+            )
         return value
 
 
@@ -39,4 +46,3 @@ class ToolTestResponse(BaseModel):
     success: bool
     output_data: JsonValue = None
     error: str | None = None
-

@@ -26,7 +26,9 @@ class ResourceDetails(BaseModel):
     total_chunk_count: int | None = Field(default=None, ge=0)
     blocked_reasons: list[str] = Field(default_factory=list)
     workflow_version: int | None = None
-    resource_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    resource_revision: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
 
 
 class ScenarioResource(BaseModel):
@@ -39,9 +41,9 @@ class ScenarioResource(BaseModel):
 
 class ResourceSection(BaseModel):
     kind: ResourceKind
-    status: Literal["available", "partial", "unavailable", "not_supported"] = (
-        "available"
-    )
+    status: Literal[
+        "available", "partial", "unavailable", "not_supported"
+    ] = "available"
     items: list[ScenarioResource] = Field(default_factory=list)
     message: str | None = None
 

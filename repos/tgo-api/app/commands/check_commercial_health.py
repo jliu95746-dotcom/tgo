@@ -18,7 +18,9 @@ def run_check(db: Session) -> CommercialHealthReport:
     if db.get_bind().dialect.name != "postgresql":
         raise ValueError("The maintenance command requires PostgreSQL")
     try:
-        db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+        db.execute(
+            text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        )
         db.execute(text("SET LOCAL statement_timeout = '30s'"))
         return inspect_commercial_health(db)
     finally:
@@ -26,7 +28,9 @@ def run_check(db: Session) -> CommercialHealthReport:
 
 
 def main() -> int:
-    argparse.ArgumentParser(description="域见商业化只读监测：开通、任务、额度预占及对账异常数量").parse_args()
+    argparse.ArgumentParser(
+        description="域见商业化只读监测：开通、任务、额度预占及对账异常数量"
+    ).parse_args()
     from app.core.database import SessionLocal
 
     try:

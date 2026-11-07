@@ -7,7 +7,13 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 NoticeStatus = Literal[
-    "pending", "sending", "sent", "unknown", "failed", "cancelled", "not_required"
+    "pending",
+    "sending",
+    "sent",
+    "unknown",
+    "failed",
+    "cancelled",
+    "not_required",
 ]
 
 

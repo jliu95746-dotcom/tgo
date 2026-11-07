@@ -21,7 +21,10 @@ class BusinessToolEvidence(BaseModel):
     success: bool
     query_id: UUID | None = None
     operation: Literal[
-        "order_query", "logistics_query", "customer_profile_query", "membership_query"
+        "order_query",
+        "logistics_query",
+        "customer_profile_query",
+        "membership_query",
     ] | None = None
 
 

@@ -57,4 +57,3 @@ def mask_secret(plain: Optional[str]) -> Optional[str]:
     if n <= 4:
         return "*" * n
     return "*" * (n - 4) + plain[-4:]
-

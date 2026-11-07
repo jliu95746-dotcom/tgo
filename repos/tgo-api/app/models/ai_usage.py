@@ -29,9 +29,13 @@ class AIUsageReservation(Base):
         ),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("api_projects.id"), index=True)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_projects.id"), index=True
+    )
     round_key: Mapped[str] = mapped_column(String(160))
-    batch_id: Mapped[UUID] = mapped_column(ForeignKey("api_ai_credit_batches.id"))
+    batch_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_ai_credit_batches.id")
+    )
     status: Mapped[str] = mapped_column(String(24), default="reserved")
     lease_id: Mapped[UUID] = mapped_column(default=uuid4)
     attempt: Mapped[int] = mapped_column(Integer, default=1)
@@ -40,17 +44,23 @@ class AIUsageReservation(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    settled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
 
 class AIUsageMovement(Base):
     __tablename__ = "api_ai_usage_movements"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("api_projects.id"), index=True)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_projects.id"), index=True
+    )
     reservation_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_ai_usage_reservations.id")
     )
-    batch_id: Mapped[UUID] = mapped_column(ForeignKey("api_ai_credit_batches.id"))
+    batch_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_ai_credit_batches.id")
+    )
     business_key: Mapped[str] = mapped_column(String(160), unique=True)
     kind: Mapped[str] = mapped_column(String(24))
     amount: Mapped[int] = mapped_column(Integer)

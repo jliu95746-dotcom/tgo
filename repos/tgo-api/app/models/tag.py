@@ -6,7 +6,14 @@ from enum import Enum
 from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -18,7 +25,7 @@ if TYPE_CHECKING:
 
 class TagCategory(str, Enum):
     """Tag category enumeration."""
-    
+
     VISITOR = "visitor"
     KNOWLEDGE = "knowledge"
 
@@ -32,93 +39,78 @@ class Tag(Base):
     id: Mapped[str] = mapped_column(
         String(255),
         primary_key=True,
-        comment="Base64 encoded ID: base64_encode(name + '@' + category)"
+        comment="Base64 encoded ID: base64_encode(name + '@' + category)",
     )
 
     # Foreign keys
     project_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_projects.id", ondelete="CASCADE"),
         nullable=False,
-        comment="Associated project ID for multi-tenant isolation"
+        comment="Associated project ID for multi-tenant isolation",
     )
 
     # Basic fields
     name: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False,
-        comment="Tag name (English)"
+        String(50), nullable=False, comment="Tag name (English)"
     )
     name_zh: Mapped[Optional[str]] = mapped_column(
-        String(50),
-        nullable=True,
-        comment="Tag name in Chinese"
+        String(50), nullable=True, comment="Tag name in Chinese"
     )
     category: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        comment="Tag category: visitor (for customer categorization) or knowledge (for content categorization)"
+        comment="Tag category: visitor (for customer categorization) or knowledge (for content categorization)",
     )
     weight: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         default=0,
-        comment="Tag importance/priority weight (0-10, higher values indicate higher priority)"
+        comment="Tag importance/priority weight (0-10, higher values indicate higher priority)",
     )
     color: Mapped[Optional[str]] = mapped_column(
-        String(20),
-        nullable=True,
-        comment="Tag color"
+        String(20), nullable=True, comment="Tag color"
     )
     description: Mapped[Optional[str]] = mapped_column(
-        String(255),
-        nullable=True,
-        comment="Tag description"
+        String(255), nullable=True, comment="Tag description"
     )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
-        nullable=False,
-        default=func.now(),
-        comment="Creation timestamp"
+        nullable=False, default=func.now(), comment="Creation timestamp"
     )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False,
         default=func.now(),
         onupdate=func.now(),
-        comment="Last update timestamp"
+        comment="Last update timestamp",
     )
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
-        nullable=True,
-        comment="Soft deletion timestamp"
+        nullable=True, comment="Soft deletion timestamp"
     )
 
     # Relationships
     project: Mapped["Project"] = relationship(
-        "Project",
-        back_populates="tags",
-        lazy="select"
+        "Project", back_populates="tags", lazy="select"
     )
-    
+
     visitor_tags: Mapped[List["VisitorTag"]] = relationship(
         "VisitorTag",
         back_populates="tag",
         cascade="all, delete-orphan",
-        lazy="select"
+        lazy="select",
     )
 
     # Constraints
     __table_args__ = (
         UniqueConstraint(
-            "project_id", "name",
-            name="uk_api_tags_project_name"
+            "project_id", "name", name="uk_api_tags_project_name"
         ),
         CheckConstraint(
             category.in_(["visitor", "knowledge"]),
-            name="chk_api_tags_category"
+            name="chk_api_tags_category",
         ),
         CheckConstraint(
-            "weight >= 0 AND weight <= 10",
-            name="chk_api_tags_weight"
+            "weight >= 0 AND weight <= 10", name="chk_api_tags_weight"
         ),
     )
 
@@ -133,13 +125,13 @@ class Tag(Base):
         # Generate Base64 encoded ID
         id_string = f"{name}@{category.value}"
         encoded_id = base64.b64encode(id_string.encode()).decode()
-        
+
         super().__init__(
             id=encoded_id,
             name=name,
             category=category,
             project_id=project_id,
-            **kwargs
+            **kwargs,
         )
 
     def __repr__(self) -> str:

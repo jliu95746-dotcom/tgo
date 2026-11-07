@@ -35,13 +35,16 @@ class KnowledgeReviewRequest(BaseModel):
     request_key: UUID
     case_id: str = Field(min_length=1, max_length=80)
     decision: Literal["passed", "rejected"]
-    checks: KnowledgeReviewChecks = Field(default_factory=KnowledgeReviewChecks)
+    checks: KnowledgeReviewChecks = Field(
+        default_factory=KnowledgeReviewChecks
+    )
     note: str = Field(default="", max_length=1000)
     expected_latest_review_id: UUID | None = None
 
 
 class KnowledgeReviewCommand(KnowledgeReviewRequest):
     """Only the authenticated gateway supplies the current case definition."""
+
     case: KnowledgeReviewCase
     current_cases: list[KnowledgeReviewCase] | None = Field(
         default=None, max_length=30

@@ -3,7 +3,15 @@
 from typing import Literal, Optional, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -12,7 +20,10 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.core.security import require_permission
 from app.models import Staff, AssignmentSource, SessionCommandDelivery
-from app.schemas.visitor_session import SessionHandoffSummary, VisitorSessionResponse
+from app.schemas.visitor_session import (
+    SessionHandoffSummary,
+    VisitorSessionResponse,
+)
 from app.services.session_service import close_visitor_session
 from app.services.staff_session_access import begin_staff_session_change
 from app.services.session_command_delivery import (
@@ -24,7 +35,10 @@ from app.services.transfer_service import transfer_to_staff
 from app.api.current_access_route import CurrentAccessRoute
 from app.services.profile_access import OperationGuard
 from app.services.profile_access import not_found
-from app.services.staff_record_access import require_staff_record_access, staff_record_guard
+from app.services.staff_record_access import (
+    require_staff_record_access,
+    staff_record_guard,
+)
 from app.services.session_handoff_summary import load_handoff_summary
 
 logger = get_logger("api.sessions")
@@ -42,9 +56,12 @@ async def get_handoff_summary(
     http_request: Request,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:read")),
-    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(original_bearer),
 ) -> SessionHandoffSummary:
-    access = require_staff_record_access(db, credentials, current_user, "visitors:read")
+    access = require_staff_record_access(
+        db, credentials, current_user, "visitors:read"
+    )
     summary, guard = await load_handoff_summary(db, access, visitor_id)
     http_request.state.operation_guard = guard
     return summary
@@ -62,7 +79,10 @@ async def finish_session_notice(
         db.rollback()
         logger.error(
             "Session command channel effect status unavailable",
-            extra={"operation_id": str(operation_id), "error_type": type(exc).__name__},
+            extra={
+                "operation_id": str(operation_id),
+                "error_type": type(exc).__name__,
+            },
         )
         effects_status = "unknown"
     guard.check()
@@ -74,7 +94,10 @@ async def finish_session_notice(
         db.rollback()
         logger.error(
             "Session command notice status unavailable",
-            extra={"operation_id": str(operation_id), "error_type": type(exc).__name__},
+            extra={
+                "operation_id": str(operation_id),
+                "error_type": type(exc).__name__,
+            },
         )
         notice_status = "unknown"
     guard.check()
@@ -87,20 +110,29 @@ async def finish_session_notice(
 # Request/Response schemas
 # ============================================================================
 
+
 class TransferSessionRequest(BaseModel):
     """Request schema for session transfer."""
-    
-    target_staff_id: UUID = Field(..., description="ID of the staff to transfer the session to")
-    reason: Optional[str] = Field(None, max_length=500, description="Reason for transfer")
+
+    target_staff_id: UUID = Field(
+        ..., description="ID of the staff to transfer the session to"
+    )
+    reason: Optional[str] = Field(
+        None, max_length=500, description="Reason for transfer"
+    )
 
 
 class TransferSessionResponse(BaseModel):
     """Response schema for session transfer."""
-    
-    success: bool = Field(..., description="Whether the transfer was successful")
+
+    success: bool = Field(
+        ..., description="Whether the transfer was successful"
+    )
     message: str = Field(..., description="Status message")
     old_session_id: UUID = Field(..., description="ID of the closed session")
-    new_session_id: Optional[UUID] = Field(None, description="ID of the new session")
+    new_session_id: Optional[UUID] = Field(
+        None, description="ID of the new session"
+    )
     visitor_id: UUID = Field(..., description="Visitor ID")
     from_staff_id: UUID = Field(..., description="Original staff ID")
     to_staff_id: UUID = Field(..., description="Target staff ID")
@@ -112,7 +144,9 @@ class SessionCommandReceiptResponse(BaseModel):
     visitor_id: UUID
     to_staff_id: UUID | None
     kind: Literal["close", "transfer"]
-    notification_status: Literal["pending", "sending", "sent", "unknown", "skipped"]
+    notification_status: Literal[
+        "pending", "sending", "sent", "unknown", "skipped"
+    ]
     attempts: int
     effects_status: Literal["pending", "done", "unknown", "skipped"]
     effects_attempts: int
@@ -128,14 +162,23 @@ def get_session_command_receipt(
     http_request: Request,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
-    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(original_bearer),
 ) -> SessionCommandReceiptResponse:
-    access = require_staff_record_access(db, credentials, current_user, "visitors:update")
-    row = db.query(SessionCommandDelivery).filter(
-        SessionCommandDelivery.id == operation_id,
-        SessionCommandDelivery.project_id == access.project_id,
-    ).first()
-    if row is None or (row.actor_staff_id != access.staff_id and current_user.role != "admin"):
+    access = require_staff_record_access(
+        db, credentials, current_user, "visitors:update"
+    )
+    row = (
+        db.query(SessionCommandDelivery)
+        .filter(
+            SessionCommandDelivery.id == operation_id,
+            SessionCommandDelivery.project_id == access.project_id,
+        )
+        .first()
+    )
+    if row is None or (
+        row.actor_staff_id != access.staff_id and current_user.role != "admin"
+    ):
         raise not_found()
     guard = staff_record_guard(access, (), "visitors:update")
     guard.check()
@@ -152,12 +195,11 @@ def get_session_command_receipt(
         ),
         attempts=row.attempts,
         effects_status=cast(
-            Literal["pending", "done", "unknown", "skipped"], row.effects_status
+            Literal["pending", "done", "unknown", "skipped"],
+            row.effects_status,
         ),
         effects_attempts=row.effects_attempts,
     )
-
-
 
 
 @router.post(
@@ -172,8 +214,10 @@ async def close_session_by_id(
     http_response: Response,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
-    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
-    requested_operation_id: UUID | None = Header(None, alias="X-Session-Operation-ID"),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(original_bearer),
+    requested_operation_id: UUID
+    | None = Header(None, alias="X-Session-Operation-ID"),
 ) -> VisitorSessionResponse:
     """
     通过会话ID关闭会话。
@@ -182,9 +226,12 @@ async def close_session_by_id(
     """
     operation_id = prepare_operation_id(db, requested_operation_id)
     session, scope = begin_staff_session_change(
-        db, credentials, current_user, session_id=session_id,
+        db,
+        credentials,
+        current_user,
+        session_id=session_id,
     )
-    
+
     try:
         session = await close_visitor_session(
             db=db,
@@ -196,11 +243,12 @@ async def close_session_by_id(
         )
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         )
-    
-    guard = scope.completed_guard(session, status="closed", staff_id=scope.original_staff_id)
+
+    guard = scope.completed_guard(
+        session, status="closed", staff_id=scope.original_staff_id
+    )
     guard.check()
     http_request.state.operation_guard = guard
     await finish_session_notice(db, http_response, operation_id, guard)
@@ -219,8 +267,10 @@ async def close_session_by_visitor_id(
     http_response: Response,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
-    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
-    requested_operation_id: UUID | None = Header(None, alias="X-Session-Operation-ID"),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(original_bearer),
+    requested_operation_id: UUID
+    | None = Header(None, alias="X-Session-Operation-ID"),
 ) -> VisitorSessionResponse:
     """
     通过访客ID关闭会话。
@@ -231,9 +281,12 @@ async def close_session_by_visitor_id(
     """
     operation_id = prepare_operation_id(db, requested_operation_id)
     session, scope = begin_staff_session_change(
-        db, credentials, current_user, visitor_id=visitor_id,
+        db,
+        credentials,
+        current_user,
+        visitor_id=visitor_id,
     )
-    
+
     try:
         session = await close_visitor_session(
             db=db,
@@ -245,11 +298,12 @@ async def close_session_by_visitor_id(
         )
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         )
-    
-    guard = scope.completed_guard(session, status="closed", staff_id=scope.original_staff_id)
+
+    guard = scope.completed_guard(
+        session, status="closed", staff_id=scope.original_staff_id
+    )
     guard.check()
     http_request.state.operation_guard = guard
     await finish_session_notice(db, http_response, operation_id, guard)
@@ -259,6 +313,7 @@ async def close_session_by_visitor_id(
 # ============================================================================
 # 转接和接入接口
 # ============================================================================
+
 
 @router.post(
     "/{session_id}/transfer",
@@ -273,8 +328,10 @@ async def transfer_session(
     http_response: Response,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
-    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
-    requested_operation_id: UUID | None = Header(None, alias="X-Session-Operation-ID"),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(original_bearer),
+    requested_operation_id: UUID
+    | None = Header(None, alias="X-Session-Operation-ID"),
 ) -> TransferSessionResponse:
     """
     转接会话给另一个客服。
@@ -287,49 +344,56 @@ async def transfer_session(
     """
     operation_id = prepare_operation_id(db, requested_operation_id)
     session, scope = begin_staff_session_change(
-        db, credentials, current_user, session_id=session_id,
+        db,
+        credentials,
+        current_user,
+        session_id=session_id,
     )
-    
+
     # Check target staff exists and is available
-    target_staff = db.query(Staff).filter(
-        Staff.id == request.target_staff_id,
-        Staff.project_id == current_user.project_id,
-        Staff.deleted_at.is_(None),
-    ).first()
-    
+    target_staff = (
+        db.query(Staff)
+        .filter(
+            Staff.id == request.target_staff_id,
+            Staff.project_id == current_user.project_id,
+            Staff.deleted_at.is_(None),
+        )
+        .first()
+    )
+
     if not target_staff:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Target staff not found"
+            detail="Target staff not found",
         )
-    
+
     if target_staff.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot transfer to yourself"
+            detail="Cannot transfer to yourself",
         )
-    
+
     if not target_staff.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Target staff is not active"
+            detail="Target staff is not active",
         )
-    
+
     if target_staff.service_paused:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Target staff has paused service"
+            detail="Target staff has paused service",
         )
-    
+
     session_id = session.id
     visitor_id = session.visitor_id
     from_staff_id = session.staff_id or current_user.id
-    
+
     # Transfer to target staff (reuse existing session, don't close, don't send notification)
     notes = f"Transferred from staff {current_user.id}"
     if request.reason:
         notes += f": {request.reason}"
-    
+
     result = await transfer_to_staff(
         db=db,
         visitor_id=visitor_id,
@@ -346,21 +410,23 @@ async def transfer_session(
         auto_commit=True,
         send_notification=False,
     )
-    
+
     if not result.success:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to transfer session: {result.message}"
+            detail=f"Failed to transfer session: {result.message}",
         )
 
     if result.session is None or result.session.id != session_id:
         raise HTTPException(status_code=409, detail="Original session changed")
-    guard = scope.completed_guard(result.session, status="open", staff_id=request.target_staff_id)
+    guard = scope.completed_guard(
+        result.session, status="open", staff_id=request.target_staff_id
+    )
     guard.check()
     http_request.state.operation_guard = guard
-    
+
     await finish_session_notice(db, http_response, operation_id, guard)
-    
+
     logger.info(
         f"Session {session_id} transferred from staff {from_staff_id} to {request.target_staff_id}",
         extra={
@@ -371,7 +437,7 @@ async def transfer_session(
             "reason": request.reason,
         },
     )
-    
+
     return TransferSessionResponse(
         success=True,
         message="Session transferred successfully",
@@ -396,8 +462,10 @@ async def transfer_session_by_visitor_id(
     http_response: Response,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
-    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
-    requested_operation_id: UUID | None = Header(None, alias="X-Session-Operation-ID"),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(original_bearer),
+    requested_operation_id: UUID
+    | None = Header(None, alias="X-Session-Operation-ID"),
 ) -> TransferSessionResponse:
     """
     通过访客ID转接会话。
@@ -410,48 +478,55 @@ async def transfer_session_by_visitor_id(
     """
     operation_id = prepare_operation_id(db, requested_operation_id)
     session, scope = begin_staff_session_change(
-        db, credentials, current_user, visitor_id=visitor_id,
+        db,
+        credentials,
+        current_user,
+        visitor_id=visitor_id,
     )
-    
+
     # Check target staff exists and is available
-    target_staff = db.query(Staff).filter(
-        Staff.id == request.target_staff_id,
-        Staff.project_id == current_user.project_id,
-        Staff.deleted_at.is_(None),
-    ).first()
-    
+    target_staff = (
+        db.query(Staff)
+        .filter(
+            Staff.id == request.target_staff_id,
+            Staff.project_id == current_user.project_id,
+            Staff.deleted_at.is_(None),
+        )
+        .first()
+    )
+
     if not target_staff:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Target staff not found"
+            detail="Target staff not found",
         )
-    
+
     if target_staff.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot transfer to yourself"
+            detail="Cannot transfer to yourself",
         )
-    
+
     if not target_staff.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Target staff is not active"
+            detail="Target staff is not active",
         )
-    
+
     if target_staff.service_paused:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Target staff has paused service"
+            detail="Target staff has paused service",
         )
-    
+
     session_id = session.id
     from_staff_id = session.staff_id or current_user.id
-    
+
     # Transfer to target staff (reuse existing session, don't close, don't send notification)
     notes = f"Transferred from staff {current_user.id}"
     if request.reason:
         notes += f": {request.reason}"
-    
+
     result = await transfer_to_staff(
         db=db,
         visitor_id=visitor_id,
@@ -468,21 +543,23 @@ async def transfer_session_by_visitor_id(
         auto_commit=True,
         send_notification=False,
     )
-    
+
     if not result.success:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to transfer session: {result.message}"
+            detail=f"Failed to transfer session: {result.message}",
         )
 
     if result.session is None or result.session.id != session_id:
         raise HTTPException(status_code=409, detail="Original session changed")
-    guard = scope.completed_guard(result.session, status="open", staff_id=request.target_staff_id)
+    guard = scope.completed_guard(
+        result.session, status="open", staff_id=request.target_staff_id
+    )
     guard.check()
     http_request.state.operation_guard = guard
-    
+
     await finish_session_notice(db, http_response, operation_id, guard)
-    
+
     logger.info(
         f"Session transferred via visitor_id {visitor_id} from staff {from_staff_id} to {request.target_staff_id}",
         extra={
@@ -493,7 +570,7 @@ async def transfer_session_by_visitor_id(
             "reason": request.reason,
         },
     )
-    
+
     return TransferSessionResponse(
         success=True,
         message="Session transferred successfully",

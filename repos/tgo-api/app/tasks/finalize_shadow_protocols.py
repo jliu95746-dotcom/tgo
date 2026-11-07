@@ -16,7 +16,9 @@ from app.core.database import SessionLocal
 from app.core.exceptions import TGOAPIException
 from app.core.logging import get_logger
 from app.models.shadow_review_protocol import ShadowReviewProtocol
-from app.services.shadow_review_protocol_service import ShadowReviewProtocolService
+from app.services.shadow_review_protocol_service import (
+    ShadowReviewProtocolService,
+)
 
 logger = get_logger(__name__)
 _task: asyncio.Task[None] | None = None
@@ -49,7 +51,9 @@ def finalize_due_protocols(
                     ShadowReviewProtocol.finalized_at.is_(None),
                     ShadowReviewProtocol.window_end <= cutoff,
                 )
-                .order_by(ShadowReviewProtocol.window_end, ShadowReviewProtocol.id)
+                .order_by(
+                    ShadowReviewProtocol.window_end, ShadowReviewProtocol.id
+                )
             ).all()
         ]
 
@@ -89,14 +93,21 @@ def finalize_due_protocols(
                 project_id,
                 type(exc).__name__,
             )
-    return FinalizationSweep(frozen=frozen, empty=empty, skipped=skipped, failed=failed)
+    return FinalizationSweep(
+        frozen=frozen, empty=empty, skipped=skipped, failed=failed
+    )
 
 
 async def _run_periodically() -> None:
     while True:
         try:
             result = await asyncio.to_thread(finalize_due_protocols)
-            if result.frozen or result.empty or result.skipped or result.failed:
+            if (
+                result.frozen
+                or result.empty
+                or result.skipped
+                or result.failed
+            ):
                 logger.info(
                     "Shadow protocol finalization sweep: frozen=%s empty=%s "
                     "skipped=%s failed=%s",

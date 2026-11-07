@@ -4,7 +4,13 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 
 class WorkflowApprovalAssigneeCheck(BaseModel):
@@ -61,7 +67,9 @@ class WorkflowAfterSalesReviewSummary(BaseModel):
     status: Literal["pending_staff_review", "reviewed"]
     created_at: datetime
     review_result: Literal[
-        "needs_manual_service", "needs_customer_information", "not_aftersales",
+        "needs_manual_service",
+        "needs_customer_information",
+        "not_aftersales",
     ] | None = None
     reviewed_by: UUID | None = None
     reviewed_at: datetime | None = None
@@ -71,7 +79,9 @@ class WorkflowAfterSalesReviewDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     result: Literal[
-        "needs_manual_service", "needs_customer_information", "not_aftersales",
+        "needs_manual_service",
+        "needs_customer_information",
+        "not_aftersales",
     ]
     review_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -92,13 +102,16 @@ class WorkflowAfterSalesChatTarget(BaseModel):
 
 
 IntakeShortText = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
 ]
 IntakeReasonText = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=5, max_length=500),
+    str,
+    StringConstraints(strip_whitespace=True, min_length=5, max_length=500),
 ]
 IntakePolicyText = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
 ]
 
 

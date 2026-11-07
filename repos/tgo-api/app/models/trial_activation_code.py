@@ -19,7 +19,9 @@ class TrialActivationCode(Base):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    code_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False
+    )
     operator_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_platform_operators.id"), nullable=False
     )
@@ -29,7 +31,9 @@ class TrialActivationCode(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeemed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     redeemed_project_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("api_projects.id")
     )

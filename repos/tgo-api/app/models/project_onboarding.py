@@ -86,4 +86,3 @@ class ProjectOnboardingProgress(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug
         return f"<ProjectOnboardingProgress(project_id={self.project_id}, is_completed={self.is_completed})>"
-

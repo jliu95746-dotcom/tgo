@@ -11,7 +11,9 @@ import zlib
 from typing import Final, Union
 from uuid import UUID
 
-_BASE62_ALPHABET: Final[str] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+_BASE62_ALPHABET: Final[
+    str
+] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 _BASE62_BASE: Final[int] = 62
 
 
@@ -47,10 +49,10 @@ def encode_channel_id(raw_string: str) -> str:
         return "0"
     data = raw_string.encode("utf-8")
     # Interpret bytes as big integer (unsigned)
-    int_value = int.from_bytes(data, byteorder="big", signed=False) if data else 0
+    int_value = (
+        int.from_bytes(data, byteorder="big", signed=False) if data else 0
+    )
     return _int_to_base62(int_value)
-
-
 
 
 def _base62_to_int(s: str) -> int:
@@ -126,10 +128,12 @@ def parse_visitor_channel_id(channel_id: str) -> UUID:
 
     Raises ValueError when the channel_id is not in the expected format.
     """
-    if not isinstance(channel_id, str) or not channel_id.endswith(VISITOR_CHANNEL_SUFFIX):
+    if not isinstance(channel_id, str) or not channel_id.endswith(
+        VISITOR_CHANNEL_SUFFIX
+    ):
         raise ValueError("Invalid visitor channel_id format")
 
-    uuid_part = channel_id[:-len(VISITOR_CHANNEL_SUFFIX)]
+    uuid_part = channel_id[: -len(VISITOR_CHANNEL_SUFFIX)]
     try:
         return UUID(uuid_part)
     except Exception as exc:
@@ -146,21 +150,21 @@ def get_session_id(from_uid: str, to_uid: str, channel_type: int) -> str:
     This matches WuKongIM's internal session ID generation logic for personal channels.
     """
     if channel_type == 1:
-        # For personal channels, session_id is always {uid1}@{uid2} where uid1 and uid2 
+        # For personal channels, session_id is always {uid1}@{uid2} where uid1 and uid2
         # are ordered deterministically to ensure both participants see the same session.
         from_hash = zlib.crc32(from_uid.encode())
         to_hash = zlib.crc32(to_uid.encode())
-        
+
         if from_hash > to_hash:
             return f"{from_uid}@{to_uid}"
-        
+
         if from_uid != to_uid and from_hash == to_hash:
             # Hash collision (rare but possible with CRC32)
             # In this case we fallback to string comparison for deterministic ordering
             if from_uid > to_uid:
                 return f"{from_uid}@{to_uid}"
-        
+
         return f"{to_uid}@{from_uid}"
-    
+
     # For group or other channel types, use the channel_id and channel_type
     return f"{to_uid}@{channel_type}"

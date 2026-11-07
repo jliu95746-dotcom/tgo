@@ -3,13 +3,22 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_serializer,
+    field_validator,
+)
 
 from app.core.config import settings
 
 
 class VisitorRegisterResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True, validate_assignment=True, extra="forbid")
+    model_config = ConfigDict(
+        from_attributes=True, validate_assignment=True, extra="forbid"
+    )
 
     id: UUID
     project_id: UUID

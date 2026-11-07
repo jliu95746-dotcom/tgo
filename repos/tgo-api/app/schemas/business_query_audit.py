@@ -14,7 +14,12 @@ class BusinessQueryAuditItem(BaseModel):
     project_id: UUID
     query_id: UUID
     agent_id: UUID
-    operation: Literal["order_query", "logistics_query", "customer_profile_query", "membership_query"]
+    operation: Literal[
+        "order_query",
+        "logistics_query",
+        "customer_profile_query",
+        "membership_query",
+    ]
     outcome: Literal["success", "denied", "timeout", "failed"]
     duration_ms: float = Field(ge=0)
     created_at: datetime

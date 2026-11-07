@@ -48,7 +48,9 @@ class MediaAnalysisResult(Base):
     mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     normalized_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    normalized_text_is_untrusted: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    normalized_text_is_untrusted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False
+    )
     sensitive_data_categories: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
@@ -66,7 +68,9 @@ class MediaAnalysisResult(Base):
     )
     can_continue: Mapped[bool] = mapped_column(Boolean, nullable=False)
     requires_handoff: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    fallback_message: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    fallback_message: Mapped[str | None] = mapped_column(
+        String(512), nullable=True
+    )
     pipeline_version: Mapped[str] = mapped_column(String(128), nullable=False)
     input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)

@@ -119,11 +119,13 @@ class AIProvider(Base):
         comment="Last sync error message",
     )
 
-
     # Relationships
-    project: Mapped["Project"] = relationship("Project", back_populates="ai_providers", lazy="select")
-    models: Mapped[List["AIModel"]] = relationship("AIModel", back_populates="ai_provider", cascade="all, delete-orphan")
+    project: Mapped["Project"] = relationship(
+        "Project", back_populates="ai_providers", lazy="select"
+    )
+    models: Mapped[List["AIModel"]] = relationship(
+        "AIModel", back_populates="ai_provider", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<AIProvider(id={self.id}, provider='{self.provider}', name='{self.name}')>"
-

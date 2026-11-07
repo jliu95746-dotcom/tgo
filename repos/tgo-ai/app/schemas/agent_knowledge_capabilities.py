@@ -75,10 +75,14 @@ class KnowledgeCapabilityCoverage(BaseModel):
     @model_validator(mode="after")
     def consistent_coverage(self) -> "KnowledgeCapabilityCoverage":
         answers = [
-            row for row in self.cases if row.case.expected_result == "grounded_answer"
+            row
+            for row in self.cases
+            if row.case.expected_result == "grounded_answer"
         ]
         safety = [
-            row for row in self.cases if row.case.expected_result == "safe_refusal"
+            row
+            for row in self.cases
+            if row.case.expected_result == "safe_refusal"
         ]
         actual = (
             sum(row.status == "passed" for row in answers),

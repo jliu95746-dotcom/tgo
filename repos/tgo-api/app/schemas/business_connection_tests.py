@@ -28,9 +28,9 @@ ApplicabilityIssue = Literal[
 
 class BusinessConnectionTestApplicability(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    scope: Literal["business_connection_configuration"] = (
+    scope: Literal[
         "business_connection_configuration"
-    )
+    ] = "business_connection_configuration"
     status: Literal["current", "stale", "not_passed", "unavailable"]
     checked_at: datetime
     valid_until: datetime | None
@@ -43,17 +43,28 @@ class BusinessConnectionTestRequest(BaseModel):
     expected_revision: int = Field(ge=1, strict=True)
     operation: Operation
     order_no: str | None = Field(
-        default=None, min_length=4, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$"
+        default=None,
+        min_length=4,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
     )
     customer_id: str = Field(
-        min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]*$"
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]*$",
     )
 
     @model_validator(mode="after")
     def operation_inputs(self) -> Self:
-        if self.operation in {"order_query", "logistics_query"} and self.order_no is None:
+        if (
+            self.operation in {"order_query", "logistics_query"}
+            and self.order_no is None
+        ):
             raise ValueError("订单与物流测试必须填写订单号")
-        if self.operation in {"customer_profile_query", "membership_query"} and self.order_no is not None:
+        if (
+            self.operation in {"customer_profile_query", "membership_query"}
+            and self.order_no is not None
+        ):
             raise ValueError("客户资料与会员测试不接受订单号")
         return self
 

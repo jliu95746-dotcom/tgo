@@ -4,7 +4,13 @@ from datetime import UTC, datetime
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 from app.schemas.agent_business_trials import BusinessTrialReport, Operation
 
 PreparationError = Literal[
@@ -14,9 +20,9 @@ PreparationError = Literal[
 
 class BusinessEmployeeCurrentState(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    scope: Literal["employee_business_current_state"] = (
+    scope: Literal[
         "employee_business_current_state"
-    )
+    ] = "employee_business_current_state"
     can_enable: Literal[False] = False
     project_id: UUID
     actor_id: UUID
@@ -40,9 +46,9 @@ class BusinessRequestControl(BaseModel):
 
 
 class BusinessRequestState(BusinessRequestControl):
-    scope: Literal["employee_business_trial_request"] = (
+    scope: Literal[
         "employee_business_trial_request"
-    )
+    ] = "employee_business_trial_request"
     can_enable: Literal[False] = False
     project_id: UUID
     actor_id: UUID

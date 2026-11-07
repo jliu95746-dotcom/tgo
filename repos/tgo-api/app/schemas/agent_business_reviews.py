@@ -11,9 +11,14 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from app.schemas.agent_business_trials import BusinessTrialCustomerEvidence, Operation
+from app.schemas.agent_business_trials import (
+    BusinessTrialCustomerEvidence,
+    Operation,
+)
 
-ReviewReason = Literal["wrong_result", "needs_mapping", "scope_mismatch", "other"]
+ReviewReason = Literal[
+    "wrong_result", "needs_mapping", "scope_mismatch", "other"
+]
 ReviewIssue = Literal[
     "test_not_completed",
     "test_not_passed",
@@ -59,9 +64,9 @@ class BusinessReviewRequest(BaseModel):
 
 class BusinessReviewRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    scope: Literal["employee_business_operation_review"] = (
+    scope: Literal[
         "employee_business_operation_review"
-    )
+    ] = "employee_business_operation_review"
     can_enable: Literal[False] = False
     id: UUID
     project_id: UUID
@@ -91,7 +96,10 @@ class BusinessReviewRecord(BaseModel):
         if (
             (self.decision == "rejected") != (self.reason is not None)
             or self.decision == "passed"
-            and (not self.checks.confirmed() or self.valid_until <= self.created_at)
+            and (
+                not self.checks.confirmed()
+                or self.valid_until <= self.created_at
+            )
         ):
             raise ValueError("评审记录不能表示未经确认的通过")
         return self
@@ -99,9 +107,9 @@ class BusinessReviewRecord(BaseModel):
 
 class BusinessReviewState(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    scope: Literal["employee_business_operation_review"] = (
+    scope: Literal[
         "employee_business_operation_review"
-    )
+    ] = "employee_business_operation_review"
     can_enable: Literal[False] = False
     project_id: UUID
     agent_id: UUID
@@ -174,9 +182,9 @@ class BusinessTestEvidenceQuery(BaseModel):
 
 
 class BusinessTestEvidence(BusinessTestEvidenceQuery):
-    scope: Literal["business_trial_customer_evidence_check"] = (
+    scope: Literal[
         "business_trial_customer_evidence_check"
-    )
+    ] = "business_trial_customer_evidence_check"
     can_enable: Literal[False] = False
     status: Literal["current", "changed"]
     issues: list[Literal["identity_changed", "identity_unavailable"]]
@@ -215,7 +223,9 @@ class BusinessOperationCapability(BaseModel):
 
 class AgentBusinessCapabilities(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    scope: Literal["employee_business_capabilities"] = "employee_business_capabilities"
+    scope: Literal[
+        "employee_business_capabilities"
+    ] = "employee_business_capabilities"
     can_enable: Literal[False] = False
     can_execute: Literal[False] = False
     project_id: UUID
@@ -227,7 +237,9 @@ class AgentBusinessCapabilities(BaseModel):
     @model_validator(mode="after")
     def safe_capabilities(self) -> Self:
         keys = {(row.binding_id, row.operation) for row in self.capabilities}
-        if self.checked_at.tzinfo is None or len(keys) != len(self.capabilities):
+        if self.checked_at.tzinfo is None or len(keys) != len(
+            self.capabilities
+        ):
             raise ValueError("业务能力核验重复或缺少时间")
         if any(
             row.status == "passed"

@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_active_user
 from app.models import AIModel, AIProvider, Staff
-from app.schemas.ai_model import AIModelWithProvider, AIModelWithProviderListResponse
+from app.schemas.ai_model import (
+    AIModelWithProvider,
+    AIModelWithProviderListResponse,
+)
 
 router = APIRouter()
 
@@ -47,7 +50,7 @@ async def list_ai_models(
 
     if model_type:
         stmt = stmt.where(AIModel.model_type == model_type)
-    
+
     if is_active is not None:
         stmt = stmt.where(AIModel.is_active == is_active)
 
@@ -58,7 +61,7 @@ async def list_ai_models(
     # Ordered list
     stmt = stmt.order_by(AIProvider.name.asc(), AIModel.model_name.asc())
     stmt = stmt.offset(offset).limit(limit)
-    
+
     results = db.execute(stmt).all()
 
     data = []
@@ -66,7 +69,7 @@ async def list_ai_models(
         # Explicitly build dict to avoid any implicit ORM attribute access during serialization
         # Ensure capabilities is at least an empty dict if None
         caps = model.capabilities or {}
-        
+
         item = AIModelWithProvider(
             id=model.id,
             model_id=model.model_id,

@@ -221,7 +221,12 @@ from app.schemas.wukongim import (
     WuKongIMSystemAccountsRequest,
     WuKongIMUserRegistration,
 )
-from app.schemas.search import MessageSearchResult, SearchPagination, SearchScope, UnifiedSearchResponse
+from app.schemas.search import (
+    MessageSearchResult,
+    SearchPagination,
+    SearchScope,
+    UnifiedSearchResponse,
+)
 from app.schemas.chat import (
     ChatFileUploadResponse,
     StaffSendPlatformMessageRequest,

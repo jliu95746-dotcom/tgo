@@ -15,7 +15,8 @@ from app.utils.crypto import decrypt_str
 
 
 def _map_kind_and_vendor(
-    provider: str, config: Optional[JsonObject] = None,
+    provider: str,
+    config: Optional[JsonObject] = None,
 ) -> tuple[str, Optional[str]]:
     p = (provider or "").lower()
     vendor_cfg = None
@@ -44,26 +45,38 @@ def _provider_to_upsert(item: AIProvider) -> JsonObject:
         timeout = item.config.get("timeout")
     alias = (item.name or item.provider or "").strip()[:80]
     api_key_plain = decrypt_str(item.api_key) if item.api_key else None
-    
+
     # Available models for this provider
     models: list[JsonValue] = []
     if item.models:
         for m in item.models:
             if m.deleted_at is None:
-                models.append({
-                    "id": str(m.id),
-                    "provider_id": str(m.provider_id),
-                    "model_id": str(m.model_id),
-                    "model_name": str(m.model_name),
-                    "model_type": str(m.model_type),
-                    "description": str(m.description) if m.description else None,
-                    "is_active": bool(m.is_active),
-                    "capabilities": dict(m.capabilities) if m.capabilities else {},
-                    "context_window": int(m.context_window) if m.context_window is not None else None,
-                    "max_tokens": int(m.max_tokens) if m.max_tokens is not None else None,
-                    "store_resource_id": str(m.store_resource_id) if m.store_resource_id else None,
-                })
-    
+                models.append(
+                    {
+                        "id": str(m.id),
+                        "provider_id": str(m.provider_id),
+                        "model_id": str(m.model_id),
+                        "model_name": str(m.model_name),
+                        "model_type": str(m.model_type),
+                        "description": str(m.description)
+                        if m.description
+                        else None,
+                        "is_active": bool(m.is_active),
+                        "capabilities": dict(m.capabilities)
+                        if m.capabilities
+                        else {},
+                        "context_window": int(m.context_window)
+                        if m.context_window is not None
+                        else None,
+                        "max_tokens": int(m.max_tokens)
+                        if m.max_tokens is not None
+                        else None,
+                        "store_resource_id": str(m.store_resource_id)
+                        if m.store_resource_id
+                        else None,
+                    }
+                )
+
     upsert: JsonObject = {
         "id": str(item.id),  # required by tgo-ai LLMProviderUpsert schema
         "provider_kind": provider_kind,
@@ -94,8 +107,12 @@ async def sync_providers(items: Sequence[AIProvider]) -> SyncResult:
     try:
         payload = {"providers": [_provider_to_upsert(x) for x in items]}
         expected_ids = [str(x.id) for x in items]
-        async with httpx.AsyncClient(timeout=settings.AI_SERVICE_TIMEOUT) as client:
-            resp = await client.post(url, json=payload, headers=_build_headers())
+        async with httpx.AsyncClient(
+            timeout=settings.AI_SERVICE_TIMEOUT
+        ) as client:
+            resp = await client.post(
+                url, json=payload, headers=_build_headers()
+            )
         return read_sync_receipt(resp, expected_ids, "id")
     except httpx.TimeoutException:
         return False, "timeout", None
@@ -107,7 +124,6 @@ async def sync_providers(items: Sequence[AIProvider]) -> SyncResult:
 
 async def sync_provider(item: AIProvider) -> SyncResult:
     return await sync_providers([item])
-
 
 
 # Retry helpers for syncing providers
@@ -125,8 +141,16 @@ async def sync_provider_with_retry(
     from app.core.logging import get_logger
 
     logger = get_logger("services.ai_provider_sync")
-    retries = settings.AI_PROVIDER_SYNC_RETRY_COUNT if max_retries is None else max_retries
-    base_delay = settings.AI_PROVIDER_SYNC_RETRY_DELAY if initial_delay is None else initial_delay
+    retries = (
+        settings.AI_PROVIDER_SYNC_RETRY_COUNT
+        if max_retries is None
+        else max_retries
+    )
+    base_delay = (
+        settings.AI_PROVIDER_SYNC_RETRY_DELAY
+        if initial_delay is None
+        else initial_delay
+    )
 
     # Initial attempt
     ok, err, data = await sync_provider(item)
@@ -167,8 +191,16 @@ async def sync_providers_with_retry(
     from app.core.logging import get_logger
 
     logger = get_logger("services.ai_provider_sync")
-    retries = settings.AI_PROVIDER_SYNC_RETRY_COUNT if max_retries is None else max_retries
-    base_delay = settings.AI_PROVIDER_SYNC_RETRY_DELAY if initial_delay is None else initial_delay
+    retries = (
+        settings.AI_PROVIDER_SYNC_RETRY_COUNT
+        if max_retries is None
+        else max_retries
+    )
+    base_delay = (
+        settings.AI_PROVIDER_SYNC_RETRY_DELAY
+        if initial_delay is None
+        else initial_delay
+    )
 
     ok, err, data = await sync_providers(items)
     if ok:
@@ -196,7 +228,8 @@ async def sync_providers_with_retry(
 
 
 async def sync_provider_with_retry_and_update(
-    db: Session, item: AIProvider,
+    db: Session,
+    item: AIProvider,
 ) -> tuple[bool, Optional[str]]:
     """Sync one provider with retries and update its sync fields in DB.
 

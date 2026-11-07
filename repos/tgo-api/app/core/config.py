@@ -27,46 +27,45 @@ class Settings(BaseSettings):
 
     # Project Information
     PROJECT_NAME: str = Field(
-        default="TGO-Tech API Service",
-        description="Name of the project"
+        default="TGO-Tech API Service", description="Name of the project"
     )
     PROJECT_DESCRIPTION: str = Field(
         default="Core Business Logic Microservice",
-        description="Description of the project"
+        description="Description of the project",
     )
     PROJECT_VERSION: str = Field(
-        default="0.1.0",
-        description="Version of the project"
+        default="0.1.0", description="Version of the project"
     )
 
     # API Configuration
-    API_V1_STR: str = Field(
-        default="/v1",
-        description="API v1 prefix"
-    )
+    API_V1_STR: str = Field(default="/v1", description="API v1 prefix")
     API_BASE_URL: str = Field(
         default="http://localhost:8000",
-        description="Public-facing base URL for this TGO API service (used to construct callback URLs)"
+        description="Public-facing base URL for this TGO API service (used to construct callback URLs)",
     )
 
     # Security
-    BUSINESS_CONNECTION_CREDENTIAL_KEY: Optional[SecretStr] = Field(default=None, description="Dedicated URL-safe base64 AES-256 key for company business credentials")
-    BUSINESS_CONNECTION_SERVICE_TOKEN: Optional[SecretStr] = Field(default=None, description="Private credential resolution token shared only with the business adapter")
-    BUSINESS_CONNECTION_TEST_TTL_SECONDS: int = Field(default=86400, ge=60, le=604800, description="Maximum age of individual business operation test proof")
+    BUSINESS_CONNECTION_CREDENTIAL_KEY: Optional[SecretStr] = Field(
+        default=None,
+        description="Dedicated URL-safe base64 AES-256 key for company business credentials",
+    )
+    BUSINESS_CONNECTION_SERVICE_TOKEN: Optional[SecretStr] = Field(
+        default=None,
+        description="Private credential resolution token shared only with the business adapter",
+    )
+    BUSINESS_CONNECTION_TEST_TTL_SECONDS: int = Field(
+        default=86400,
+        ge=60,
+        le=604800,
+        description="Maximum age of individual business operation test proof",
+    )
     SECRET_KEY: str = Field(
-        ...,
-        description="Secret key for JWT token generation",
-        min_length=32
+        ..., description="Secret key for JWT token generation", min_length=32
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
-        default=30,
-        description="Access token expiration time in minutes",
-        gt=0
+        default=30, description="Access token expiration time in minutes", gt=0
     )
-    ALGORITHM: str = Field(
-        default="HS256",
-        description="JWT algorithm"
-    )
+    ALGORITHM: str = Field(default="HS256", description="JWT algorithm")
 
     # Commercial rollout is opt-in; existing companies are not enrolled here.
     WORKFLOW_EVENT_DELIVERY_KEYS: SecretStr | None = None
@@ -95,7 +94,9 @@ class Settings(BaseSettings):
     ASSIST_DRAFT_RETENTION_ENABLED: bool = Field(default=True)
     ASSIST_DRAFT_RETENTION_DAYS: int = Field(default=90, ge=1, le=3650)
     ASSIST_DRAFT_RETENTION_INTERVAL_SECONDS: int = Field(
-        default=3600, ge=60, le=86400,
+        default=3600,
+        ge=60,
+        le=86400,
     )
     WECHAT_PAY_MCH_ID: str = Field(default="")
     WECHAT_PAY_APP_ID: str = Field(default="")
@@ -105,7 +106,9 @@ class Settings(BaseSettings):
     WECHAT_PAY_API_V3_KEY: Optional[SecretStr] = Field(default=None)
     WECHAT_PAY_NOTIFY_URL: str = Field(default="")
     WECHAT_PAY_REFUND_NOTIFY_URL: str = Field(default="")
-    WECHAT_PAY_API_BASE_URL: str = Field(default="https://api.mch.weixin.qq.com")
+    WECHAT_PAY_API_BASE_URL: str = Field(
+        default="https://api.mch.weixin.qq.com"
+    )
     SAAS_IM_PUBLIC_URL: str = Field(default="")
     SAAS_IM_UPSTREAM_URL: str = Field(default="")
     SAAS_VISITOR_IM_TOKEN_MINUTES: int = Field(default=1440, ge=5, le=10080)
@@ -116,28 +119,23 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: PostgresDsn = Field(
-        ...,
-        description="PostgreSQL database URL"
+        ..., description="PostgreSQL database URL"
     )
     DATABASE_POOL_SIZE: int = Field(
-        default=10,
-        description="Database connection pool size",
-        gt=0
+        default=10, description="Database connection pool size", gt=0
     )
     DATABASE_MAX_OVERFLOW: int = Field(
-        default=20,
-        description="Database connection pool max overflow",
-        gt=0
+        default=20, description="Database connection pool max overflow", gt=0
     )
     DATABASE_POOL_TIMEOUT: int = Field(
         default=30,
         description="Database connection pool timeout in seconds",
-        gt=0
+        gt=0,
     )
     DATABASE_POOL_RECYCLE: int = Field(
         default=3600,
         description="Database connection pool recycle time in seconds",
-        gt=0
+        gt=0,
     )
 
     # CORS
@@ -145,69 +143,64 @@ class Settings(BaseSettings):
         default_factory=lambda: [
             "*",
         ],
-        description="List of allowed CORS origins"
+        description="List of allowed CORS origins",
     )
 
     # Internal Service Configuration
     INTERNAL_SERVICE_HOST: str = Field(
         default="127.0.0.1",
-        description="Host for internal services (127.0.0.1 for localhost only, 0.0.0.0 for all interfaces in Docker)"
+        description="Host for internal services (127.0.0.1 for localhost only, 0.0.0.0 for all interfaces in Docker)",
     )
     INTERNAL_SERVICE_PORT: int = Field(
         default=8001,
         description="Port for internal services (no authentication required)",
-        gt=0
+        gt=0,
     )
     INTERNAL_CORS_ORIGINS: List[str] = Field(
         default_factory=lambda: [
             "*",
         ],
-        description="List of allowed CORS origins for internal services"
+        description="List of allowed CORS origins for internal services",
     )
 
     # RAG Service settings
     RAG_SERVICE_URL: str = Field(
-        default="http://localhost:8001",
-        description="URL of the RAG service"
+        default="http://localhost:8001", description="URL of the RAG service"
     )
     RAG_SERVICE_TIMEOUT: int = Field(
-        default=30,
-        description="Timeout for RAG service requests in seconds"
+        default=30, description="Timeout for RAG service requests in seconds"
     )
     RAG_SERVICE_API_KEY: Optional[str] = Field(
         default=None,
-        description="API key for RAG service authentication (if required)"
+        description="API key for RAG service authentication (if required)",
     )
 
     # AI Service settings
     AI_SERVICE_URL: str = Field(
-        default="http://localhost:8002",
-        description="URL of the AI service"
+        default="http://localhost:8002", description="URL of the AI service"
     )
     AI_SERVICE_TIMEOUT: int = Field(
-        default=120,
-        description="Timeout for AI service requests in seconds"
+        default=120, description="Timeout for AI service requests in seconds"
     )
     AI_SERVICE_API_KEY: Optional[str] = Field(
         default=None,
-        description="API key for AI service authentication (if required)"
+        description="API key for AI service authentication (if required)",
     )
 
     # Workflow Service settings
     WEBHOOK_EXECUTION_ENABLED: bool = False
     WORKFLOW_SERVICE_URL: str = Field(
         default="http://localhost:8004",
-        description="URL of the Workflow service"
+        description="URL of the Workflow service",
     )
     WORKFLOW_SERVICE_TIMEOUT: int = Field(
         default=60,
-        description="Timeout for Workflow service requests in seconds"
+        description="Timeout for Workflow service requests in seconds",
     )
     WORKFLOW_SERVICE_API_KEY: Optional[str] = Field(
         default=None,
-        description="API key for Workflow service authentication (if required)"
+        description="API key for Workflow service authentication (if required)",
     )
-
 
     # AI Provider sync settings
     AI_PROVIDER_SYNC_RETRY_COUNT: int = Field(
@@ -264,7 +257,7 @@ class Settings(BaseSettings):
 
     # Queue Processing settings (event-driven with fallback)
     QUEUE_DEFAULT_TIMEOUT_MINUTES: int = Field(
-        default=60*24, # 24 hours
+        default=60 * 24,  # 24 hours
         description="Default queue wait timeout in minutes if not configured per project",
         gt=0,
     )
@@ -371,70 +364,62 @@ class Settings(BaseSettings):
 
     # Store settings
     STORE_SERVICE_URL: str = Field(
-        default="http://localhost:8095",
-        description="URL of the Store service"
+        default="http://localhost:8095", description="URL of the Store service"
     )
     STORE_TIMEOUT: int = Field(
-        default=30,
-        description="Timeout for Store service requests in seconds"
+        default=30, description="Timeout for Store service requests in seconds"
     )
 
     STORE_WEB_URL: str = Field(
         default="http://localhost:3002",
-        description="URL of the Store Web frontend (for OAuth redirect)"
+        description="URL of the Store Web frontend (for OAuth redirect)",
     )
 
     # WuKongIM Service settings
     WUKONGIM_SERVICE_URL: str = Field(
         default="http://localhost:5001",
-        description="URL of the WuKongIM service"
+        description="URL of the WuKongIM service",
     )
     WUKONGIM_SERVICE_TIMEOUT: int = Field(
         default=10,
-        description="Timeout for WuKongIM service requests in seconds"
+        description="Timeout for WuKongIM service requests in seconds",
     )
     WUKONGIM_ENABLED: bool = Field(
         default=True,
-        description="Enable WuKongIM integration for instant messaging"
+        description="Enable WuKongIM integration for instant messaging",
     )
     WUKONGIM_DEVICE_FLAG: int = Field(
-        default=1,
-        description="WuKongIM device flag (0=app, 1=web, 2=pc)"
+        default=1, description="WuKongIM device flag (0=app, 1=web, 2=pc)"
     )
     WUKONGIM_DEVICE_LEVEL: int = Field(
-        default=1,
-        description="WuKongIM device level (0=secondary, 1=primary)"
+        default=1, description="WuKongIM device level (0=secondary, 1=primary)"
     )
 
     # Logging
-    LOG_LEVEL: str = Field(
-        default="INFO",
-        description="Logging level"
-    )
+    LOG_LEVEL: str = Field(default="INFO", description="Logging level")
     LOG_FORMAT: str = Field(
         default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        description="Logging format"
+        description="Logging format",
     )
 
     # Redis (for caching and sessions)
     REDIS_URL: Optional[str] = Field(
-        default=None,
-        description="Redis URL for caching and sessions"
+        default=None, description="Redis URL for caching and sessions"
     )
 
     # GeoIP settings (for IP to location lookup)
     # Supports two providers: geoip2 (MaxMind GeoLite2) and ip2region
     GEOIP_PROVIDER: str = Field(
         default="ip2region",
-        description="GeoIP provider: 'geoip2' (MaxMind) or 'ip2region' (lionsoul2014)"
+        description="GeoIP provider: 'geoip2' (MaxMind) or 'ip2region' (lionsoul2014)",
     )
     GEOIP_DATABASE_PATH: Optional[str] = Field(
         default="resources/geoip",
-        description="Path to GeoLite2-City.mmdb (geoip2) or ip2region directory/file (ip2region)"
+        description="Path to GeoLite2-City.mmdb (geoip2) or ip2region directory/file (ip2region)",
     )
     GEOIP_ENABLED: bool = Field(
         default=True,
-        description="Enable IP geolocation lookup (requires GEOIP_DATABASE_PATH)"
+        description="Enable IP geolocation lookup (requires GEOIP_DATABASE_PATH)",
     )
 
     # Rate Limiting
@@ -443,13 +428,10 @@ class Settings(BaseSettings):
         description="Allow public signup into a new isolated project",
     )
     RATE_LIMIT_ENABLED: bool = Field(
-        default=True,
-        description="Enable rate limiting"
+        default=True, description="Enable rate limiting"
     )
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = Field(
-        default=100,
-        description="Rate limit requests per minute",
-        gt=0
+        default=100, description="Rate limit requests per minute", gt=0
     )
 
     # Pagination
@@ -457,12 +439,12 @@ class Settings(BaseSettings):
         default=20,
         description="Default page size for paginated responses",
         gt=0,
-        le=100
+        le=100,
     )
     MAX_PAGE_SIZE: int = Field(
         default=100,
         description="Maximum page size for paginated responses",
-        gt=0
+        gt=0,
     )
 
     # Visitor online status sync settings
@@ -484,18 +466,18 @@ class Settings(BaseSettings):
     # Unknown Platform Fallback
     UNKNOWN_PLATFORM_ID: str = Field(
         default="00000000-0000-0000-0000-000000000000",
-        description="UUID for the unknown/fallback platform when platform data is missing"
+        description="UUID for the unknown/fallback platform when platform data is missing",
     )
     UNKNOWN_PLATFORM_NAME: str = Field(
         default="未知平台",
-        description="Display name for the unknown/fallback platform"
+        description="Display name for the unknown/fallback platform",
     )
 
     # File Upload (legacy)
     MAX_FILE_SIZE: int = Field(
         default=10 * 1024 * 1024,  # 10MB
         description="Maximum file upload size in bytes",
-        gt=0
+        gt=0,
     )
     ALLOWED_FILE_TYPES: List[str] = Field(
         # default_factory=lambda: [
@@ -507,16 +489,21 @@ class Settings(BaseSettings):
         #     "text/plain",
         # ],
         default_factory=lambda: [],
-        description="Allowed file MIME types"
+        description="Allowed file MIME types",
     )
 
     # Chat Upload Settings (preferred)
     MESSAGE_SEARCH_SCAN_LIMIT: int = Field(
-        default=5000, ge=100, le=100000, multiple_of=100,
+        default=5000,
+        ge=100,
+        le=100000,
+        multiple_of=100,
         description="Maximum raw messages scanned per authorized search page",
     )
     MESSAGE_SEARCH_TIMEOUT_SECONDS: float = Field(
-        default=10.0, ge=0.1, le=60.0,
+        default=10.0,
+        ge=0.1,
+        le=60.0,
         description="Deadline for authorized message search in seconds",
     )
 
@@ -529,11 +516,13 @@ class Settings(BaseSettings):
         description="Remove old unbound generated visitor avatar files",
     )
     VISITOR_AVATAR_CLEANUP_AGE_DAYS: int = Field(
-        default=7, ge=1,
+        default=7,
+        ge=1,
         description="Minimum age in days before an unbound avatar may be removed",
     )
     VISITOR_AVATAR_CLEANUP_INTERVAL_SECONDS: int = Field(
-        default=6 * 60 * 60, ge=60 * 60,
+        default=6 * 60 * 60,
+        ge=60 * 60,
         description="Interval between visitor avatar cleanup batches",
     )
     VISITOR_END_RECOVERY_ENABLED: bool = Field(
@@ -541,14 +530,19 @@ class Settings(BaseSettings):
         description="Retry retired visitor stop and IM disconnect cleanup",
     )
     VISITOR_END_RECOVERY_INTERVAL_SECONDS: int = Field(
-        default=60, ge=10,
+        default=60,
+        ge=10,
         description="Seconds between bounded visitor end recovery sweeps",
     )
     VISITOR_END_RECOVERY_BATCH_SIZE: int = Field(
-        default=5, ge=1, le=50,
+        default=5,
+        ge=1,
+        le=50,
         description="Maximum retired visitors checked per recovery sweep",
     )
-    MULTIMODAL_MAX_MEDIA_BYTES: int = Field(default=10 * 1024 * 1024, ge=1024, le=25 * 1024 * 1024)
+    MULTIMODAL_MAX_MEDIA_BYTES: int = Field(
+        default=10 * 1024 * 1024, ge=1024, le=25 * 1024 * 1024
+    )
 
     MAX_UPLOAD_SIZE_MB: int = Field(
         default=10,
@@ -563,7 +557,6 @@ class Settings(BaseSettings):
         default_factory=lambda: [],
         description="Allowed file extensions for uploads",
     )
-
 
     # Platform Logo Upload Settings
     PLATFORM_LOGO_UPLOAD_DIR: str = Field(
@@ -591,7 +584,7 @@ class Settings(BaseSettings):
         default="local",
         description="Storage type: local, oss, minio",
     )
-    
+
     # Aliyun OSS Settings
     OSS_ENDPOINT: Optional[str] = Field(
         default=None,
@@ -680,13 +673,9 @@ class Settings(BaseSettings):
 
     # Environment
     ENVIRONMENT: str = Field(
-        default="development",
-        description="Application environment"
+        default="development", description="Application environment"
     )
-    DEBUG: bool = Field(
-        default=False,
-        description="Debug mode"
-    )
+    DEBUG: bool = Field(default=False, description="Debug mode")
 
     @property
     def is_development(self) -> bool:
@@ -703,7 +692,9 @@ class Settings(BaseSettings):
         """Get synchronous database URL (force psycopg2 driver)."""
         url = str(self.DATABASE_URL)
         if "postgresql+asyncpg://" in url:
-            return url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+            return url.replace(
+                "postgresql+asyncpg://", "postgresql+psycopg2://"
+            )
         if "postgresql+psycopg2://" in url:
             return url
         if "postgresql://" in url:
@@ -719,7 +710,9 @@ class Settings(BaseSettings):
         if "postgresql+asyncpg://" in url:
             return url
         if "postgresql+psycopg2://" in url:
-            return url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+            return url.replace(
+                "postgresql+psycopg2://", "postgresql+asyncpg://"
+            )
         if "postgresql://" in url:
             return url.replace("postgresql://", "postgresql+asyncpg://")
         # Fallback: enforce asyncpg

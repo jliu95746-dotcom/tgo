@@ -17,7 +17,9 @@ from pydantic import (
 class PlatformModelDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model: str = Field(min_length=1, max_length=150)
-    provider_kind: Literal["openai", "openai_compatible", "anthropic", "google"]
+    provider_kind: Literal[
+        "openai", "openai_compatible", "anthropic", "google"
+    ]
     api_base_url: str | None = Field(default=None, max_length=255)
     vendor: str | None = Field(default=None, max_length=40)
     active: bool = True

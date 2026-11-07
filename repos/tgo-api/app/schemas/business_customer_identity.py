@@ -41,7 +41,8 @@ class CustomerIdentityPolicyWrite(IdentityModel):
         if value is not None and (
             len(value.get_secret_value().encode()) < 32
             or any(
-                ord(char) < 32 or ord(char) == 127 for char in value.get_secret_value()
+                ord(char) < 32 or ord(char) == 127
+                for char in value.get_secret_value()
             )
         ):
             raise ValueError("签名密钥至少32字节，不能包含控制字符")
@@ -49,9 +50,9 @@ class CustomerIdentityPolicyWrite(IdentityModel):
 
 
 class CustomerIdentityPolicyView(IdentityModel):
-    scope: Literal["business_customer_identity_configuration"] = (
+    scope: Literal[
         "business_customer_identity_configuration"
-    )
+    ] = "business_customer_identity_configuration"
     can_enable: Literal[False] = False
     id: UUID
     project_id: UUID
@@ -71,7 +72,9 @@ class MerchantCustomerAssertion(IdentityModel):
     platform_id: UUID
     visitor_id: UUID
     customer_id: str = Field(
-        min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]*$"
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]*$",
     )
     nonce: UUID
     policy_revision: int = Field(ge=1, strict=True)
@@ -87,7 +90,9 @@ class MerchantCustomerAssertion(IdentityModel):
 
 class CustomerIdentityExchangeRequest(IdentityModel):
     merchant_assertion: SecretStr = Field(min_length=1, max_length=16384)
-    visitor_access_token: SecretStr | None = Field(default=None, min_length=1, max_length=256, repr=False, exclude=True)
+    visitor_access_token: SecretStr | None = Field(
+        default=None, min_length=1, max_length=256, repr=False, exclude=True
+    )
 
 
 class CustomerIdentitySession(IdentityModel):
@@ -123,9 +128,9 @@ class CustomerIdentityBindingView(IdentityModel):
 
 
 class VerifiedBusinessCustomer(IdentityModel):
-    scope: Literal["business_customer_identity_check"] = (
+    scope: Literal[
         "business_customer_identity_check"
-    )
+    ] = "business_customer_identity_check"
     can_enable: Literal[False] = False
     project_id: UUID
     connection_id: UUID

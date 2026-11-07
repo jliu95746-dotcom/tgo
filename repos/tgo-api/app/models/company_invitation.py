@@ -20,7 +20,9 @@ class CompanyInvitation(Base):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("api_projects.id"), index=True)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_projects.id"), index=True
+    )
     staff_id: Mapped[UUID] = mapped_column(ForeignKey("api_staff.id"))
     action_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_email_actions.id"), unique=True

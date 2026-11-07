@@ -28,6 +28,7 @@ setup_logging()
 
 # Configure uvicorn logging for cleaner startup
 import logging
+
 logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
 
@@ -80,7 +81,10 @@ def create_app(
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Session-Operation-ID", "X-Session-Notification-Status"],
+        expose_headers=[
+            "X-Session-Operation-ID",
+            "X-Session-Notification-Status",
+        ],
     )
 
     # Add additional middlewares (before exception handlers)
@@ -89,10 +93,16 @@ def create_app(
             application.add_middleware(middleware_class, **kwargs)
 
     # Add exception handlers
-    application.add_exception_handler(TGOAPIException, tgo_api_exception_handler)
+    application.add_exception_handler(
+        TGOAPIException, tgo_api_exception_handler
+    )
     application.add_exception_handler(HTTPException, http_exception_handler)
-    application.add_exception_handler(RequestValidationError, validation_exception_handler)
-    application.add_exception_handler(ValidationError, validation_exception_handler)
+    application.add_exception_handler(
+        RequestValidationError, validation_exception_handler
+    )
+    application.add_exception_handler(
+        ValidationError, validation_exception_handler
+    )
     application.add_exception_handler(Exception, general_exception_handler)
 
     # Include core API router
@@ -116,8 +126,12 @@ def create_app(
             routes=application.routes,
         )
 
-        components = openapi_schema.setdefault("components", {}).setdefault("schemas", {})
-        error_schema = ErrorResponse.model_json_schema(ref_template="#/components/schemas/{model}")
+        components = openapi_schema.setdefault("components", {}).setdefault(
+            "schemas", {}
+        )
+        error_schema = ErrorResponse.model_json_schema(
+            ref_template="#/components/schemas/{model}"
+        )
         defs = error_schema.pop("$defs", {})
         for name, schema in defs.items():
             components[name] = schema
@@ -142,13 +156,17 @@ def create_app(
                             continue
                         ref = schema.get("$ref")
                         if ref and ref.endswith("HTTPValidationError"):
-                            media["schema"] = {"$ref": "#/components/schemas/ErrorResponse"}
+                            media["schema"] = {
+                                "$ref": "#/components/schemas/ErrorResponse"
+                            }
                 if "422" in responses:
                     responses["422"] = {
                         "description": "Validation Error",
                         "content": {
                             "application/json": {
-                                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
                             }
                         },
                     }
@@ -184,28 +202,48 @@ def create_app(
 
         startup_log("🗄️  Connecting to database...")
 
-        from app.tasks.recover_staff_delivery_history import start_staff_history_recovery
+        from app.tasks.recover_staff_delivery_history import (
+            start_staff_history_recovery,
+        )
+
         start_staff_history_recovery()
-        from app.tasks.workflow_source_dispatch import start_workflow_source_dispatch
+        from app.tasks.workflow_source_dispatch import (
+            start_workflow_source_dispatch,
+        )
+
         start_workflow_source_dispatch()
         from app.tasks.company_mail import start_company_mail
+
         start_company_mail()
         from app.tasks.billing import start_billing
+
         start_billing()
-        from app.tasks.finalize_shadow_protocols import start_shadow_protocol_finalization
+        from app.tasks.finalize_shadow_protocols import (
+            start_shadow_protocol_finalization,
+        )
+
         start_shadow_protocol_finalization()
-        from app.tasks.assist_draft_retention import start_assist_draft_retention
+        from app.tasks.assist_draft_retention import (
+            start_assist_draft_retention,
+        )
+
         start_assist_draft_retention()
-        from app.tasks.visitor_avatar_retention import start_visitor_avatar_retention
+        from app.tasks.visitor_avatar_retention import (
+            start_visitor_avatar_retention,
+        )
+
         start_visitor_avatar_retention()
         from app.tasks.visitor_end_recovery import start_visitor_end_recovery
+
         start_visitor_end_recovery()
         from app.services.customer_turn_worker import start
+
         start()
 
         # Start background sync monitor
         try:
             from app.services.platform_sync import start_sync_monitor
+
             start_sync_monitor()
         except Exception:
             # best-effort; don't block startup
@@ -214,6 +252,7 @@ def create_app(
         # Start periodic AIProvider sync task (best-effort)
         try:
             from app.tasks.sync_ai_providers import start_ai_provider_sync_task
+
             start_ai_provider_sync_task()
         except Exception:
             # best-effort; don't block startup
@@ -221,7 +260,10 @@ def create_app(
 
         # Start periodic ProjectAIConfig sync task (best-effort)
         try:
-            from app.tasks.sync_project_ai_configs import start_project_ai_config_sync_task
+            from app.tasks.sync_project_ai_configs import (
+                start_project_ai_config_sync_task,
+            )
+
             start_project_ai_config_sync_task()
         except Exception:
             # best-effort; don't block startup
@@ -230,6 +272,7 @@ def create_app(
         # Start periodic waiting queue processor task (best-effort)
         try:
             from app.tasks.process_waiting_queue import start_queue_processor
+
             start_queue_processor()
         except Exception:
             # best-effort; don't block startup
@@ -237,7 +280,10 @@ def create_app(
 
         # Start periodic session timeout check task (best-effort)
         try:
-            from app.tasks.close_timeout_sessions import start_session_timeout_task
+            from app.tasks.close_timeout_sessions import (
+                start_session_timeout_task,
+            )
+
             await start_session_timeout_task()
         except Exception:
             # best-effort; don't block startup
@@ -245,7 +291,10 @@ def create_app(
 
         # Start periodic visitor online status sync task (best-effort)
         try:
-            from app.tasks.sync_visitor_online_status import start_visitor_online_sync_task
+            from app.tasks.sync_visitor_online_status import (
+                start_visitor_online_sync_task,
+            )
+
             await start_visitor_online_sync_task()
         except Exception:
             # best-effort; don't block startup
@@ -253,7 +302,10 @@ def create_app(
 
         # Start periodic auto AI fallback task (best-effort)
         try:
-            from app.tasks.auto_fallback_to_ai import start_auto_fallback_to_ai_task
+            from app.tasks.auto_fallback_to_ai import (
+                start_auto_fallback_to_ai_task,
+            )
+
             await start_auto_fallback_to_ai_task()
         except Exception:
             # best-effort; don't block startup
@@ -283,34 +335,57 @@ def create_app(
     @application.on_event("shutdown")
     async def shutdown_event():
         from app.services.customer_turn_worker import stop
+
         await stop()
         """Application shutdown event: stop background tasks."""
-        from app.tasks.recover_staff_delivery_history import stop_staff_history_recovery
+        from app.tasks.recover_staff_delivery_history import (
+            stop_staff_history_recovery,
+        )
+
         await stop_staff_history_recovery()
         from app.tasks.company_mail import stop_company_mail
+
         await stop_company_mail()
         from app.tasks.billing import stop_billing
+
         await stop_billing()
-        from app.tasks.finalize_shadow_protocols import stop_shadow_protocol_finalization
+        from app.tasks.finalize_shadow_protocols import (
+            stop_shadow_protocol_finalization,
+        )
+
         await stop_shadow_protocol_finalization()
-        from app.tasks.assist_draft_retention import stop_assist_draft_retention
+        from app.tasks.assist_draft_retention import (
+            stop_assist_draft_retention,
+        )
+
         await stop_assist_draft_retention()
-        from app.tasks.visitor_avatar_retention import stop_visitor_avatar_retention
+        from app.tasks.visitor_avatar_retention import (
+            stop_visitor_avatar_retention,
+        )
+
         await stop_visitor_avatar_retention()
         from app.tasks.visitor_end_recovery import stop_visitor_end_recovery
+
         await stop_visitor_end_recovery()
-        from app.tasks.workflow_source_dispatch import stop_workflow_source_dispatch
+        from app.tasks.workflow_source_dispatch import (
+            stop_workflow_source_dispatch,
+        )
+
         await stop_workflow_source_dispatch()
         # Stop periodic AIProvider sync task (best-effort)
         try:
             from app.tasks.sync_ai_providers import stop_ai_provider_sync_task
+
             await stop_ai_provider_sync_task()
         except Exception:
             pass
 
         # Stop periodic ProjectAIConfig sync task (best-effort)
         try:
-            from app.tasks.sync_project_ai_configs import stop_project_ai_config_sync_task
+            from app.tasks.sync_project_ai_configs import (
+                stop_project_ai_config_sync_task,
+            )
+
             await stop_project_ai_config_sync_task()
         except Exception:
             pass
@@ -318,27 +393,37 @@ def create_app(
         # Stop periodic waiting queue processor task (best-effort)
         try:
             from app.tasks.process_waiting_queue import stop_queue_processor
+
             await stop_queue_processor()
         except Exception:
             pass
 
         # Stop periodic session timeout check task (best-effort)
         try:
-            from app.tasks.close_timeout_sessions import stop_session_timeout_task
+            from app.tasks.close_timeout_sessions import (
+                stop_session_timeout_task,
+            )
+
             await stop_session_timeout_task()
         except Exception:
             pass
 
         # Stop periodic visitor online status sync task (best-effort)
         try:
-            from app.tasks.sync_visitor_online_status import stop_visitor_online_sync_task
+            from app.tasks.sync_visitor_online_status import (
+                stop_visitor_online_sync_task,
+            )
+
             await stop_visitor_online_sync_task()
         except Exception:
             pass
 
         # Stop periodic auto AI fallback task (best-effort)
         try:
-            from app.tasks.auto_fallback_to_ai import stop_auto_fallback_to_ai_task
+            from app.tasks.auto_fallback_to_ai import (
+                stop_auto_fallback_to_ai_task,
+            )
+
             await stop_auto_fallback_to_ai_task()
         except Exception:
             pass
@@ -357,7 +442,10 @@ def create_app(
     @application.get("/")
     async def root() -> dict[str, str]:
         """Root endpoint."""
-        return {"message": "TGO-Tech API Service", "version": settings.PROJECT_VERSION}
+        return {
+            "message": "TGO-Tech API Service",
+            "version": settings.PROJECT_VERSION,
+        }
 
     @application.get("/health")
     async def health_check() -> dict[str, str]:

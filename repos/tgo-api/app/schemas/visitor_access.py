@@ -52,9 +52,13 @@ class VisitorIMAccessClaims(BaseModel):
 
 
 class VisitorAccessEndRequest(VisitorAccessInput):
-    platform_api_key: str = Field(min_length=1, max_length=255, repr=False, exclude=True)
+    platform_api_key: str = Field(
+        min_length=1, max_length=255, repr=False, exclude=True
+    )
     visitor_id: UUID
-    visitor_end_token: SecretStr | None = Field(default=None, max_length=8192, repr=False, exclude=True)
+    visitor_end_token: SecretStr | None = Field(
+        default=None, max_length=8192, repr=False, exclude=True
+    )
 
 
 class VisitorEndGrantClaims(BaseModel):
@@ -66,7 +70,9 @@ class VisitorEndGrantClaims(BaseModel):
     aud: Literal["yujian-visitor-end"]
     exp: int = Field(strict=True)
     access_revision: int = Field(ge=1, strict=True)
-    holder_digest: str = Field(pattern=r"^[0-9a-f]{64}$", repr=False, exclude=True)
+    holder_digest: str = Field(
+        pattern=r"^[0-9a-f]{64}$", repr=False, exclude=True
+    )
 
 
 class VisitorAccessEndResponse(BaseModel):

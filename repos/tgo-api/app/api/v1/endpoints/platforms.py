@@ -743,31 +743,31 @@ async def _setup_telegram_webhook(platform: Platform) -> None:
     """Auto-configure Telegram Bot webhook when platform is enabled."""
     config = platform.config or {}
     bot_token = config.get("bot_token")
-    
+
     if not bot_token:
         logger.warning(
             "Telegram platform %s enabled but no bot_token configured",
             str(platform.id)
         )
         return
-    
+
     # Build webhook URL
     webhook_url = f"{settings.API_BASE_URL.rstrip('/')}/v1/platforms/callback/{platform.api_key}"
     webhook_secret = config.get("webhook_secret")
-    
+
     try:
         # Call Telegram setWebhook API
         payload: dict[str, Any] = {"url": webhook_url}
         if webhook_secret:
             payload["secret_token"] = webhook_secret
-        
+
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{bot_token}/setWebhook",
                 json=payload
             )
             result = response.json()
-            
+
             if result.get("ok"):
                 logger.info(
                     "Telegram webhook set for platform %s: %s",
@@ -789,17 +789,17 @@ async def _delete_telegram_webhook(platform: Platform) -> None:
     """Delete Telegram Bot webhook when platform is disabled."""
     config = platform.config or {}
     bot_token = config.get("bot_token")
-    
+
     if not bot_token:
         return
-    
+
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{bot_token}/deleteWebhook"
             )
             result = response.json()
-            
+
             if result.get("ok"):
                 logger.info("Telegram webhook deleted for platform %s", str(platform.id))
             else:
@@ -818,7 +818,7 @@ async def _notify_slack_platform_reload(platform: Platform) -> None:
     """Notify tgo-platform to start Slack Socket Mode handler for a platform."""
     platform_base_url = settings.PLATFORM_BASE_URL if hasattr(settings, 'PLATFORM_BASE_URL') else "http://tgo-platform:8003"
     url = f"{platform_base_url.rstrip('/')}/internal/slack/reload"
-    
+
     config = platform.config or {}
     payload = {
         "platform_id": str(platform.id),
@@ -828,7 +828,7 @@ async def _notify_slack_platform_reload(platform: Platform) -> None:
         "app_token": config.get("app_token", ""),
         "signing_secret": config.get("signing_secret", ""),
     }
-    
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(url, json=payload)

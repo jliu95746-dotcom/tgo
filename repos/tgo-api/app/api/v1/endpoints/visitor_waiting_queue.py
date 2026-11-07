@@ -30,7 +30,10 @@ from app.schemas.visitor_waiting_queue import (
     QueueUrgencyEnum,
 )
 from app.services.transfer_service import transfer_to_staff
-from app.services.staff_queue_access import begin_queue_change, commit_queue_cancel
+from app.services.staff_queue_access import (
+    begin_queue_change,
+    commit_queue_cancel,
+)
 from app.api.current_access_route import CurrentAccessRoute
 from app.services.staff_conversation_scope import restricted_staff
 from app.utils.encoding import build_visitor_channel_id
@@ -38,12 +41,20 @@ from app.utils.const import CHANNEL_TYPE_CUSTOMER_SERVICE
 
 logger = get_logger("api.visitor_waiting_queue")
 
-def enforce_queue_scope(request: Request, actor: Staff = Depends(require_permission("visitors:read"))) -> None:
-    if restricted_staff(actor) and not request.url.path.endswith(("/count", "/accept")):
+
+def enforce_queue_scope(
+    request: Request,
+    actor: Staff = Depends(require_permission("visitors:read")),
+) -> None:
+    if restricted_staff(actor) and not request.url.path.endswith(
+        ("/count", "/accept")
+    ):
         raise HTTPException(403, "请通过公共待接待队列领取访客，领取前仅可查看接待摘要")
 
 
-router = APIRouter(dependencies=[Depends(enforce_queue_scope)], route_class=CurrentAccessRoute)
+router = APIRouter(
+    dependencies=[Depends(enforce_queue_scope)], route_class=CurrentAccessRoute
+)
 original_bearer = HTTPBearer(auto_error=False)
 
 
@@ -68,16 +79,18 @@ def _build_staff_brief(staff: Staff) -> StaffBriefResponse:
     )
 
 
-def _build_queue_detail_response(entry: VisitorWaitingQueue) -> WaitingQueueDetailResponse:
+def _build_queue_detail_response(
+    entry: VisitorWaitingQueue,
+) -> WaitingQueueDetailResponse:
     """Build detailed queue response from model."""
     visitor_brief = None
     staff_brief = None
-    
+
     if entry.visitor:
         visitor_brief = _build_visitor_brief(entry.visitor)
     if entry.assigned_staff:
         staff_brief = _build_staff_brief(entry.assigned_staff)
-    
+
     return WaitingQueueDetailResponse(
         id=entry.id,
         project_id=entry.project_id,
@@ -113,18 +126,10 @@ def _build_queue_detail_response(entry: VisitorWaitingQueue) -> WaitingQueueDeta
     description="获取当前项目的访客等待队列列表，支持分页和筛选。",
 )
 async def list_waiting_queue(
-    status: Optional[WaitingStatusEnum] = Query(
-        None, description="按状态筛选"
-    ),
-    source: Optional[QueueSourceEnum] = Query(
-        None, description="按来源筛选"
-    ),
-    urgency: Optional[QueueUrgencyEnum] = Query(
-        None, description="按紧急程度筛选"
-    ),
-    visitor_id: Optional[UUID] = Query(
-        None, description="按访客ID筛选"
-    ),
+    status: Optional[WaitingStatusEnum] = Query(None, description="按状态筛选"),
+    source: Optional[QueueSourceEnum] = Query(None, description="按来源筛选"),
+    urgency: Optional[QueueUrgencyEnum] = Query(None, description="按紧急程度筛选"),
+    visitor_id: Optional[UUID] = Query(None, description="按访客ID筛选"),
     limit: int = Query(20, ge=1, le=100, description="每页数量"),
     offset: int = Query(0, ge=0, description="跳过数量"),
     db: Session = Depends(get_db),
@@ -141,7 +146,7 @@ async def list_waiting_queue(
     query = db.query(VisitorWaitingQueue).filter(
         VisitorWaitingQueue.project_id == current_user.project_id,
     )
-    
+
     # Apply filters
     if status:
         query = query.filter(VisitorWaitingQueue.status == status.value)
@@ -151,14 +156,13 @@ async def list_waiting_queue(
         query = query.filter(VisitorWaitingQueue.urgency == urgency.value)
     if visitor_id:
         query = query.filter(VisitorWaitingQueue.visitor_id == visitor_id)
-    
+
     # Get total count
     total = query.count()
-    
+
     # Apply ordering and pagination
     entries = (
-        query
-        .options(
+        query.options(
             joinedload(VisitorWaitingQueue.visitor),
             joinedload(VisitorWaitingQueue.assigned_staff),
         )
@@ -170,10 +174,10 @@ async def list_waiting_queue(
         .limit(limit)
         .all()
     )
-    
+
     # Build response
     items = [_build_queue_detail_response(entry) for entry in entries]
-    
+
     return WaitingQueueListResponse(
         items=items,
         pagination={
@@ -193,9 +197,7 @@ async def list_waiting_queue(
     description="快捷接口：只返回状态为 waiting 的队列条目。",
 )
 async def list_waiting_only(
-    urgency: Optional[QueueUrgencyEnum] = Query(
-        None, description="按紧急程度筛选"
-    ),
+    urgency: Optional[QueueUrgencyEnum] = Query(None, description="按紧急程度筛选"),
     limit: int = Query(20, ge=1, le=100, description="每页数量"),
     offset: int = Query(0, ge=0, description="跳过数量"),
     db: Session = Depends(get_db),
@@ -210,15 +212,14 @@ async def list_waiting_only(
         VisitorWaitingQueue.project_id == current_user.project_id,
         VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
     )
-    
+
     if urgency:
         query = query.filter(VisitorWaitingQueue.urgency == urgency.value)
-    
+
     total = query.count()
-    
+
     entries = (
-        query
-        .options(
+        query.options(
             joinedload(VisitorWaitingQueue.visitor),
         )
         .order_by(
@@ -229,9 +230,9 @@ async def list_waiting_only(
         .limit(limit)
         .all()
     )
-    
+
     items = [_build_queue_detail_response(entry) for entry in entries]
-    
+
     return WaitingQueueListResponse(
         items=items,
         pagination={
@@ -259,17 +260,25 @@ async def get_waiting_count(
     返回各状态的数量统计。
     """
     project_id = current_user.project_id
-    
-    waiting_count = db.query(VisitorWaitingQueue).filter(
-        VisitorWaitingQueue.project_id == project_id,
-        VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
-    ).count()
-    
-    assigned_count = db.query(VisitorWaitingQueue).filter(
-        VisitorWaitingQueue.project_id == project_id,
-        VisitorWaitingQueue.status == WaitingStatus.ASSIGNED.value,
-    ).count()
-    
+
+    waiting_count = (
+        db.query(VisitorWaitingQueue)
+        .filter(
+            VisitorWaitingQueue.project_id == project_id,
+            VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
+        )
+        .count()
+    )
+
+    assigned_count = (
+        db.query(VisitorWaitingQueue)
+        .filter(
+            VisitorWaitingQueue.project_id == project_id,
+            VisitorWaitingQueue.status == WaitingStatus.ASSIGNED.value,
+        )
+        .count()
+    )
+
     return {
         "waiting": waiting_count,
         "assigned": assigned_count,
@@ -301,13 +310,13 @@ async def get_queue_entry(
         )
         .first()
     )
-    
+
     if not entry:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Queue entry not found",
         )
-    
+
     return _build_queue_detail_response(entry)
 
 
@@ -322,7 +331,8 @@ async def accept_visitor(
     http_request: Request,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
-    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(original_bearer),
 ) -> AcceptVisitorResponse:
     """
     客服接入访客。
@@ -343,18 +353,18 @@ async def accept_visitor(
         .order_by(VisitorWaitingQueue.entered_at.desc())
         .first()
     )
-    
+
     if not entry:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No waiting queue entry found for this visitor",
         )
-    
+
     scope = begin_queue_change(db, credentials, current_user, entry.id)
     # Calculate wait duration before transfer
     wait_duration = entry.wait_duration_seconds
     visitor = entry.visitor
-    
+
     # Call transfer_to_staff service with target_staff_id
     result = await transfer_to_staff(
         db=db,
@@ -374,7 +384,7 @@ async def accept_visitor(
         queue_scope=scope,
         notes=f"Accepted from waiting queue. {request.notes or ''}".strip(),
     )
-    
+
     if not result.success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -384,17 +394,17 @@ async def accept_visitor(
     assert result.operation_guard is not None
     result.operation_guard.check()
     http_request.state.operation_guard = result.operation_guard
-    
+
     # Update queue entry status to assigned
     # Queue transition was committed atomically by transfer_to_staff.
-    
+
     # Determine channel_id
     channel_id = entry.channel_id
     if not channel_id and visitor:
         channel_id = build_visitor_channel_id(visitor.id)
-    
+
     channel_type = entry.channel_type or CHANNEL_TYPE_CUSTOMER_SERVICE
-    
+
     logger.info(
         f"Staff {current_user.id} accepted visitor {request.visitor_id} from queue",
         extra={
@@ -404,7 +414,7 @@ async def accept_visitor(
             "wait_duration_seconds": wait_duration,
         },
     )
-    
+
     return AcceptVisitorResponse(
         success=True,
         message="访客已成功接入",
@@ -429,35 +439,42 @@ async def cancel_queue_entry(
     reason: Optional[str] = Query(None, max_length=255, description="取消原因"),
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_permission("visitors:update")),
-    credentials: HTTPAuthorizationCredentials | None = Depends(original_bearer),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(original_bearer),
 ) -> dict[str, bool | str]:
     """
     取消队列条目。
     
     用于访客离开或其他需要取消等待的情况。
     """
-    entry = db.query(VisitorWaitingQueue).filter(
-        VisitorWaitingQueue.id == entry_id,
-        VisitorWaitingQueue.project_id == current_user.project_id,
-    ).first()
-    
+    entry = (
+        db.query(VisitorWaitingQueue)
+        .filter(
+            VisitorWaitingQueue.id == entry_id,
+            VisitorWaitingQueue.project_id == current_user.project_id,
+        )
+        .first()
+    )
+
     if not entry:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Queue entry not found",
         )
-    
+
     if entry.status != WaitingStatus.WAITING.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Queue entry is not in waiting status (current: {entry.status})",
         )
-    
-    scope = begin_queue_change(db, credentials, current_user, entry.id, accepting=False)
+
+    scope = begin_queue_change(
+        db, credentials, current_user, entry.id, accepting=False
+    )
     output = commit_queue_cancel(db, scope, reason)
     request.state.operation_guard = output.guard()
     output.guard().check()
-    
+
     logger.info(
         f"Queue entry {entry_id} cancelled",
         extra={
@@ -466,7 +483,7 @@ async def cancel_queue_entry(
             "reason": reason,
         },
     )
-    
+
     return {
         "success": True,
         "message": "队列条目已取消",

@@ -11,7 +11,9 @@ class InvoiceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     order_id: UUID
     title: str = Field(min_length=2, max_length=200)
-    tax_number: str = Field(min_length=8, max_length=40, pattern=r"^[A-Za-z0-9]+$")
+    tax_number: str = Field(
+        min_length=8, max_length=40, pattern=r"^[A-Za-z0-9]+$"
+    )
     email: EmailStr = Field(max_length=254)
 
 
@@ -27,7 +29,9 @@ class InvoiceResponse(InvoiceCreate):
 class InvoiceProcess(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     status: Literal["issued", "rejected"]
-    invoice_number: str | None = Field(default=None, min_length=1, max_length=100)
+    invoice_number: str | None = Field(
+        default=None, min_length=1, max_length=100
+    )
     reason: str = Field(min_length=2, max_length=500)
 
 

@@ -20,9 +20,9 @@ if TYPE_CHECKING:
 
 class SessionStatus(str, Enum):
     """Session status enumeration."""
-    
-    OPEN = "open"       # 会话进行中
-    CLOSED = "closed"   # 会话已关闭
+
+    OPEN = "open"  # 会话进行中
+    CLOSED = "closed"  # 会话已关闭
 
 
 class VisitorSession(Base):
@@ -146,7 +146,9 @@ class VisitorSession(Base):
         "Platform",
         lazy="select",
     )
-    assignment_histories: Mapped[List["VisitorAssignmentHistory"]] = relationship(
+    assignment_histories: Mapped[
+        List["VisitorAssignmentHistory"]
+    ] = relationship(
         "VisitorAssignmentHistory",
         back_populates="session",
         lazy="select",

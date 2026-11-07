@@ -49,6 +49,7 @@ def _get_semaphore() -> asyncio.Semaphore:
 # Fallback Processing - Low-frequency periodic processing for missed entries
 # =============================================================================
 
+
 async def _process_fallback_batch() -> None:
     """
     Fallback batch processing for queue entries that may have been missed.
@@ -65,9 +66,11 @@ async def _process_fallback_batch() -> None:
     """
     db = SessionLocal()
     try:
-        fallback_delay = timedelta(seconds=settings.QUEUE_FALLBACK_INTERVAL_SECONDS)
+        fallback_delay = timedelta(
+            seconds=settings.QUEUE_FALLBACK_INTERVAL_SECONDS
+        )
         cutoff_time = datetime.utcnow() - fallback_delay
-        
+
         # Query entries that need fallback processing
         entries = (
             db.query(VisitorWaitingQueue)
@@ -75,13 +78,13 @@ async def _process_fallback_batch() -> None:
                 VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
                 # Not expired
                 (
-                    (VisitorWaitingQueue.expired_at.is_(None)) |
-                    (VisitorWaitingQueue.expired_at > func.now())
+                    (VisitorWaitingQueue.expired_at.is_(None))
+                    | (VisitorWaitingQueue.expired_at > func.now())
                 ),
                 # Haven't been attempted recently
                 (
-                    (VisitorWaitingQueue.last_attempt_at.is_(None)) |
-                    (VisitorWaitingQueue.last_attempt_at < cutoff_time)
+                    (VisitorWaitingQueue.last_attempt_at.is_(None))
+                    | (VisitorWaitingQueue.last_attempt_at < cutoff_time)
                 ),
             )
             .order_by(
@@ -98,12 +101,16 @@ async def _process_fallback_batch() -> None:
 
         # Filter out entries already being processed
         async with _processing_lock:
-            entries_to_process = [e for e in entries if e.id not in _processing_ids]
+            entries_to_process = [
+                e for e in entries if e.id not in _processing_ids
+            ]
             for e in entries_to_process:
                 _processing_ids.add(e.id)
 
         if not entries_to_process:
-            logger.debug("Fallback processor: all entries already being processed")
+            logger.debug(
+                "Fallback processor: all entries already being processed"
+            )
             return
 
         logger.info(
@@ -120,10 +127,9 @@ async def _process_fallback_batch() -> None:
 
         # Process each project's entries
         semaphore = _get_semaphore()
-        
+
         async def process_project_entries(
-            project_id: UUID,
-            entries: list[VisitorWaitingQueue]
+            project_id: UUID, entries: list[VisitorWaitingQueue]
         ) -> tuple[int, int]:
             """Process entries for a single project."""
             async with semaphore:
@@ -138,16 +144,17 @@ async def _process_fallback_batch() -> None:
                                 entry_db.query(VisitorWaitingQueue)
                                 .filter(
                                     VisitorWaitingQueue.id == entry.id,
-                                    VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
+                                    VisitorWaitingQueue.status
+                                    == WaitingStatus.WAITING.value,
                                 )
                                 .first()
                             )
-                            
+
                             if not fresh_entry:
                                 continue
-                                
+
                             processed += 1
-                            
+
                             result = await transfer_to_staff(
                                 db=entry_db,
                                 visitor_id=fresh_entry.visitor_id,
@@ -161,7 +168,7 @@ async def _process_fallback_batch() -> None:
                                 add_to_queue_if_no_staff=False,  # Already in queue
                                 expected_queue_entry_id=fresh_entry.id,
                             )
-                            
+
                             if result.success and result.assigned_staff_id:
                                 entry_db.commit()
                                 assigned += 1
@@ -169,21 +176,25 @@ async def _process_fallback_batch() -> None:
                                     f"Fallback: entry {fresh_entry.id} assigned to {result.assigned_staff_id}",
                                     extra={
                                         "entry_id": str(fresh_entry.id),
-                                        "staff_id": str(result.assigned_staff_id),
-                                    }
+                                        "staff_id": str(
+                                            result.assigned_staff_id
+                                        ),
+                                    },
                                 )
                             else:
                                 entry_db.commit()  # Commit attempt record
                                 # No staff available, stop processing this project
                                 break
-                                
+
                         except Exception as e:
-                            logger.error(f"Fallback: error processing entry {entry.id}: {e}")
+                            logger.error(
+                                f"Fallback: error processing entry {entry.id}: {e}"
+                            )
                             try:
                                 entry_db.rollback()
                             except Exception:
                                 pass
-                                
+
                     return assigned, processed
                 finally:
                     entry_db.close()
@@ -194,7 +205,7 @@ async def _process_fallback_batch() -> None:
             for pid, pentries in project_entries.items()
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Summarize results
         total_assigned = 0
         total_processed = 0
@@ -238,16 +249,21 @@ async def _fallback_loop() -> None:
 # Expired Entries Cleanup
 # =============================================================================
 
+
 async def _cleanup_expired_entries() -> None:
     """Run committed queue transitions and recover pending timeout notices."""
     db = SessionLocal()
     try:
         count = await process_queue_timeouts(db)
         if count:
-            logger.info("Expired waiting queue entries", extra={"count": count})
+            logger.info(
+                "Expired waiting queue entries", extra={"count": count}
+            )
     except Exception as exc:
         db.rollback()
-        logger.warning("Queue cleanup failed", extra={"error_type": type(exc).__name__})
+        logger.warning(
+            "Queue cleanup failed", extra={"error_type": type(exc).__name__}
+        )
     finally:
         db.close()
 
@@ -267,10 +283,11 @@ async def _cleanup_loop() -> None:
 # Task Lifecycle Management
 # =============================================================================
 
+
 def start_queue_tasks() -> None:
     """Start queue processing background tasks."""
     global _fallback_task, _cleanup_task
-    
+
     # Start fallback processor if enabled
     if settings.QUEUE_FALLBACK_ENABLED:
         if _fallback_task is None or _fallback_task.done():
@@ -278,20 +295,24 @@ def start_queue_tasks() -> None:
                 _fallback_task = asyncio.create_task(_fallback_loop())
                 logger.info(
                     "Queue fallback processor started",
-                    extra={"interval_seconds": settings.QUEUE_FALLBACK_INTERVAL_SECONDS},
+                    extra={
+                        "interval_seconds": settings.QUEUE_FALLBACK_INTERVAL_SECONDS
+                    },
                 )
             except Exception as e:
                 logger.warning(f"Failed to start fallback processor: {e}")
     else:
         logger.info("Queue fallback processor disabled by config")
-    
+
     # Start cleanup task
     if _cleanup_task is None or _cleanup_task.done():
         try:
             _cleanup_task = asyncio.create_task(_cleanup_loop())
             logger.info(
                 "Queue cleanup task started",
-                extra={"interval_seconds": settings.QUEUE_CLEANUP_INTERVAL_SECONDS},
+                extra={
+                    "interval_seconds": settings.QUEUE_CLEANUP_INTERVAL_SECONDS
+                },
             )
         except Exception as e:
             logger.warning(f"Failed to start cleanup task: {e}")
@@ -300,17 +321,17 @@ def start_queue_tasks() -> None:
 async def stop_queue_tasks() -> None:
     """Stop queue processing background tasks."""
     global _fallback_task, _cleanup_task
-    
+
     tasks_to_stop = []
-    
+
     if _fallback_task:
         _fallback_task.cancel()
         tasks_to_stop.append(_fallback_task)
-        
+
     if _cleanup_task:
         _cleanup_task.cancel()
         tasks_to_stop.append(_cleanup_task)
-    
+
     for task in tasks_to_stop:
         try:
             await task
@@ -318,7 +339,7 @@ async def stop_queue_tasks() -> None:
             pass
         except Exception:
             pass
-    
+
     _fallback_task = None
     _cleanup_task = None
     logger.info("Queue tasks stopped")
@@ -327,6 +348,7 @@ async def stop_queue_tasks() -> None:
 # =============================================================================
 # Legacy Functions (for backward compatibility)
 # =============================================================================
+
 
 async def trigger_process_entry(entry_id: UUID) -> None:
     """
@@ -339,6 +361,7 @@ async def trigger_process_entry(entry_id: UUID) -> None:
         entry_id: UUID of the VisitorWaitingQueue entry to process
     """
     from app.services.queue_trigger_service import trigger_queue_for_entry
+
     await trigger_queue_for_entry(entry_id)
 
 

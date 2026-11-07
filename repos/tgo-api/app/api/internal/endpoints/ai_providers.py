@@ -52,27 +52,27 @@ async def get_provider_config(
         )
         .first()
     )
-    
+
     if not provider:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="AI provider not found"
+            detail="AI provider not found",
         )
-    
+
     if not provider.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="AI provider is not active"
+            detail="AI provider is not active",
         )
-    
+
     # Decrypt API key
     plain_key = decrypt_str(provider.api_key) if provider.api_key else None
     if not plain_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="AI provider has no API key configured"
+            detail="AI provider has no API key configured",
         )
-    
+
     return {
         "provider_type": provider.provider,
         "api_key": plain_key,

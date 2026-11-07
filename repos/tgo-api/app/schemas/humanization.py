@@ -41,7 +41,9 @@ class TrainingPublishRequest(BaseModel):
 
 class HumanizationMatchRequest(BaseModel):
     customer_message: str = Field(min_length=1, max_length=10000)
-    recent_messages: list[ConversationTurn] = Field(default_factory=list, max_length=12)
+    recent_messages: list[ConversationTurn] = Field(
+        default_factory=list, max_length=12
+    )
     factual_draft: str = Field(default="", max_length=10000)
     candidate: TrainingPublishRequest | None = None
 

@@ -12,15 +12,24 @@ from app.schemas.knowledge import KnowledgeChannel
 
 
 def business_request_fingerprint(visitor: UUID, message: str) -> str:
-    payload = {"visitor_id": str(visitor), "message": message, "message_type": 1}
-    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True,
-                                    separators=(",", ":")).encode()).hexdigest()
+    payload = {
+        "visitor_id": str(visitor),
+        "message": message,
+        "message_type": 1,
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode()
+    ).hexdigest()
 
 
 class BusinessCustomerSessionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     connection_id: UUID
-    customer_session: SecretStr = Field(min_length=1, max_length=8192, repr=False, exclude=True)
+    customer_session: SecretStr = Field(
+        min_length=1, max_length=8192, repr=False, exclude=True
+    )
 
 
 class BusinessContextBinding(BaseModel):
@@ -43,11 +52,15 @@ class BusinessContextIdentity(BaseModel):
 
 
 class BusinessContextCheck(BusinessContextIdentity):
-    context_token: SecretStr = Field(min_length=1, max_length=16384, repr=False, exclude=True)
+    context_token: SecretStr = Field(
+        min_length=1, max_length=16384, repr=False, exclude=True
+    )
 
 
 class BusinessContextClaims(BusinessContextIdentity):
-    aud: Literal["tgo-business-execution-context"] = "tgo-business-execution-context"
+    aud: Literal[
+        "tgo-business-execution-context"
+    ] = "tgo-business-execution-context"
     type: Literal["business_request_context"] = "business_request_context"
     platform_id: UUID
     visitor_session_id: UUID
@@ -59,9 +72,16 @@ class BusinessContextClaims(BusinessContextIdentity):
 
     @model_validator(mode="after")
     def bounded_scope(self) -> "BusinessContextClaims":
-        if (not 0 < self.exp - self.iat <= 300
-            or len({row.connection_id for row in self.bindings}) != len(self.bindings)
-            or any(row.expires_at.tzinfo is None or row.expires_at.timestamp() < self.exp for row in self.bindings)):
+        if (
+            not 0 < self.exp - self.iat <= 300
+            or len({row.connection_id for row in self.bindings})
+            != len(self.bindings)
+            or any(
+                row.expires_at.tzinfo is None
+                or row.expires_at.timestamp() < self.exp
+                for row in self.bindings
+            )
+        ):
             raise ValueError("业务请求上下文范围或有效期不完整")
         return self
 
@@ -91,9 +111,17 @@ class BusinessRequestPrincipal(BusinessContextIdentity):
 
     @model_validator(mode="after")
     def current_context(self) -> "BusinessRequestPrincipal":
-        if (self.checked_at.tzinfo is None or self.expires_at.tzinfo is None
+        if (
+            self.checked_at.tzinfo is None
+            or self.expires_at.tzinfo is None
             or self.expires_at <= self.checked_at
-            or len({row.connection_id for row in self.bindings}) != len(self.bindings)
-            or any(row.expires_at.tzinfo is None or row.expires_at < self.expires_at for row in self.bindings)):
+            or len({row.connection_id for row in self.bindings})
+            != len(self.bindings)
+            or any(
+                row.expires_at.tzinfo is None
+                or row.expires_at < self.expires_at
+                for row in self.bindings
+            )
+        ):
             raise ValueError("业务请求上下文已失效或重复")
         return self

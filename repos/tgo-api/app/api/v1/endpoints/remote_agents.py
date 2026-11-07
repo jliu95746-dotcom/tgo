@@ -21,14 +21,16 @@ router = APIRouter()
 
 class RemoteAgentInfo(BaseModel):
     """Remote Agent information."""
-    
+
     agent_id: str = Field(description="Agent ID in the remote AgentOS")
     name: str = Field(description="Agent name")
     type: str = Field(default="computer_use", description="Agent type")
     base_url: str = Field(description="AgentOS base URL")
-    description: Optional[str] = Field(default=None, description="Agent description")
+    description: Optional[str] = Field(
+        default=None, description="Agent description"
+    )
     status: str = Field(default="available", description="Agent status")
-    
+
     # Computer Use specific
     supports_device_control: bool = Field(default=False)
     available_tools: Optional[List[str]] = Field(default=None)
@@ -36,7 +38,7 @@ class RemoteAgentInfo(BaseModel):
 
 class RemoteAgentConfig(BaseModel):
     """Configuration for a Remote Agent."""
-    
+
     agent_id: str
     name: str
     description: Optional[str] = None
@@ -65,7 +67,7 @@ async def _fetch_remote_agent_info(
             response = await client.get(
                 f"{base_url}/v1/agents/{agent_id}",
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 return RemoteAgentConfig(
@@ -76,7 +78,7 @@ async def _fetch_remote_agent_info(
                     tools=data.get("tools"),
                     model=data.get("model"),
                 )
-            
+
             # If the endpoint doesn't exist, try health check
             health = await client.get(f"{base_url}/health")
             if health.status_code == 200:
@@ -86,14 +88,14 @@ async def _fetch_remote_agent_info(
                     name=agent_id,
                     description="Remote agent (details not available)",
                 )
-                
+
     except httpx.TimeoutException:
         logger.warning(f"Timeout fetching agent info from {base_url}")
     except httpx.RequestError as e:
         logger.warning(f"Error fetching agent info from {base_url}: {e}")
     except Exception as e:
         logger.error(f"Unexpected error fetching agent info: {e}")
-    
+
     return None
 
 
@@ -107,7 +109,7 @@ async def list_remote_agents(
     - Built-in Computer Use Agent from tgo-device-control
     """
     agents: List[RemoteAgentInfo] = []
-    
+
     # Add built-in Computer Use Agent
     computer_use_agent = RemoteAgentInfo(
         agent_id=settings.DEVICE_CONTROL_AGENT_ID,
@@ -135,7 +137,7 @@ async def list_remote_agents(
             "list_connected_devices",
         ],
     )
-    
+
     # Check if the service is actually available
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -146,10 +148,9 @@ async def list_remote_agents(
                 computer_use_agent.status = "unavailable"
     except Exception:
         computer_use_agent.status = "unavailable"
-    
+
     agents.append(computer_use_agent)
-    
-    
+
     return {
         "items": [agent.model_dump() for agent in agents],
         "total": len(agents),
@@ -162,7 +163,7 @@ async def get_remote_agent(
     current_user: Staff = Depends(get_current_active_user),
 ) -> RemoteAgentInfo:
     """Get information about a specific remote agent."""
-    
+
     # Check if it's the built-in Computer Use Agent
     if agent_id == settings.DEVICE_CONTROL_AGENT_ID:
         status = "unavailable"
@@ -175,7 +176,7 @@ async def get_remote_agent(
                     status = "available"
         except Exception:
             pass
-        
+
         return RemoteAgentInfo(
             agent_id=settings.DEVICE_CONTROL_AGENT_ID,
             name="Computer Use Agent",
@@ -200,7 +201,7 @@ async def get_remote_agent(
                 "list_connected_devices",
             ],
         )
-    
+
     raise HTTPException(status_code=404, detail="Remote agent not found")
 
 
@@ -219,16 +220,16 @@ async def get_remote_agent_config(
         base_url = settings.DEVICE_CONTROL_AGENTOS_URL
     else:
         raise HTTPException(status_code=404, detail="Remote agent not found")
-    
+
     # Fetch from remote
     config = await _fetch_remote_agent_info(base_url, agent_id)
-    
+
     if config is None:
         raise HTTPException(
             status_code=502,
-            detail="Failed to fetch agent configuration from remote AgentOS"
+            detail="Failed to fetch agent configuration from remote AgentOS",
         )
-    
+
     return config
 
 
@@ -247,7 +248,7 @@ async def test_remote_agent(
         base_url = settings.DEVICE_CONTROL_AGENTOS_URL
     else:
         raise HTTPException(status_code=404, detail="Remote agent not found")
-    
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             # Send a test message to the agent
@@ -258,7 +259,7 @@ async def test_remote_agent(
                     "stream": False,
                 },
             )
-            
+
             if response.status_code == 200:
                 return {
                     "success": True,
@@ -270,7 +271,7 @@ async def test_remote_agent(
                     "error": f"Agent returned status {response.status_code}",
                     "details": response.text,
                 }
-                
+
     except httpx.TimeoutException:
         return {
             "success": False,

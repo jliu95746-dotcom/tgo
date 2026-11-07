@@ -55,7 +55,9 @@ class ShadowReviewAdjudication(Base):
     visitor_id: Mapped[UUID] = mapped_column(nullable=False)
     adjudicator_id: Mapped[UUID] = mapped_column(nullable=False)
     request_id: Mapped[UUID] = mapped_column(nullable=False)
-    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
     review_set_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     verdict: Mapped[str] = mapped_column(String(24), nullable=False)
     reason_code: Mapped[str | None] = mapped_column(String(32))

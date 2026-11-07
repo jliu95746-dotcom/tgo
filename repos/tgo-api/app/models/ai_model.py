@@ -60,4 +60,3 @@ class AIModel(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug repr
         return f"<AIModel(id={self.id}, provider={self.provider}, model_id={self.model_id})>"
-

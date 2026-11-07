@@ -114,4 +114,3 @@ class ProjectAIConfig(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug
         return f"<ProjectAIConfig(project_id={self.project_id})>"
-

@@ -23,7 +23,9 @@ _task: Optional[asyncio.Task] = None
 _processing_lock = asyncio.Lock()
 
 
-def _get_project_timeout_hours(db: Session, project_id: UUID, cache: Dict[UUID, int]) -> int:
+def _get_project_timeout_hours(
+    db: Session, project_id: UUID, cache: Dict[UUID, int]
+) -> int:
     """
     Get session timeout hours for a project.
     
@@ -34,16 +36,18 @@ def _get_project_timeout_hours(db: Session, project_id: UUID, cache: Dict[UUID, 
     """
     if project_id in cache:
         return cache[project_id]
-    
-    rule = db.query(VisitorAssignmentRule).filter(
-        VisitorAssignmentRule.project_id == project_id
-    ).first()
-    
+
+    rule = (
+        db.query(VisitorAssignmentRule)
+        .filter(VisitorAssignmentRule.project_id == project_id)
+        .first()
+    )
+
     if rule and rule.auto_close_hours:
         timeout_hours = rule.auto_close_hours
     else:
         timeout_hours = settings.SESSION_DEFAULT_TIMEOUT_HOURS
-    
+
     cache[project_id] = timeout_hours
     return timeout_hours
 
@@ -58,15 +62,15 @@ async def _process_timeout_sessions() -> int:
     db: Session = SessionLocal()
     closed_count = 0
     timeout_cache: Dict[UUID, int] = {}  # project_id -> timeout_hours
-    
+
     try:
         # Get the minimum timeout to find potential candidates
         # (we'll check per-project timeout later)
         min_timeout_hours = settings.SESSION_DEFAULT_TIMEOUT_HOURS
         cutoff_time = datetime.utcnow() - timedelta(hours=min_timeout_hours)
-        
+
         # Query open sessions that might be timed out
-        # We check last_message_at or updated_at (whichever is later) 
+        # We check last_message_at or updated_at (whichever is later)
         # to determine if session is inactive
         sessions = (
             db.query(VisitorSession)
@@ -79,26 +83,30 @@ async def _process_timeout_sessions() -> int:
             .limit(settings.SESSION_TIMEOUT_BATCH_SIZE)
             .all()
         )
-        
+
         if not sessions:
             logger.debug("No potentially timed-out sessions found")
             return 0
-        
-        logger.info(f"Found {len(sessions)} potentially timed-out sessions to check")
-        
+
+        logger.info(
+            f"Found {len(sessions)} potentially timed-out sessions to check"
+        )
+
         for session in sessions:
             try:
                 # Get project-specific timeout
                 timeout_hours = _get_project_timeout_hours(
                     db, session.project_id, timeout_cache
                 )
-                
+
                 # Calculate the actual cutoff time for this project
-                project_cutoff = datetime.utcnow() - timedelta(hours=timeout_hours)
-                
+                project_cutoff = datetime.utcnow() - timedelta(
+                    hours=timeout_hours
+                )
+
                 # Determine last activity time
                 last_activity = session.last_message_at or session.updated_at
-                
+
                 # Check if session is actually timed out
                 if last_activity >= project_cutoff:
                     logger.debug(
@@ -106,7 +114,7 @@ async def _process_timeout_sessions() -> int:
                         f"(last_activity={last_activity}, cutoff={project_cutoff})"
                     )
                     continue
-                
+
                 # Close the session
                 logger.info(
                     f"Closing timed-out session {session.id}",
@@ -116,9 +124,9 @@ async def _process_timeout_sessions() -> int:
                         "project_id": str(session.project_id),
                         "last_activity": str(last_activity),
                         "timeout_hours": timeout_hours,
-                    }
+                    },
                 )
-                
+
                 await close_visitor_session(
                     db=db,
                     session=session,
@@ -127,9 +135,9 @@ async def _process_timeout_sessions() -> int:
                     auto_commit=True,
                     reason=f"timeout ({timeout_hours}h inactivity)",
                 )
-                
+
                 closed_count += 1
-                
+
             except ValueError as e:
                 # Session already closed
                 logger.debug(f"Session {session.id} already closed: {e}")
@@ -139,10 +147,10 @@ async def _process_timeout_sessions() -> int:
                     extra={"session_id": str(session.id), "error": str(e)},
                 )
                 # Continue with other sessions
-        
+
         logger.info(f"Closed {closed_count} timed-out sessions")
         return closed_count
-        
+
     except Exception as e:
         logger.error(f"Error processing timeout sessions: {e}")
         return closed_count
@@ -157,31 +165,33 @@ async def _run_periodic_task():
         f"(interval={settings.SESSION_TIMEOUT_CHECK_INTERVAL_SECONDS}s, "
         f"default_timeout={settings.SESSION_DEFAULT_TIMEOUT_HOURS}h)"
     )
-    
+
     while True:
         try:
             async with _processing_lock:
                 closed_count = await _process_timeout_sessions()
                 if closed_count > 0:
-                    logger.info(f"Periodic check: closed {closed_count} timed-out sessions")
+                    logger.info(
+                        f"Periodic check: closed {closed_count} timed-out sessions"
+                    )
         except Exception as e:
             logger.error(f"Error in periodic session timeout check: {e}")
-        
+
         await asyncio.sleep(settings.SESSION_TIMEOUT_CHECK_INTERVAL_SECONDS)
 
 
 async def start_session_timeout_task():
     """Start the background session timeout check task."""
     global _task
-    
+
     if not settings.SESSION_TIMEOUT_CHECK_ENABLED:
         logger.info("Session timeout check is disabled")
         return
-    
+
     if _task is not None and not _task.done():
         logger.warning("Session timeout check task is already running")
         return
-    
+
     _task = asyncio.create_task(_run_periodic_task())
     logger.info("Session timeout check task started")
 
@@ -189,16 +199,16 @@ async def start_session_timeout_task():
 async def stop_session_timeout_task():
     """Stop the background session timeout check task."""
     global _task
-    
+
     if _task is None:
         return
-    
+
     _task.cancel()
     try:
         await _task
     except asyncio.CancelledError:
         pass
-    
+
     _task = None
     logger.info("Session timeout check task stopped")
 

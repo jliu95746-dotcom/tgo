@@ -2,16 +2,30 @@
 
 from app.models.platform import Platform, PlatformType, PlatformTypeDefinition
 from app.models.project import Project
-from app.models.business_customer_identity import BusinessCustomerBinding, BusinessCustomerIdentityPolicy
+from app.models.business_customer_identity import (
+    BusinessCustomerBinding,
+    BusinessCustomerIdentityPolicy,
+)
 from app.models.visitor_business_scope import VisitorBusinessScope
 from app.models.platform_operator import PlatformOperator
 from app.models.billing import (
-    BillingPlan, BillingQuote, BillingOrder, SubscriptionPeriod, SeatAddon,
-    PaymentEvent, BillingJob, BillingRefund, BillingAudit, InvoiceRequest,
+    BillingPlan,
+    BillingQuote,
+    BillingOrder,
+    SubscriptionPeriod,
+    SeatAddon,
+    PaymentEvent,
+    BillingJob,
+    BillingRefund,
+    BillingAudit,
+    InvoiceRequest,
 )
 from app.models.company_invitation import CompanyInvitation
 from app.models.company_account import (
-    CompanyAccount, EmailAction, EmailOutbox, AICreditBatch,
+    CompanyAccount,
+    EmailAction,
+    EmailOutbox,
+    AICreditBatch,
 )
 from app.models.system_setup import SystemSetup
 from app.models.staff import Staff, StaffRole, StaffStatus
@@ -34,7 +48,8 @@ from app.models.shadow_draft_review import ShadowDraftReview
 from app.models.shadow_review_adjudication import ShadowReviewAdjudication
 from app.models.shadow_gate_signoff import ShadowGateSignoff
 from app.models.shadow_review_batch import (
-    ShadowReviewBatch, ShadowReviewBatchItem,
+    ShadowReviewBatch,
+    ShadowReviewBatchItem,
 )
 from app.models.shadow_review_protocol import (
     ShadowReviewProtocol,
@@ -51,9 +66,19 @@ from app.models.project_onboarding import ProjectOnboardingProgress
 from app.models.scenario_draft import ScenarioDraft
 from app.models.business_connection import BusinessConnection
 from app.models.business_connection_test import BusinessConnectionTest
-from app.models.permission import Permission, RolePermission, ProjectRolePermission
-from app.models.visitor_assignment_rule import VisitorAssignmentRule, DEFAULT_ASSIGNMENT_PROMPT
-from app.models.visitor_assignment_history import VisitorAssignmentHistory, AssignmentSource
+from app.models.permission import (
+    Permission,
+    RolePermission,
+    ProjectRolePermission,
+)
+from app.models.visitor_assignment_rule import (
+    VisitorAssignmentRule,
+    DEFAULT_ASSIGNMENT_PROMPT,
+)
+from app.models.visitor_assignment_history import (
+    VisitorAssignmentHistory,
+    AssignmentSource,
+)
 from app.models.visitor_session import VisitorSession, SessionStatus
 from app.models.visitor_waiting_queue import (
     VisitorWaitingQueue,
@@ -62,12 +87,18 @@ from app.models.visitor_waiting_queue import (
     QueueUrgency,
     URGENCY_PRIORITY_MAP,
 )
-from app.models.channel_memory_clearance import ChannelMemoryClearance, ClearanceUserType
+from app.models.channel_memory_clearance import (
+    ChannelMemoryClearance,
+    ClearanceUserType,
+)
 from app.models.store_credential import StoreCredential
 from app.models.media_analysis_result import MediaAnalysisResult
 from app.models.message_intent_result import MessageIntentResult
 from app.models.manual_service_request import ManualServiceRequest
-from app.models.ai_interaction_run import AIInteractionRun, AIInteractionRunStatus
+from app.models.ai_interaction_run import (
+    AIInteractionRun,
+    AIInteractionRunStatus,
+)
 from app.models.ai_execution_attempt import AIExecutionAttempt
 from app.models.ai_execution_tool_event import AIExecutionToolEvent
 from app.models.ai_execution_business_query import AIExecutionBusinessQuery
@@ -78,7 +109,8 @@ from app.models.hidden_shadow_adjudication import (
 )
 from app.models.hidden_shadow_gate_signoff import HiddenShadowGateSignoff
 from app.models.hidden_shadow_protocol import (
-    HiddenShadowProtocol, HiddenShadowProtocolCase,
+    HiddenShadowProtocol,
+    HiddenShadowProtocolCase,
 )
 from app.models.customer_logistics import (
     CustomerShipment,
@@ -171,11 +203,19 @@ __all__ = [
 ]
 from app.models.ai_usage import AIUsageReservation, AIUsageMovement
 from app.models.billing_reconciliation import BillingReconciliation
-from app.models.workflow_event_subscription import WorkflowEventSubscription, WorkflowEventDelivery
+from app.models.workflow_event_subscription import (
+    WorkflowEventSubscription,
+    WorkflowEventDelivery,
+)
 from app.models.trial_policy import TrialPolicy
 from app.models.trial_activation_code import TrialActivationCode
-from app.models.customer_turn import CustomerTurn as CustomerTurn, CustomerTurnPart as CustomerTurnPart
-from app.models.wechat_staff_delivery import WeChatStaffDelivery as WeChatStaffDelivery
+from app.models.customer_turn import (
+    CustomerTurn as CustomerTurn,
+    CustomerTurnPart as CustomerTurnPart,
+)
+from app.models.wechat_staff_delivery import (
+    WeChatStaffDelivery as WeChatStaffDelivery,
+)
 from app.models.agent_knowledge_catalog import (
     AgentKnowledgeCatalog as AgentKnowledgeCatalog,
 )

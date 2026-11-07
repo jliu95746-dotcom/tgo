@@ -5,7 +5,9 @@ from typing import Optional
 from fastapi import Request
 
 
-def get_client_language(request: Request, provided_language: Optional[str] = None) -> Optional[str]:
+def get_client_language(
+    request: Request, provided_language: Optional[str] = None
+) -> Optional[str]:
     """
     Get the client's preferred language from the request.
     
@@ -23,7 +25,7 @@ def get_client_language(request: Request, provided_language: Optional[str] = Non
     # 1. Use provided language if available
     if provided_language and provided_language.strip():
         return provided_language.strip()
-    
+
     # 2. Accept-Language header
     accept_language = request.headers.get("Accept-Language")
     if accept_language:
@@ -36,7 +38,7 @@ def get_client_language(request: Request, provided_language: Optional[str] = Non
             first_lang = languages[0].split(";")[0].strip()
             if first_lang:
                 return first_lang
-    
+
     return None
 
 
@@ -56,7 +58,7 @@ def _normalize_ip_candidate(value: str) -> str:
 
     # Bracketed IPv6: [addr]:port
     if v.startswith("[") and "]" in v:
-        inside = v[1 : v.index("]")]
+        inside = v[1: v.index("]")]
         return inside.strip()
 
     # If it looks like IPv4:port, strip the port
@@ -112,7 +114,9 @@ def _pick_best_ip_from_xff(x_forwarded_for: str) -> Optional[str]:
     return normalized[0] if normalized else None
 
 
-def get_client_ip(request: Request, provided_ip: Optional[str] = None) -> Optional[str]:
+def get_client_ip(
+    request: Request, provided_ip: Optional[str] = None
+) -> Optional[str]:
     """
     Get the real client IP address from the request.
     
@@ -135,35 +139,35 @@ def get_client_ip(request: Request, provided_ip: Optional[str] = None) -> Option
     if provided_ip and provided_ip.strip():
         ip_value = _normalize_ip_candidate(provided_ip)
         return ip_value if ip_value else provided_ip.strip()
-    
+
     # 2. X-Forwarded-For: client, proxy1, proxy2, ...
     x_forwarded_for = request.headers.get("X-Forwarded-For")
     if x_forwarded_for:
         best = _pick_best_ip_from_xff(x_forwarded_for)
         if best:
             return best
-    
+
     # 3. X-Real-IP (nginx)
     x_real_ip = request.headers.get("X-Real-IP")
     if x_real_ip:
         ip_value = _normalize_ip_candidate(x_real_ip)
         return ip_value if ip_value else x_real_ip.strip()
-    
+
     # 4. CF-Connecting-IP (Cloudflare)
     cf_connecting_ip = request.headers.get("CF-Connecting-IP")
     if cf_connecting_ip:
         ip_value = _normalize_ip_candidate(cf_connecting_ip)
         return ip_value if ip_value else cf_connecting_ip.strip()
-    
+
     # 5. True-Client-IP (some CDNs)
     true_client_ip = request.headers.get("True-Client-IP")
     if true_client_ip:
         ip_value = _normalize_ip_candidate(true_client_ip)
         return ip_value if ip_value else true_client_ip.strip()
-    
+
     # 6. Fall back to request.client.host
     if request.client and request.client.host:
         ip_value = _normalize_ip_candidate(request.client.host)
         return ip_value if ip_value else request.client.host
-    
+
     return None

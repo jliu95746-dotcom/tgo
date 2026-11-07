@@ -3,7 +3,15 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -17,21 +25,35 @@ class AIExecutionBusinessQuery(Base):
             "'customer_profile_query','membership_query')",
             name="ck_ai_business_query_operation",
         ),
-        CheckConstraint("outcome IN ('passed','failed')", name="ck_ai_business_query_outcome"),
-        UniqueConstraint("execution_id", "query_id", name="uq_ai_execution_business_query"),
-        Index("ix_ai_business_query_project_execution", "project_id", "execution_id"),
+        CheckConstraint(
+            "outcome IN ('passed','failed')",
+            name="ck_ai_business_query_outcome",
+        ),
+        UniqueConstraint(
+            "execution_id", "query_id", name="uq_ai_execution_business_query"
+        ),
+        Index(
+            "ix_ai_business_query_project_execution",
+            "project_id",
+            "execution_id",
+        ),
     )
 
     query_id: Mapped[UUID] = mapped_column(primary_key=True)
     project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("api_projects.id", ondelete="CASCADE"), nullable=False,
+        ForeignKey("api_projects.id", ondelete="CASCADE"),
+        nullable=False,
     )
     execution_id: Mapped[UUID] = mapped_column(
-        ForeignKey("api_ai_execution_attempts.execution_id", ondelete="CASCADE"),
+        ForeignKey(
+            "api_ai_execution_attempts.execution_id", ondelete="CASCADE"
+        ),
         nullable=False,
     )
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
     outcome: Mapped[str] = mapped_column(String(12), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )

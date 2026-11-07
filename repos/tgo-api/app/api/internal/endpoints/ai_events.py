@@ -59,12 +59,13 @@ def parse_user_id(user_id: str) -> tuple[str, str]:
     Types: 'visitor', 'staff'
     """
     if user_id.endswith(VISITOR_UID_SUFFIX):
-        return "visitor", user_id[:-len(VISITOR_UID_SUFFIX)]
+        return "visitor", user_id[: -len(VISITOR_UID_SUFFIX)]
     elif user_id.endswith(STAFF_UID_SUFFIX):
-        return "staff", user_id[:-len(STAFF_UID_SUFFIX)]
+        return "staff", user_id[: -len(STAFF_UID_SUFFIX)]
     else:
         # Backward compatibility: assume visitor if no suffix
         return "visitor", user_id
+
 
 # Visitor field mapping for info updates
 VISITOR_FIELD_MAP = {
@@ -99,7 +100,9 @@ def require_ai_event_service(
 router = APIRouter(dependencies=[Depends(require_ai_event_service)])
 
 
-async def _handle_manual_service_request(event: AIServiceEvent, project: Project, db: Session) -> dict:
+async def _handle_manual_service_request(
+    event: AIServiceEvent, project: Project, db: Session
+) -> dict:
     """Use the same persistent handoff service as public channel messages."""
     payload = ManualServiceRequestEvent.model_validate(event.payload or {})
     if not event.user_id:
@@ -152,7 +155,9 @@ async def _handle_manual_service_request(event: AIServiceEvent, project: Project
     )
 
 
-async def _handle_visitor_info_update(event: AIServiceEvent, project: Project, db: Session) -> dict:
+async def _handle_visitor_info_update(
+    event: AIServiceEvent, project: Project, db: Session
+) -> dict:
     """Update visitor profile based on AI-provided visitor info."""
     payload = VisitorInfoUpdateEvent.model_validate(event.payload or {})
 
@@ -168,7 +173,9 @@ async def _handle_visitor_info_update(event: AIServiceEvent, project: Project, d
         .first()
     )
     if not visitor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found"
+        )
 
     if visitor.project_id != project.id:
         raise HTTPException(
@@ -239,14 +246,20 @@ async def _handle_visitor_info_update(event: AIServiceEvent, project: Project, d
             if old_value != value:
                 custom_attributes[attr_key] = value
                 custom_attrs_modified = True
-                changes[f"custom.extra_info.{attr_key}"] = {"old": old_value, "new": value}
+                changes[f"custom.extra_info.{attr_key}"] = {
+                    "old": old_value,
+                    "new": value,
+                }
     elif extra_info_raw is not None:
         attr_key = "extra_info"
         old_value = custom_attributes.get(attr_key)
         if old_value != extra_info_raw:
             custom_attributes[attr_key] = extra_info_raw
             custom_attrs_modified = True
-            changes[f"custom.extra_info"] = {"old": old_value, "new": extra_info_raw}
+            changes[f"custom.extra_info"] = {
+                "old": old_value,
+                "new": extra_info_raw,
+            }
 
     if custom_attrs_modified:
         visitor.custom_attributes = custom_attributes
@@ -287,7 +300,9 @@ async def _handle_visitor_info_update(event: AIServiceEvent, project: Project, d
     }
 
 
-async def _handle_visitor_sentiment_update(event: AIServiceEvent, project: Project, db: Session) -> dict:
+async def _handle_visitor_sentiment_update(
+    event: AIServiceEvent, project: Project, db: Session
+) -> dict:
     """Update visitor sentiment data based on AI-provided metrics."""
     payload = VisitorSentimentUpdateEvent.model_validate(event.payload or {})
 
@@ -303,7 +318,9 @@ async def _handle_visitor_sentiment_update(event: AIServiceEvent, project: Proje
         .first()
     )
     if not visitor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found"
+        )
 
     if visitor.project_id != project.id:
         raise HTTPException(
@@ -362,8 +379,14 @@ async def _handle_visitor_sentiment_update(event: AIServiceEvent, project: Proje
                 ) from exc
 
     metadata_payload = dict(payload.metadata or {})
-    language = str(metadata_payload.get("language") or metadata_payload.get("locale") or "en").lower()
-    intent_display = localize_intent(allowed_intent, language) if allowed_intent else None
+    language = str(
+        metadata_payload.get("language")
+        or metadata_payload.get("locale")
+        or "en"
+    ).lower()
+    intent_display = (
+        localize_intent(allowed_intent, language) if allowed_intent else None
+    )
     metadata_payload["intent_code"] = allowed_intent
     metadata_payload["intent_language"] = language
     metadata_payload["intent_display"] = intent_display
@@ -374,7 +397,9 @@ async def _handle_visitor_sentiment_update(event: AIServiceEvent, project: Proje
         "intent": allowed_intent,
     }
 
-    sentiment_payload = {k: v for k, v in sentiment_payload.items() if v is not None}
+    sentiment_payload = {
+        k: v for k, v in sentiment_payload.items() if v is not None
+    }
 
     ai_insight = visitor.ai_insight
     if not ai_insight:
@@ -387,7 +412,10 @@ async def _handle_visitor_sentiment_update(event: AIServiceEvent, project: Proje
 
     changes: Dict[str, Dict[str, Any]] = {}
 
-    if satisfaction is not None and ai_insight.satisfaction_score != satisfaction:
+    if (
+        satisfaction is not None
+        and ai_insight.satisfaction_score != satisfaction
+    ):
         changes["ai_insight.satisfaction_score"] = {
             "old": ai_insight.satisfaction_score,
             "new": satisfaction,
@@ -409,10 +437,13 @@ async def _handle_visitor_sentiment_update(event: AIServiceEvent, project: Proje
         ai_insight.intent = allowed_intent
 
     if metadata_payload != (ai_insight.insight_metadata or {}):
-        changes.setdefault("ai_insight.metadata", {
-            "old": ai_insight.insight_metadata,
-            "new": metadata_payload,
-        })
+        changes.setdefault(
+            "ai_insight.metadata",
+            {
+                "old": ai_insight.insight_metadata,
+                "new": metadata_payload,
+            },
+        )
         ai_insight.insight_metadata = metadata_payload
 
     visitor.updated_at = datetime.utcnow()
@@ -452,7 +483,9 @@ async def _handle_visitor_sentiment_update(event: AIServiceEvent, project: Proje
     }
 
 
-def _handle_visitor_tag(event: AIServiceEvent, project: Project, db: Session) -> dict:
+def _handle_visitor_tag(
+    event: AIServiceEvent, project: Project, db: Session
+) -> dict:
     """Add tags to a visitor based on AI-provided tag items."""
     payload = VisitorTagEvent.model_validate(event.payload or {})
 
@@ -468,7 +501,9 @@ def _handle_visitor_tag(event: AIServiceEvent, project: Project, db: Session) ->
         .first()
     )
     if not visitor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found"
+        )
 
     if visitor.project_id != project.id:
         raise HTTPException(
@@ -648,7 +683,10 @@ async def ingest_ai_event_internal(
     """
     # Validate user_id is provided (required to determine project)
     if not event.user_id:
-        logger.error("Internal AI event missing user_id", extra={"event_type": event.event_type})
+        logger.error(
+            "Internal AI event missing user_id",
+            extra={"event_type": event.event_type},
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="user_id is required in event payload for internal calls",
@@ -656,13 +694,13 @@ async def ingest_ai_event_internal(
 
     # Parse user type and real ID
     user_type, real_id_str = parse_user_id(str(event.user_id))
-    
+
     try:
         real_user_id = UUID(real_id_str)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid user ID format: {real_id_str}"
+            detail=f"Invalid user ID format: {real_id_str}",
         )
 
     # Query user to get project
@@ -676,7 +714,10 @@ async def ingest_ai_event_internal(
         if not visitor:
             logger.error(
                 "Visitor not found for internal AI event",
-                extra={"user_id": str(event.user_id), "event_type": event.event_type},
+                extra={
+                    "user_id": str(event.user_id),
+                    "event_type": event.event_type,
+                },
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -692,7 +733,10 @@ async def ingest_ai_event_internal(
         if not staff:
             logger.error(
                 "Staff not found for internal AI event",
-                extra={"user_id": str(event.user_id), "event_type": event.event_type},
+                extra={
+                    "user_id": str(event.user_id),
+                    "event_type": event.event_type,
+                },
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -709,7 +753,11 @@ async def ingest_ai_event_internal(
     if not project:
         logger.error(
             "Project not found for user",
-            extra={"user_id": str(event.user_id), "project_id": str(project_id), "event_type": event.event_type},
+            extra={
+                "user_id": str(event.user_id),
+                "project_id": str(project_id),
+                "event_type": event.event_type,
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

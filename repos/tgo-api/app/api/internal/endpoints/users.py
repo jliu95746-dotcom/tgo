@@ -12,7 +12,10 @@ from app.models import PlatformType
 from app.schemas.internal_staff import InternalStaffResponse
 from app.schemas.visitor import VisitorResponse, set_visitor_display_nickname
 from app.services.internal_staff_service import get_internal_staff_info
-from app.api.v1.endpoints.channels import _build_enriched_visitor_payload, _get_visitor_with_relations
+from app.api.v1.endpoints.channels import (
+    _build_enriched_visitor_payload,
+    _get_visitor_with_relations,
+)
 
 router = APIRouter()
 
@@ -28,11 +31,11 @@ def parse_user_id(user_id: str) -> tuple[str, str]:
     """
     if not isinstance(user_id, str):
         return "visitor", str(user_id)
-        
+
     if user_id.endswith(VISITOR_UID_SUFFIX):
-        return "visitor", user_id[:-len(VISITOR_UID_SUFFIX)]
+        return "visitor", user_id[: -len(VISITOR_UID_SUFFIX)]
     elif user_id.endswith(STAFF_UID_SUFFIX):
-        return "staff", user_id[:-len(STAFF_UID_SUFFIX)]
+        return "staff", user_id[: -len(STAFF_UID_SUFFIX)]
     else:
         # Backward compatibility: assume visitor if no suffix
         return "visitor", user_id
@@ -56,7 +59,7 @@ async def get_internal_user_info(
     Supports both visitors (with -vtr suffix or no suffix) and staff (with -staff suffix).
     """
     user_type, real_id = parse_user_id(user_id)
-    
+
     if user_type == "staff":
         try:
             staff_uuid = UUID(real_id)
@@ -79,15 +82,14 @@ async def get_internal_user_info(
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid visitor ID format: {real_id}"
+            detail=f"Invalid visitor ID format: {real_id}",
         )
 
     # 1) Get visitor with all relations pre-loaded
     visitor = _get_visitor_with_relations(db, visitor_uuid, project_id)
     if not visitor:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Visitor not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Visitor not found"
         )
 
     # 2) Build enriched payload (tags, system info, recent activities, etc.)
@@ -111,12 +113,16 @@ async def get_internal_user_info(
                 parts.append(visitor.platform.used_website_title)
             if visitor.platform.used_website_url:
                 parts.append(f"({visitor.platform.used_website_url})")
-            
+
             if parts:
                 visitor_payload.source_display = " ".join(parts)
             else:
-                visitor_payload.source_display = visitor.platform.name or "Website"
+                visitor_payload.source_display = (
+                    visitor.platform.name or "Website"
+                )
         else:
-            visitor_payload.source_display = visitor.platform.name or visitor.platform.type
+            visitor_payload.source_display = (
+                visitor.platform.name or visitor.platform.type
+            )
 
     return visitor_payload

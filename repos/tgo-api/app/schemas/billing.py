@@ -32,7 +32,9 @@ class PlanDefinition(BaseModel):
         return self.annual_price if months == 12 else self.monthly_price
 
     def seat_price(self, months: int) -> int:
-        return self.seat_annual_price if months == 12 else self.seat_monthly_price
+        return (
+            self.seat_annual_price if months == 12 else self.seat_monthly_price
+        )
 
 
 class PlanCreate(BaseModel):

@@ -3,10 +3,19 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 BusinessOperation = Literal[
-    "order_query", "logistics_query", "customer_profile_query", "membership_query"
+    "order_query",
+    "logistics_query",
+    "customer_profile_query",
+    "membership_query",
 ]
 
 
@@ -26,7 +35,12 @@ class ConnectionOperationConfiguration(BaseModel):
     operation: BusinessOperation
     report_id: UUID | None
     status: Literal[
-        "not_tested", "running", "current", "stale", "not_passed", "unavailable"
+        "not_tested",
+        "running",
+        "current",
+        "stale",
+        "not_passed",
+        "unavailable",
     ]
     valid_until: datetime | None
     issues: list[

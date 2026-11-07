@@ -47,7 +47,9 @@ def parse_accept_language(header: Optional[str]) -> str:
     return locale or "en"
 
 
-def localize_intent(intent: Optional[str], accept_language: Optional[str]) -> Optional[str]:
+def localize_intent(
+    intent: Optional[str], accept_language: Optional[str]
+) -> Optional[str]:
     if not intent:
         return intent
 
@@ -58,14 +60,21 @@ def localize_intent(intent: Optional[str], accept_language: Optional[str]) -> Op
         return intent
 
     # Try exact match, underscore variant, base language
-    candidates = [locale, locale.replace("_", "-"), locale.replace("-", "_"), base_locale]
+    candidates = [
+        locale,
+        locale.replace("_", "-"),
+        locale.replace("-", "_"),
+        base_locale,
+    ]
     for candidate in candidates:
         if candidate in translations:
             return translations[candidate]
     return translations.get("en", intent)
 
 
-def localize_visitor_response_intent(visitor_response, accept_language: Optional[str]) -> None:
+def localize_visitor_response_intent(
+    visitor_response, accept_language: Optional[str]
+) -> None:
     ai_insights = getattr(visitor_response, "ai_insights", None)
     if not ai_insights:
         return
@@ -74,4 +83,3 @@ def localize_visitor_response_intent(visitor_response, accept_language: Optional
     localized = localize_intent(intent_code, accept_language)
     if localized is not None:
         ai_insights.intent = localized
-

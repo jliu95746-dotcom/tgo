@@ -29,7 +29,9 @@ class ActivationModelRuntime(BaseModel):
     def private_revision(self, key: str) -> str:
         payload = self.model_dump(mode="json", exclude={"api_key"})
         payload["api_key"] = self.api_key.get_secret_value()
-        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        raw = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
         return hmac.new(key.encode(), raw.encode(), hashlib.sha256).hexdigest()
 
 
@@ -37,17 +39,25 @@ class AgentActivationModel(AgentActivationModelQuery):
     scope: Literal["model_configuration"] = "model_configuration"
     can_enable: Literal[False] = False
     source: Literal["tenant", "platform"] = "tenant"
-    status: Literal["ready", "missing", "disabled", "not_synced", "unavailable"]
+    status: Literal[
+        "ready", "missing", "disabled", "not_synced", "unavailable"
+    ]
     effective_model: str | None = None
-    runtime_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    runtime_revision: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     owner_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def ready_requires_revisions(self) -> "AgentActivationModel":
         if self.status == "ready" and not (
-            self.effective_model and self.runtime_revision and self.owner_revision
+            self.effective_model
+            and self.runtime_revision
+            and self.owner_revision
         ):
             raise ValueError("Missing model owner revision")
-        if self.status != "ready" and (self.runtime_revision or self.owner_revision):
+        if self.status != "ready" and (
+            self.runtime_revision or self.owner_revision
+        ):
             raise ValueError("Unready model cannot provide proof")
         return self

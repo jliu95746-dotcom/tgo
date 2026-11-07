@@ -15,7 +15,10 @@ from app.models import (
     VisitorSystemInfo,
     ChannelMember,
 )
-from app.schemas.visitor import VisitorServiceModeUpdate, VisitorSystemInfoRequest
+from app.schemas.visitor import (
+    VisitorServiceModeUpdate,
+    VisitorSystemInfoRequest,
+)
 from app.services.humanization_service import get_humanization_skill_prompt
 from app.services.wukongim_client import wukongim_client
 from app.services.geoip_service import geoip_service
@@ -29,36 +32,107 @@ logger = get_logger("services.visitor")
 
 # Predefined array of realistic visitor names for default visitor generation
 DEFAULT_VISITOR_NAMES = [
-    "Alex Chen", "Sarah Johnson", "Michael Zhang", "Emma Wilson", "David Kumar",
-    "Jessica Martinez", "Ryan O'Connor", "Sophia Lee", "James Anderson", "Olivia Brown",
-    "Daniel Garcia", "Isabella Rodriguez", "Matthew Taylor", "Ava Thompson",
-    "Christopher White", "Mia Harris", "Andrew Clark", "Emily Lewis", "Joshua Walker",
-    "Charlotte Hall", "Kevin Young", "Amelia Allen", "Brandon King", "Harper Wright",
-    "Tyler Scott", "Evelyn Green", "Justin Adams", "Abigail Baker", "Nathan Nelson",
+    "Alex Chen",
+    "Sarah Johnson",
+    "Michael Zhang",
+    "Emma Wilson",
+    "David Kumar",
+    "Jessica Martinez",
+    "Ryan O'Connor",
+    "Sophia Lee",
+    "James Anderson",
+    "Olivia Brown",
+    "Daniel Garcia",
+    "Isabella Rodriguez",
+    "Matthew Taylor",
+    "Ava Thompson",
+    "Christopher White",
+    "Mia Harris",
+    "Andrew Clark",
+    "Emily Lewis",
+    "Joshua Walker",
+    "Charlotte Hall",
+    "Kevin Young",
+    "Amelia Allen",
+    "Brandon King",
+    "Harper Wright",
+    "Tyler Scott",
+    "Evelyn Green",
+    "Justin Adams",
+    "Abigail Baker",
+    "Nathan Nelson",
     "Ella Carter",
 ]
 
 # Chinese nickname components
 CUSTOMER_SERVICE_ADJECTIVES_ZH = [
-    "星光", "温暖", "清晨", "晴空", "暖阳", "微风", "云端", "静谧", "灵动", "璀璨", "悠然", "暮色",
+    "星光",
+    "温暖",
+    "清晨",
+    "晴空",
+    "暖阳",
+    "微风",
+    "云端",
+    "静谧",
+    "灵动",
+    "璀璨",
+    "悠然",
+    "暮色",
 ]
 
 CUSTOMER_SERVICE_NOUNS_ZH = [
-    "海豚", "星猫", "向日葵", "松果", "雨燕", "晨露", "珊瑚", "雪狐", "轻舟", "薰衣草", "流萤", "橄榄树",
+    "海豚",
+    "星猫",
+    "向日葵",
+    "松果",
+    "雨燕",
+    "晨露",
+    "珊瑚",
+    "雪狐",
+    "轻舟",
+    "薰衣草",
+    "流萤",
+    "橄榄树",
 ]
 
 # English nickname components
 CUSTOMER_SERVICE_ADJECTIVES_EN = [
-    "Starry", "Warm", "Morning", "Sunny", "Bright", "Breezy", "Cloud", "Quiet", "Swift", "Shiny", "Calm", "Twilight",
+    "Starry",
+    "Warm",
+    "Morning",
+    "Sunny",
+    "Bright",
+    "Breezy",
+    "Cloud",
+    "Quiet",
+    "Swift",
+    "Shiny",
+    "Calm",
+    "Twilight",
 ]
 
 CUSTOMER_SERVICE_NOUNS_EN = [
-    "Dolphin", "Cat", "Sunflower", "Pine", "Swallow", "Dew", "Coral", "Fox", "Boat", "Lavender", "Firefly", "Olive",
+    "Dolphin",
+    "Cat",
+    "Sunflower",
+    "Pine",
+    "Swallow",
+    "Dew",
+    "Coral",
+    "Fox",
+    "Boat",
+    "Lavender",
+    "Firefly",
+    "Olive",
 ]
 
 # Allowed image types for avatar upload
 AVATAR_ALLOWED_MIME_TYPES = {
-    "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/gif",
+    "image/webp",
 }
 AVATAR_ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
 AVATAR_MAX_SIZE_MB = 5  # 5MB limit for avatar
@@ -75,7 +149,9 @@ async def configure_service_mode(
         data.service_mode.value != "manual" and data.humanization_skill_enabled
     )
     if humanization_enabled and not skill_name:
-        raise ValueError("A humanization skill must be selected before enabling it")
+        raise ValueError(
+            "A humanization skill must be selected before enabling it"
+        )
     if skill_name:
         await get_humanization_skill_prompt(project_id, skill_name)
 
@@ -90,11 +166,15 @@ def generate_default_visitor_name(visitor_id: str) -> str:
     """Generate a deterministic visitor name based on the visitor_id."""
     id_bytes = visitor_id.encode('utf-8')
     hash_digest = hashlib.sha256(id_bytes).digest()
-    index = int.from_bytes(hash_digest[:4], byteorder='big') % len(DEFAULT_VISITOR_NAMES)
+    index = int.from_bytes(hash_digest[:4], byteorder='big') % len(
+        DEFAULT_VISITOR_NAMES
+    )
     return DEFAULT_VISITOR_NAMES[index]
 
 
-def generate_customer_service_nickname(identifier: Optional[str]) -> Tuple[str, str]:
+def generate_customer_service_nickname(
+    identifier: Optional[str],
+) -> Tuple[str, str]:
     """Generate friendly fallback nicknames for visitor-facing scenarios."""
     base_identifier = (identifier or "").strip()
     if not base_identifier:
@@ -103,12 +183,20 @@ def generate_customer_service_nickname(identifier: Optional[str]) -> Tuple[str, 
     digest = hashlib.sha256(base_identifier.encode("utf-8")).digest()
 
     # English nickname
-    adjective_en = CUSTOMER_SERVICE_ADJECTIVES_EN[digest[0] % len(CUSTOMER_SERVICE_ADJECTIVES_EN)]
-    noun_en = CUSTOMER_SERVICE_NOUNS_EN[digest[1] % len(CUSTOMER_SERVICE_NOUNS_EN)]
+    adjective_en = CUSTOMER_SERVICE_ADJECTIVES_EN[
+        digest[0] % len(CUSTOMER_SERVICE_ADJECTIVES_EN)
+    ]
+    noun_en = CUSTOMER_SERVICE_NOUNS_EN[
+        digest[1] % len(CUSTOMER_SERVICE_NOUNS_EN)
+    ]
 
     # Chinese nickname
-    adjective_zh = CUSTOMER_SERVICE_ADJECTIVES_ZH[digest[0] % len(CUSTOMER_SERVICE_ADJECTIVES_ZH)]
-    noun_zh = CUSTOMER_SERVICE_NOUNS_ZH[digest[1] % len(CUSTOMER_SERVICE_NOUNS_ZH)]
+    adjective_zh = CUSTOMER_SERVICE_ADJECTIVES_ZH[
+        digest[0] % len(CUSTOMER_SERVICE_ADJECTIVES_ZH)
+    ]
+    noun_zh = CUSTOMER_SERVICE_NOUNS_ZH[
+        digest[1] % len(CUSTOMER_SERVICE_NOUNS_ZH)
+    ]
 
     suffix_value = int.from_bytes(digest[2:4], byteorder="big")
     suffix = format(suffix_value, "x").upper()[:3]
@@ -146,7 +234,7 @@ async def ensure_visitor_channel(
     transaction duration and prevent deadlocks.
     """
     channel_id = build_visitor_channel_id(visitor.id)
-    subscribers = [str(visitor.id)+"-vtr"]
+    subscribers = [str(visitor.id) + "-vtr"]
     need_create_member = False
 
     # Phase 1: DB operations in a short transaction
@@ -226,18 +314,19 @@ async def create_visitor_with_channel(
 ) -> Visitor:
     """Create a new visitor with WuKongIM channel setup."""
     from app.services.company_entitlements import require_new_service
+
     require_new_service(db, platform.project_id)
     use_visitor_id_as_open_id = not platform_open_id
-    
+
     if use_visitor_id_as_open_id:
         initial_platform_open_id = f"pending-{uuid.uuid4().hex}"
     else:
         initial_platform_open_id = platform_open_id
-    
+
     resolved_nickname, resolved_nickname_zh = resolve_visitor_nickname(
         nickname, nickname_zh, platform_open_id or None
     )
-    
+
     geo_location = geoip_service.lookup(ip_address)
 
     visitor = Visitor(
@@ -267,11 +356,11 @@ async def create_visitor_with_channel(
         last_visit_time=datetime.utcnow(),
     )
     db.add(visitor)
-    
+
     if use_visitor_id_as_open_id:
         db.flush()
         visitor.platform_open_id = str(visitor.id) + "-vtr"
-    
+
     db.commit()
     db.refresh(visitor)
 
@@ -307,9 +396,16 @@ def upsert_visitor_system_info(
         system_info.first_seen_at = datetime.utcnow()
         changed = True
 
-    info_data = system_info_payload.model_dump(exclude_none=True) if system_info_payload else {}
+    info_data = (
+        system_info_payload.model_dump(exclude_none=True)
+        if system_info_payload
+        else {}
+    )
     for field in ("source_detail", "browser", "operating_system"):
-        if field in info_data and getattr(system_info, field) != info_data[field]:
+        if (
+            field in info_data
+            and getattr(system_info, field) != info_data[field]
+        ):
             setattr(system_info, field, info_data[field])
             changed = True
 

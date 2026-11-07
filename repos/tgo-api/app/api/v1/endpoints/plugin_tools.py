@@ -22,7 +22,9 @@ logger = get_logger("api.plugin_tools")
 router = APIRouter(route_class=CurrentAccessRoute)
 
 
-@router.post("/execute/{plugin_id}/{tool_name}", response_model=ToolExecuteResponse)
+@router.post(
+    "/execute/{plugin_id}/{tool_name}", response_model=ToolExecuteResponse
+)
 async def execute_plugin_tool(
     plugin_id: str,
     tool_name: str,
@@ -30,7 +32,8 @@ async def execute_plugin_tool(
     http_request: Request,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
-    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    credentials: HTTPAuthorizationCredentials
+    | None = Depends(HTTPBearer(auto_error=False)),
 ) -> ToolExecuteResponse:
     """
     Proxy an MCP tool execution request to tgo-plugin-runtime.
@@ -39,8 +42,14 @@ async def execute_plugin_tool(
     """
     if not current_user.project_id:
         raise HTTPException(status_code=403, detail="Project access required")
-    scope = await capture_plugin_scope(db, current_user, credentials, request.context.visitor_id,
-        session_id=request.context.session_id, agent_id=request.context.agent_id)
+    scope = await capture_plugin_scope(
+        db,
+        current_user,
+        credentials,
+        request.context.visitor_id,
+        session_id=request.context.session_id,
+        agent_id=request.context.agent_id,
+    )
     http_request.state.operation_guard = scope.guard
     visitor_info = scope.visitor
     # Build request for plugin-runtime (enriched with visitor data)
@@ -53,20 +62,25 @@ async def execute_plugin_tool(
             "language": request.context.language,
         },
     }
-    
+
     # Add enriched visitor info
     if visitor_info:
-        request_data["context"]["visitor"] = visitor_info.model_dump(exclude_none=True)
+        request_data["context"]["visitor"] = visitor_info.model_dump(
+            exclude_none=True
+        )
 
     try:
         result = await plugin_runtime_client.execute_tool(
-            plugin_id, tool_name, request_data, project_id=str(scope.access.project_id),
+            plugin_id,
+            tool_name,
+            request_data,
+            project_id=str(scope.access.project_id),
         )
         scope.guard.check()
         if result is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Plugin not found: {plugin_id}"
+                detail=f"Plugin not found: {plugin_id}",
             )
         return ToolExecuteResponse(**result)
     except (HTTPException, TGOAPIException):
@@ -75,5 +89,5 @@ async def execute_plugin_tool(
         logger.error(f"Failed to execute plugin tool: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Plugin runtime service unavailable"
+            detail="Plugin runtime service unavailable",
         )

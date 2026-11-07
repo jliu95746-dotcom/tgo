@@ -20,26 +20,26 @@ if TYPE_CHECKING:
 
 class WaitingStatus(str, Enum):
     """Waiting queue status enumeration."""
-    
-    WAITING = "waiting"      # Visitor is waiting in queue
-    ASSIGNED = "assigned"    # Visitor has been assigned to a staff
+
+    WAITING = "waiting"  # Visitor is waiting in queue
+    ASSIGNED = "assigned"  # Visitor has been assigned to a staff
     CANCELLED = "cancelled"  # Visitor cancelled the wait (left)
-    EXPIRED = "expired"      # Waiting timed out
+    EXPIRED = "expired"  # Waiting timed out
 
 
 class QueueSource(str, Enum):
     """Queue entry source enumeration."""
-    
-    AI_REQUEST = "ai_request"      # AI agent requested manual service
-    VISITOR_REQUEST = "visitor"    # Visitor explicitly requested human service
-    TRANSFER = "transfer"          # Staff transferred visitor
-    SYSTEM = "system"              # System automatic (e.g., timeout transfer)
-    NO_STAFF = "no_staff"          # No available staff, auto-queued
+
+    AI_REQUEST = "ai_request"  # AI agent requested manual service
+    VISITOR_REQUEST = "visitor"  # Visitor explicitly requested human service
+    TRANSFER = "transfer"  # Staff transferred visitor
+    SYSTEM = "system"  # System automatic (e.g., timeout transfer)
+    NO_STAFF = "no_staff"  # No available staff, auto-queued
 
 
 class QueueUrgency(str, Enum):
     """Queue urgency level enumeration."""
-    
+
     LOW = "low"
     NORMAL = "normal"
     HIGH = "high"
@@ -247,7 +247,9 @@ class VisitorWaitingQueue(Base):
             return int((self.exited_at - self.entered_at).total_seconds())
         return int((datetime.utcnow() - self.entered_at).total_seconds())
 
-    def needs_fallback_processing(self, fallback_delay_seconds: int = 120) -> bool:
+    def needs_fallback_processing(
+        self, fallback_delay_seconds: int = 120
+    ) -> bool:
         """Check if this entry should be processed by the fallback processor.
         
         Returns True if:
@@ -262,6 +264,7 @@ class VisitorWaitingQueue(Base):
         if self.last_attempt_at is None:
             return True
         from datetime import timedelta
+
         cutoff = datetime.utcnow() - timedelta(seconds=fallback_delay_seconds)
         return self.last_attempt_at < cutoff
 

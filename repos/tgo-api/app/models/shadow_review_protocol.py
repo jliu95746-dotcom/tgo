@@ -23,7 +23,9 @@ class ShadowReviewProtocol(Base):
     __tablename__ = "api_shadow_review_protocols"
     __table_args__ = (
         UniqueConstraint(
-            "project_id", "request_id", name="uq_shadow_protocol_project_request"
+            "project_id",
+            "request_id",
+            name="uq_shadow_protocol_project_request",
         ),
         UniqueConstraint("batch_id", name="uq_shadow_protocol_batch"),
         Index(
@@ -33,10 +35,15 @@ class ShadowReviewProtocol(Base):
             postgresql_where=text("finalized_at IS NULL"),
             sqlite_where=text("finalized_at IS NULL"),
         ),
-        Index("ix_shadow_protocol_project_created", "project_id", "created_at"),
-        CheckConstraint("window_start < window_end", name="ck_shadow_protocol_window"),
+        Index(
+            "ix_shadow_protocol_project_created", "project_id", "created_at"
+        ),
         CheckConstraint(
-            "sample_size BETWEEN 1 AND 500", name="ck_shadow_protocol_sample_size"
+            "window_start < window_end", name="ck_shadow_protocol_window"
+        ),
+        CheckConstraint(
+            "sample_size BETWEEN 1 AND 500",
+            name="ck_shadow_protocol_sample_size",
         ),
         CheckConstraint(
             "finalized_at IS NULL OR finalized_at >= created_at",
@@ -59,7 +66,9 @@ class ShadowReviewProtocol(Base):
     )
     creator_id: Mapped[UUID] = mapped_column(nullable=False)
     request_id: Mapped[UUID] = mapped_column(nullable=False)
-    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
     window_start: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -69,9 +78,15 @@ class ShadowReviewProtocol(Base):
     sample_size: Mapped[int] = mapped_column(Integer, nullable=False)
     algorithm: Mapped[str] = mapped_column(String(32), nullable=False)
     random_seed: Mapped[str] = mapped_column(String(32), nullable=False)
-    population_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    population_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    manifest_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    population_count: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    population_sha256: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    manifest_sha256: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
     batch_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("api_shadow_review_batches.id", ondelete="RESTRICT"),
         nullable=True,

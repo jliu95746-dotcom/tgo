@@ -29,41 +29,39 @@ class Permission(Base):
     resource: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        comment="Resource name: staff, ai_agents, rag_collections, etc."
+        comment="Resource name: staff, ai_agents, rag_collections, etc.",
     )
     action: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        comment="Action: create, read, update, delete, list"
+        comment="Action: create, read, update, delete, list",
     )
     description: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,
-        comment="Human-readable description of the permission"
+        comment="Human-readable description of the permission",
     )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
-        nullable=False,
-        default=func.now(),
-        comment="Creation timestamp"
+        nullable=False, default=func.now(), comment="Creation timestamp"
     )
 
     # Relationships
     role_permissions: Mapped[List["RolePermission"]] = relationship(
-        "RolePermission",
-        back_populates="permission",
-        lazy="select"
+        "RolePermission", back_populates="permission", lazy="select"
     )
-    project_role_permissions: Mapped[List["ProjectRolePermission"]] = relationship(
-        "ProjectRolePermission",
-        back_populates="permission",
-        lazy="select"
+    project_role_permissions: Mapped[
+        List["ProjectRolePermission"]
+    ] = relationship(
+        "ProjectRolePermission", back_populates="permission", lazy="select"
     )
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint("resource", "action", name="uq_permission_resource_action"),
+        UniqueConstraint(
+            "resource", "action", name="uq_permission_resource_action"
+        ),
     )
 
     def __repr__(self) -> str:
@@ -93,36 +91,27 @@ class RolePermission(Base):
 
     # Role and permission (no project association - global)
     role: Mapped[str] = mapped_column(
-        String(20),
-        nullable=False,
-        comment="Role name: user, admin, agent"
+        String(20), nullable=False, comment="Role name: user, admin, agent"
     )
     permission_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_permissions.id", ondelete="CASCADE"),
         nullable=False,
-        comment="Associated permission ID"
+        comment="Associated permission ID",
     )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
-        nullable=False,
-        default=func.now(),
-        comment="Creation timestamp"
+        nullable=False, default=func.now(), comment="Creation timestamp"
     )
 
     # Relationships
     permission: Mapped["Permission"] = relationship(
-        "Permission",
-        back_populates="role_permissions",
-        lazy="select"
+        "Permission", back_populates="role_permissions", lazy="select"
     )
 
     # Constraints - unique per role + permission (global, no project)
     __table_args__ = (
-        UniqueConstraint(
-            "role", "permission_id",
-            name="uq_role_permission"
-        ),
+        UniqueConstraint("role", "permission_id", name="uq_role_permission"),
     )
 
     def __repr__(self) -> str:
@@ -147,44 +136,37 @@ class ProjectRolePermission(Base):
 
     # Role and permission with project association
     role: Mapped[str] = mapped_column(
-        String(20),
-        nullable=False,
-        comment="Role name: user, admin, agent"
+        String(20), nullable=False, comment="Role name: user, admin, agent"
     )
     permission_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_permissions.id", ondelete="CASCADE"),
         nullable=False,
-        comment="Associated permission ID"
+        comment="Associated permission ID",
     )
     project_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_projects.id", ondelete="CASCADE"),
         nullable=False,
-        comment="Associated project ID for project-specific permissions"
+        comment="Associated project ID for project-specific permissions",
     )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
-        nullable=False,
-        default=func.now(),
-        comment="Creation timestamp"
+        nullable=False, default=func.now(), comment="Creation timestamp"
     )
 
     # Relationships
     permission: Mapped["Permission"] = relationship(
-        "Permission",
-        back_populates="project_role_permissions",
-        lazy="select"
+        "Permission", back_populates="project_role_permissions", lazy="select"
     )
-    project: Mapped["Project"] = relationship(
-        "Project",
-        lazy="select"
-    )
+    project: Mapped["Project"] = relationship("Project", lazy="select")
 
     # Constraints - unique per role + permission + project
     __table_args__ = (
         UniqueConstraint(
-            "role", "permission_id", "project_id",
-            name="uq_project_role_permission"
+            "role",
+            "permission_id",
+            "project_id",
+            name="uq_project_role_permission",
         ),
     )
 

@@ -18,7 +18,12 @@ from pydantic import (
     model_validator,
 )
 
-BusinessCapability = Literal["order_query", "logistics_query", "customer_profile_query", "membership_query"]
+BusinessCapability = Literal[
+    "order_query",
+    "logistics_query",
+    "customer_profile_query",
+    "membership_query",
+]
 ConnectionMode = Literal["http", "demo"]
 
 
@@ -46,10 +51,16 @@ class BusinessMerchantMapping(BaseModel):
     logistics_operation_value: str = Field(
         default="logistics_query", min_length=1, max_length=100
     )
-    order_status_map: dict[str, str] = Field(default_factory=dict, max_length=50)
-    logistics_status_map: dict[str, str] = Field(default_factory=dict, max_length=50)
+    order_status_map: dict[str, str] = Field(
+        default_factory=dict, max_length=50
+    )
+    logistics_status_map: dict[str, str] = Field(
+        default_factory=dict, max_length=50
+    )
     not_found_values: list[str] = Field(default_factory=list, max_length=50)
-    logistics_not_shipped_values: list[str] = Field(default_factory=list, max_length=50)
+    logistics_not_shipped_values: list[str] = Field(
+        default_factory=list, max_length=50
+    )
     default_timezone: str = Field(default="UTC", min_length=1, max_length=100)
 
     @field_validator(
@@ -117,10 +128,13 @@ class BusinessMerchantMapping(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError("订单、客户、商户及操作参数不能使用相同名称")
         if self.not_found_values and (
-            not self.success_field or self.success_value in self.not_found_values
+            not self.success_field
+            or self.success_value in self.not_found_values
         ):
             raise ValueError("未查到订单编码必须对应独立的业务结果字段且不能表示成功")
-        if set(self.logistics_status_map) & set(self.logistics_not_shipped_values):
+        if set(self.logistics_status_map) & set(
+            self.logistics_not_shipped_values
+        ):
             raise ValueError("未发货编码不能同时配置为已发货物流状态")
         return self
 
@@ -134,7 +148,9 @@ class BusinessHTTPConfiguration(BusinessMerchantMapping):
     method: Literal["GET", "POST"] = "POST"
     timeout_seconds: float = Field(default=5, ge=0.5, le=30, strict=True)
     auth_mode: Literal["none", "bearer", "api_key", "basic"] = "none"
-    api_key_header: str = Field(default="X-API-Key", pattern=r"^[A-Za-z0-9-]{1,100}$")
+    api_key_header: str = Field(
+        default="X-API-Key", pattern=r"^[A-Za-z0-9-]{1,100}$"
+    )
     data_path: str = Field(default="data", max_length=200)
     tenant_id_field: str = Field(default="tenant_id", max_length=200)
     customer_id_field: str = Field(default="customer_id", max_length=200)
@@ -146,12 +162,18 @@ class BusinessHTTPConfiguration(BusinessMerchantMapping):
     order_created_at_field: str = Field(default="created_at", max_length=200)
     logistics_status_field: str = Field(default="status", max_length=200)
     logistics_carrier_field: str = Field(default="carrier", max_length=200)
-    logistics_tracking_no_field: str = Field(default="tracking_no", max_length=200)
-    logistics_updated_at_field: str = Field(default="updated_at", max_length=200)
+    logistics_tracking_no_field: str = Field(
+        default="tracking_no", max_length=200
+    )
+    logistics_updated_at_field: str = Field(
+        default="updated_at", max_length=200
+    )
     customer_segment_field: str = Field(default="segment", max_length=200)
     customer_tags_field: str = Field(default="service_tags", max_length=200)
     membership_tier_field: str = Field(default="tier", max_length=200)
-    membership_points_field: str = Field(default="points_balance", max_length=200)
+    membership_points_field: str = Field(
+        default="points_balance", max_length=200
+    )
 
     @field_validator("customer_profile_path", "membership_path")
     @classmethod
@@ -159,12 +181,16 @@ class BusinessHTTPConfiguration(BusinessMerchantMapping):
         return cls.safe_path(value) if value is not None else None
 
     @field_validator(
-        "customer_segment_field", "customer_tags_field",
-        "membership_tier_field", "membership_points_field",
+        "customer_segment_field",
+        "customer_tags_field",
+        "membership_tier_field",
+        "membership_points_field",
     )
     @classmethod
     def safe_customer_field(cls, value: str) -> str:
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", value):
+        if not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", value
+        ):
             raise ValueError("会员与客户资料字段只支持明确的点号路径")
         return value
 
@@ -173,7 +199,10 @@ class BusinessHTTPConfiguration(BusinessMerchantMapping):
         paths = (self.customer_profile_path, self.membership_path)
         if (paths[0] is None) != (paths[1] is None):
             raise ValueError("客户资料与会员查询路径必须同时配置")
-        if paths[0] is not None and len(set((self.order_path, self.logistics_path, *paths))) != 4:
+        if (
+            paths[0] is not None
+            and len(set((self.order_path, self.logistics_path, *paths))) != 4
+        ):
             raise ValueError("各业务查询路径不能复用")
         return self
 
@@ -220,7 +249,9 @@ class BusinessHTTPConfiguration(BusinessMerchantMapping):
                     raise ValueError
             except ValueError:
                 if (
-                    not re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?", host)
+                    not re.fullmatch(
+                        r"[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?", host
+                    )
                     or "." not in host
                     or host.endswith((".local", ".localhost"))
                 ):
@@ -229,9 +260,7 @@ class BusinessHTTPConfiguration(BusinessMerchantMapping):
                 if re.fullmatch(r"[0-9.]+", host):
                     raise ValueError
         except ValueError:
-            raise ValueError(
-                "请使用不含凭证或参数的公网 HTTPS 地址及标准端口"
-            ) from None
+            raise ValueError("请使用不含凭证或参数的公网 HTTPS 地址及标准端口") from None
         return value.rstrip("/")
 
     @field_validator("order_path", "logistics_path")
@@ -251,15 +280,22 @@ class BusinessHTTPConfiguration(BusinessMerchantMapping):
 
 class BusinessConnectionCredentials(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    token: SecretStr | None = Field(default=None, min_length=1, max_length=8192)
-    username: SecretStr | None = Field(default=None, min_length=1, max_length=500)
-    password: SecretStr | None = Field(default=None, min_length=1, max_length=8192)
+    token: SecretStr | None = Field(
+        default=None, min_length=1, max_length=8192
+    )
+    username: SecretStr | None = Field(
+        default=None, min_length=1, max_length=500
+    )
+    password: SecretStr | None = Field(
+        default=None, min_length=1, max_length=8192
+    )
 
     @field_validator("token", "username", "password")
     @classmethod
     def no_controls(cls, value: SecretStr | None) -> SecretStr | None:
         if value is not None and any(
-            ord(char) < 32 or ord(char) == 127 for char in value.get_secret_value()
+            ord(char) < 32 or ord(char) == 127
+            for char in value.get_secret_value()
         ):
             raise ValueError("凭证不能包含控制字符")
         return value
@@ -291,15 +327,24 @@ class BusinessConnectionCreate(BaseModel):
         if len(set(self.capabilities)) != len(self.capabilities):
             raise ValueError("业务能力不能重复")
         if self.mode == "demo":
-            if any(capability in {"customer_profile_query", "membership_query"} for capability in self.capabilities):
+            if any(
+                capability in {"customer_profile_query", "membership_query"}
+                for capability in self.capabilities
+            ):
                 raise ValueError("示例连接不支持客户资料或会员查询")
             if self.configuration is not None or self.credentials is not None:
                 raise ValueError("示例连接不接受真实地址或凭证")
             return self
         if self.configuration is None:
             raise ValueError("请填写业务系统连接配置")
-        if any(capability in {"customer_profile_query", "membership_query"} for capability in self.capabilities):
-            if not self.configuration.customer_profile_path or not self.configuration.membership_path:
+        if any(
+            capability in {"customer_profile_query", "membership_query"}
+            for capability in self.capabilities
+        ):
+            if (
+                not self.configuration.customer_profile_path
+                or not self.configuration.membership_path
+            ):
                 raise ValueError("客户资料和会员查询都需要配置固定路径")
             if self.configuration.method != "POST":
                 raise ValueError("客户资料和会员查询必须使用只读 POST 接口")
@@ -380,9 +425,9 @@ class BusinessConnectionPrivateSnapshot(BaseModel):
     """Only returned on the separately authenticated private resolution route."""
 
     model_config = ConfigDict(extra="forbid")
-    scope: Literal["business_connection_configuration"] = (
+    scope: Literal[
         "business_connection_configuration"
-    )
+    ] = "business_connection_configuration"
     can_enable: Literal[False] = False
     connection: BusinessConnectionResponse
     credentials: BusinessConnectionCredentials | None

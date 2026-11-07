@@ -15,7 +15,9 @@ class AgentExecutionReference(BaseModel):
     channel: KnowledgeChannel | None
     configuration_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     policy_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    business_evidence_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    business_evidence_revision: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
 
 
 class AgentExecutionCheckReceipt(BaseModel):

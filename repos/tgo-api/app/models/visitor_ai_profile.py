@@ -23,45 +23,41 @@ class VisitorAIProfile(Base):
     project_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_projects.id", ondelete="CASCADE"),
         nullable=False,
-        comment="Associated project ID for multi-tenant isolation"
+        comment="Associated project ID for multi-tenant isolation",
     )
     visitor_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_visitors.id", ondelete="CASCADE"),
         nullable=False,
-        comment="Associated visitor ID"
+        comment="Associated visitor ID",
     )
     persona_tags: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
         default=list,
-        comment="List of AI generated persona tags"
+        comment="List of AI generated persona tags",
     )
     summary: Mapped[Optional[dict]] = mapped_column(
-        JSONB,
-        nullable=True,
-        comment="Structured summary data for AI persona"
+        JSONB, nullable=True, comment="Structured summary data for AI persona"
     )
 
     created_at: Mapped[datetime] = mapped_column(
-        nullable=False,
-        default=func.now(),
-        comment="Creation timestamp"
+        nullable=False, default=func.now(), comment="Creation timestamp"
     )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False,
         default=func.now(),
         onupdate=func.now(),
-        comment="Last update timestamp"
+        comment="Last update timestamp",
     )
 
     visitor: Mapped["Visitor"] = relationship(
-        "Visitor",
-        back_populates="ai_profile",
-        lazy="select"
+        "Visitor", back_populates="ai_profile", lazy="select"
     )
 
     __table_args__ = (
-        UniqueConstraint("visitor_id", name="uk_api_visitor_ai_profile_visitor"),
+        UniqueConstraint(
+            "visitor_id", name="uk_api_visitor_ai_profile_visitor"
+        ),
     )
 
     def __repr__(self) -> str:

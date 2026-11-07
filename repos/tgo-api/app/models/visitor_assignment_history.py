@@ -21,11 +21,11 @@ if TYPE_CHECKING:
 
 class AssignmentSource(str, Enum):
     """Source of assignment decision."""
-    
-    LLM = "llm"           # LLM自动分配
-    MANUAL = "manual"     # 人工手动分配
-    RULE = "rule"         # 规则分配（如轮询、负载均衡等）
-    TRANSFER = "transfer" # 转接
+
+    LLM = "llm"  # LLM自动分配
+    MANUAL = "manual"  # 人工手动分配
+    RULE = "rule"  # 规则分配（如轮询、负载均衡等）
+    TRANSFER = "transfer"  # 转接
 
 
 class VisitorAssignmentHistory(Base):
@@ -84,7 +84,7 @@ class VisitorAssignmentHistory(Base):
         default=AssignmentSource.LLM.value,
         comment="Source of assignment: llm, manual, rule, transfer",
     )
-    
+
     # LLM-specific fields
     model_used: Mapped[Optional[str]] = mapped_column(
         String(100),
@@ -106,7 +106,7 @@ class VisitorAssignmentHistory(Base):
         nullable=True,
         comment="LLM reasoning for the assignment decision",
     )
-    
+
     # Visitor context at assignment time
     visitor_message: Mapped[Optional[str]] = mapped_column(
         Text,
@@ -118,7 +118,7 @@ class VisitorAssignmentHistory(Base):
         nullable=True,
         comment="Additional visitor context (intent, sentiment, etc.)",
     )
-    
+
     # Staff candidates considered
     candidate_staff_ids: Mapped[Optional[list]] = mapped_column(
         JSONB,
@@ -130,7 +130,7 @@ class VisitorAssignmentHistory(Base):
         nullable=True,
         comment="Scores/rankings for each candidate",
     )
-    
+
     # Performance metrics
     response_time_ms: Mapped[Optional[int]] = mapped_column(
         Integer,
@@ -142,7 +142,7 @@ class VisitorAssignmentHistory(Base):
         nullable=True,
         comment="Token usage statistics",
     )
-    
+
     # Notes
     notes: Mapped[Optional[str]] = mapped_column(
         Text,

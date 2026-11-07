@@ -29,14 +29,18 @@ class StaffMessageDelivery(Base):
     __tablename__ = "api_staff_message_deliveries"
     __table_args__ = (
         UniqueConstraint(
-            "project_id", "staff_id", "client_msg_no", name="uq_staff_delivery_identity"
+            "project_id",
+            "staff_id",
+            "client_msg_no",
+            name="uq_staff_delivery_identity",
         ),
         CheckConstraint(
             "external_status IN ('not_required','queued','sending','sent','failed','unknown')",
             name="ck_staff_delivery_external",
         ),
         CheckConstraint(
-            "history_status IN ('pending','sent')", name="ck_staff_delivery_history"
+            "history_status IN ('pending','sent')",
+            name="ck_staff_delivery_history",
         ),
         CheckConstraint(
             "training_status IN ('none','pending','saved','unavailable')",
@@ -55,7 +59,9 @@ class StaffMessageDelivery(Base):
         ),
         Index(
             "ix_staff_delivery_shadow_source",
-            "project_id", "visitor_id", "source_message_id",
+            "project_id",
+            "visitor_id",
+            "source_message_id",
         ),
     )
 

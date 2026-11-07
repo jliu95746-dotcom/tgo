@@ -69,7 +69,7 @@ logger = get_logger("services.transfer")
 @dataclass
 class TransferResult:
     """Result of transfer to human operation."""
-    
+
     success: bool
     session: Optional[VisitorSession]
     assignment_history: Optional[VisitorAssignmentHistory]
@@ -84,7 +84,7 @@ class TransferResult:
 @dataclass
 class StaffCandidate:
     """Staff candidate for assignment."""
-    
+
     id: UUID
     name: Optional[str]
     nickname: Optional[str]
@@ -96,7 +96,7 @@ class StaffCandidate:
 @dataclass
 class StaffAssignmentResult:
     """Result of staff assignment operation."""
-    
+
     assigned_staff_id: Optional[UUID]
     candidate_staff_ids: List[UUID]
     llm_response: Optional[str] = None
@@ -203,7 +203,7 @@ async def transfer_to_staff(
     waiting_queue_entry: Optional[VisitorWaitingQueue] = None
     queue_position: Optional[int] = None
     no_staff_reason: Optional[str] = None
-    
+
     try:
         if settings.SAAS_BILLING_ENABLED:
             from app.services.company_entitlements import require_human_service
@@ -216,7 +216,7 @@ async def transfer_to_staff(
             Visitor.deleted_at.is_(None),
             Visitor.access_retired_at.is_(None),
         ).populate_existing().first()
-        
+
         if not visitor:
             return TransferResult(
                 success=False,
@@ -228,7 +228,7 @@ async def transfer_to_staff(
                 queue_position=None,
                 message="Visitor not found",
             )
-        
+
         if expected_unassigned and visitor.service_status == "active":
             return TransferResult(
                 success=False, session=None, assignment_history=None,
@@ -267,7 +267,7 @@ async def transfer_to_staff(
                 queue_position=None,
                 message=f"Visitor cannot enter queue (current status: {visitor.service_status}). Only NEW or CLOSED status allowed.",
             )
-        
+
         binding = reception_binding(db, visitor, session_id)
 
         # 3. Get assignment rule for the project
@@ -276,9 +276,9 @@ async def transfer_to_staff(
         ).filter(
             VisitorAssignmentRule.project_id == project_id,
         ).first()
-        
+
         # 4. Determine staff assignment using assign_staff method
-        
+
         with db.no_autoflush:
             assignment_result = await assign_staff(
                 db=db,
@@ -365,7 +365,7 @@ async def transfer_to_staff(
         candidate_scores = assignment_result.candidate_scores
         model_used = assignment_result.model_used
         prompt_used = assignment_result.prompt_used
-        
+
         # 5. Handle case when no staff is assigned - optionally add to waiting queue
         if not assigned_staff_id and len(candidate_staff_ids) == 0 and add_to_queue_if_no_staff:
             waiting_queue_entry, queue_position = await _add_to_waiting_queue(
@@ -379,7 +379,7 @@ async def transfer_to_staff(
                 assignment_rule=assignment_rule,
                 ai_disabled=ai_disabled,
             )
-        
+
         # A seat-to-seat transfer hands reception to a person, including assist/auto chats.
         if source == AssignmentSource.TRANSFER:
             ai_disabled = True
@@ -403,12 +403,12 @@ async def transfer_to_staff(
             visitor.set_status_active()
             assign_waiting_entries(db, visitor, assigned_staff_id)
         # If not assigned (queued), status was already set to QUEUED above
-        
+
         # 7. Update session with assigned staff
         if assigned_staff_id:
             session.staff_id = assigned_staff_id
         session.updated_at = datetime.utcnow()
-        
+
         # Keep a deleted rule out of the new history FK; hold a surviving rule
         # only during the final write, never during the external model wait.
         if assignment_rule is not None:
@@ -436,7 +436,7 @@ async def transfer_to_staff(
             candidate_staff_ids=candidate_staff_ids,
             candidate_scores=candidate_scores,
         )
-        
+
         # 9. Flush and commit to release the FOR UPDATE lock on visitor
         # This minimizes lock holding time and prevents deadlocks with concurrent
         # UPDATE operations on api_visitors (e.g., from message stats updates)
@@ -489,7 +489,7 @@ async def transfer_to_staff(
             db.refresh(visitor)
             if waiting_queue_entry:
                 db.refresh(waiting_queue_entry)
-        
+
         if mutation_scope is not None:
             assert output_scope is not None
             output_scope.guard().check()
@@ -518,7 +518,7 @@ async def transfer_to_staff(
             f"Session: {session.id}, Assigned staff: {assigned_staff_id}, Source: {source.value}, "
             f"Candidates: {len(candidate_staff_ids)}, In queue: {waiting_queue_entry is not None}"
         )
-        
+
         # Determine message based on result
         if assigned_staff_id:
             message = "Transfer successful"
@@ -526,7 +526,7 @@ async def transfer_to_staff(
             message = f"Added to waiting queue at position {queue_position}"
         else:
             message = "Transfer successful, awaiting staff assignment"
-        
+
         return TransferResult(
             success=True,
             session=session,
@@ -538,7 +538,7 @@ async def transfer_to_staff(
             message=message,
             operation_guard=output_queue.guard() if output_queue is not None else output_scope.guard() if output_scope is not None else output_session_guard,
         )
-        
+
     except Exception as e:
         db.rollback()
         if mutation_scope is not None or session_scope is not None:
@@ -606,14 +606,14 @@ async def assign_staff(
     model_used: Optional[str] = None
     prompt_used: Optional[str] = None
     configuration: AssignmentConfiguration | None = None
-    
+
     # Get visitor for LLM context
     visitor = db.query(Visitor).filter(
         Visitor.id == visitor_id,
         Visitor.project_id == project_id,
         Visitor.deleted_at.is_(None),
     ).first()
-    
+
     if target_staff_id:
         # Direct assignment to specified staff
         staff = db.query(Staff).filter(
@@ -623,7 +623,7 @@ async def assign_staff(
             Staff.account_enabled.is_(True),
             Staff.role.in_(["admin", "user"]),
         ).populate_existing().first()
-        
+
         if staff:
             if settings.SAAS_BILLING_ENABLED and not staff.is_available_for_service:
                 raise ValueError("Target staff account is not available")
@@ -636,7 +636,7 @@ async def assign_staff(
             if strict_target:
                 raise changed()
             logger.warning(f"Target staff {target_staff_id} not found, will try auto-assignment")
-    
+
     # Auto-assignment if no target specified or target not found
     if not assigned_staff_id:
         # Get assignment rule if not provided
@@ -644,25 +644,25 @@ async def assign_staff(
             assignment_rule = db.query(VisitorAssignmentRule).filter(
                 VisitorAssignmentRule.project_id == project_id,
             ).first()
-        
+
         # Get available staff candidates
         candidates = await _get_available_staff_candidates(
             db=db,
             project_id=project_id,
             assignment_rule=assignment_rule,
         )
-        
+
         candidate_staff_ids = [c.id for c in candidates]
-        
+
         if len(candidates) == 0:
             # No available staff
             logger.info(f"No available staff for project {project_id}")
-            
+
         elif len(candidates) == 1:
             # Single candidate, assign directly
             assigned_staff_id = candidates[0].id
             logger.info(f"Single candidate {assigned_staff_id}, assigning directly")
-            
+
         else:
             # Multiple candidates - first check for last serving staff
             last_session = db.query(VisitorSession).join(
@@ -673,7 +673,7 @@ async def assign_staff(
                 VisitorSession.staff_id.isnot(None),
                 Staff.deleted_at.is_(None),  # Ensure staff is not deleted
             ).order_by(VisitorSession.created_at.desc()).first()
-            
+
             if last_session and last_session.staff_id:
                 last_staff_id = last_session.staff_id
                 # Check if last staff is among available candidates
@@ -688,7 +688,7 @@ async def assign_staff(
                             }
                         )
                         break
-            
+
             # If no last serving staff available, use LLM or load balancing
             if not assigned_staff_id:
                 if assignment_rule and assignment_rule.llm_assignment_enabled and visitor:
@@ -726,7 +726,7 @@ async def assign_staff(
                     # Use load balancing (select staff with least active chats)
                     logger.info(f"Multiple candidates ({len(candidates)}), using load balancing")
                     assigned_staff_id = await _load_balance_assign(candidates)
-    
+
     return StaffAssignmentResult(
         assigned_staff_id=assigned_staff_id,
         candidate_staff_ids=candidate_staff_ids,
@@ -818,24 +818,24 @@ async def _add_to_waiting_queue(
         VisitorWaitingQueue.project_id == project_id,
         VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
     ).first()
-    
+
     if existing_queue:
         logger.info(f"Visitor {visitor_id} already in waiting queue at position {existing_queue.position}")
         return existing_queue, existing_queue.position
-    
+
     # Calculate queue position
     current_queue_count = db.query(VisitorWaitingQueue).filter(
         VisitorWaitingQueue.project_id == project_id,
         VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
     ).count()
     queue_position = current_queue_count + 1
-    
+
     # Calculate expiration time
     timeout_minutes = settings.QUEUE_DEFAULT_TIMEOUT_MINUTES
     if assignment_rule and assignment_rule.queue_wait_timeout_minutes:
         timeout_minutes = assignment_rule.queue_wait_timeout_minutes
     expired_at = datetime.utcnow() + timedelta(minutes=timeout_minutes)
-    
+
     # Create queue entry
     waiting_queue_entry = VisitorWaitingQueue(
         project_id=project_id,
@@ -851,10 +851,10 @@ async def _add_to_waiting_queue(
         ai_disabled=ai_disabled,
     )
     db.add(waiting_queue_entry)
-    
+
     # Update visitor status to QUEUED
     visitor.set_status_queued()
-    
+
     logger.info(
         f"Added visitor {visitor_id} to waiting queue at position {queue_position}",
         extra={
@@ -864,9 +864,9 @@ async def _add_to_waiting_queue(
             "timeout_minutes": timeout_minutes,
         }
     )
-    
+
     schedule_queue_update(db, project_id, "entered")
-    
+
     return waiting_queue_entry, queue_position
 
 
@@ -969,17 +969,17 @@ async def _get_or_create_session(
         if session is None:
             raise changed()
         return session
-    
+
     # Try to find an open session for this visitor
     session = db.query(VisitorSession).filter(
         VisitorSession.visitor_id == visitor_id,
         VisitorSession.project_id == project_id,
         VisitorSession.status == SessionStatus.OPEN.value,
     ).order_by(VisitorSession.created_at.desc()).first()
-    
+
     if session:
         return session
-    
+
     # Create new session
     session = VisitorSession(
         project_id=project_id,
@@ -989,7 +989,7 @@ async def _get_or_create_session(
     )
     db.add(session)
     db.flush()
-    
+
     logger.info(f"Created new session {session.id} for visitor {visitor_id}")
     return session
 
@@ -1007,7 +1007,7 @@ def is_within_service_hours(assignment_rule: Optional[VisitorAssignmentRule]) ->
     """
     if not assignment_rule:
         return True
-    
+
     # Get the configured timezone, default to Asia/Shanghai
     tz_name = assignment_rule.timezone or "Asia/Shanghai"
     try:
@@ -1015,10 +1015,10 @@ def is_within_service_hours(assignment_rule: Optional[VisitorAssignmentRule]) ->
     except Exception as e:
         logger.warning(f"Invalid timezone '{tz_name}': {e}, using Asia/Shanghai")
         tz = ZoneInfo("Asia/Shanghai")
-    
+
     # Get current time in the configured timezone
     now = datetime.now(tz)
-    
+
     # Check weekday (1=Monday, 7=Sunday in our config; Python: 0=Monday, 6=Sunday)
     if assignment_rule.service_weekdays:
         # Convert Python weekday (0-6) to our format (1-7)
@@ -1026,17 +1026,17 @@ def is_within_service_hours(assignment_rule: Optional[VisitorAssignmentRule]) ->
         if current_weekday not in assignment_rule.service_weekdays:
             logger.debug(f"Current weekday {current_weekday} (tz={tz_name}) not in service weekdays {assignment_rule.service_weekdays}")
             return False
-    
+
     # Check time range
     if assignment_rule.service_start_time and assignment_rule.service_end_time:
         try:
             start_parts = assignment_rule.service_start_time.split(":")
             end_parts = assignment_rule.service_end_time.split(":")
-            
+
             start_time = time(int(start_parts[0]), int(start_parts[1]))
             end_time = time(int(end_parts[0]), int(end_parts[1]))
             current_time = now.time()
-            
+
             # Handle normal case (e.g., 09:00 - 18:00)
             if start_time <= end_time:
                 if not (start_time <= current_time <= end_time):
@@ -1051,7 +1051,7 @@ def is_within_service_hours(assignment_rule: Optional[VisitorAssignmentRule]) ->
             logger.warning(f"Invalid service time format: {e}")
             # If time format is invalid, don't block assignment
             return True
-    
+
     return True
 
 
@@ -1073,12 +1073,12 @@ async def _get_available_staff_candidates(
     if not is_within_service_hours(assignment_rule):
         logger.info(f"Outside service hours for project {project_id}")
         return []
-    
+
     # Get max concurrent chats from rule
     max_concurrent = None
     if assignment_rule and assignment_rule.max_concurrent_chats:
         max_concurrent = assignment_rule.max_concurrent_chats
-    
+
     # Query available staff (only user role, not admin or agent, active and not paused)
     staff_query = db.query(Staff).filter(
         Staff.project_id == project_id,
@@ -1088,12 +1088,12 @@ async def _get_available_staff_candidates(
         Staff.role.in_(["admin", "user"]),
         Staff.service_paused == False,  # noqa: E712 - SQLAlchemy requires == for boolean
     )
-    
+
     available_staff = staff_query.populate_existing().all()
-    
+
     if not available_staff:
         return []
-    
+
     # Get current active chat count for each staff
     candidates = []
     for staff in available_staff:
@@ -1102,12 +1102,12 @@ async def _get_available_staff_candidates(
             VisitorSession.staff_id == staff.id,
             VisitorSession.status == SessionStatus.OPEN.value,
         ).scalar() or 0
-        
+
         # Skip if at max capacity
         if max_concurrent and active_session_count >= max_concurrent:
             logger.debug(f"Staff {staff.id} at max capacity ({active_session_count}/{max_concurrent})")
             continue
-        
+
         candidates.append(StaffCandidate(
             id=staff.id,
             name=staff.name,
@@ -1116,7 +1116,7 @@ async def _get_available_staff_candidates(
             status=staff.status,
             current_chat_count=active_session_count,
         ))
-    
+
     return candidates
 
 
@@ -1127,13 +1127,13 @@ async def _load_balance_assign(candidates: List[StaffCandidate]) -> Optional[UUI
     """
     if not candidates:
         return None
-    
+
     # Sort by status priority (online > busy > offline) and then by current chat count ascending
     # status_priority: online(0) < busy(1) < offline(2)
     def sort_key(c: StaffCandidate) -> tuple:
         status_priority = {"online": 0, "busy": 1, "offline": 2}
         return (status_priority.get(c.status, 2), c.current_chat_count)
-    
+
     sorted_candidates = sorted(candidates, key=sort_key)
     return sorted_candidates[0].id
 
@@ -1322,11 +1322,11 @@ async def assign_from_waiting_queue(
         Staff.project_id == project_id,
         Staff.deleted_at.is_(None),
     ).first()
-    
+
     if not staff:
         logger.warning(f"Staff {staff_id} not found for queue assignment")
         return None
-    
+
     # Get the queue entry
     if queue_entry_id:
         queue_entry = db.query(VisitorWaitingQueue).filter(
@@ -1343,15 +1343,15 @@ async def assign_from_waiting_queue(
             VisitorWaitingQueue.priority.desc(),
             VisitorWaitingQueue.position.asc(),
         ).first()
-    
+
     if not queue_entry:
         logger.info(f"No visitors in waiting queue for project {project_id}")
         return None
-    
+
     logger.info(
         f"Assigning visitor {queue_entry.visitor_id} from queue to staff {staff_id}"
     )
-    
+
     # Transfer the visitor to the staff
     result = await transfer_to_staff(
         db=db,
@@ -1365,7 +1365,7 @@ async def assign_from_waiting_queue(
         ai_disabled=queue_entry.ai_disabled,
         expected_queue_entry_id=queue_entry.id,
     )
-    
+
     return result
 
 
@@ -1378,8 +1378,8 @@ def get_waiting_queue_count(db: Session, project_id: UUID) -> int:
 
 
 def get_visitor_queue_position(
-    db: Session, 
-    visitor_id: UUID, 
+    db: Session,
+    visitor_id: UUID,
     project_id: UUID
 ) -> Optional[int]:
     """Get a visitor's position in the waiting queue, or None if not in queue."""
@@ -1388,10 +1388,10 @@ def get_visitor_queue_position(
         VisitorWaitingQueue.project_id == project_id,
         VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
     ).first()
-    
+
     if not queue_entry:
         return None
-    
+
     # Count how many visitors are ahead (higher priority or lower position)
     position = db.query(VisitorWaitingQueue).filter(
         VisitorWaitingQueue.project_id == project_id,
@@ -1404,7 +1404,7 @@ def get_visitor_queue_position(
             )
         )
     ).count() + 1
-    
+
     return position
 
 
@@ -1423,13 +1423,13 @@ async def cancel_visitor_from_queue(
         VisitorWaitingQueue.project_id == project_id,
         VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
     ).first()
-    
+
     if not queue_entry:
         return False
-    
+
     if not cancel_entry(db, queue_entry.id, project_id):
         return False
     db.commit()
-    
+
     logger.info(f"Cancelled visitor {visitor_id} from waiting queue")
     return True

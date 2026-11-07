@@ -28,7 +28,10 @@ class ShadowAdjudicationRequest(BaseModel):
         self.note = self.note.strip()
         if not self.note:
             raise ValueError("裁决说明不能为空")
-        if self.verdict in {"minor_issue", "severe_error"} and self.reason_code is None:
+        if (
+            self.verdict in {"minor_issue", "severe_error"}
+            and self.reason_code is None
+        ):
             raise ValueError("发现问题时请选择原因")
         if self.reason_code == "other" and len(self.note) < 5:
             raise ValueError("其他原因需填写具体依据")

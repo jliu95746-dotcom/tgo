@@ -14,7 +14,9 @@ class ActionRequest(BaseModel):
 
 
 class EmailCodeRequest(EmailRequest):
-    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$", repr=False)
+    code: str = Field(
+        min_length=6, max_length=6, pattern=r"^[0-9]{6}$", repr=False
+    )
 
 
 class PasswordResetRequest(ActionRequest):

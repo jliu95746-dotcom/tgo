@@ -19,7 +19,9 @@ class AssistTrainingIntent(BaseModel):
     customer_message: str = Field(min_length=1, max_length=10000)
     ai_draft: str = Field(min_length=1, max_length=10000)
     source_message_id: str | None = Field(default=None, max_length=255)
-    recent_messages: list[ConversationTurn] = Field(default_factory=list, max_length=12)
+    recent_messages: list[ConversationTurn] = Field(
+        default_factory=list, max_length=12
+    )
 
 
 class StaffDeliveryRequest(BaseModel):
@@ -28,7 +30,9 @@ class StaffDeliveryRequest(BaseModel):
     channel_id: str = Field(min_length=1, max_length=255)
     channel_type: Literal[251] = 251
     client_msg_no: str = Field(min_length=1, max_length=100)
-    source_message_id: str | None = Field(default=None, min_length=1, max_length=255)
+    source_message_id: str | None = Field(
+        default=None, min_length=1, max_length=255
+    )
     assist_draft_id: UUID | None = None
     payload: dict[str, JsonValue]
     retry_failed: bool = False
@@ -36,7 +40,9 @@ class StaffDeliveryRequest(BaseModel):
 
     @field_validator("payload")
     @classmethod
-    def validate_payload(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    def validate_payload(
+        cls, value: dict[str, JsonValue]
+    ) -> dict[str, JsonValue]:
         if type(value.get("type")) is not int:
             raise ValueError("消息类型必须是整数")
         if len(json.dumps(value, ensure_ascii=False)) > 262144:
@@ -52,11 +58,15 @@ class StaffDeliveryRequest(BaseModel):
 
 class StaffDeliveryResponse(BaseModel):
     client_msg_no: str
-    delivery_status: Literal["processing", "pending", "sent", "failed", "unknown"]
+    delivery_status: Literal[
+        "processing", "pending", "sent", "failed", "unknown"
+    ]
     history_status: Literal["pending", "sent"]
     error_code: str | None = None
     error_message: str | None = None
-    training_status: Literal["none", "pending", "saved", "unavailable"] = "none"
+    training_status: Literal[
+        "none", "pending", "saved", "unavailable"
+    ] = "none"
     training_skill_name: str | None = None
     delivery_transport: Literal["wechat_local", "platform", "web"] = "platform"
 

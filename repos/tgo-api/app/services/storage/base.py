@@ -9,10 +9,14 @@ class StorageBackend(ABC):
 
     async def read(self, path: str, *, max_bytes: int) -> bytes:
         """Read a server-owned object key with a strict byte limit."""
-        raise NotImplementedError("This storage backend does not support bounded reads")
+        raise NotImplementedError(
+            "This storage backend does not support bounded reads"
+        )
 
     @abstractmethod
-    async def upload(self, file: BinaryIO, path: str, content_type: str) -> str:
+    async def upload(
+        self, file: BinaryIO, path: str, content_type: str
+    ) -> str:
         """
         Upload a file to storage.
         

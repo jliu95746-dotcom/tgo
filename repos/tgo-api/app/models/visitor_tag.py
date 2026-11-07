@@ -27,61 +27,51 @@ class VisitorTag(Base):
     project_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_projects.id", ondelete="CASCADE"),
         nullable=False,
-        comment="Associated project ID for multi-tenant isolation"
+        comment="Associated project ID for multi-tenant isolation",
     )
     visitor_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_visitors.id"),
         nullable=False,
-        comment="Associated visitor ID"
+        comment="Associated visitor ID",
     )
     tag_id: Mapped[str] = mapped_column(
         String(255),
         ForeignKey("api_tags.id"),
         nullable=False,
-        comment="Associated tag ID (Base64 encoded)"
+        comment="Associated tag ID (Base64 encoded)",
     )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
-        nullable=False,
-        default=func.now(),
-        comment="Creation timestamp"
+        nullable=False, default=func.now(), comment="Creation timestamp"
     )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False,
         default=func.now(),
         onupdate=func.now(),
-        comment="Last update timestamp"
+        comment="Last update timestamp",
     )
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
-        nullable=True,
-        comment="Soft deletion timestamp"
+        nullable=True, comment="Soft deletion timestamp"
     )
 
     # Relationships
     project: Mapped["Project"] = relationship(
-        "Project",
-        back_populates="visitor_tags",
-        lazy="select"
+        "Project", back_populates="visitor_tags", lazy="select"
     )
-    
+
     visitor: Mapped["Visitor"] = relationship(
-        "Visitor",
-        back_populates="visitor_tags",
-        lazy="select"
+        "Visitor", back_populates="visitor_tags", lazy="select"
     )
-    
+
     tag: Mapped["Tag"] = relationship(
-        "Tag",
-        back_populates="visitor_tags",
-        lazy="select"
+        "Tag", back_populates="visitor_tags", lazy="select"
     )
 
     # Constraints
     __table_args__ = (
         UniqueConstraint(
-            "visitor_id", "tag_id",
-            name="uk_api_visitor_tags_visitor_tag"
+            "visitor_id", "tag_id", name="uk_api_visitor_tags_visitor_tag"
         ),
     )
 

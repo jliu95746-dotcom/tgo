@@ -4,7 +4,15 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint, Index, Integer, func
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    Index,
+    Integer,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -80,6 +88,7 @@ class ChannelMember(Base):
         ),
         Index("ix_api_channel_members_project_id", "project_id"),
         Index("ix_api_channel_members_member_id", "member_id"),
-        Index("ix_api_channel_members_channel_member", "channel_id", "member_id"),
+        Index(
+            "ix_api_channel_members_channel_member", "channel_id", "member_id"
+        ),
     )
-

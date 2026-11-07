@@ -33,7 +33,9 @@ class LogisticsSettings(Base):
         nullable=False,
         unique=True,
     )
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True
+    )
     auto_capture_visitor_messages: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True
     )
@@ -101,7 +103,9 @@ class CustomerShipment(Base):
     tracking_no_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     tracking_no_masked: Mapped[str] = mapped_column(String(64), nullable=False)
     carrier_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    carrier_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    carrier_name: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="unknown"
     )

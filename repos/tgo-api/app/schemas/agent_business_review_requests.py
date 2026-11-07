@@ -3,7 +3,13 @@
 from datetime import UTC, datetime
 from typing import Literal, Self
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 from app.schemas.agent_business_reviews import (
     BusinessReviewRecord,
     BusinessReviewRequest,
@@ -16,9 +22,9 @@ ReviewRequestError = Literal[
 
 class BusinessReviewRequestState(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    scope: Literal["employee_business_review_request"] = (
+    scope: Literal[
         "employee_business_review_request"
-    )
+    ] = "employee_business_review_request"
     can_enable: Literal[False] = False
     project_id: UUID
     actor_id: UUID
@@ -56,7 +62,10 @@ class BusinessReviewRequestState(BaseModel):
             and self.deadline_at > self.checked_at
         ):
             raise ValueError("评审续办状态缺少当前核验")
-        if self.command is not None and self.command.request_id != self.request_id:
+        if (
+            self.command is not None
+            and self.command.request_id != self.request_id
+        ):
             raise ValueError("原评审命令编号不一致")
         if self.status == "pending":
             if (
@@ -81,7 +90,8 @@ class BusinessReviewRequestState(BaseModel):
                 "request_id": self.request_id,
             }
             if any(
-                getattr(self.result, key) != value for key, value in expected.items()
+                getattr(self.result, key) != value
+                for key, value in expected.items()
             ):
                 raise ValueError("原评审回执范围不一致")
             if self.command is not None and any(

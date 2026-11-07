@@ -21,15 +21,12 @@ async def _sync_pending_failed_once() -> None:
     """Scan DB for ProjectAIConfig needing sync and perform batch sync with retry."""
     db = SessionLocal()
     try:
-        q = (
-            db.query(ProjectAIConfig)
-            .filter(
-                ProjectAIConfig.deleted_at.is_(None),
-                or_(
-                    ProjectAIConfig.sync_status.in_(["failed", "pending"]),
-                    ProjectAIConfig.last_synced_at.is_(None),
-                ),
-            )
+        q = db.query(ProjectAIConfig).filter(
+            ProjectAIConfig.deleted_at.is_(None),
+            or_(
+                ProjectAIConfig.sync_status.in_(["failed", "pending"]),
+                ProjectAIConfig.last_synced_at.is_(None),
+            ),
         )
         items = q.all()
         total = len(items)
@@ -37,7 +34,9 @@ async def _sync_pending_failed_once() -> None:
             logger.debug("ProjectAIConfig periodic sync: no items to sync")
             return
 
-        logger.info("ProjectAIConfig periodic sync start", extra={"count": total})
+        logger.info(
+            "ProjectAIConfig periodic sync start", extra={"count": total}
+        )
 
         ok, err, _ = await sync_configs_with_retry(items)
         now = datetime.utcnow()
@@ -48,7 +47,8 @@ async def _sync_pending_failed_once() -> None:
                 it.sync_error = None
             db.commit()
             logger.info(
-                "ProjectAIConfig periodic sync done", extra={"count": total, "synced": total, "failed": 0}
+                "ProjectAIConfig periodic sync done",
+                extra={"count": total, "synced": total, "failed": 0},
             )
         else:
             err_msg = str(err) if err else "unknown error"
@@ -59,10 +59,17 @@ async def _sync_pending_failed_once() -> None:
             db.commit()
             logger.warning(
                 "ProjectAIConfig periodic sync failed",
-                extra={"count": total, "synced": 0, "failed": total, "error": err_msg},
+                extra={
+                    "count": total,
+                    "synced": 0,
+                    "failed": total,
+                    "error": err_msg,
+                },
             )
     except Exception as e:
-        logger.exception("ProjectAIConfig periodic sync exception", extra={"error": str(e)})
+        logger.exception(
+            "ProjectAIConfig periodic sync exception", extra={"error": str(e)}
+        )
         try:
             db.rollback()
         except Exception:
@@ -72,7 +79,9 @@ async def _sync_pending_failed_once() -> None:
 
 
 async def _loop() -> None:
-    interval_sec = max(1, int(settings.PROJECT_AI_CONFIG_SYNC_INTERVAL_MINUTES) * 60)
+    interval_sec = max(
+        1, int(settings.PROJECT_AI_CONFIG_SYNC_INTERVAL_MINUTES) * 60
+    )
     while True:
         await _sync_pending_failed_once()
         await asyncio.sleep(interval_sec)
@@ -90,10 +99,15 @@ def start_project_ai_config_sync_task() -> None:
         _task = asyncio.create_task(_loop())
         logger.info(
             "ProjectAIConfig periodic sync task started",
-            extra={"interval_minutes": settings.PROJECT_AI_CONFIG_SYNC_INTERVAL_MINUTES},
+            extra={
+                "interval_minutes": settings.PROJECT_AI_CONFIG_SYNC_INTERVAL_MINUTES
+            },
         )
     except Exception as e:
-        logger.warning("Failed to start ProjectAIConfig periodic sync task", extra={"error": str(e)})
+        logger.warning(
+            "Failed to start ProjectAIConfig periodic sync task",
+            extra={"error": str(e)},
+        )
 
 
 async def stop_project_ai_config_sync_task() -> None:
@@ -106,4 +120,3 @@ async def stop_project_ai_config_sync_task() -> None:
             pass
         _task = None
         logger.info("ProjectAIConfig periodic sync task stopped")
-

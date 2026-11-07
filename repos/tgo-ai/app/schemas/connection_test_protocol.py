@@ -6,7 +6,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-Operation = Literal["order_query", "logistics_query", "customer_profile_query", "membership_query"]
+Operation = Literal[
+    "order_query",
+    "logistics_query",
+    "customer_profile_query",
+    "membership_query",
+]
 Outcome = Literal["passed", "failed", "demo"]
 ErrorCode = Literal[
     "denied",
@@ -33,17 +38,30 @@ class ConnectionTestCommand(BaseModel):
     request_id: UUID
     operation: Operation
     order_no: str | None = Field(
-        default=None, min_length=4, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$"
+        default=None,
+        min_length=4,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
     )
     customer_id: str = Field(
-        min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]*$"
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]*$",
     )
 
     @model_validator(mode="after")
     def operation_inputs(self) -> Self:
-        if self.operation in {"order_query", "logistics_query"} and self.order_no is None:
-            raise ValueError("order number is required for order and logistics tests")
-        if self.operation in {"customer_profile_query", "membership_query"} and self.order_no is not None:
+        if (
+            self.operation in {"order_query", "logistics_query"}
+            and self.order_no is None
+        ):
+            raise ValueError(
+                "order number is required for order and logistics tests"
+            )
+        if (
+            self.operation in {"customer_profile_query", "membership_query"}
+            and self.order_no is not None
+        ):
             raise ValueError("customer tests cannot include an order number")
         return self
 
@@ -107,4 +125,6 @@ class ConnectionTestReceipt(BaseModel):
             "request_id",
             "operation",
         )
-        return all(getattr(self, name) == getattr(command, name) for name in names)
+        return all(
+            getattr(self, name) == getattr(command, name) for name in names
+        )

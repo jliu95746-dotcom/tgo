@@ -49,7 +49,9 @@ class ShadowReviewBatch(Base):
     )
     creator_id: Mapped[UUID] = mapped_column(nullable=False)
     request_id: Mapped[UUID] = mapped_column(nullable=False)
-    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
     window_start: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -70,8 +72,12 @@ class ShadowReviewBatch(Base):
 class ShadowReviewBatchItem(Base):
     __tablename__ = "api_shadow_review_batch_items"
     __table_args__ = (
-        UniqueConstraint("batch_id", "draft_id", name="uq_shadow_review_batch_draft"),
-        CheckConstraint("position > 0", name="ck_shadow_review_batch_position"),
+        UniqueConstraint(
+            "batch_id", "draft_id", name="uq_shadow_review_batch_draft"
+        ),
+        CheckConstraint(
+            "position > 0", name="ck_shadow_review_batch_position"
+        ),
     )
 
     batch_id: Mapped[UUID] = mapped_column(

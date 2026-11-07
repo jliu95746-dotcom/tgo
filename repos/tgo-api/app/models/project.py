@@ -31,32 +31,27 @@ class Project(Base):
 
     # Basic fields
     name: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        comment="Project name"
+        String(255), nullable=False, comment="Project name"
     )
     api_key: Mapped[str] = mapped_column(
         String(255),
         unique=True,
         nullable=False,
-        comment="API key for authentication"
+        comment="API key for authentication",
     )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
-        nullable=False,
-        default=func.now(),
-        comment="Creation timestamp"
+        nullable=False, default=func.now(), comment="Creation timestamp"
     )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False,
         default=func.now(),
         onupdate=func.now(),
-        comment="Last update timestamp"
+        comment="Last update timestamp",
     )
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
-        nullable=True,
-        comment="Soft deletion timestamp"
+        nullable=True, comment="Soft deletion timestamp"
     )
 
     # Relationships
@@ -64,41 +59,41 @@ class Project(Base):
         "Platform",
         back_populates="project",
         cascade="all, delete-orphan",
-        lazy="select"
+        lazy="select",
     )
 
     staff: Mapped[List["Staff"]] = relationship(
         "Staff",
         back_populates="project",
         cascade="all, delete-orphan",
-        lazy="select"
+        lazy="select",
     )
 
     visitors: Mapped[List["Visitor"]] = relationship(
         "Visitor",
         back_populates="project",
         cascade="all, delete-orphan",
-        lazy="select"
+        lazy="select",
     )
 
     tags: Mapped[List["Tag"]] = relationship(
         "Tag",
         back_populates="project",
         cascade="all, delete-orphan",
-        lazy="select"
+        lazy="select",
     )
 
     visitor_tags: Mapped[List["VisitorTag"]] = relationship(
         "VisitorTag",
         back_populates="project",
         cascade="all, delete-orphan",
-        lazy="select"
+        lazy="select",
     )
     ai_providers: Mapped[List["AIProvider"]] = relationship(
         "AIProvider",
         back_populates="project",
         cascade="all, delete-orphan",
-        lazy="select"
+        lazy="select",
     )
 
     ai_config: Mapped[Optional["ProjectAIConfig"]] = relationship(
@@ -109,7 +104,9 @@ class Project(Base):
         lazy="select",
     )
 
-    onboarding_progress: Mapped[Optional["ProjectOnboardingProgress"]] = relationship(
+    onboarding_progress: Mapped[
+        Optional["ProjectOnboardingProgress"]
+    ] = relationship(
         "ProjectOnboardingProgress",
         back_populates="project",
         uselist=False,
@@ -117,7 +114,9 @@ class Project(Base):
         lazy="select",
     )
 
-    visitor_assignment_rule: Mapped[Optional["VisitorAssignmentRule"]] = relationship(
+    visitor_assignment_rule: Mapped[
+        Optional["VisitorAssignmentRule"]
+    ] = relationship(
         "VisitorAssignmentRule",
         back_populates="project",
         uselist=False,

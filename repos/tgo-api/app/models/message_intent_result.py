@@ -62,8 +62,12 @@ class MessageIntentResult(Base):
     need_human: Mapped[bool] = mapped_column(Boolean, nullable=False)
     taxonomy_version: Mapped[str] = mapped_column(String(64), nullable=False)
     routing_reason: Mapped[str] = mapped_column(String(64), nullable=False)
-    classification_source: Mapped[str] = mapped_column(String(20), nullable=False)
-    classifier_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    classification_source: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )
+    classifier_version: Mapped[str] = mapped_column(
+        String(128), nullable=False
+    )
     policy_version: Mapped[str] = mapped_column(String(128), nullable=False)
     input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)

@@ -14,7 +14,9 @@ MANUAL_SERVICE_TAG_NAME: str = "Manual Service"
 MANUAL_SERVICE_TAG_NAME_ZH: str = "转人工"
 
 # TagCategory.VISITOR.value == "visitor"
-MANUAL_SERVICE_TAG_ID: str = base64.b64encode(f"{MANUAL_SERVICE_TAG_NAME}@visitor".encode()).decode()
+MANUAL_SERVICE_TAG_ID: str = base64.b64encode(
+    f"{MANUAL_SERVICE_TAG_NAME}@visitor".encode()
+).decode()
 
 
 def manual_service_tag_id(project_id: UUID) -> str:
@@ -25,4 +27,3 @@ def manual_service_tag_id(project_id: UUID) -> str:
 
 def manual_service_tag_ids(project_id: UUID) -> tuple[str, str]:
     return MANUAL_SERVICE_TAG_ID, manual_service_tag_id(project_id)
-

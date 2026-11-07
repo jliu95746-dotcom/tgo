@@ -4,12 +4,23 @@ from typing import Annotated, Literal
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StringConstraints,
+)
 
 from app.schemas.reply_phase import ReplyPhaseIdentity
 
 ReplyStatus = Literal[
-    "active", "publishing", "cancel_requested", "cancelled", "completed", "failed"
+    "active",
+    "publishing",
+    "cancel_requested",
+    "cancelled",
+    "completed",
+    "failed",
 ]
 ReplyFailure = Literal[
     "generation_failed", "control_unavailable", "upstream_stop_unconfirmed"
@@ -85,7 +96,10 @@ class AIExecutionBusinessQuerySummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     query_id: UUID
     operation: Literal[
-        "order_query", "logistics_query", "customer_profile_query", "membership_query"
+        "order_query",
+        "logistics_query",
+        "customer_profile_query",
+        "membership_query",
     ]
     outcome: Literal["passed", "failed"]
     created_at: datetime
@@ -98,7 +112,10 @@ class AIExecutionBusinessQuerySignal(BaseModel):
     tool_name: str = Field(min_length=1, max_length=200)
     query_id: UUID
     operation: Literal[
-        "order_query", "logistics_query", "customer_profile_query", "membership_query"
+        "order_query",
+        "logistics_query",
+        "customer_profile_query",
+        "membership_query",
     ]
     outcome: Literal["passed", "failed"]
 
@@ -108,8 +125,11 @@ class AIReplyOriginRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     channel_id: str = Field(min_length=1, max_length=255)
-    client_msg_nos: list[Annotated[str, StringConstraints(min_length=1, max_length=100)]] = Field(
-        min_length=1, max_length=50,
+    client_msg_nos: list[
+        Annotated[str, StringConstraints(min_length=1, max_length=100)]
+    ] = Field(
+        min_length=1,
+        max_length=50,
     )
 
 

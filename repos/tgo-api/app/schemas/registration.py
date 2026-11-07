@@ -13,7 +13,11 @@ class RegistrationRequest(BaseSchema):
     nickname: str | None = Field(default=None, max_length=100)
     project_name: str | None = Field(default=None, max_length=255)
     verification_code: str | None = Field(
-        default=None, min_length=6, max_length=6, pattern=r"^[0-9]{6}$", repr=False
+        default=None,
+        min_length=6,
+        max_length=6,
+        pattern=r"^[0-9]{6}$",
+        repr=False,
     )
 
     @field_validator("username")

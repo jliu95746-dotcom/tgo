@@ -34,8 +34,12 @@ class ShadowSampleItem(BaseModel):
     visitor_id: UUID
     reviewer_count: int
     review_status: ShadowSampleStatus
-    review_set_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    adjudication_verdict: Literal["acceptable", "minor_issue", "severe_error"] | None = None
+    review_set_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    adjudication_verdict: Literal[
+        "acceptable", "minor_issue", "severe_error"
+    ] | None = None
 
 
 class ShadowSampleBatchResponse(BaseModel):
@@ -125,8 +129,12 @@ class ShadowProtocolResponse(BaseModel):
     finalized_at: datetime | None
     batch_id: UUID | None
     population_count: int | None
-    population_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    manifest_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    population_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    manifest_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
 
 
 class ShadowProtocolList(BaseModel):

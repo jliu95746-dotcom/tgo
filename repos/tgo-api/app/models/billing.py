@@ -37,7 +37,9 @@ class BillingPlan(Base):
 class BillingQuote(Base):
     __tablename__ = "api_billing_quotes"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("api_projects.id"), index=True)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_projects.id"), index=True
+    )
     staff_id: Mapped[UUID] = mapped_column(ForeignKey("api_staff.id"))
     base_version: Mapped[int] = mapped_column(Integer)
     amount: Mapped[int] = mapped_column(Integer)
@@ -61,21 +63,29 @@ class BillingOrder(Base):
     number: Mapped[str] = mapped_column(
         String(32), unique=True, default=lambda: uuid4().hex
     )
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("api_projects.id"), index=True)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_projects.id"), index=True
+    )
     quote_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_billing_quotes.id"), unique=True
     )
     amount: Mapped[int] = mapped_column(Integer)
     refunded_amount: Mapped[int] = mapped_column(Integer, default=0)
     payment_status: Mapped[str] = mapped_column(String(24), default="pending")
-    fulfillment_status: Mapped[str] = mapped_column(String(24), default="pending")
+    fulfillment_status: Mapped[str] = mapped_column(
+        String(24), default="pending"
+    )
     transaction_id: Mapped[str | None] = mapped_column(String(64), unique=True)
     code_url: Mapped[str | None] = mapped_column(String(1024))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    fulfilled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fulfilled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     failure_code: Mapped[str | None] = mapped_column(String(100))
-    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -84,7 +94,9 @@ class BillingOrder(Base):
 class SubscriptionPeriod(Base):
     __tablename__ = "api_subscription_periods"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("api_projects.id"), index=True)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_projects.id"), index=True
+    )
     order_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_billing_orders.id"), unique=True
     )
@@ -102,7 +114,9 @@ class SubscriptionPeriod(Base):
 class SeatAddon(Base):
     __tablename__ = "api_seat_addons"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("api_projects.id"), index=True)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_projects.id"), index=True
+    )
     order_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_billing_orders.id"), unique=True
     )
@@ -115,7 +129,9 @@ class PaymentEvent(Base):
     __tablename__ = "api_payment_events"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     event_key: Mapped[str] = mapped_column(String(160), unique=True)
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("api_projects.id"), index=True)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_projects.id"), index=True
+    )
     order_id: Mapped[UUID] = mapped_column(ForeignKey("api_billing_orders.id"))
     transaction_id: Mapped[str] = mapped_column(String(64))
     amount: Mapped[int] = mapped_column(Integer)
@@ -131,12 +147,16 @@ class BillingJob(Base):
     project_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("api_projects.id"), index=True
     )
-    order_id: Mapped[UUID | None] = mapped_column(ForeignKey("api_billing_orders.id"))
+    order_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("api_billing_orders.id")
+    )
     kind: Mapped[str] = mapped_column(String(24))
     status: Mapped[str] = mapped_column(String(24), default="pending")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     lease_id: Mapped[UUID | None] = mapped_column()
     last_error: Mapped[str | None] = mapped_column(String(100))
 
@@ -147,15 +167,21 @@ class BillingRefund(Base):
     number: Mapped[str] = mapped_column(
         String(32), unique=True, default=lambda: uuid4().hex
     )
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("api_projects.id"), index=True)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_projects.id"), index=True
+    )
     order_id: Mapped[UUID] = mapped_column(ForeignKey("api_billing_orders.id"))
-    operator_id: Mapped[UUID] = mapped_column(ForeignKey("api_platform_operators.id"))
+    operator_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_platform_operators.id")
+    )
     amount: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(24), default="requested")
     reason: Mapped[str] = mapped_column(String(500))
     disposition: Mapped[dict[str, JsonValue]] = mapped_column(JSON)
     provider_id: Mapped[str | None] = mapped_column(String(64), unique=True)
-    succeeded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    succeeded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -164,7 +190,9 @@ class BillingRefund(Base):
 class BillingAudit(Base):
     __tablename__ = "api_billing_audits"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    operator_id: Mapped[UUID] = mapped_column(ForeignKey("api_platform_operators.id"))
+    operator_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_platform_operators.id")
+    )
     project_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("api_projects.id"), index=True
     )
@@ -179,7 +207,9 @@ class BillingAudit(Base):
 class InvoiceRequest(Base):
     __tablename__ = "api_invoice_requests"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("api_projects.id"), index=True)
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_projects.id"), index=True
+    )
     order_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_billing_orders.id"), unique=True
     )

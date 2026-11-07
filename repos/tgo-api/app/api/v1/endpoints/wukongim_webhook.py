@@ -204,28 +204,28 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
     # Normalize input to list
     if not isinstance(messages, list):
         messages = [messages] if isinstance(messages, dict) else []
-    
+
     if not messages:
         return
-    
+
     # Group messages by visitor_id for efficient batch processing
     # Structure: one latest-message snapshot plus per-sender counters.
     visitor_stats: Dict[UUID, Dict[str, Any]] = {}
     analysis_jobs: List[Tuple[UUID, str, str]] = []
     logistics_jobs: List[Tuple[UUID, str, str, str]] = []
-    
+
     for msg in messages:
         if not isinstance(msg, dict):
             continue
-        
+
         from_uid = msg.get("from_uid")
         channel_id = msg.get("channel_id")
         channel_type = msg.get("channel_type")
-        
+
         # Only process messages in customer service channels
         if channel_type != CHANNEL_TYPE_CUSTOMER_SERVICE or not channel_id:
             continue
-        
+
         try:
             visitor_id = parse_visitor_channel_id(channel_id)
         except Exception:
@@ -234,7 +234,7 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 extra={"channel_id": channel_id}
             )
             continue
-        
+
         message_seq = msg.get("message_seq", 0)
         client_msg_no = msg.get("client_msg_no")
         sender_type = _classify_message_sender(msg)
@@ -254,7 +254,7 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                     analysis_jobs.append(
                         (visitor_id, client_msg_no, message_text)
                     )
-        
+
         # Initialize or update aggregated stats for this visitor
         if visitor_id not in visitor_stats:
             visitor_stats[visitor_id] = {
@@ -267,16 +267,16 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 "staff_message_count": 0,
                 "ai_message_count": 0,
             }
-        
+
         stats = visitor_stats[visitor_id]
-        
+
         # Track the message with highest sequence number for last_message fields
         if message_seq > stats["max_seq"]:
             stats["max_seq"] = message_seq
             stats["client_msg_no"] = client_msg_no
             stats["is_last_from_visitor"] = is_from_visitor
             stats["is_last_from_ai"] = sender_type == "ai"
-        
+
         # Count messages sent by visitor
         if is_from_visitor:
             stats["send_count"] += 1
@@ -285,13 +285,13 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
             stats["ai_message_count"] += 1
         elif sender_type == "staff":
             stats["staff_message_count"] += 1
-    
+
     if not visitor_stats:
         return
-    
+
     now = datetime.utcnow()
     updated_count = 0
-    
+
     # Use individual UPDATE statements to minimize lock duration and avoid deadlocks
     # Each UPDATE is a short transaction that releases the lock immediately
     # Uses SKIP LOCKED to avoid waiting for rows locked by other transactions
@@ -311,19 +311,19 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 "is_last_from_visitor": stats["is_last_from_visitor"],
                 "is_last_message_from_ai": stats["is_last_from_ai"],
             }
-            
+
             if stats["max_seq"] > 0:
                 update_parts.append("last_message_seq = :last_message_seq")
                 params["last_message_seq"] = stats["max_seq"]
-            
+
             if stats["client_msg_no"]:
                 update_parts.append("last_client_msg_no = :last_client_msg_no")
                 params["last_client_msg_no"] = stats["client_msg_no"]
-            
+
             if stats["send_count"] > 0:
                 update_parts.append("visitor_send_count = visitor_send_count + :send_count")
                 params["send_count"] = stats["send_count"]
-            
+
             # Use SKIP LOCKED to avoid waiting for rows locked by other transactions
             # (e.g., transfer_to_staff with FOR UPDATE). If the row is locked, the
             # subquery returns empty and the UPDATE is skipped. This prevents deadlocks
@@ -340,13 +340,13 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 )
             """)
             params["incoming_last_message_seq"] = stats["max_seq"]
-            
-            # visitor_id is already a UUID object from stats grouping, 
+
+            # visitor_id is already a UUID object from stats grouping,
             # SQLAlchemy will handle the conversion
             result = db.execute(update_sql, params)
             db.commit()
             affected_rows = int(getattr(result, "rowcount", 0) or 0)
-            
+
             if affected_rows > 0:
                 updated_count += 1
                 message_count = (
@@ -392,7 +392,7 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
             else:
                 # Row was either not found or locked by another transaction
                 skipped_count += 1
-                
+
         except Exception as e:
             # Rollback and log error for this visitor, continue with others
             db.rollback()
@@ -400,7 +400,7 @@ async def _handle_msg_notify_batch(messages: Any, db: Session) -> None:
                 f"Failed to update visitor message stats",
                 extra={"visitor_id": str(visitor_id), "error": str(e)}
             )
-    
+
     if updated_count > 0 or skipped_count > 0:
         logger.info(
             f"Updated {updated_count} visitors message stats",

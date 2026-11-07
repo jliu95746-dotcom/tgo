@@ -22,15 +22,12 @@ async def _sync_pending_failed_once() -> None:
     db = SessionLocal()
     try:
         # Query providers: failed | pending | never synced, and not soft-deleted
-        q = (
-            db.query(AIProvider)
-            .filter(
-                AIProvider.deleted_at.is_(None),
-                or_(
-                    AIProvider.sync_status.in_(["failed", "pending"]),
-                    AIProvider.last_synced_at.is_(None),
-                ),
-            )
+        q = db.query(AIProvider).filter(
+            AIProvider.deleted_at.is_(None),
+            or_(
+                AIProvider.sync_status.in_(["failed", "pending"]),
+                AIProvider.last_synced_at.is_(None),
+            ),
         )
         items = q.all()
         total = len(items)
@@ -48,7 +45,10 @@ async def _sync_pending_failed_once() -> None:
                 it.sync_status = "synced"
                 it.sync_error = None
             db.commit()
-            logger.info("AIProvider periodic sync done", extra={"count": total, "synced": total, "failed": 0})
+            logger.info(
+                "AIProvider periodic sync done",
+                extra={"count": total, "synced": total, "failed": 0},
+            )
         else:
             err_msg = str(err) if err else "unknown error"
             for it in items:
@@ -58,10 +58,17 @@ async def _sync_pending_failed_once() -> None:
             db.commit()
             logger.warning(
                 "AIProvider periodic sync failed",
-                extra={"count": total, "synced": 0, "failed": total, "error": err_msg},
+                extra={
+                    "count": total,
+                    "synced": 0,
+                    "failed": total,
+                    "error": err_msg,
+                },
             )
     except Exception as e:
-        logger.exception("AIProvider periodic sync exception", extra={"error": str(e)})
+        logger.exception(
+            "AIProvider periodic sync exception", extra={"error": str(e)}
+        )
         try:
             db.rollback()
         except Exception:
@@ -89,10 +96,15 @@ def start_ai_provider_sync_task() -> None:
         _task = asyncio.create_task(_loop())
         logger.info(
             "AIProvider periodic sync task started",
-            extra={"interval_minutes": settings.AI_PROVIDER_SYNC_INTERVAL_MINUTES},
+            extra={
+                "interval_minutes": settings.AI_PROVIDER_SYNC_INTERVAL_MINUTES
+            },
         )
     except Exception as e:
-        logger.warning("Failed to start AIProvider periodic sync task", extra={"error": str(e)})
+        logger.warning(
+            "Failed to start AIProvider periodic sync task",
+            extra={"error": str(e)},
+        )
 
 
 async def stop_ai_provider_sync_task() -> None:
@@ -105,4 +117,3 @@ async def stop_ai_provider_sync_task() -> None:
             pass
         _task = None
         logger.info("AIProvider periodic sync task stopped")
-

@@ -20,7 +20,9 @@ IntentNameV1 = Literal[
     "human_handoff",
     "unknown",
 ]
-IntentRoute = Literal["auto_reply", "read_only_tool", "clarify", "human_handoff"]
+IntentRoute = Literal[
+    "auto_reply", "read_only_tool", "clarify", "human_handoff"
+]
 
 
 class IntentEvaluationExportRequest(BaseModel):

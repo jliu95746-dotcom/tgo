@@ -8,9 +8,19 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.security import get_authenticated_project
 from app.core.security import AuthenticatedProject
-from app.schemas.tools import ToolCreateRequest, ToolResponse, ToolType, ToolUpdateRequest
+from app.schemas.tools import (
+    ToolCreateRequest,
+    ToolResponse,
+    ToolType,
+    ToolUpdateRequest,
+)
 from app.services.ai_client import ai_client
-from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse, ToolTestRequest, ToolTestResponse
+from app.schemas.tool_probe import (
+    MCPDiscoverRequest,
+    MCPDiscoverResponse,
+    ToolTestRequest,
+    ToolTestResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +48,21 @@ async def test_saved_tool(
 ) -> ToolTestResponse:
     project, _ = project_and_api_key
     result = await ai_client.execute_tool(
-        project_id=str(project.id), tool_id=str(tool_id), input_data=request.input_data,
+        project_id=str(project.id),
+        tool_id=str(tool_id),
+        input_data=request.input_data,
     )
     return ToolTestResponse.model_validate(result)
 
 
 @router.get("", response_model=List[ToolResponse])
 async def list_tools(
-    tool_type: Optional[ToolType] = Query(None, description="Filter by tool type (MCP, FUNCTION, or ALL)"),
-    include_deleted: bool = Query(False, description="Include soft-deleted tools"),
+    tool_type: Optional[ToolType] = Query(
+        None, description="Filter by tool type (MCP, FUNCTION, or ALL)"
+    ),
+    include_deleted: bool = Query(
+        False, description="Include soft-deleted tools"
+    ),
     project_and_api_key: AuthenticatedProject = Depends(
         get_authenticated_project
     ),
@@ -57,10 +73,14 @@ async def list_tools(
     Proxies to AI service endpoint: GET /api/v1/tools
     """
     project, _ = project_and_api_key
-    
+
     # Map 'ALL' to None for downstream service
-    effective_tool_type = None if tool_type == ToolType.ALL else (tool_type.value if tool_type else None)
-    
+    effective_tool_type = (
+        None
+        if tool_type == ToolType.ALL
+        else (tool_type.value if tool_type else None)
+    )
+
     logger.info(
         f"Listing tools for project {project.id}",
         extra={
@@ -68,15 +88,15 @@ async def list_tools(
             "tool_type": tool_type,
             "effective_tool_type": effective_tool_type,
             "include_deleted": include_deleted,
-        }
+        },
     )
-    
+
     result = await ai_client.list_tools(
         project_id=str(project.id),
         tool_type=effective_tool_type,
         include_deleted=include_deleted,
     )
-    
+
     return [ToolResponse.model_validate(row) for row in result]
 
 
@@ -100,16 +120,14 @@ async def create_tool(
             "project_id": str(project.id),
             "tool_name": tool_data.name,
             "tool_type": tool_data.tool_type,
-        }
+        },
     )
 
     # Add project_id from authenticated context
     tool_data_dict = tool_data.model_dump(exclude_none=True)
     tool_data_dict["project_id"] = str(project.id)
 
-    result = await ai_client.create_tool(
-        tool_data=tool_data_dict
-    )
+    result = await ai_client.create_tool(tool_data=tool_data_dict)
 
     return ToolResponse.model_validate(result)
 
@@ -134,8 +152,10 @@ async def update_tool(
         extra={
             "project_id": str(project.id),
             "tool_id": str(tool_id),
-            "update_fields": list(tool_data.model_dump(exclude_unset=True).keys()),
-        }
+            "update_fields": list(
+                tool_data.model_dump(exclude_unset=True).keys()
+            ),
+        },
     )
 
     # Omitted fields stay unchanged; explicit null clears nullable metadata.
@@ -169,7 +189,7 @@ async def delete_tool(
         extra={
             "project_id": str(project.id),
             "tool_id": str(tool_id),
-        }
+        },
     )
 
     result = await ai_client.delete_tool(
@@ -178,4 +198,3 @@ async def delete_tool(
     )
 
     return ToolResponse.model_validate(result)
-

@@ -19,15 +19,27 @@ def _config_to_upsert(item: ProjectAIConfig) -> JsonObject:
     upsert: JsonObject = {
         "id": str(item.id),  # include config id for traceability
         "project_id": str(item.project_id),  # primary key on AI service side
-        "default_chat_provider_id": str(item.default_chat_provider_id) if item.default_chat_provider_id else None,
+        "default_chat_provider_id": str(item.default_chat_provider_id)
+        if item.default_chat_provider_id
+        else None,
         "default_chat_model": item.default_chat_model,
-        "default_embedding_provider_id": str(item.default_embedding_provider_id) if item.default_embedding_provider_id else None,
+        "default_embedding_provider_id": str(
+            item.default_embedding_provider_id
+        )
+        if item.default_embedding_provider_id
+        else None,
         "default_embedding_model": item.default_embedding_model,
-        "default_asr_provider_id": str(item.default_asr_provider_id) if item.default_asr_provider_id else None,
+        "default_asr_provider_id": str(item.default_asr_provider_id)
+        if item.default_asr_provider_id
+        else None,
         "default_asr_model": item.default_asr_model,
-        "default_ocr_provider_id": str(item.default_ocr_provider_id) if item.default_ocr_provider_id else None,
+        "default_ocr_provider_id": str(item.default_ocr_provider_id)
+        if item.default_ocr_provider_id
+        else None,
         "default_ocr_model": item.default_ocr_model,
-        "default_vlm_provider_id": str(item.default_vlm_provider_id) if item.default_vlm_provider_id else None,
+        "default_vlm_provider_id": str(item.default_vlm_provider_id)
+        if item.default_vlm_provider_id
+        else None,
         "default_vlm_model": item.default_vlm_model,
     }
     return {k: v for k, v in upsert.items() if v is not None}
@@ -41,12 +53,18 @@ def _build_headers() -> dict[str, str]:
 
 
 async def sync_configs(items: Sequence[ProjectAIConfig]) -> SyncResult:
-    url = f"{settings.AI_SERVICE_URL.rstrip('/')}/api/v1/project-ai-configs/sync"
+    url = (
+        f"{settings.AI_SERVICE_URL.rstrip('/')}/api/v1/project-ai-configs/sync"
+    )
     try:
         payload = {"configs": [_config_to_upsert(x) for x in items]}
         expected_ids = [str(x.project_id) for x in items]
-        async with httpx.AsyncClient(timeout=settings.AI_SERVICE_TIMEOUT) as client:
-            resp = await client.post(url, json=payload, headers=_build_headers())
+        async with httpx.AsyncClient(
+            timeout=settings.AI_SERVICE_TIMEOUT
+        ) as client:
+            resp = await client.post(
+                url, json=payload, headers=_build_headers()
+            )
         return read_sync_receipt(resp, expected_ids, "project_id")
     except httpx.TimeoutException:
         return False, "timeout", None
@@ -73,10 +91,14 @@ async def sync_config_with_retry(
     import asyncio
 
     retries = (
-        settings.PROJECT_AI_CONFIG_SYNC_RETRY_COUNT if max_retries is None else max_retries
+        settings.PROJECT_AI_CONFIG_SYNC_RETRY_COUNT
+        if max_retries is None
+        else max_retries
     )
     base_delay = (
-        settings.PROJECT_AI_CONFIG_SYNC_RETRY_DELAY if initial_delay is None else initial_delay
+        settings.PROJECT_AI_CONFIG_SYNC_RETRY_DELAY
+        if initial_delay is None
+        else initial_delay
     )
 
     ok, err, data = await sync_config(item)
@@ -113,10 +135,14 @@ async def sync_configs_with_retry(
     import asyncio
 
     retries = (
-        settings.PROJECT_AI_CONFIG_SYNC_RETRY_COUNT if max_retries is None else max_retries
+        settings.PROJECT_AI_CONFIG_SYNC_RETRY_COUNT
+        if max_retries is None
+        else max_retries
     )
     base_delay = (
-        settings.PROJECT_AI_CONFIG_SYNC_RETRY_DELAY if initial_delay is None else initial_delay
+        settings.PROJECT_AI_CONFIG_SYNC_RETRY_DELAY
+        if initial_delay is None
+        else initial_delay
     )
 
     ok, err, data = await sync_configs(items)
@@ -146,7 +172,8 @@ async def sync_configs_with_retry(
 
 
 async def sync_config_with_retry_and_update(
-    db: Session, item: ProjectAIConfig,
+    db: Session,
+    item: ProjectAIConfig,
 ) -> tuple[bool, Optional[str]]:
     """Sync one config with retries and update its sync fields in DB.
 
@@ -168,4 +195,3 @@ async def sync_config_with_retry_and_update(
     except Exception:
         pass
     return ok, err
-

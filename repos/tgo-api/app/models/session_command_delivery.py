@@ -28,10 +28,13 @@ class SessionCommandDelivery(Base):
     __tablename__ = "api_session_command_deliveries"
     __table_args__ = (
         UniqueConstraint(
-            "project_id", "client_msg_no", name="uq_session_command_delivery_message"
+            "project_id",
+            "client_msg_no",
+            name="uq_session_command_delivery_message",
         ),
         CheckConstraint(
-            "kind IN ('close','transfer')", name="ck_session_command_delivery_kind"
+            "kind IN ('close','transfer')",
+            name="ck_session_command_delivery_kind",
         ),
         CheckConstraint(
             "status IN ('pending','sending','sent','unknown','skipped')",
@@ -44,7 +47,8 @@ class SessionCommandDelivery(Base):
         Index("ix_session_command_delivery_recovery", "status", "updated_at"),
         Index(
             "ix_session_command_effects_recovery",
-            "effects_status", "effects_updated_at",
+            "effects_status",
+            "effects_updated_at",
         ),
     )
 
@@ -56,7 +60,8 @@ class SessionCommandDelivery(Base):
         ForeignKey("api_visitors.id", ondelete="CASCADE"), nullable=False
     )
     session_id: Mapped[UUID] = mapped_column(
-        ForeignKey("api_visitor_sessions.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("api_visitor_sessions.id", ondelete="CASCADE"),
+        nullable=False,
     )
     actor_staff_id: Mapped[UUID] = mapped_column(
         ForeignKey("api_staff.id", ondelete="CASCADE"), nullable=False
@@ -83,13 +88,17 @@ class SessionCommandDelivery(Base):
     payload: Mapped[dict[str, JsonValue]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=False
     )
-    status: Mapped[str] = mapped_column(String(12), default="pending", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(12), default="pending", nullable=False
+    )
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_error: Mapped[str | None] = mapped_column(String(80))
     message_id: Mapped[str | None] = mapped_column(String(100))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     effects: Mapped[list[dict[str, str]]] = mapped_column(
-        JSON().with_variant(JSONB(), "postgresql"), default=list, nullable=False
+        JSON().with_variant(JSONB(), "postgresql"),
+        default=list,
+        nullable=False,
     )
     effects_status: Mapped[str] = mapped_column(
         String(12), default="done", nullable=False
@@ -105,5 +114,8 @@ class SessionCommandDelivery(Base):
         DateTime(timezone=True), default=utc_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
     )

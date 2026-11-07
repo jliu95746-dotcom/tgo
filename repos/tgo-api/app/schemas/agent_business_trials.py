@@ -15,10 +15,16 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from app.schemas.connection_test_protocol import ConnectionTestSummary, ErrorCode
+from app.schemas.connection_test_protocol import (
+    ConnectionTestSummary,
+    ErrorCode,
+)
 
 Operation = Literal[
-    "order_query", "logistics_query", "customer_profile_query", "membership_query"
+    "order_query",
+    "logistics_query",
+    "customer_profile_query",
+    "membership_query",
 ]
 TrialError = Literal[
     "denied",
@@ -44,7 +50,9 @@ class BusinessTrialRequest(BaseModel):
     operation: Operation
     visitor_id: UUID
     order_no: SecretStr | None = None
-    customer_session: SecretStr = Field(min_length=8, max_length=8192, repr=False)
+    customer_session: SecretStr = Field(
+        min_length=8, max_length=8192, repr=False
+    )
 
     @field_validator("order_no")
     @classmethod
@@ -73,7 +81,9 @@ class BusinessTrialRequest(BaseModel):
 
     def private_payload(self) -> dict[str, JsonValue]:
         value = json_object.validate_python(
-            self.model_dump(mode="json", exclude={"order_no", "customer_session"})
+            self.model_dump(
+                mode="json", exclude={"order_no", "customer_session"}
+            )
         )
         value["customer_session"] = self.customer_session.get_secret_value()
         if self.order_no is not None:
@@ -119,7 +129,9 @@ class BusinessTrialCommand(BusinessTrialIdentity):
     purpose: Literal["employee_business_test"] = "employee_business_test"
     visitor_id: UUID
     order_no: SecretStr | None = None
-    customer_session: SecretStr = Field(min_length=8, max_length=8192, repr=False)
+    customer_session: SecretStr = Field(
+        min_length=8, max_length=8192, repr=False
+    )
 
     @field_validator("order_no")
     @classmethod
@@ -142,7 +154,9 @@ class BusinessTrialCommand(BusinessTrialIdentity):
 
     def private_payload(self) -> dict[str, JsonValue]:
         value = json_object.validate_python(
-            self.model_dump(mode="json", exclude={"order_no", "customer_session"})
+            self.model_dump(
+                mode="json", exclude={"order_no", "customer_session"}
+            )
         )
         value["customer_session"] = self.customer_session.get_secret_value()
         if self.order_no is not None:
@@ -151,7 +165,10 @@ class BusinessTrialCommand(BusinessTrialIdentity):
 
     def request(self) -> BusinessTrialRequest:
         return BusinessTrialRequest.model_validate(
-            {name: getattr(self, name) for name in BusinessTrialRequest.model_fields}
+            {
+                name: getattr(self, name)
+                for name in BusinessTrialRequest.model_fields
+            }
         )
 
     def identity(self) -> dict[str, JsonValue]:
@@ -299,7 +316,8 @@ class BusinessTrialReport(BaseModel):
                 "configuration_fingerprint": self.configuration_fingerprint,
             }
             if any(
-                getattr(self.receipt, key) != value for key, value in expected.items()
+                getattr(self.receipt, key) != value
+                for key, value in expected.items()
             ):
                 raise ValueError("业务测试结果不属于原报告")
         elif (

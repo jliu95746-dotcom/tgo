@@ -41,4 +41,6 @@ class NativeAssistNotification(BaseModel):
 
 class NativePendingResult(BaseModel):
     visitors: list[NativePendingVisitor]
-    assist_notifications: list[NativeAssistNotification] = Field(default_factory=list)
+    assist_notifications: list[NativeAssistNotification] = Field(
+        default_factory=list
+    )

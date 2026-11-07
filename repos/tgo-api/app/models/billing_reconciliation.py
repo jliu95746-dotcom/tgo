@@ -17,4 +17,6 @@ class BillingReconciliation(Base):
     entry_count: Mapped[int] = mapped_column(Integer)
     issue_count: Mapped[int] = mapped_column(Integer)
     issues: Mapped[list[dict[str, JsonValue]]] = mapped_column(JSON)
-    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

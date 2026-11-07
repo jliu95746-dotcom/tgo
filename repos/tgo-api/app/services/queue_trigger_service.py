@@ -58,15 +58,19 @@ async def trigger_queue_for_project(project_id: UUID) -> None:
     # Check if already processing this project
     async with _processing_lock:
         if project_id in _processing_project_ids:
-            logger.debug(f"Project {project_id} queue is already being processed")
+            logger.debug(
+                f"Project {project_id} queue is already being processed"
+            )
             return
         _processing_project_ids.add(project_id)
-    
+
     try:
         # Process in background
         asyncio.create_task(_process_project_queue_internal(project_id))
     except Exception as e:
-        logger.error(f"Failed to trigger queue processing for project {project_id}: {e}")
+        logger.error(
+            f"Failed to trigger queue processing for project {project_id}: {e}"
+        )
         async with _processing_lock:
             _processing_project_ids.discard(project_id)
 
@@ -83,7 +87,7 @@ async def trigger_queue_for_staff(staff_id: UUID, project_id: UUID) -> None:
     """
     logger.info(
         f"Staff {staff_id} triggered queue processing for project {project_id}",
-        extra={"staff_id": str(staff_id), "project_id": str(project_id)}
+        extra={"staff_id": str(staff_id), "project_id": str(project_id)},
     )
     await trigger_queue_for_project(project_id)
 
@@ -97,9 +101,9 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
     # Import here to avoid circular imports
     from app.services.transfer_service import transfer_to_staff
     from app.models import AssignmentSource
-    
+
     semaphore = _get_semaphore()
-    
+
     try:
         async with semaphore:
             db = SessionLocal()
@@ -109,11 +113,12 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
                     db.query(VisitorWaitingQueue)
                     .filter(
                         VisitorWaitingQueue.project_id == project_id,
-                        VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
+                        VisitorWaitingQueue.status
+                        == WaitingStatus.WAITING.value,
                         # Only process non-expired entries
                         (
-                            (VisitorWaitingQueue.expired_at.is_(None)) |
-                            (VisitorWaitingQueue.expired_at > func.now())
+                            (VisitorWaitingQueue.expired_at.is_(None))
+                            | (VisitorWaitingQueue.expired_at > func.now())
                         ),
                     )
                     .order_by(
@@ -123,16 +128,21 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
                     .limit(settings.QUEUE_PROCESS_BATCH_SIZE)
                     .all()
                 )
-                
+
                 if not waiting_entries:
-                    logger.debug(f"No waiting entries for project {project_id}")
+                    logger.debug(
+                        f"No waiting entries for project {project_id}"
+                    )
                     return
-                
+
                 logger.info(
                     f"Processing {len(waiting_entries)} waiting entries for project {project_id}",
-                    extra={"project_id": str(project_id), "count": len(waiting_entries)}
+                    extra={
+                        "project_id": str(project_id),
+                        "count": len(waiting_entries),
+                    },
                 )
-                
+
                 # Process each entry
                 assigned_count = 0
                 for entry in waiting_entries:
@@ -151,7 +161,7 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
                             add_to_queue_if_no_staff=False,  # Already in queue
                             expected_queue_entry_id=entry.id,
                         )
-                        
+
                         if result.success and result.assigned_staff_id:
                             db.commit()
                             assigned_count += 1
@@ -161,7 +171,7 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
                                     "entry_id": str(entry.id),
                                     "visitor_id": str(entry.visitor_id),
                                     "staff_id": str(result.assigned_staff_id),
-                                }
+                                },
                             )
                         else:
                             # No staff available, stop processing
@@ -169,34 +179,36 @@ async def _process_project_queue_internal(project_id: UUID) -> None:
                             db.commit()  # Commit the attempt record
                             logger.debug(
                                 f"No staff available for entry {entry.id}, stopping batch",
-                                extra={"entry_id": str(entry.id)}
+                                extra={"entry_id": str(entry.id)},
                             )
                             break
-                            
+
                     except Exception as e:
                         logger.error(
                             f"Error processing queue entry {entry.id}: {e}",
-                            extra={"entry_id": str(entry.id)}
+                            extra={"entry_id": str(entry.id)},
                         )
                         try:
                             db.rollback()
                         except Exception:
                             pass
-                
+
                 logger.info(
                     f"Queue processing complete for project {project_id}",
                     extra={
                         "project_id": str(project_id),
                         "assigned_count": assigned_count,
                         "total_processed": len(waiting_entries),
-                    }
+                    },
                 )
-                
+
             finally:
                 db.close()
-                
+
     except Exception as e:
-        logger.exception(f"Error in queue processing for project {project_id}: {e}")
+        logger.exception(
+            f"Error in queue processing for project {project_id}: {e}"
+        )
     finally:
         # Remove from processing set
         async with _processing_lock:
@@ -219,9 +231,9 @@ async def trigger_queue_for_entry(entry_id: UUID) -> bool:
     # Import here to avoid circular imports
     from app.services.transfer_service import transfer_to_staff
     from app.models import AssignmentSource
-    
+
     semaphore = _get_semaphore()
-    
+
     try:
         async with semaphore:
             db = SessionLocal()
@@ -230,15 +242,18 @@ async def trigger_queue_for_entry(entry_id: UUID) -> bool:
                     db.query(VisitorWaitingQueue)
                     .filter(
                         VisitorWaitingQueue.id == entry_id,
-                        VisitorWaitingQueue.status == WaitingStatus.WAITING.value,
+                        VisitorWaitingQueue.status
+                        == WaitingStatus.WAITING.value,
                     )
                     .first()
                 )
-                
+
                 if not entry:
-                    logger.debug(f"Queue entry {entry_id} not found or not waiting")
+                    logger.debug(
+                        f"Queue entry {entry_id} not found or not waiting"
+                    )
                     return False
-                
+
                 result = await transfer_to_staff(
                     db=db,
                     visitor_id=entry.visitor_id,
@@ -253,7 +268,7 @@ async def trigger_queue_for_entry(entry_id: UUID) -> bool:
                     add_to_queue_if_no_staff=False,  # Already in queue
                     expected_queue_entry_id=entry.id,
                 )
-                
+
                 if result.success and result.assigned_staff_id:
                     db.commit()
                     logger.info(
@@ -261,17 +276,21 @@ async def trigger_queue_for_entry(entry_id: UUID) -> bool:
                         extra={
                             "entry_id": str(entry_id),
                             "staff_id": str(result.assigned_staff_id),
-                        }
+                        },
                     )
                     return True
                 else:
                     db.commit()  # Commit the attempt record
-                    logger.debug(f"No staff available for immediate assignment of entry {entry_id}")
+                    logger.debug(
+                        f"No staff available for immediate assignment of entry {entry_id}"
+                    )
                     return False
-                    
+
             finally:
                 db.close()
-                
+
     except Exception as e:
-        logger.error(f"Error in immediate queue processing for entry {entry_id}: {e}")
+        logger.error(
+            f"Error in immediate queue processing for entry {entry_id}: {e}"
+        )
         return False

@@ -63,17 +63,24 @@ class AgentActivationRequirements(AgentActivationRequirementsQuery):
             if case.get("valid_from") is None:
                 case.pop("valid_from", None)
         encoded = json.dumps(
-            definition, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            definition,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
     @model_validator(mode="after")
     def complete_definition(self) -> "AgentActivationRequirements":
-        if len(set(self.required_resources)) != len(self.required_resources) or len(
-            set(self.required_capabilities)
-        ) != len(self.required_capabilities):
+        if len(set(self.required_resources)) != len(
+            self.required_resources
+        ) or len(set(self.required_capabilities)) != len(
+            self.required_capabilities
+        ):
             raise ValueError("Duplicate activation requirement")
-        if len({case.id for case in self.knowledge_cases}) != len(self.knowledge_cases):
+        if len({case.id for case in self.knowledge_cases}) != len(
+            self.knowledge_cases
+        ):
             raise ValueError("Duplicate activation case")
         if any(
             case.template_id != self.template_id
@@ -89,7 +96,9 @@ class AgentActivationRequirements(AgentActivationRequirementsQuery):
             ):
                 raise ValueError("Incomplete knowledge template requirements")
         elif self.knowledge_cases:
-            raise ValueError("Business template cannot use knowledge-only evidence")
+            raise ValueError(
+                "Business template cannot use knowledge-only evidence"
+            )
         if self.definition_revision() != self.requirements_revision:
             raise ValueError("Activation requirement revision mismatch")
         return self
@@ -118,6 +127,8 @@ class AgentActivationPolicies(BaseModel):
 
     @model_validator(mode="after")
     def unique_channels(self) -> "AgentActivationPolicies":
-        if len({policy.channel for policy in self.policies}) != len(self.policies):
+        if len({policy.channel for policy in self.policies}) != len(
+            self.policies
+        ):
             raise ValueError("Duplicate employee policy channel")
         return self

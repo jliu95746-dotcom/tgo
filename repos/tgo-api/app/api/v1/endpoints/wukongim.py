@@ -22,7 +22,7 @@ async def realtime_messages(websocket: WebSocket) -> None:
     response_model=WuKongIMRouteResponse,
     summary="Get WuKongIM WebSocket Connection Address",
     description="Get the WebSocket long connection address for a user from WuKongIM service. "
-                "This endpoint does not require authentication and can be used by both staff and visitors."
+    "This endpoint does not require authentication and can be used by both staff and visitors.",
 )
 async def get_wukongim_route(
     uid: str,
@@ -49,25 +49,26 @@ async def get_wukongim_route(
         logger.warning("Route request with empty uid parameter")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="uid parameter is required and cannot be empty"
+            detail="uid parameter is required and cannot be empty",
         )
-    
+
     if settings.SAAS_ENABLED or uid.endswith("-vtr"):
         public_url, _ = gateway_urls()
         return WuKongIMRouteResponse(
-            tcp_addr="", ws_addr=public_url,
+            tcp_addr="",
+            ws_addr=public_url,
             wss_addr=public_url if public_url.startswith("wss://") else "",
         )
 
     logger.info(f"Getting WuKongIM route for uid: {uid}")
-    
+
     try:
         result = await wukongim_client.get_route(uid=uid)
-        
+
         logger.info(f"Successfully retrieved route for uid: {uid}")
-        
+
         return result
-        
+
     except HTTPException:
         # Re-raise HTTPExceptions from the client
         raise
@@ -75,6 +76,5 @@ async def get_wukongim_route(
         logger.error(f"Unexpected error getting route for uid {uid}: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to retrieve route from WuKongIM service"
+            detail="Failed to retrieve route from WuKongIM service",
         )
-
