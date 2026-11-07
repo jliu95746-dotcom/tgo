@@ -32,6 +32,7 @@ from app.services.im_access import (
 from app.services.visitor_data_access import (
     authorize_visitor_channel_id,
     require_visitor_data_access,
+    read_platform_api_key,
 )
 
 FileActor = StaffFileActor | VisitorFileActor
@@ -81,7 +82,7 @@ def authenticate_file_actor(
         platform_id=access.platform_id,
         im_claims=read_visitor_im_access(access.im_token.get_secret_value()),
         platform_key_digest=hashlib.sha256(
-            platform.api_key.encode()
+            access.platform_api_key.get_secret_value().encode("utf-8")
         ).hexdigest(),
     )
 
@@ -128,8 +129,9 @@ def _current_actor(db: Session, actor: FileActor) -> Staff | None:
         .populate_existing()
         .first()
     )
-    if platform is None or not hmac.compare_digest(
-        hashlib.sha256(platform.api_key.encode()).hexdigest(),
+    key = read_platform_api_key(platform) if platform is not None else None
+    if key is None or not hmac.compare_digest(
+        hashlib.sha256(key.encode("utf-8")).hexdigest(),
         actor.platform_key_digest,
     ):
         raise _unauthorized()

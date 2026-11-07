@@ -3,7 +3,6 @@
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-import hmac
 from typing import TypeAlias, TypeVar
 from uuid import UUID
 
@@ -26,6 +25,8 @@ from app.services.visitor_data_access import (
     require_visitor_data_access,
     reauthorize_visitor_data,
     authorize_visitor_channel_id,
+    read_platform_api_key,
+    platform_api_key_matches,
 )
 
 ChatAccess: TypeAlias = VisitorDataAccess | ChannelChatAccess | StaffDataAccess
@@ -59,8 +60,8 @@ def check_chat_access(
         .populate_existing()
         .first()
     )
-    if platform is None or not hmac.compare_digest(
-        platform.api_key, access.platform_api_key.get_secret_value()
+    if platform is None or not platform_api_key_matches(
+        platform, access.platform_api_key.get_secret_value()
     ):
         raise denied()
     if access.visitor_id is None:
@@ -116,10 +117,13 @@ async def resolve_chat_visitor(
     if platform.type not in DIRECT_VISITOR_PLATFORM_TYPES:
         require_internal_service_token(service_token)
         assert service_token is not None
+        key = read_platform_api_key(platform)
+        if key is None:
+            raise denied()
         access = ChannelChatAccess(
             project_id=platform.project_id,
             platform_id=platform.id,
-            platform_api_key=SecretStr(platform.api_key),
+            platform_api_key=SecretStr(key),
             service_token=SecretStr(service_token),
         )
         check_chat_access(db, access)

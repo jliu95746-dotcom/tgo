@@ -20,6 +20,30 @@ from app.utils.encoding import parse_visitor_channel_id
 from app.utils.wechat_local import is_filehelper_identity, is_scoped_identity
 
 
+def read_platform_api_key(platform: Platform) -> str | None:
+    """Return a usable key without adopting an absent or malformed secret."""
+    key = platform.api_key
+    if not isinstance(key, str) or not key.strip():
+        return None
+    try:
+        key.encode("utf-8")
+    except UnicodeError:
+        return None
+    return key
+
+
+def platform_api_key_matches(platform: Platform, expected: str) -> bool:
+    key = read_platform_api_key(platform)
+    if key is None:
+        return False
+    try:
+        return hmac.compare_digest(
+            key.encode("utf-8"), expected.encode("utf-8")
+        )
+    except UnicodeError:
+        return False
+
+
 def _current_platform(db: Session, platform_id: UUID) -> Platform:
     platform: Platform | None = (
         db.query(Platform)
@@ -52,6 +76,9 @@ def require_visitor_data_access(
         or len(credentials.credentials) > 8192
     ):
         raise denied()
+    key = read_platform_api_key(platform)
+    if key is None:
+        raise denied()
     token = credentials.credentials
     claims = read_visitor_im_access(token)
     actor = authenticate_im_actor(db, f"{claims.sub}-vtr", token)
@@ -72,7 +99,7 @@ def require_visitor_data_access(
         visitor_id=actor.id,
         project_id=actor.project_id,
         platform_id=actor.platform_id,
-        platform_api_key=SecretStr(platform.api_key),
+        platform_api_key=SecretStr(key),
         im_token=SecretStr(token),
     )
 
@@ -82,8 +109,11 @@ def reauthorize_visitor_data(
 ) -> Visitor:
     """Check the original proof again after an await, without adopting a new owner."""
     platform = _current_platform(db, access.platform_id)
-    if platform.project_id != access.project_id or not hmac.compare_digest(
-        platform.api_key, access.platform_api_key.get_secret_value()
+    if (
+        platform.project_id != access.project_id
+        or not platform_api_key_matches(
+            platform, access.platform_api_key.get_secret_value()
+        )
     ):
         raise denied()
     actor = authenticate_im_actor(
