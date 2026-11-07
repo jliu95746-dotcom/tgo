@@ -256,7 +256,8 @@ class BusinessHTTPConfiguration(BusinessMerchantMapping):
                     or host.endswith((".local", ".localhost"))
                 ):
                     raise ValueError
-                # Literal non-global IPv4 addresses must not fall through as DNS names.
+                # Literal non-global IPv4 addresses must not fall through as
+                # DNS names.
                 if re.fullmatch(r"[0-9.]+", host):
                     raise ValueError
         except ValueError:
@@ -422,7 +423,10 @@ class BusinessConnectionRevisionRequest(BaseModel):
 
 
 class BusinessConnectionPrivateSnapshot(BaseModel):
-    """Only returned on the separately authenticated private resolution route."""
+    (
+        "Only returned on the separately authenticated private resolution rout"
+        "e."
+    )
 
     model_config = ConfigDict(extra="forbid")
     scope: Literal[

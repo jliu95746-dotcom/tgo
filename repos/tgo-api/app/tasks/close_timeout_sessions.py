@@ -169,7 +169,7 @@ async def _process_timeout_sessions() -> int:
         db.close()
 
 
-async def _run_periodic_task():
+async def _run_periodic_task() -> None:
     """Run the periodic session timeout check."""
     logger.info(
         f"Starting session timeout check task "
@@ -195,7 +195,7 @@ async def _run_periodic_task():
         await asyncio.sleep(settings.SESSION_TIMEOUT_CHECK_INTERVAL_SECONDS)
 
 
-async def start_session_timeout_task():
+async def start_session_timeout_task() -> None:
     """Start the background session timeout check task."""
     global _task
 
@@ -211,7 +211,7 @@ async def start_session_timeout_task():
     logger.info("Session timeout check task started")
 
 
-async def stop_session_timeout_task():
+async def stop_session_timeout_task() -> None:
     """Stop the background session timeout check task."""
     global _task
 

@@ -175,7 +175,7 @@ def ensure_permissions_seed(db: Optional[Session] = None) -> None:
                 continue
 
             # Check if global role permission already exists
-            existing = (
+            existing_role_permission = (
                 db.query(RolePermission)
                 .filter(
                     RolePermission.role == "user",
@@ -184,7 +184,7 @@ def ensure_permissions_seed(db: Optional[Session] = None) -> None:
                 .first()
             )
 
-            if not existing:
+            if not existing_role_permission:
                 role_permission = RolePermission(
                     role="user",
                     permission_id=permission_id,

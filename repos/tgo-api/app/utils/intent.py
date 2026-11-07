@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.schemas.visitor import VisitorResponse
 
 
 INTENT_TRANSLATIONS = {
@@ -73,7 +76,7 @@ def localize_intent(
 
 
 def localize_visitor_response_intent(
-    visitor_response, accept_language: Optional[str]
+    visitor_response: VisitorResponse, accept_language: Optional[str]
 ) -> None:
     ai_insights = getattr(visitor_response, "ai_insights", None)
     if not ai_insights:

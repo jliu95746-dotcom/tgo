@@ -20,7 +20,8 @@ from sqlalchemy import (
     inspect as sa_inspect,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
+from sqlalchemy.engine import Connection
+from sqlalchemy.orm import Mapped, Mapper, mapped_column, relationship, foreign
 
 from app.core.database import Base
 
@@ -316,7 +317,9 @@ class Platform(Base):
 
 # --- SQLAlchemy event listeners to trigger synchronization ---
 @event.listens_for(Platform, "after_insert")
-def _platform_after_insert(mapper, connection, target: Platform) -> None:
+def _platform_after_insert(
+    mapper: Mapper[Platform], connection: Connection, target: Platform
+) -> None:
     try:
         from app.services.platform_sync import trigger_platform_sync
 
@@ -326,7 +329,9 @@ def _platform_after_insert(mapper, connection, target: Platform) -> None:
 
 
 @event.listens_for(Platform, "after_update")
-def _platform_after_update(mapper, connection, target: Platform) -> None:
+def _platform_after_update(
+    mapper: Mapper[Platform], connection: Connection, target: Platform
+) -> None:
     try:
         from app.services.platform_sync import trigger_platform_sync
 
@@ -348,7 +353,9 @@ def _platform_after_update(mapper, connection, target: Platform) -> None:
 
 
 @event.listens_for(Platform, "after_delete")
-def _platform_after_delete(mapper, connection, target: Platform) -> None:
+def _platform_after_delete(
+    mapper: Mapper[Platform], connection: Connection, target: Platform
+) -> None:
     if target.type == PlatformType.WECHAT_LOCAL.value:
         return
     try:

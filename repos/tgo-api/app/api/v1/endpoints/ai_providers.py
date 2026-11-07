@@ -5,6 +5,7 @@ from typing import Optional, Any
 from uuid import UUID
 
 import httpx
+from pydantic import JsonValue
 from fastapi import (
     APIRouter,
     Depends,
@@ -936,12 +937,14 @@ async def disable_ai_provider(
     return _to_response(item)
 
 
-@router.post("/{provider_id}/test", responses=CRUD_RESPONSES)
+@router.post(
+    "/{provider_id}/test", responses=CRUD_RESPONSES, response_model=None
+)
 async def test_ai_provider_connection(
     provider_id: UUID,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> dict[str, JsonValue]:
     """Test connection/credentials for an AI provider.
 
     Performs a lightweight GET request to provider's models/list endpoint

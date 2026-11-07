@@ -61,7 +61,7 @@ class GeoIPService:
         '    '
     )
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._geoip2_reader: Optional["geoip2.database.Reader"] = None
         # ip2region uses separate databases for IPv4 and IPv6
         self._ip2region_searcher_v4: Optional[xdb_searcher.Searcher] = None
@@ -343,8 +343,11 @@ class GeoIPService:
 
     def _lookup_geoip2(self, ip_address: str) -> GeoLocation:
         """Lookup using geoip2."""
+        reader = self._geoip2_reader
+        if reader is None:
+            return GeoLocation()
         try:
-            response = self._geoip2_reader.city(ip_address)
+            response = reader.city(ip_address)
 
             return GeoLocation(
                 country=response.country.name,
@@ -448,7 +451,7 @@ class GeoIPService:
         )
         return ip_address.startswith(private_prefixes)
 
-    def close(self):
+    def close(self) -> None:
         """Close the database reader."""
         if self._geoip2_reader:
             self._geoip2_reader.close()

@@ -105,7 +105,7 @@ async def _process_online_status_sync() -> int:
         db.close()
 
 
-async def _run_periodic_task():
+async def _run_periodic_task() -> None:
     """Run the periodic online status sync."""
     logger.info(
         f"Starting visitor online status sync task "
@@ -126,7 +126,7 @@ async def _run_periodic_task():
         await asyncio.sleep(settings.VISITOR_ONLINE_SYNC_INTERVAL_SECONDS)
 
 
-async def start_visitor_online_sync_task():
+async def start_visitor_online_sync_task() -> None:
     """Start the background visitor online status sync task."""
     global _task
 
@@ -142,7 +142,7 @@ async def start_visitor_online_sync_task():
     logger.info("Visitor online status sync task started")
 
 
-async def stop_visitor_online_sync_task():
+async def stop_visitor_online_sync_task() -> None:
     """Stop the background visitor online status sync task."""
     global _task
 

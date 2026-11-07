@@ -320,6 +320,7 @@ async def create_visitor_with_channel(
 
     require_new_service(db, platform.project_id)
     use_visitor_id_as_open_id = not platform_open_id
+    initial_platform_open_id: Optional[str]
 
     if use_visitor_id_as_open_id:
         initial_platform_open_id = f"pending-{uuid.uuid4().hex}"

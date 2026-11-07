@@ -478,10 +478,10 @@ async def proxy_store_request(
             ) from None
 
 
-@router.get("/config")
+@router.get("/config", response_model=None)
 async def get_store_config(
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> dict[str, str]:
     """返回 Store 服务配置（Web URL 等）"""
     return {
         "store_web_url": settings.STORE_WEB_URL,

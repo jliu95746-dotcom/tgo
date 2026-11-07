@@ -128,6 +128,7 @@ def test_imap_connection(
         )
 
         # Create IMAP connection based on SSL setting
+        mail: imaplib.IMAP4
         if use_ssl:
             mail = imaplib.IMAP4_SSL(host, port, timeout=timeout)
         else:

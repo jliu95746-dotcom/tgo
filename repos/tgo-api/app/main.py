@@ -184,7 +184,7 @@ def create_app(
 
     # Register startup event
     @application.on_event("startup")
-    async def startup_event():
+    async def startup_event() -> None:
         """Application startup event."""
         from app.core.logging import startup_log
 
@@ -339,7 +339,7 @@ def create_app(
 
     # Register shutdown event
     @application.on_event("shutdown")
-    async def shutdown_event():
+    async def shutdown_event() -> None:
         from app.services.customer_turn_worker import stop
 
         await stop()
