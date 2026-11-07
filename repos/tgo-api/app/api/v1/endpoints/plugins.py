@@ -14,13 +14,21 @@ from jose import jwt
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.core.security import get_current_active_user, require_admin
-from app.services.plugin_runtime_client import JsonObject, plugin_runtime_client
+from app.core.security import (
+    ADMIN_ROLE, get_current_active_user, require_admin,
+)
+from app.services.plugin_runtime_client import (
+    JsonObject, plugin_runtime_client,
+)
 from app.services.plugin_progress import stream_plugin_progress
 from app.models import Staff
 from app.api.current_access_route import CurrentAccessRoute
+from app.api.plugin_administration import (
+    plugin_administrator, plugin_catalog_reader,
+)
 from app.core.exceptions import TGOAPIException
 from app.services.plugin_request_scope import capture_plugin_scope
+from app.services.plugin_catalog_policy import installed_plugin_catalog
 from app.schemas.plugin import (
     PluginListResponse,
     PluginInfo,
@@ -294,17 +302,16 @@ async def send_chat_toolbar_event(
 
 @router.get("/installed", response_model=InstalledPluginListResponse)
 async def list_installed_plugins(
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(plugin_catalog_reader),
 ) -> InstalledPluginListResponse:
     """Get all installed plugins from database via runtime service."""
     try:
         data = await plugin_runtime_client.list_installed_plugins(
             project_id=str(current_user.project_id)
         )
-        # Ensure latest_version and source_url are preserved by converting to
-        # model
-
-        return InstalledPluginListResponse(**data)
+        return installed_plugin_catalog(
+            data, include_source=current_user.role == ADMIN_ROLE,
+        )
     except Exception as e:
         _handle_runtime_error(e, "list_installed_plugins")
 
@@ -312,7 +319,7 @@ async def list_installed_plugins(
 @router.post("/fetch-info", response_model=PluginFetchResponse)
 async def fetch_plugin_info(
     request: PluginFetchRequest,
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(plugin_administrator),
 ) -> PluginFetchResponse:
     """Fetch plugin information from a URL (GitHub, Gitee, or custom)."""
     try:
@@ -332,7 +339,7 @@ async def fetch_plugin_info(
 @router.post("/install-stream")
 async def install_plugin_stream(
     request: PluginInstallRequest,
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(plugin_administrator),
 ) -> StreamingResponse:
     """Install a plugin and stream progress via SSE proxy."""
     install_data = request.model_dump()
@@ -346,7 +353,7 @@ async def install_plugin_stream(
 @router.post("/install", response_model=InstalledPluginInfo)
 async def install_plugin(
     request: PluginInstallRequest,
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(plugin_administrator),
 ) -> InstalledPluginInfo:
     """Install a new plugin via runtime service."""
     # Add project_id to request for runtime to store
@@ -369,7 +376,7 @@ async def install_plugin(
     "/{plugin_id}/check-update", response_model=PluginUpdateCheckResponse
 )
 async def check_plugin_update(
-    plugin_id: str, current_user: Staff = Depends(get_current_active_user)
+    plugin_id: str, current_user: Staff = Depends(plugin_administrator)
 ) -> PluginUpdateCheckResponse:
     """Check for plugin updates via runtime service."""
     try:
@@ -389,7 +396,7 @@ async def check_plugin_update(
 async def upgrade_plugin_stream(
     plugin_id: str,
     request: PluginUpgradeRequest,
-    current_user: Staff = Depends(get_current_active_user),
+    current_user: Staff = Depends(plugin_administrator),
 ) -> StreamingResponse:
     """Upgrade a plugin and stream progress via SSE proxy."""
     return StreamingResponse(
@@ -523,7 +530,7 @@ async def send_plugin_event(
 
 @router.delete("/{plugin_id}", response_model=dict)
 async def uninstall_plugin(
-    plugin_id: str, current_user: Staff = Depends(get_current_active_user)
+    plugin_id: str, current_user: Staff = Depends(plugin_administrator)
 ) -> JsonObject:
     """Uninstall a plugin via runtime service."""
     try:
@@ -542,7 +549,7 @@ async def uninstall_plugin(
 
 @router.post("/{plugin_id}/start", response_model=dict)
 async def start_plugin(
-    plugin_id: str, current_user: Staff = Depends(get_current_active_user)
+    plugin_id: str, current_user: Staff = Depends(plugin_administrator)
 ) -> JsonObject:
     """Start a plugin via runtime service."""
     try:
@@ -564,7 +571,7 @@ async def start_plugin(
 
 @router.post("/{plugin_id}/stop", response_model=dict)
 async def stop_plugin(
-    plugin_id: str, current_user: Staff = Depends(get_current_active_user)
+    plugin_id: str, current_user: Staff = Depends(plugin_administrator)
 ) -> JsonObject:
     """Stop a plugin via runtime service."""
     try:
@@ -583,7 +590,7 @@ async def stop_plugin(
 
 @router.post("/{plugin_id}/restart", response_model=dict)
 async def restart_plugin(
-    plugin_id: str, current_user: Staff = Depends(get_current_active_user)
+    plugin_id: str, current_user: Staff = Depends(plugin_administrator)
 ) -> JsonObject:
     """Restart a plugin via runtime service."""
     try:
@@ -602,7 +609,7 @@ async def restart_plugin(
 
 @router.get("/{plugin_id}/logs", response_model=dict)
 async def get_plugin_logs(
-    plugin_id: str, current_user: Staff = Depends(get_current_active_user)
+    plugin_id: str, current_user: Staff = Depends(plugin_administrator)
 ) -> JsonObject:
     """Get plugin logs via runtime service."""
     try:

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Navigate } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { 
   Puzzle, RefreshCcw, Info, 
@@ -13,7 +14,7 @@ import { formatRelativeTime } from '@/utils/dateUtils';
 import { useToast } from '@/hooks/useToast';
 import type { InstalledPluginInfo } from '@/types/plugin';
 
-const PluginsSettings: React.FC = () => {
+const PluginAdministration: React.FC = () => {
   const { t } = useTranslation();
   const { showSuccess, showError, showInfo } = useToast();
   const { user } = useAuthStore();
@@ -1261,6 +1262,11 @@ plugin.run()`}
       )}
     </div>
   );
+};
+
+const PluginsSettings: React.FC = () => {
+  const isAdmin = useAuthStore(state => state.user?.role === 'admin');
+  return isAdmin ? <PluginAdministration /> : <Navigate to="/settings/profile" replace />;
 };
 
 export default PluginsSettings;

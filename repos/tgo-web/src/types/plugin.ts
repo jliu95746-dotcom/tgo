@@ -99,7 +99,7 @@ export interface InstalledPluginInfo {
   author?: string;
   status: 'pending' | 'installing' | 'running' | 'stopped' | 'error';
   install_type: 'github' | 'binary' | 'dev';
-  source_url?: string;
+  source_url?: string | null;
   latest_version?: string;
   installed_at: string;
   updated_at: string;
