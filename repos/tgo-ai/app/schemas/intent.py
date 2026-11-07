@@ -129,7 +129,7 @@ class IntentEntities(StrictIntentSchema):
         default=None, min_length=1, max_length=500
     )
 
-    @field_validator("product_name", "issue_summary")  # type: ignore[misc]
+    @field_validator("product_name", "issue_summary")
     @classmethod
     def reject_control_characters(cls, value: str | None) -> str | None:
         if value is not None and any(
@@ -189,7 +189,7 @@ class IntentClassificationInput(StrictIntentSchema):
         default=None, max_length=8
     )
 
-    @model_validator(mode="after")  # type: ignore[misc]
+    @model_validator(mode="after")
     def require_customer_content(self) -> Self:
         if not any(
             (self.user_text, self.asr_text, self.ocr_text, self.vlm_text)

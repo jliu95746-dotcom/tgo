@@ -74,7 +74,7 @@ class ObservedPrediction(BaseModel):
         min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:/-]+$"
     )
 
-    @model_validator(mode="after")  # type: ignore[misc]
+    @model_validator(mode="after")
     def require_consistent_handoff(self) -> Self:
         if self.need_human != (self.recommended_route is IntentRoute.HUMAN_HANDOFF):
             raise ValueError("handoff flag and route disagree")
@@ -91,7 +91,7 @@ class EvaluationTarget(BaseModel):
     provider_id: UUID
     model: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:/-]+$")
 
-    @field_validator("base_url")  # type: ignore[misc]
+    @field_validator("base_url")
     @classmethod
     def require_safe_base_url(cls, value: str) -> str:
         try:

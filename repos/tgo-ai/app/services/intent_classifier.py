@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-from typing import cast
 
 from pydantic import ValidationError
 
@@ -179,10 +178,7 @@ class IntentClassifier:
         )
         try:
             repaired_output = await self._generate(request)
-            return cast(
-                IntentModelOutput,
-                output_type.model_validate_json(repaired_output),
-            )
+            return output_type.model_validate_json(repaired_output)
         except Exception:
             return None
 

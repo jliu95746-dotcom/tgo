@@ -5,6 +5,9 @@ from typing import Dict, Iterable, Optional
 from app.schemas.error import Error
 
 
+ResponseDefinitions = Dict[int | str, Dict[str, object]]
+
+
 DEFAULT_DESCRIPTIONS: Dict[int, str] = {
     400: "Validation error",
     401: "Authentication failed",
@@ -18,8 +21,8 @@ DEFAULT_DESCRIPTIONS: Dict[int, str] = {
 def build_error_responses(
     codes: Iterable[int],
     overrides: Optional[Dict[int, str]] = None,
-) -> Dict[int, Dict[str, object]]:
-    """Build a FastAPI `responses` dict mapping status codes to the Error model.
+) -> ResponseDefinitions:
+    """Map status codes to the Error model for FastAPI route decorators.
 
     Args:
         codes: HTTP status codes to include (e.g., [400, 401, 403]).
@@ -29,9 +32,8 @@ def build_error_responses(
         Dict suitable for the `responses` parameter in route decorators.
     """
     overrides = overrides or {}
-    responses: Dict[int, Dict[str, object]] = {}
+    responses: ResponseDefinitions = {}
     for code in codes:
         desc = overrides.get(code, DEFAULT_DESCRIPTIONS.get(code, "Error"))
         responses[code] = {"model": Error, "description": desc}
     return responses
-

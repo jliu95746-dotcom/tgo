@@ -74,15 +74,18 @@ def _unpack(data: bytes, filename: str) -> dict[str, bytes]:
         raise ValueError('ZIP 必须仅包含一个技能，SKILL.md 位于根目录或一层技能目录内')
     root = roots[0].parent
     result: dict[str, bytes] = {}
-    for path, content in files.items():
+    for file_name, content in files.items():
         try:
-            relative = PurePosixPath(path).relative_to(root)
+            relative = PurePosixPath(file_name).relative_to(root)
         except ValueError as exc:
             raise ValueError('ZIP 中存在技能目录以外的文件') from exc
         result[str(relative)] = content
     file_paths = {path.casefold() for path in result}
-    for path in result:
-        if any(str(parent).casefold() in file_paths for parent in PurePosixPath(path).parents):
+    for file_name in result:
+        if any(
+            str(parent).casefold() in file_paths
+            for parent in PurePosixPath(file_name).parents
+        ):
             raise ValueError('技能包中文件和目录路径冲突')
     return result
 

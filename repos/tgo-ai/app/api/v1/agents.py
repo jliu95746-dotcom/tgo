@@ -27,7 +27,7 @@ from app.schemas.agent import (
     ToggleEnabledRequest,
 )
 from app.schemas.base import PaginationMetadata
-from app.api.responses import build_error_responses
+from app.api.responses import ResponseDefinitions, build_error_responses
 from app.runtime.supervisor.application.service import SupervisorRuntimeService
 from app.services.agent_service import AgentService
 from app.api.v1.agent_mutation_principal import optional_mutation_actor
@@ -99,7 +99,7 @@ _STREAMING_EXAMPLE = (
 )
 
 
-_run_success_responses = {
+_run_success_responses: ResponseDefinitions = {
     200: {
         "description": "Successful response. Returns JSON when `stream=false` and Server-Sent Events when `stream=true`.",
         "content": {

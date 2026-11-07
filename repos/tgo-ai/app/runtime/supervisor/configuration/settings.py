@@ -29,7 +29,7 @@ class QueryAnalysisConfig:
     require_all_fields: bool = True
     confidence_threshold: float = 0.5
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate configuration values."""
         if not 0.0 <= self.temperature <= 2.0:
             raise ValueError("Temperature must be between 0.0 and 2.0")
@@ -60,7 +60,7 @@ class WorkflowPlanningConfig:
     detect_cycles: bool = True
     resolve_conflicts: bool = True
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate configuration values."""
         if self.max_parallel_agents <= 0:
             raise ValueError("Max parallel agents must be positive")
@@ -92,7 +92,7 @@ class ExecutionConfig:
     memory_limit_mb: int = 1024
     cpu_limit_percent: float = 80.0
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate configuration values."""
         if self.default_timeout <= 0:
             raise ValueError("Default timeout must be positive")
@@ -128,7 +128,7 @@ class ConsolidationConfig:
     include_sources: bool = True
     include_confidence: bool = True
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate configuration values."""
         if not 0.0 <= self.temperature <= 2.0:
             raise ValueError("Temperature must be between 0.0 and 2.0")
@@ -161,7 +161,7 @@ class CoordinationConfig:
     request_timeout: int = 600
     enable_rate_limiting: bool = True
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate global configuration."""
         if self.cache_ttl <= 0:
             raise ValueError("Cache TTL must be positive")

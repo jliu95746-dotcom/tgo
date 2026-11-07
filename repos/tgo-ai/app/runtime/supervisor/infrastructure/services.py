@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from types import TracebackType
 from typing import Dict, List, Optional, TypedDict
 
 from pydantic import JsonValue
@@ -182,16 +183,16 @@ def _convert_agent(
 
         # Convert workflows
         workflows: List[InternalAgentWorkflow] = []
-        for binding in agent.workflows:
+        for workflow_binding in agent.workflows:
             try:
                 workflows.append(
                     InternalAgentWorkflow(
-                        id=binding.id,
-                        workflow_id=binding.workflow_id,
-                        enabled=binding.enabled,
-                        release_version=binding.release_version,
-                        release_id=binding.release_id,
-                        release_digest=binding.release_digest,
+                        id=workflow_binding.id,
+                        workflow_id=workflow_binding.workflow_id,
+                        enabled=workflow_binding.enabled,
+                        release_version=workflow_binding.release_version,
+                        release_id=workflow_binding.release_id,
+                        release_digest=workflow_binding.release_digest,
                     )
                 )
             except Exception as e:
@@ -199,8 +200,8 @@ def _convert_agent(
                     "Failed to convert agent workflow, skipping",
                     agent_id=str(agent.id),
                     agent_name=agent.name,
-                    workflow_id=str(binding.workflow_id)
-                    if hasattr(binding, "workflow_id")
+                    workflow_id=str(workflow_binding.workflow_id)
+                    if hasattr(workflow_binding, "workflow_id")
                     else "unknown",
                     error=str(e),
                     error_type=type(e).__name__,
@@ -289,7 +290,10 @@ class AIServiceClient:
         return self
 
     async def __aexit__(
-        self, exc_type, exc, tb
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
     ) -> None:  # pragma: no cover - nothing to cleanup
         return None
 
@@ -433,7 +437,12 @@ class AgentServiceClient:
     async def __aenter__(self) -> "AgentServiceClient":  # pragma: no cover
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:  # pragma: no cover
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:  # pragma: no cover
         return None
 
     async def execute_agent(

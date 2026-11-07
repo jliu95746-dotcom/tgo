@@ -25,7 +25,7 @@ from app.services.structured_output_chat_client import (
 router = APIRouter()
 
 
-@router.post(  # type: ignore[misc]
+@router.post(
     "/intent",
     dependencies=[Depends(require_internal_reply_quota)],
     response_model=(

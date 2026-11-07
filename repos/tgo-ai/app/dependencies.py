@@ -36,7 +36,7 @@ async def _get_session_from_app(request: Request) -> AsyncIterator[AsyncSession]
     except StopAsyncIteration as exc:  # pragma: no cover - defensive
         raise RuntimeError("Database dependency did not yield a session") from exc
     try:
-        yield session  # type: ignore[generator-type]
+        yield session
     finally:
         await generator.aclose()
 

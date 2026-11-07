@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.responses import build_error_responses
+from app.api.responses import ResponseDefinitions, build_error_responses
 from app.core.logging import get_logger
 from app.dependencies import get_db
 from app.schemas.chat import (
@@ -42,7 +42,7 @@ _STREAMING_EXAMPLE = (
 )
 
 
-_completions_success_responses = {
+_completions_success_responses: ResponseDefinitions = {
     200: {
         "description": "Successful response. Returns JSON when `stream=false` and Server-Sent Events when `stream=true`.",
         "content": {

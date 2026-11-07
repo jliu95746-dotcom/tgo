@@ -71,7 +71,7 @@ async def current_fingerprint(
         configuration = await loader.get_trial_agent(
             agent, requested_by=actor, verify_runtime=False
         )
-    return cast(str, configuration_fingerprint(configuration))
+    return configuration_fingerprint(configuration)
 
 
 def utc(value: datetime) -> datetime:
@@ -193,11 +193,8 @@ class AgentBusinessTrialService:
 
     @staticmethod
     def _digest(agent: UUID, request: BusinessTrialRequest) -> str:
-        return cast(
-            str,
-            private_digest(
-                {"agent_id": str(agent), "request": request.private_payload()}
-            ),
+        return private_digest(
+            {"agent_id": str(agent), "request": request.private_payload()}
         )
 
     @staticmethod

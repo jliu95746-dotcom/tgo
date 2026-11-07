@@ -80,7 +80,7 @@ class MediaAnalysisRequest(MultimodalSchema):
     )
     language: str | None = Field(default=None, min_length=2, max_length=32)
 
-    @model_validator(mode="after")  # type: ignore[misc]
+    @model_validator(mode="after")
     def validate_media_mime_type(self) -> Self:
         """Reject a media type/MIME mismatch before contacting a provider."""
         expected_prefix = (
@@ -189,7 +189,7 @@ class AnalysisStageResult(MultimodalSchema):
     text_is_untrusted: bool = False
     sensitive_data_categories: tuple[SensitiveDataCategory, ...] = ()
 
-    @model_validator(mode="after")  # type: ignore[misc]
+    @model_validator(mode="after")
     def validate_terminal_state(self) -> Self:
         """Ensure successful and failed stage payloads cannot be confused."""
         if self.status is AnalysisStageStatus.COMPLETED:
@@ -229,7 +229,7 @@ class MediaAnalysisResult(MultimodalSchema):
     normalized_text_is_untrusted: bool
     sensitive_data_categories: tuple[SensitiveDataCategory, ...] = ()
 
-    @model_validator(mode="after")  # type: ignore[misc]
+    @model_validator(mode="after")
     def validate_fail_closed_state(self) -> Self:
         """Align aggregate status with stages and fallback policy."""
         completed_count = sum(

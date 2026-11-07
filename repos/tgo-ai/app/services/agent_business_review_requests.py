@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import hmac
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 from sqlalchemy import func, select, update
 
@@ -41,15 +41,12 @@ class AgentBusinessReviewRequests:
 
     @staticmethod
     def digest(agent: UUID, report: UUID, command: BusinessReviewRequest) -> str:
-        return cast(
-            str,
-            private_digest(
-                {
-                    "agent_id": str(agent),
-                    "report_id": str(report),
-                    "command": command.model_dump(mode="json"),
-                }
-            ),
+        return private_digest(
+            {
+                "agent_id": str(agent),
+                "report_id": str(report),
+                "command": command.model_dump(mode="json"),
+            }
         )
 
     async def _lock(self, project: UUID, actor: UUID, request: UUID) -> None:
