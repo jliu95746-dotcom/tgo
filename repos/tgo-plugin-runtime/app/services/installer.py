@@ -13,6 +13,9 @@ from app.core.logging import get_logger
 from app.schemas.install import PluginInstallRequest, PluginBuildConfig
 from app.services.plugin_paths import plugin_directory, plugin_python, contained_path
 from app.services.plugin_packages import download_package, unpack_package
+from app.services.plugin_failures import (
+    INSTALL_FAILED, UPGRADE_FAILED, log_plugin_failure,
+)
 
 logger = get_logger("services.installer")
 
@@ -73,10 +76,10 @@ class PluginInstaller:
                 return False, message, None
                 
         except Exception as e:
-            logger.exception(f"Unexpected error during installation of {plugin_id}: {e}")
+            log_plugin_failure("install", e)
             if install_dir.exists():
                 shutil.rmtree(install_dir)
-            return False, f"Unexpected error: {str(e)}", None
+            return False, INSTALL_FAILED, None
 
     async def upgrade(self, request: PluginInstallRequest, progress_callback: Optional[Any] = None, preserve_backup: bool = False) -> Tuple[bool, str, Optional[str]]:
         """
@@ -121,13 +124,13 @@ class PluginInstaller:
                 return False, message, None
                 
         except Exception as e:
-            logger.exception(f"Unexpected error during upgrade of {plugin_id}: {e}")
+            log_plugin_failure("upgrade_files", e)
             # Rollback
             if backup_dir.exists():
                 if install_dir.exists():
                     shutil.rmtree(install_dir)
                 shutil.move(str(backup_dir), str(install_dir))
-            return False, f"Unexpected error during upgrade: {str(e)}", None
+            return False, UPGRADE_FAILED, None
 
     async def _install_from_github(
         self, 
@@ -146,7 +149,7 @@ class PluginInstaller:
             
         try:
             # Clone repo
-            msg = f"Cloning {repo_url} (ref: {github_config.ref})"
+            msg = "Cloning plugin source"
             logger.info(msg)
             await report("cloning", msg)
             
@@ -162,7 +165,7 @@ class PluginInstaller:
                 return False, "System error: 'git' command not found. Please ensure git is installed in the runtime environment."
             
             if process.returncode != 0:
-                return False, f"Git clone failed: {stderr.decode()}"
+                return False, "Git clone failed"
             
             await report("copying", "Copying files to installation directory...")
             
@@ -172,7 +175,7 @@ class PluginInstaller:
                 source_path = contained_path(temp_repo_path, github_config.path.lstrip("/"))
             
             if not source_path.exists():
-                return False, f"Source path {github_config.path} not found in repo"
+                return False, "Source path was not found in repository"
             
             # Copy all files to install dir
             for item in source_path.iterdir():
@@ -252,7 +255,7 @@ class PluginInstaller:
                 return False, "System error: 'go' compiler not found. Please ensure Go is installed."
             
             if process.returncode != 0:
-                return False, f"Go build failed: {stderr.decode()}"
+                return False, "Go build failed"
             
             return True, "Go build successful"
             
@@ -275,7 +278,7 @@ class PluginInstaller:
             except FileNotFoundError:
                 return False, "Python interpreter is unavailable"
             if process.returncode != 0:
-                return False, f"Python venv creation failed: {stderr.decode(errors='replace')}"
+                return False, "Python venv creation failed"
             venv_python = plugin_python(install_dir, require_venv=True)
             
             # Install requirements
@@ -294,7 +297,7 @@ class PluginInstaller:
                     return False, "System error: 'pip' not found in virtual environment."
                 
                 if process.returncode != 0:
-                    return False, f"Python pip install failed: {stderr.decode()}"
+                    return False, "Python pip install failed"
             
             return True, "Python setup successful"
             
@@ -320,11 +323,11 @@ class PluginInstaller:
                     return False, "System error: 'npm' command not found. Please ensure Node.js is installed."
                 
                 if process.returncode != 0:
-                    return False, f"npm install failed: {stderr.decode()}"
+                    return False, "npm install failed"
             
             return True, "Node.js setup successful"
             
-        return False, f"Unsupported language: {lang}"
+        return False, "Unsupported build language"
 
     async def uninstall(self, plugin_id: str) -> bool:
         """Uninstall a plugin."""

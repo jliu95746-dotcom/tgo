@@ -13,6 +13,9 @@ from app.core.database import SessionLocal
 from app.models.plugin import InstalledPlugin
 from app.services.plugin_paths import plugin_directory, plugin_python, contained_path
 from app.services.plugin_manager import plugin_manager
+from app.services.plugin_failures import (
+    START_FAILED, log_plugin_failure, public_plugin_failure,
+)
 
 logger = get_logger("services.process_manager")
 
@@ -75,7 +78,7 @@ class ProcessManager:
                         plugin.last_error = last_error
                     db.commit()
         except Exception as e:
-            logger.error(f"Failed to update DB status for {plugin_id}: {e}")
+            log_plugin_failure("persist_process_status", e)
 
     async def _monitor_loop(self):
         """Monitor running processes and auto-restart if needed."""
@@ -101,7 +104,7 @@ class ProcessManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in process monitor loop: {e}")
+                log_plugin_failure("monitor", e)
 
     async def _delayed_restart(self, plugin_id: str, delay: int):
         """Restart a plugin after a delay."""
@@ -121,8 +124,10 @@ class ProcessManager:
         try:
             success, message = await self._launch_plugin(plugin_id, config)
         except Exception as error:
-            success, message = False, f"Plugin startup failed: {error}"
+            log_plugin_failure("start_preflight", error)
+            success, message = False, START_FAILED
         if not success:
+            message = public_plugin_failure(message, START_FAILED)
             managed = self._managed_plugins.get(plugin_id)
             if managed:
                 managed.status = "error"
@@ -147,7 +152,7 @@ class ProcessManager:
         install_dir = plugin_directory(self.base_path, plugin_id)
         if not install_dir.exists():
             managed.status = "error"
-            managed.last_error = f"Install directory not found: {install_dir}"
+            managed.last_error = "Plugin installation directory is missing"
             return False, managed.last_error
         
         build_config = config.get("build") or {}
@@ -175,7 +180,7 @@ class ProcessManager:
             
             if not binary_path.exists():
                 managed.status = "error"
-                managed.last_error = f"Plugin binary not found: {binary_path}"
+                managed.last_error = "Plugin binary was not found"
                 return False, managed.last_error
             
             cmd = [str(binary_path)]
@@ -221,7 +226,7 @@ class ProcessManager:
             deadline = asyncio.get_running_loop().time() + settings.PLUGIN_REQUEST_TIMEOUT
             while asyncio.get_running_loop().time() < deadline:
                 if process.returncode is not None:
-                    raise RuntimeError(f"Plugin exited before registration (code={process.returncode})")
+                    raise RuntimeError("Plugin exited before registration")
                 connection = plugin_manager.get_plugin(plugin_id, config.get("project_id"))
                 if connection and connection.writer and not connection.writer.is_closing():
                     break
@@ -236,8 +241,8 @@ class ProcessManager:
         except Exception as e:
             await self._stop_plugin_inner(plugin_id)
             managed.status = "error"
-            managed.last_error = f"Failed to start: {str(e)}"
-            logger.error(f"Failed to start plugin {plugin_id}: {e}")
+            managed.last_error = public_plugin_failure(str(e), START_FAILED)
+            log_plugin_failure("launch_process", e)
             await self._update_db_status(plugin_id, "error", last_error=managed.last_error)
             return False, managed.last_error
 
@@ -281,7 +286,7 @@ class ProcessManager:
                     managed.process.kill()
                     await managed.process.wait()
             except Exception as e:
-                logger.error(f"Error stopping plugin {plugin_id}: {e}")
+                log_plugin_failure("stop_process", e)
                 return False
         connection = plugin_manager.get_plugin(plugin_id)
         if connection:

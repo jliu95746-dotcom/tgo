@@ -42,6 +42,9 @@ from app.services.plugin_installation import (
     install_plugin_operation, PluginInstallationError, plugin_lifecycle_lock,
 )
 from app.services.plugin_upgrade import upgrade_plugin_operation
+from app.services.plugin_failures import (
+    INSTALL_FAILED, UPGRADE_FAILED, log_plugin_failure, public_plugin_failure,
+)
 from sqlalchemy import select
 
 logger = get_logger("api.routes")
@@ -149,10 +152,12 @@ async def fetch_plugin_info(request: PluginFetchRequest) -> PluginFetchResponse:
         config = await resolver.resolve(request.url)
         return PluginFetchResponse(**config, source_url=request.url)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(
+            400, public_plugin_failure(str(e), "Invalid plugin source")
+        ) from None
     except Exception as e:
-        logger.error(f"Failed to fetch plugin info from {request.url}: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal error fetching plugin info: {e}")
+        log_plugin_failure("fetch_plugin_info", e)
+        raise HTTPException(500, "Failed to fetch plugin information") from None
 
 
 # ==================== Generic Plugin Routes ====================
@@ -443,8 +448,11 @@ async def install_plugin_stream(request: PluginInstallRequest):
             try:
                 await install_plugin_operation(request, progress_callback)
             except Exception as e:
-                logger.error(f"Error in install-stream for {request.id}: {e}")
-                await queue.put({"stage": "error", "message": str(e)})
+                log_plugin_failure("install_stream", e)
+                await queue.put({
+                    "stage": "error",
+                    "message": public_plugin_failure(str(e), INSTALL_FAILED),
+                })
             finally:
                 # Signal end of stream
                 await queue.put(None)
@@ -468,9 +476,17 @@ async def install_plugin(request: PluginInstallRequest) -> InstalledPluginInfo:
     try:
         return await install_plugin_operation(request)
     except PluginInstallationError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(exc.status_code, str(exc)) from None
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(
+            400,
+            public_plugin_failure(
+                str(exc), "Invalid plugin installation request"
+            ),
+        ) from None
+    except Exception as exc:
+        log_plugin_failure("install_request", exc)
+        raise HTTPException(500, INSTALL_FAILED) from None
 
 
 async def _lock_plugin_lifecycle(plugin_id: str) -> AsyncIterator[None]:
@@ -702,12 +718,12 @@ async def check_plugin_update(plugin_id: str, project_id: Optional[str] = None) 
                 latest_config=latest_config
             )
         except Exception as e:
-            logger.error(f"Failed to check update for {plugin_id}: {e}")
+            log_plugin_failure("check_plugin_update", e)
             return PluginUpdateCheckResponse(
                 has_update=False,
                 current_version=plugin.version,
                 latest_version=plugin.version,
-                message=f"Error checking update: {str(e)}"
+                message="Failed to check plugin updates"
             )
 
 
@@ -731,8 +747,11 @@ async def upgrade_plugin(
                 await upgrade_plugin_operation(plugin_id, request, project_id, progress_callback)
 
             except Exception as e:
-                logger.error(f"Error in upgrade-stream for {plugin_id}: {e}")
-                await queue.put({"stage": "error", "message": str(e)})
+                log_plugin_failure("upgrade_stream", e)
+                await queue.put({
+                    "stage": "error",
+                    "message": public_plugin_failure(str(e), UPGRADE_FAILED),
+                })
             finally:
                 await queue.put(None)
 

@@ -13,6 +13,9 @@ from app.schemas.plugin import InstalledPluginInfo
 from app.services.installer import installer
 from app.services.process_manager import process_manager
 from app.services.plugin_paths import plugin_directory, validate_plugin_id
+from app.services.plugin_failures import (
+    INSTALL_FAILED, START_FAILED, log_plugin_failure, public_plugin_failure,
+)
 
 Progress = Callable[[str, str], Awaitable[None]]
 _install_locks: dict[str, asyncio.Lock] = {}
@@ -39,8 +42,8 @@ def apply_plugin_config(plugin: InstalledPlugin, request: PluginInstallRequest) 
 
 
 class PluginInstallationError(ValueError):
-    def __init__(self, message: str, status_code: int = 400):
-        super().__init__(message)
+    def __init__(self, message: str, status_code: int = 400) -> None:
+        super().__init__(public_plugin_failure(message))
         self.status_code = status_code
 
 
@@ -77,7 +80,10 @@ async def install_plugin_operation(
                 request, progress_callback=progress
             )
         except Exception as error:
-            success, message, path = False, f"Installation failed: {error}", None
+            log_plugin_failure("installation_operation", error)
+            success, message, path = False, INSTALL_FAILED, None
+        if not success:
+            message = public_plugin_failure(message, INSTALL_FAILED)
         async with AsyncSessionLocal() as session:
             row = await session.execute(
                 select(InstalledPlugin).where(
@@ -98,8 +104,10 @@ async def install_plugin_operation(
                 request.id, request.model_dump()
             )
         except Exception as error:
-            started, message = False, f"Plugin startup failed: {error}"
+            log_plugin_failure("installation_start", error)
+            started, message = False, START_FAILED
         if not started:
+            message = public_plugin_failure(message, START_FAILED)
             async with AsyncSessionLocal() as session:
                 row = await session.execute(
                     select(InstalledPlugin).where(

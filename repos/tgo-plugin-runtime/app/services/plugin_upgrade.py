@@ -23,6 +23,9 @@ from app.services.plugin_installation import (
 )
 from app.services.plugin_paths import contained_path, plugin_directory
 from app.services.process_manager import process_manager
+from app.services.plugin_failures import (
+    UPGRADE_FAILED, log_plugin_failure, public_plugin_failure,
+)
 
 
 @dataclass
@@ -52,7 +55,9 @@ async def save_version(
         plugin.latest_version = latest_version or config.version
         plugin.status = "stopped"
         plugin.pid = None
-        plugin.last_error = error
+        plugin.last_error = (
+            public_plugin_failure(error, UPGRADE_FAILED) if error else None
+        )
         await session.commit()
 
 
@@ -66,7 +71,7 @@ async def restore_previous(previous: PreviousVersion, error: str) -> str:
     )
     if started:
         return "Original version restored and connected"
-    return f"Original files restored, but restart failed: {message}"
+    return "Original files restored, but restart failed"
 
 
 async def upgrade_plugin_operation(
@@ -133,6 +138,7 @@ async def upgrade_plugin_operation(
                 config, progress_callback=progress, preserve_backup=True
             )
             if not success:
+                message = public_plugin_failure(message, UPGRADE_FAILED)
                 # Installer restores the old directory on download/build failure.
                 if backup.exists():
                     raise RuntimeError(
@@ -149,10 +155,12 @@ async def upgrade_plugin_operation(
             if not started:
                 raise RuntimeError(message)
         except Exception as error:
+            log_plugin_failure("upgrade_operation", error)
+            message = public_plugin_failure(str(error), UPGRADE_FAILED)
             if not await process_manager.stop_plugin(plugin_id):
                 await progress(
                     "error",
-                    f"Upgrade failed: {error}. "
+                    f"Upgrade failed: {message}. "
                     "Could not stop process; backup preserved",
                 )
                 return
@@ -161,25 +169,27 @@ async def upgrade_plugin_operation(
                 if not restored:
                     await progress(
                         "error",
-                        f"Upgrade failed: {error}. "
+                        f"Upgrade failed: {message}. "
                         "No backup available; recovery not confirmed",
                     )
                     return
-                recovery = await restore_previous(previous, str(error))
+                recovery = await restore_previous(previous, message)
             except Exception as recovery_error:
+                log_plugin_failure("upgrade_recovery", recovery_error)
                 await progress(
                     "error",
-                    f"Upgrade failed: {error}. Recovery failed: {recovery_error}",
+                    "Upgrade failed. Previous version recovery failed",
                 )
                 return
-            await progress("error", f"Upgrade failed: {error}. {recovery}")
+            await progress("error", f"Upgrade failed: {message}. {recovery}")
             return
         # Do not roll back a running version just because backup cleanup failed.
         try:
             installer.complete_upgrade(plugin_id)
         except Exception as error:
+            log_plugin_failure("upgrade_backup_cleanup", error)
             await progress(
-                "error", f"New version connected, but backup cleanup failed: {error}"
+                "error", "New version connected, but backup cleanup failed"
             )
             return
         await progress("complete", "Upgrade successful; plugin connected")
