@@ -14,7 +14,9 @@ from pydantic import BaseModel, Field, SecretStr
 from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.knowledge_evidence import KnowledgeEvidence
 from app.schemas.agent_execution import AgentExecutionReference
-from app.schemas.agent_business_connections import AgentBusinessConnectionRecord
+from app.schemas.agent_business_connections import (
+    AgentBusinessConnectionRecord,
+)
 from app.schemas.agent_device_script_selection import ScriptSelectionRecord
 from app.schemas.business_execution_context import BusinessRequestPrincipal
 from app.runtime.tools.models import LLMProviderCredentials
@@ -26,25 +28,38 @@ class AgentTool(BaseModel):
     tool_id: UUID = Field(..., description="Tool ID")
     tool_name: str = Field(..., description="Tool name")
     tool_description: Optional[str] = Field(
-        default=None, description="Tool purpose shown to the model",
+        default=None,
+        description="Tool purpose shown to the model",
     )
     tool_type: str = Field(..., description="Tool type (MCP or FUNCTION)")
-    enabled: bool = Field(default=True, description="Whether tool is enabled for this agent")
-    permissions: Optional[List[str]] = Field(default_factory=list, description="Tool permissions for this agent")
+    enabled: bool = Field(
+        default=True, description="Whether tool is enabled for this agent"
+    )
+    permissions: Optional[List[str]] = Field(
+        default_factory=list, description="Tool permissions for this agent"
+    )
     tool_config: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
-        description="Agent-specific tool configuration (overrides tool's default config)",
+        description=(
+            "Agent-specific tool configuration "
+            "(overrides tool's default config)"
+        ),
     )
 
     # MCP-specific fields (only populated for MCP tools)
-    transport_type: Optional[str] = Field(None, description="Transport type for MCP tools (http, stdio, sse)")
-    endpoint: Optional[str] = Field(None, description="Endpoint URL or command for MCP tools")
+    transport_type: Optional[str] = Field(
+        default=None,
+        description="Transport type for MCP tools (http, stdio, sse)",
+    )
+    endpoint: Optional[str] = Field(
+        default=None, description="Endpoint URL or command for MCP tools"
+    )
     base_config: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
         description="Base tool configuration from Tool model",
     )
     tool_source_type: Optional[str] = Field(
-        None,
+        default=None,
         description="Tool source type (LOCAL or STORE) for routing decisions",
     )
 
@@ -53,13 +68,16 @@ class AgentTool(BaseModel):
         """获取工具的 inputSchema，优先从 base_config 获取"""
         if self.base_config:
             # 支持 inputSchema 和 input_schema 两种命名
-            schema = self.base_config.get("inputSchema") or self.base_config.get("input_schema")
+            schema = self.base_config.get(
+                "inputSchema"
+            ) or self.base_config.get("input_schema")
             if schema:
                 return schema
         return {"type": "object", "properties": {}}
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
 
 
@@ -68,14 +86,23 @@ class AgentCollection(BaseModel):
 
     id: UUID = Field(..., description="Internal association ID")
     collection_id: str = Field(..., description="External collection UUID")
-    enabled: bool = Field(default=True, description="Whether collection is enabled for this agent")
-    display_name: str = Field(..., description="Human-readable collection name")
-    description: Optional[str] = Field(None, description="Collection description")
-    collection_metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Collection metadata")
-
+    enabled: bool = Field(
+        default=True,
+        description="Whether collection is enabled for this agent",
+    )
+    display_name: str = Field(
+        ..., description="Human-readable collection name"
+    )
+    description: Optional[str] = Field(
+        default=None, description="Collection description"
+    )
+    collection_metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict, description="Collection metadata"
+    )
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
 
 
@@ -84,13 +111,16 @@ class AgentWorkflow(BaseModel):
 
     id: UUID = Field(..., description="Internal association ID")
     workflow_id: str = Field(..., description="External workflow service ID")
-    enabled: bool = Field(default=True, description="Whether workflow is enabled for this agent")
+    enabled: bool = Field(
+        default=True, description="Whether workflow is enabled for this agent"
+    )
     release_version: int | None = None
     release_id: str | None = None
     release_digest: str | None = None
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
 
 
@@ -98,29 +128,65 @@ class Agent(BaseModel):
     """Model representing an AI agent from the AI Service."""
 
     id: UUID = Field(..., description="Agent ID")
-    project_id: Optional[str] = Field(None, description="Associated project ID")
+    project_id: Optional[str] = Field(
+        default=None, description="Associated project ID"
+    )
     name: str = Field(..., description="Agent name")
-    instruction: Optional[str] = Field(None, description="Agent system instruction")
+    instruction: Optional[str] = Field(
+        default=None, description="Agent system instruction"
+    )
     model: str = Field(..., description="LLM model name")
-    model_owner_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    model_owner_revision: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     humanization_skill_name: str | None = None
     humanization_skill_enabled: bool = False
-    config: Dict[str, Any] = Field(default_factory=dict, description="Agent configuration (temperature, max_tokens, markdown, etc.)")
-    tools: List[AgentTool] = Field(default_factory=list, description="Agent tools")
-    collections: List[AgentCollection] = Field(default_factory=list, description="Agent collections")
-    workflows: List[AgentWorkflow] = Field(default_factory=list, description="Agent workflows")
-    business_connections: list[AgentBusinessConnectionRecord] = Field(default_factory=list)
-    device_script_selection: ScriptSelectionRecord | None = None
-    is_default: bool = Field(default=False, description="Whether this is the default agent")
-    is_remote_store_agent: bool = Field(default=False, description="Whether this is a remote agent from store")
-    remote_agent_url: Optional[str] = Field(None, description="URL of the remote AgentOS server")
-    store_agent_id: Optional[str] = Field(None, description="Agent ID in the remote store")
-    agent_category: str = Field(default="normal", description="Agent category: normal or computer_use")
-    bound_device_id: Optional[str] = Field(None, description="Bound device ID for device control MCP connection")
-    bound_device_policy_digest: Optional[str] = Field(
-        None, pattern=r"^[0-9a-f]{64}$", description="Pinned device read policy"
+    config: Dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Agent configuration (temperature, max_tokens, markdown, etc.)"
+        ),
     )
-    skills_enabled: bool = Field(default=True, description="Whether skill discovery is enabled")
+    tools: List[AgentTool] = Field(
+        default_factory=list, description="Agent tools"
+    )
+    collections: List[AgentCollection] = Field(
+        default_factory=list, description="Agent collections"
+    )
+    workflows: List[AgentWorkflow] = Field(
+        default_factory=list, description="Agent workflows"
+    )
+    business_connections: list[AgentBusinessConnectionRecord] = Field(
+        default_factory=list
+    )
+    device_script_selection: ScriptSelectionRecord | None = None
+    is_default: bool = Field(
+        default=False, description="Whether this is the default agent"
+    )
+    is_remote_store_agent: bool = Field(
+        default=False, description="Whether this is a remote agent from store"
+    )
+    remote_agent_url: Optional[str] = Field(
+        default=None, description="URL of the remote AgentOS server"
+    )
+    store_agent_id: Optional[str] = Field(
+        default=None, description="Agent ID in the remote store"
+    )
+    agent_category: str = Field(
+        default="normal", description="Agent category: normal or computer_use"
+    )
+    bound_device_id: Optional[str] = Field(
+        default=None,
+        description="Bound device ID for device control MCP connection",
+    )
+    bound_device_policy_digest: Optional[str] = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="Pinned device read policy",
+    )
+    skills_enabled: bool = Field(
+        default=True, description="Whether skill discovery is enabled"
+    )
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 
@@ -142,8 +208,16 @@ class Agent(BaseModel):
         if self.instruction:
             instruction_lower = self.instruction.lower()
             capability_keywords = [
-                "support", "technical", "customer", "documentation", "search",
-                "analysis", "coding", "writing", "translation", "math"
+                "support",
+                "technical",
+                "customer",
+                "documentation",
+                "search",
+                "analysis",
+                "coding",
+                "writing",
+                "translation",
+                "math",
             ]
             for keyword in capability_keywords:
                 if keyword in instruction_lower:
@@ -153,6 +227,7 @@ class Agent(BaseModel):
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
 
 
@@ -160,28 +235,50 @@ class AgentExecutionRequest(BaseModel):
     """Model for agent execution requests to the Agent Service."""
 
     message: str = Field(..., description="Message to send to the agent")
-    config: Dict[str, Any] = Field(default_factory=dict, description="Agent configuration")
-    session_id: Optional[str] = Field(None, description="Session ID for conversation tracking")
-    user_id: Optional[str] = Field(None, description="User ID for authentication")
-    enable_memory: bool = Field(False, description="Enable agent memory for this execution")
+    config: Dict[str, Any] = Field(
+        default_factory=dict, description="Agent configuration"
+    )
+    session_id: Optional[str] = Field(
+        default=None, description="Session ID for conversation tracking"
+    )
+    user_id: Optional[str] = Field(
+        default=None, description="User ID for authentication"
+    )
+    enable_memory: bool = Field(
+        default=False, description="Enable agent memory for this execution"
+    )
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
 
 
 class AgentExecutionResponse(BaseModel):
     """Model for agent execution responses from the Agent Service."""
 
-    messages: Optional[List[Dict[str, Any]]] = Field(None, description="Conversation messages")
-    content: Optional[str] = Field(None, description="Agent response content")
-    tools: Optional[List[Dict[str, Any]]] = Field(None, description="Tool executions")
-    success: bool = Field(default=True, description="Whether execution was successful")
-    error: Optional[str] = Field(None, description="Error message if failed")
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Response metadata")
+    messages: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Conversation messages"
+    )
+    content: Optional[str] = Field(
+        default=None, description="Agent response content"
+    )
+    tools: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Tool executions"
+    )
+    success: bool = Field(
+        default=True, description="Whether execution was successful"
+    )
+    error: Optional[str] = Field(
+        default=None, description="Error message if failed"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict, description="Response metadata"
+    )
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
 
 
@@ -189,50 +286,70 @@ class AgentExecutionContext(BaseModel):
     """Direct runtime context for a single executing agent."""
 
     agent: Agent = Field(..., description="Resolved agent for this run")
-    execution_id: UUID = Field(default_factory=uuid4, description="Stable ID for this agent run")
+    execution_id: UUID = Field(
+        default_factory=uuid4, description="Stable ID for this agent run"
+    )
     response_purpose: Literal["standard", "expression"] = "standard"
     require_current_knowledge: bool = False
     knowledge_context: list[str] = Field(default_factory=list, max_length=4)
     knowledge_evidence: KnowledgeEvidence | None = None
     execution_reference: AgentExecutionReference | None = None
-    business_principal: "BusinessRequestPrincipal | None" = Field(default=None, exclude=True, repr=False)
-    business_context_token: "SecretStr | None" = Field(default=None, exclude=True, repr=False)
-    parent_workflow_execution_id: UUID | None = Field(default=None, exclude=True, repr=False)
-    workflow_lineage: tuple[str, ...] = Field(default=(), exclude=True, repr=False)
+    business_principal: "BusinessRequestPrincipal | None" = Field(
+        default=None, exclude=True, repr=False
+    )
+    business_context_token: "SecretStr | None" = Field(
+        default=None, exclude=True, repr=False
+    )
+    parent_workflow_execution_id: UUID | None = Field(
+        default=None, exclude=True, repr=False
+    )
+    workflow_lineage: tuple[str, ...] = Field(
+        default=(), exclude=True, repr=False
+    )
     project_id: str = Field(..., description="Owning project ID")
     message: str = Field(..., description="User message")
     system_message: Optional[str] = Field(
-        None,
-        description="Optional system message appended after the stored agent instruction",
+        default=None,
+        description=(
+            "Optional system message appended after the stored agent instruction"
+        ),
     )
     expected_output: Optional[str] = Field(
-        None,
+        default=None,
         description="Optional expected output override for this run",
     )
-    session_id: Optional[str] = Field(None, description="Conversation session ID")
-    user_id: Optional[str] = Field(None, description="End-user identifier")
+    session_id: Optional[str] = Field(
+        default=None, description="Conversation session ID"
+    )
+    user_id: Optional[str] = Field(
+        default=None, description="End-user identifier"
+    )
     request_id: str = Field(..., description="Trace identifier for this run")
     timeout: int = Field(..., ge=1, description="Execution timeout in seconds")
-    mcp_url: Optional[str] = Field(None, description="MCP runtime URL")
-    rag_url: Optional[str] = Field(None, description="RAG runtime URL")
+    mcp_url: Optional[str] = Field(default=None, description="MCP runtime URL")
+    rag_url: Optional[str] = Field(default=None, description="RAG runtime URL")
     knowledge_channel: Optional["KnowledgeChannel"] = Field(
-        None,
+        default=None,
         description="Channel used for automatic-answer knowledge governance",
     )
     enable_memory: Optional[bool] = Field(
-        None,
-        description="Per-run memory override; None keeps the stored agent setting",
+        default=None,
+        description=(
+            "Per-run memory override; None keeps the stored agent setting"
+        ),
     )
     disable_tools: bool = Field(
-        False,
-        description="Whether every tool and skill must be disabled for this execution",
+        default=False,
+        description=(
+            "Whether every tool and skill must be disabled for this execution"
+        ),
     )
     markdown: Optional[bool] = Field(
-        None,
+        default=None,
         description="Per-run Markdown output override",
     )
     temperature: Optional[float] = Field(
-        None,
+        default=None,
         ge=0,
         le=2,
         description="Per-run model temperature override",
@@ -241,10 +358,13 @@ class AgentExecutionContext(BaseModel):
         default=(),
         description="Persisted agent tools omitted only for this execution",
     )
-    ui_mode: str = Field("json_render", description="UI rendering mode")
+    ui_mode: str = Field(
+        default="json_render", description="UI rendering mode"
+    )
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
 
 
@@ -253,27 +373,54 @@ class SubQuestion(BaseModel):
 
     id: str = Field(..., description="Unique identifier for the sub-question")
     question: str = Field(..., description="The decomposed sub-question")
-    intent: str = Field(..., description="The specific intent of this sub-question")
-    priority: int = Field(..., ge=1, le=10, description="Priority level (1=highest, 10=lowest)")
-    requires_context: bool = Field(default=False, description="Whether this sub-question requires context from other sub-questions")
-    context_dependencies: List[str] = Field(default_factory=list, description="IDs of sub-questions this depends on")
+    intent: str = Field(
+        ..., description="The specific intent of this sub-question"
+    )
+    priority: int = Field(
+        ..., ge=1, le=10, description="Priority level (1=highest, 10=lowest)"
+    )
+    requires_context: bool = Field(
+        default=False,
+        description=(
+            "Whether this sub-question requires context from other sub-questions"
+        ),
+    )
+    context_dependencies: List[str] = Field(
+        default_factory=list,
+        description="IDs of sub-questions this depends on",
+    )
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
 
 
 class QuestionDecomposition(BaseModel):
     """Model representing the decomposition of a complex question."""
 
-    original_question: str = Field(..., description="The original user question")
-    is_complex: bool = Field(..., description="Whether the question contains multiple intents")
-    complexity_score: float = Field(..., ge=0.0, le=1.0, description="Complexity score (0=simple, 1=very complex)")
-    sub_questions: List[SubQuestion] = Field(default_factory=list, description="Decomposed sub-questions")
-    decomposition_reasoning: str = Field(..., description="Reasoning for the decomposition approach")
+    original_question: str = Field(
+        ..., description="The original user question"
+    )
+    is_complex: bool = Field(
+        ..., description="Whether the question contains multiple intents"
+    )
+    complexity_score: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Complexity score (0=simple, 1=very complex)",
+    )
+    sub_questions: List[SubQuestion] = Field(
+        default_factory=list, description="Decomposed sub-questions"
+    )
+    decomposition_reasoning: str = Field(
+        ..., description="Reasoning for the decomposition approach"
+    )
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
 
 
@@ -281,30 +428,54 @@ class AgentAssignment(BaseModel):
     """Model representing an agent assignment to a specific sub-question."""
 
     sub_question_id: str = Field(..., description="ID of the sub-question")
-    assigned_agent: Agent = Field(..., description="Agent assigned to handle this sub-question")
-    assignment_reasoning: str = Field(..., description="Reasoning for this agent assignment")
-    confidence_score: float = Field(..., ge=0.0, le=1.0, description="Confidence in this assignment")
+    assigned_agent: Agent = Field(
+        ..., description="Agent assigned to handle this sub-question"
+    )
+    assignment_reasoning: str = Field(
+        ..., description="Reasoning for this agent assignment"
+    )
+    confidence_score: float = Field(
+        ..., ge=0.0, le=1.0, description="Confidence in this assignment"
+    )
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
 
 
 class AgentSelection(BaseModel):
     """Model representing agent selection results."""
 
-    selected_agents: List[Agent] = Field(..., description="Selected agents for execution")
-    selection_strategy: str = Field(..., description="Strategy used for selection")
-    selection_reasoning: str = Field(..., description="Reasoning for agent selection")
-    confidence_score: float = Field(..., ge=0.0, le=1.0, description="Confidence in selection")
+    selected_agents: List[Agent] = Field(
+        ..., description="Selected agents for execution"
+    )
+    selection_strategy: str = Field(
+        ..., description="Strategy used for selection"
+    )
+    selection_reasoning: str = Field(
+        ..., description="Reasoning for agent selection"
+    )
+    confidence_score: float = Field(
+        ..., ge=0.0, le=1.0, description="Confidence in selection"
+    )
 
     # Enhanced fields for multi-intent support
-    question_decomposition: Optional[QuestionDecomposition] = Field(None, description="Question decomposition if applicable")
-    agent_assignments: List[AgentAssignment] = Field(default_factory=list, description="Specific agent assignments to sub-questions")
+    question_decomposition: Optional[QuestionDecomposition] = Field(
+        default=None, description="Question decomposition if applicable"
+    )
+    agent_assignments: List[AgentAssignment] = Field(
+        default_factory=list,
+        description="Specific agent assignments to sub-questions",
+    )
 
     # Coordination planning result for sophisticated execution
-    coordination_result: Optional[Any] = Field(None, description="Detailed coordination planning result from LLM")
+    coordination_result: Optional[Any] = Field(
+        default=None,
+        description="Detailed coordination planning result from LLM",
+    )
 
     class Config:
         """Pydantic model configuration."""
+
         extra = "forbid"
