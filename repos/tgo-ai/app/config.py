@@ -19,6 +19,7 @@ def load_runtime_settings(kind: type[RuntimeSettings]) -> RuntimeSettings:
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+
     agent_trial_review_validity_hours: int = Field(default=168, ge=1, le=8760)
     script_trial_evidence_key: SecretStr | None = None
     script_trial_body_retention_days: int = Field(default=90, ge=1, le=3650)
@@ -29,7 +30,9 @@ class Settings(BaseSettings):
     saas_billing_enabled: bool = False
     saas_internal_token: SecretStr | None = None
     saas_approved_models: list[str] = Field(default_factory=list)
-    saas_model_cost_rates: dict[str, ModelCostRate] = Field(default_factory=dict)
+    saas_model_cost_rates: dict[str, ModelCostRate] = Field(
+        default_factory=dict
+    )
     saas_max_input_characters: int = Field(default=64000, ge=1000, le=1000000)
     saas_max_output_tokens: int = Field(default=4096, ge=128, le=32000)
     saas_max_tool_calls: int = Field(default=8, ge=1, le=100)
@@ -43,6 +46,7 @@ class Settings(BaseSettings):
     )
 
     # Database Configuration
+
     database_url: str = Field(
         default="sqlite+aiosqlite:///./tgo_ai_service.db",
         description="Database URL (async driver)",
@@ -57,10 +61,12 @@ class Settings(BaseSettings):
         default=30, description="Database connection pool timeout in seconds"
     )
     database_pool_recycle: int = Field(
-        default=3600, description="Database connection pool recycle time in seconds"
+        default=3600,
+        description="Database connection pool recycle time in seconds",
     )
 
     # Application Configuration
+
     secret_key: str = Field(
         default="your-super-secret-key-change-this-in-production",
         description="Secret key for JWT token signing",
@@ -74,13 +80,20 @@ class Settings(BaseSettings):
     )
 
     # RAG Service Configuration
-    logistics_kuaidi100_endpoint: str = "https://poll.kuaidi100.com/poll/query.do"
-    logistics_kuaidi100_recognize_endpoint: str = "https://www.kuaidi100.com/autonumber/auto"
-    logistics_kdniao_endpoint: str = "https://api.kdniao.com/Ebusiness/EbusinessOrderHandle.aspx"
+
+    logistics_kuaidi100_endpoint: str = (
+        "https://poll.kuaidi100.com/poll/query.do"
+    )
+    logistics_kuaidi100_recognize_endpoint: str = (
+        "https://www.kuaidi100.com/autonumber/auto"
+    )
+    logistics_kdniao_endpoint: str = (
+        "https://api.kdniao.com/Ebusiness/EbusinessOrderHandle.aspx"
+    )
 
     rag_service_url: str = Field(
         default="http://localhost:8085",
-        description="Base URL for the RAG service"
+        description="Base URL for the RAG service",
     )
     rag_min_similarity_score: float = Field(
         default=0.37,
@@ -89,28 +102,29 @@ class Settings(BaseSettings):
         description="Minimum relevance score required for automatic-answer knowledge",
     )
 
-
     # MCP Service Configuration
+
     mcp_service_url: str = Field(
         default="http://localhost:8082",
-        description="Base URL for the MCP service"
+        description="Base URL for the MCP service",
     )
 
     # Workflow Service Configuration
+
     workflow_service_url: str = Field(
         default="http://localhost:8086",
-        description="Base URL for the Workflow service"
+        description="Base URL for the Workflow service",
     )
 
-
     # Agent Runtime Service Configuration
+
     agent_service_url: str = Field(
         default="http://localhost:8083",
         description="Base URL for the agent runtime service",
     )
 
-
     # API Service Configuration
+
     api_service_url: str = Field(
         default="http://localhost:8080",
         description="Base URL for the core API service (events ingestion)",
@@ -121,48 +135,57 @@ class Settings(BaseSettings):
     )
 
     # Plugin Runtime Configuration
+
     plugin_runtime_url: str = Field(
         default="http://localhost:8090",
         description="Base URL for the plugin runtime service",
     )
 
     # Store Configuration
+
     store_service_url: str = Field(
         default="https://store.example.com",
-        description="Base URL for the Store service"
+        description="Base URL for the Store service",
     )
     store_api_key: Optional[str] = Field(
-        default=None,
-        description="API Key for the Store service"
+        default=None, description="API Key for the Store service"
     )
 
     # Device Control MCP Configuration
+
     device_control_service_url: str = Field(
         default="http://tgo-device-control:8085",
         description="Base URL for the internal device management service",
     )
     device_control_mcp_endpoint: str = Field(
         default="http://tgo-device-control:8085/mcp/{device_id}",
-        description="Device Control MCP endpoint URL template. {device_id} is replaced at runtime."
+        description="Device Control MCP endpoint URL template. {device_id} is replaced at runtime.",
     )
 
     # Skills File Storage Configuration
+
     skills_base_dir: str = Field(
         default="/data/skills",
-        description="Base directory for skill files storage"
+        description="Base directory for skill files storage",
     )
     github_token: Optional[str] = Field(
         default=None,
-        description="Default GitHub token for skill import (optional, increases rate limit)"
+        description="Default GitHub token for skill import (optional, increases rate limit)",
     )
 
     # Server Configuration
+
     host: str = Field(default="0.0.0.0", description="Server host")
     port: int = Field(default=8081, description="Server port")
-    reload: bool = Field(default=False, description="Enable auto-reload in development")
-    environment: str = Field(default="development", description="Environment name")
+    reload: bool = Field(
+        default=False, description="Enable auto-reload in development"
+    )
+    environment: str = Field(
+        default="development", description="Environment name"
+    )
 
     # CORS Configuration
+
     cors_origins: List[str] = Field(
         default=[
             "http://localhost:3000",
@@ -183,10 +206,14 @@ class Settings(BaseSettings):
     )
 
     # Logging Configuration
+
     log_level: str = Field(default="INFO", description="Logging level")
-    log_format: str = Field(default="json", description="Log format (json or text)")
+    log_format: str = Field(
+        default="json", description="Log format (json or text)"
+    )
 
     # Rate Limiting
+
     rate_limit_enabled: bool = Field(
         default=True, description="Enable rate limiting"
     )
@@ -195,6 +222,7 @@ class Settings(BaseSettings):
     )
 
     # Feature Flags
+
     health_check_enabled: bool = Field(
         default=True, description="Enable health check endpoint"
     )
@@ -209,14 +237,22 @@ class Settings(BaseSettings):
         description="Intent structured-output provider deadline",
     )
     intent_max_input_characters: int = Field(default=8192, ge=1, le=65536)
-    intent_max_response_characters: int = Field(default=65536, ge=256, le=262144)
+    intent_max_response_characters: int = Field(
+        default=65536, ge=256, le=262144
+    )
     intent_max_output_tokens: int = Field(default=1024, ge=64, le=8192)
-    multimodal_provider_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
-    multimodal_max_media_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=25 * 1024 * 1024)
+    multimodal_provider_timeout_seconds: float = Field(
+        default=30.0, gt=0, le=120
+    )
+    multimodal_max_media_bytes: int = Field(
+        default=10 * 1024 * 1024, ge=1024, le=25 * 1024 * 1024
+    )
     metrics_enabled: bool = Field(
         default=True, description="Enable metrics collection"
     )
-    metrics_path: str = Field(default="/metrics", description="Metrics endpoint path")
+    metrics_path: str = Field(
+        default="/metrics", description="Metrics endpoint path"
+    )
     docs_enabled: bool = Field(
         default=True, description="Enable API documentation"
     )
@@ -225,8 +261,10 @@ class Settings(BaseSettings):
     )
 
     # Embedding sync retry scheduler configuration
+
     embedding_sync_retry_enabled: bool = Field(
-        default=True, description="Enable periodic retry for embedding config sync"
+        default=True,
+        description="Enable periodic retry for embedding config sync",
     )
     embedding_sync_retry_interval_seconds: int = Field(
         default=60, description="Interval in seconds between retry runs"
@@ -235,12 +273,14 @@ class Settings(BaseSettings):
         default=10, description="Maximum total retry attempts before giving up"
     )
     embedding_sync_retry_stale_pending_minutes: int = Field(
-        default=10, description="Consider 'pending' records stale after this many minutes"
+        default=10,
+        description="Consider 'pending' records stale after this many minutes",
     )
 
     # Runtime configuration
     # Note: These nested settings will be loaded from environment variables
     # with the appropriate prefixes (SUPERVISOR_RUNTIME__ and TOOLS_RUNTIME__)
+
     supervisor_runtime: SupervisorRuntimeSettings = Field(
         default_factory=lambda: load_runtime_settings(
             SupervisorRuntimeSettings,
@@ -253,9 +293,10 @@ class Settings(BaseSettings):
     )
 
     # Testing Configuration
+
     test_database_url: str = Field(
         default="postgresql+asyncpg://postgres:password@localhost:5432/tgo_ai_service_test",
-        description="Test database URL"
+        description="Test database URL",
     )
 
     @field_validator("cors_origins", mode="before")
@@ -310,4 +351,5 @@ class Settings(BaseSettings):
 
 
 # Global settings instance
+
 settings = Settings()

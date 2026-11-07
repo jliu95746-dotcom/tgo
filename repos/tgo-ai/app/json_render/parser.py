@@ -27,7 +27,9 @@ class JsonRenderParseResult:
 class JsonRenderParser:
     """Extract and validate json-render patch lines from model output."""
 
-    def __init__(self, validator: Optional[JsonRenderPatchValidator] = None) -> None:
+    def __init__(
+        self, validator: Optional[JsonRenderPatchValidator] = None
+    ) -> None:
         self._validator = validator or JsonRenderPatchValidator()
 
     def parse(self, content: str) -> JsonRenderParseResult:
@@ -40,25 +42,23 @@ class JsonRenderParser:
             line = raw_line.rstrip("\r")
             trimmed = line.strip()
 
-            if not in_spec_fence and trimmed.startswith(JSON_RENDER_SPEC_FENCE_OPEN):
+            if not in_spec_fence and trimmed.startswith(
+                JSON_RENDER_SPEC_FENCE_OPEN
+            ):
                 in_spec_fence = True
                 continue
             if in_spec_fence and trimmed == JSON_RENDER_SPEC_FENCE_CLOSE:
                 in_spec_fence = False
                 continue
-
             parsed_patch = self._parse_patch_line(trimmed)
             if parsed_patch is not None:
                 patches.append(parsed_patch)
                 continue
-
             if not in_spec_fence:
                 text_lines.append(line)
-
         text_content = "\n".join(text_lines).strip()
         if not patches:
             return JsonRenderParseResult(text_content=text_content)
-
         is_valid, error = self._validator.validate(patches)
         return JsonRenderParseResult(
             text_content=text_content,
@@ -80,6 +80,10 @@ class JsonRenderParser:
             return None
         op = parsed.get("op")
         path = parsed.get("path")
-        if not isinstance(op, str) or not isinstance(path, str) or not path.startswith("/"):
+        if (
+            not isinstance(op, str)
+            or not isinstance(path, str)
+            or not path.startswith("/")
+        ):
             return None
         return parsed

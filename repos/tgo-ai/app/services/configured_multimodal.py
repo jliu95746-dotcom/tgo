@@ -30,7 +30,10 @@ from app.services.multimodal_service import MultimodalService
 
 class ConfiguredMultimodalService:
     def __init__(
-        self, db: AsyncSession, *, transport: httpx.AsyncBaseTransport | None = None
+        self,
+        db: AsyncSession,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._db = db
         self._transport = transport
@@ -46,17 +49,24 @@ class ConfiguredMultimodalService:
         provider_id: uuid.UUID | None = getattr(
             config, f"default_{capability.value}_provider_id"
         )
-        model_name: str | None = getattr(config, f"default_{capability.value}_model")
+        model_name: str | None = getattr(
+            config, f"default_{capability.value}_model"
+        )
         if provider_id is None or not model_name:
             return None
         from app.services.platform_models import current_model
         from app.services.quota_authorization import metered_execution
+
         platform = current_model()
-        shared_media_models = platform.approved_media_models if platform else None
+        shared_media_models = (
+            platform.approved_media_models if platform else None
+        )
         shared_media = bool(shared_media_models)
         if metered_execution.get():
             if shared_media_models:
-                approved = model_name == shared_media_models.get(capability.value)
+                approved = model_name == shared_media_models.get(
+                    capability.value
+                )
             elif platform:
                 approved = model_name == platform.model
             else:
@@ -137,6 +147,7 @@ class ConfiguredMultimodalService:
             )
         )
         # AsyncSession must never execute concurrent model lookups.
+
         models = {
             capability: await self._model(project_id, capability, config)
             for capability in capabilities

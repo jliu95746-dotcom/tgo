@@ -14,7 +14,9 @@ from app.schemas.agent_business_execution import (
 
 
 async def query(
-    client: httpx.AsyncClient, internal_url: str, command: BusinessExecutionCommand
+    client: httpx.AsyncClient,
+    internal_url: str,
+    command: BusinessExecutionCommand,
 ) -> BusinessExecutionReceipt:
     try:
         async with client.stream(
@@ -42,8 +44,11 @@ async def query(
                 result.model_fields_set
             )
             or result.authority.expires_at <= datetime.now(UTC)
-            or result.authority.model_fields_set != set(type(result.authority).model_fields)
-            or not -5 <= (datetime.now(UTC) - result.checked_at).total_seconds() <= 30
+            or result.authority.model_fields_set
+            != set(type(result.authority).model_fields)
+            or not -5
+            <= (datetime.now(UTC) - result.checked_at).total_seconds()
+            <= 30
         ):
             raise ValueError("Wrong business receipt")
         return result

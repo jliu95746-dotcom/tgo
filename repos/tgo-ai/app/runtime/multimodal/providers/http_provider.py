@@ -71,16 +71,29 @@ def validate_media_content(
     matches = {
         "image/png": ("png", content.startswith(b"\x89PNG\r\n\x1a\n")),
         "image/jpeg": ("jpg", content.startswith(b"\xff\xd8\xff")),
-        "image/webp": ("webp", content[:4] == b"RIFF" and content[8:12] == b"WEBP"),
-        "audio/wav": ("wav", content[:4] == b"RIFF" and content[8:12] == b"WAVE"),
-        "audio/x-wav": ("wav", content[:4] == b"RIFF" and content[8:12] == b"WAVE"),
+        "image/webp": (
+            "webp",
+            content[:4] == b"RIFF" and content[8:12] == b"WEBP",
+        ),
+        "audio/wav": (
+            "wav",
+            content[:4] == b"RIFF" and content[8:12] == b"WAVE",
+        ),
+        "audio/x-wav": (
+            "wav",
+            content[:4] == b"RIFF" and content[8:12] == b"WAVE",
+        ),
         "audio/flac": ("flac", content.startswith(b"fLaC")),
         "audio/ogg": ("ogg", content.startswith(b"OggS")),
         "audio/webm": ("webm", content.startswith(b"\x1a\x45\xdf\xa3")),
         "audio/mpeg": (
             "mp3",
             content.startswith(b"ID3")
-            or (len(content) > 1 and content[0] == 255 and content[1] & 224 == 224),
+            or (
+                len(content) > 1
+                and content[0] == 255
+                and content[1] & 224 == 224
+            ),
         ),
         "audio/mp4": ("m4a", content[4:8] == b"ftyp"),
         "audio/x-m4a": ("m4a", content[4:8] == b"ftyp"),
@@ -169,7 +182,11 @@ class HTTPMediaProvider:
         form: dict[str, str] | None = None,
         files: dict[str, tuple[str, bytes, str]] | None = None,
     ) -> bytes:
-        from app.services.media_accounting import media_execution, observe_media_usage
+        from app.services.media_accounting import (
+            media_execution,
+            observe_media_usage,
+        )
+
         async with media_execution(self._model.model) as usage:
             result = await self._send(path, body=body, form=form, files=files)
             observe_media_usage(usage, result)
@@ -234,7 +251,9 @@ class HTTPMediaProvider:
                 async for chunk in response.aiter_bytes(chunk_size=65536):
                     chunks.extend(chunk)
                     if len(chunks) > MAX_RESPONSE_BYTES:
-                        raise ProviderExecutionError("媒体模型返回内容过大", retryable=False)
+                        raise ProviderExecutionError(
+                            "媒体模型返回内容过大", retryable=False
+                        )
                 return bytes(chunks)
         except ProviderExecutionError:
             raise
@@ -256,7 +275,9 @@ class HTTPMediaProvider:
         self._validate_identity(request)
         if not self._media.mime_type.startswith("audio/"):
             raise invalid_media()
-        if re.fullmatch(r"qwen3-asr-flash(?:-\d{4}-\d{2}-\d{2})?", self._model.model):
+        if re.fullmatch(
+            r"qwen3-asr-flash(?:-\d{4}-\d{2}-\d{2})?", self._model.model
+        ):
             return await self._transcribe_qwen(request)
         form = {"model": self._model.model, "response_format": "json"}
         if request.language:
@@ -286,6 +307,7 @@ class HTTPMediaProvider:
 
     async def _transcribe_qwen(self, request: ASRRequest) -> ASROutput:
         # Qwen-ASR accepts audio inside Chat Completions, not Whisper multipart.
+
         encoded = base64.b64encode(self._media.content).decode("ascii")
         if len(encoded) > MAX_MEDIA_BYTES:
             raise invalid_media()
@@ -306,7 +328,9 @@ class HTTPMediaProvider:
                     "content": [
                         {
                             "type": "input_audio",
-                            "input_audio": {"data": f"data:{mime};base64,{encoded}"},
+                            "input_audio": {
+                                "data": f"data:{mime};base64,{encoded}"
+                            },
                         }
                     ],
                 }
@@ -342,7 +366,10 @@ class HTTPMediaProvider:
                 "role": "user",
                 "content": [
                     {"type": "image_url", "image_url": {"url": data_url}},
-                    {"type": "text", "text": instructions if qwen_ocr else "只识别这张图片。"},
+                    {
+                        "type": "text",
+                        "text": instructions if qwen_ocr else "只识别这张图片。",
+                    },
                 ]
                 if qwen_ocr
                 else [

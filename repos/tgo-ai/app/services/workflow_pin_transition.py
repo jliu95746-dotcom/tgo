@@ -72,7 +72,9 @@ class WorkflowPinTransitionService:
         )
         total = (
             await self.db.scalar(
-                select(func.count(AgentWorkflowPinTransition.id)).where(*conditions)
+                select(func.count(AgentWorkflowPinTransition.id)).where(
+                    *conditions
+                )
             )
             or 0
         )
@@ -89,7 +91,10 @@ class WorkflowPinTransitionService:
             )
         ).all()
         return WorkflowPinTransitionHistory(
-            data=[WorkflowPinTransitionReceipt.model_validate(row) for row in rows],
+            data=[
+                WorkflowPinTransitionReceipt.model_validate(row)
+                for row in rows
+            ],
             pagination=PaginationMetadata(
                 total=total,
                 limit=limit,
@@ -101,7 +106,9 @@ class WorkflowPinTransitionService:
 
     async def _actor(self, project: UUID, actor: UUID) -> None:
         receipt = await self.owner.get_agent_configuration_actor(
-            AgentConfigurationActorQuery(project_id=project, requested_by=actor)
+            AgentConfigurationActorQuery(
+                project_id=project, requested_by=actor
+            )
         )
         if receipt.checked_at.tzinfo is None:
             raise ExternalServiceError("tgo-api", "无法核验当前配置权限，请重试")
@@ -122,7 +129,9 @@ class WorkflowPinTransitionService:
         command: WorkflowPinTransitionCommand,
     ) -> WorkflowPinTransitionReceipt:
         try:
-            result = await self._pin(project, actor, agent_id, workflow_id, command)
+            result = await self._pin(
+                project, actor, agent_id, workflow_id, command
+            )
             await self.db.commit()
             return result
         except Exception:
@@ -182,7 +191,13 @@ class WorkflowPinTransitionService:
             raise NotFoundError("员工工作流关联")
         if binding.enabled:
             raise ConflictError("请先停用此工作流关联，再固定旧版本")
-        if all((binding.release_version, binding.release_id, binding.release_digest)):
+        if all(
+            (
+                binding.release_version,
+                binding.release_id,
+                binding.release_digest,
+            )
+        ):
             raise ConflictError("该员工工作流已有固定发布版本")
 
         releases = await self.resolver.resolve_published_bindings(

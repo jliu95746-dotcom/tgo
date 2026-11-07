@@ -37,7 +37,9 @@ class HumanizationTrainingStore:
     def _pending_path(self, project_id: str, skill_name: str) -> Path:
         return self._pending_dir(project_id) / f"{skill_name}.jsonl"
 
-    def list_pending(self, project_id: str, skill_name: str) -> list[dict[str, object]]:
+    def list_pending(
+        self, project_id: str, skill_name: str
+    ) -> list[dict[str, object]]:
         path = self._pending_path(project_id, skill_name)
         if not path.exists():
             return []
@@ -66,18 +68,22 @@ class HumanizationTrainingStore:
     ) -> int:
         if sample.ai_draft.strip() == sample.final_reply.strip():
             raise ValueError("Unchanged AI drafts are not correction samples")
-
         path = self._pending_path(project_id, skill_name)
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "delivery_id": sample.delivery_id or "",
-            "customer_message": _redact_customer_data(sample.customer_message.strip()),
+            "customer_message": _redact_customer_data(
+                sample.customer_message.strip()
+            ),
             "ai_draft": _redact_customer_data(sample.ai_draft.strip()),
             "final_reply": _redact_customer_data(sample.final_reply.strip()),
             "source_message_id": sample.source_message_id or "",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "recent_messages": [
-                {"role": turn.role, "content": _redact_customer_data(turn.content)}
+                {
+                    "role": turn.role,
+                    "content": _redact_customer_data(turn.content),
+                }
                 for turn in sample.recent_messages[-8:]
             ],
         }
@@ -122,7 +128,9 @@ class HumanizationTrainingStore:
                 handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
             return len(existing) + 1
 
-    def consume(self, project_id: str, skill_name: str) -> list[dict[str, object]]:
+    def consume(
+        self, project_id: str, skill_name: str
+    ) -> list[dict[str, object]]:
         path = self._pending_path(project_id, skill_name)
         with _TRAINING_LOCK:
             samples = self.list_pending(project_id, skill_name)

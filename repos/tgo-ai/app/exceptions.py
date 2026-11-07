@@ -53,13 +53,14 @@ class NotFoundError(TGOAIServiceException):
         message = f"{resource} not found"
         if resource_id:
             message += f" (ID: {resource_id})"
-        
         error_details = details or {}
         if resource_id:
             error_details["resource_id"] = str(resource_id)
         error_details["resource_type"] = resource
-        
-        super().__init__(message, f"{resource.upper()}_NOT_FOUND", error_details)
+
+        super().__init__(
+            message, f"{resource.upper()}_NOT_FOUND", error_details
+        )
 
 
 class ValidationError(TGOAIServiceException):
@@ -74,7 +75,6 @@ class ValidationError(TGOAIServiceException):
         error_details = details or {}
         if field:
             error_details["field"] = field
-        
         super().__init__(message, "VALIDATION_ERROR", error_details)
 
 
@@ -90,7 +90,6 @@ class ConflictError(TGOAIServiceException):
         error_details = details or {}
         if resource:
             error_details["resource_type"] = resource
-        
         code = f"{resource.upper()}_CONFLICT" if resource else "CONFLICT"
         super().__init__(message, code, error_details)
 
@@ -121,7 +120,7 @@ class ExternalServiceError(TGOAIServiceException):
     ) -> None:
         error_details = details or {}
         error_details["service"] = service
-        
+
         super().__init__(message, "EXTERNAL_SERVICE_ERROR", error_details)
 
 

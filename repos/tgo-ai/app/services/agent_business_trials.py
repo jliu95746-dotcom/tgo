@@ -49,16 +49,23 @@ from app.schemas.agent_business_requests import BusinessEmployeeCurrentState
 class TrialOwner(Protocol):
     async def get_agent_business_test_evidence(
         self, query: BusinessTestEvidenceQuery
-    ) -> BusinessTestEvidence: ...
+    ) -> BusinessTestEvidence:
+        ...
+
     async def get_agent_configuration_actor(
         self, query: AgentConfigurationActorQuery
-    ) -> AgentConfigurationActor: ...
+    ) -> AgentConfigurationActor:
+        ...
+
     async def get_agent_business_connection(
         self, query: ConnectionOwnerQuery
-    ) -> BusinessConnectionOwner: ...
+    ) -> BusinessConnectionOwner:
+        ...
+
     async def query_agent_business_trial(
         self, command: BusinessTrialCommand
-    ) -> BusinessTrialReceipt: ...
+    ) -> BusinessTrialReceipt:
+        ...
 
 
 async def current_fingerprint(
@@ -75,7 +82,11 @@ async def current_fingerprint(
 
 
 def utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return (
+        value.replace(tzinfo=UTC)
+        if value.tzinfo is None
+        else value.astimezone(UTC)
+    )
 
 
 class AgentBusinessTrialService:
@@ -111,7 +122,9 @@ class AgentBusinessTrialService:
 
     async def _actor(self, project: UUID, actor: UUID) -> None:
         proof = await self.owner.get_agent_configuration_actor(
-            AgentConfigurationActorQuery(project_id=project, requested_by=actor)
+            AgentConfigurationActorQuery(
+                project_id=project, requested_by=actor
+            )
         )
         if (
             proof.project_id != project
@@ -165,7 +178,11 @@ class AgentBusinessTrialService:
         )
         owner = await self.owner.get_agent_business_connection(query)
         proof = next(
-            (row for row in owner.configuration_tests if row.operation == operation),
+            (
+                row
+                for row in owner.configuration_tests
+                if row.operation == operation
+            ),
             None,
         )
         if (
@@ -265,7 +282,9 @@ class AgentBusinessTrialService:
         await self._actor(project, actor)
         await self._agent(project, agent)
         return self.view(
-            await self._expire(await self._row(project, actor, agent, request=request))
+            await self._expire(
+                await self._row(project, actor, agent, request=request)
+            )
         )
 
     async def get(
@@ -274,19 +293,29 @@ class AgentBusinessTrialService:
         await self._actor(project, actor)
         await self._agent(project, agent)
         return self.view(
-            await self._expire(await self._row(project, actor, agent, report=report))
+            await self._expire(
+                await self._row(project, actor, agent, report=report)
+            )
         )
 
     async def prepare(
-        self, project: UUID, actor: UUID, agent: UUID, request: BusinessTrialRequest
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        request: BusinessTrialRequest,
     ) -> tuple[BusinessTrialReport, BusinessTrialCommand | None]:
-        from app.services.agent_business_preparation import AgentBusinessPreparation
+        from app.services.agent_business_preparation import (
+            AgentBusinessPreparation,
+        )
 
         return await AgentBusinessPreparation(self).prepare(
             project, actor, agent, request
         )
 
-    async def authorize(self, check: BusinessTrialCheck) -> BusinessTrialAuthority:
+    async def authorize(
+        self, check: BusinessTrialCheck
+    ) -> BusinessTrialAuthority:
         command = check.command
         await self._actor(command.project_id, command.actor_id)
         row = await self._expire(
@@ -301,14 +330,17 @@ class AgentBusinessTrialService:
             row.status != "running"
             or row.attempt_id != command.attempt_id
             or not hmac.compare_digest(
-                row.command_digest, self._digest(command.agent_id, command.request())
+                row.command_digest,
+                self._digest(command.agent_id, command.request()),
             )
         ):
             raise ConflictError("原业务测试已结束或内容不一致")
         for key in BusinessTrialIdentity.model_fields:
             stored = row.id if key == "report_id" else getattr(row, key)
             actual = getattr(command, key)
-            if (utc(stored) if isinstance(stored, datetime) else stored) != actual:
+            if (
+                utc(stored) if isinstance(stored, datetime) else stored
+            ) != actual:
                 raise ConflictError("原业务测试配置不一致")
         binding, owner, fingerprint = await self._current(
             command.project_id,
@@ -350,6 +382,7 @@ class AgentBusinessTrialService:
             raise ConflictError("原业务查询尚未领取")
         # Refresh after external owner checks: cancellation may have committed
         # while a check awaited network IO.
+
         await self.db.refresh(row)
         if row.status != "running" or utc(row.expires_at) <= datetime.now(UTC):
             raise ConflictError("原业务测试已结束")
@@ -369,7 +402,8 @@ class AgentBusinessTrialService:
         await self.db.execute(
             update(AgentBusinessTrial)
             .where(
-                AgentBusinessTrial.id == report, AgentBusinessTrial.status == "running"
+                AgentBusinessTrial.id == report,
+                AgentBusinessTrial.status == "running",
             )
             .values(
                 status="cancelled",
@@ -446,5 +480,6 @@ class AgentBusinessTrialService:
             raise
         except Exception:
             # Never store/echo provider exceptions or private command fields.
+
             await self.db.rollback()
             await self.finish(command, None, "result_unknown")

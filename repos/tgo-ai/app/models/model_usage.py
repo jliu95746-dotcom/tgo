@@ -18,10 +18,12 @@ class ModelUsageRecord(BaseModel):
             name="ck_model_usage_status",
         ),
         CheckConstraint(
-            "input_tokens IS NULL OR input_tokens >= 0", name="ck_model_usage_input"
+            "input_tokens IS NULL OR input_tokens >= 0",
+            name="ck_model_usage_input",
         ),
         CheckConstraint(
-            "output_tokens IS NULL OR output_tokens >= 0", name="ck_model_usage_output"
+            "output_tokens IS NULL OR output_tokens >= 0",
+            name="ck_model_usage_output",
         ),
         CheckConstraint(
             "estimated_cost_fen IS NULL OR estimated_cost_fen >= 0",
@@ -38,4 +40,6 @@ class ModelUsageRecord(BaseModel):
     input_rate_fen: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     output_rate_fen: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     estimated_cost_fen: Mapped[Decimal | None] = mapped_column(Numeric(30, 8))
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )

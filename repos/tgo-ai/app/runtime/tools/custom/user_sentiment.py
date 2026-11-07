@@ -20,11 +20,11 @@ def _parse_scale(val: Any) -> int:
         iv = int(s)
     except ValueError:
         # Try parsing as float and converting
+
         f = float(s)
         if not f.is_integer():
             raise ValueError("Not an integer")
         iv = int(f)
-
     if not 0 <= iv <= 5:
         raise ValueError("Value out of range 0-5")
     return iv
@@ -58,6 +58,7 @@ def create_user_sentiment_tool(
     ) -> str:
         """Update user sentiment/state via user_sentiment.update event."""
         # Parse and validate scale values
+
         provided: dict[str, Any] = {}
 
         if satisfaction not in (None, ""):
@@ -65,19 +66,15 @@ def create_user_sentiment_tool(
                 provided["satisfaction"] = _parse_scale(satisfaction)
             except (ValueError, TypeError):
                 return "满意度和情绪的数值必须在0-5之间，0表示未知。"
-
         if emotion not in (None, ""):
             try:
                 provided["emotion"] = _parse_scale(emotion)
             except (ValueError, TypeError):
                 return "满意度和情绪的数值必须在0-5之间，0表示未知。"
-
         if intent not in (None, ""):
             provided["intent"] = intent
-
         if not provided:
             return "请至少提供一个需要更新的用户状态字段，例如满意度、情绪或意图。"
-
         result = await client.post_event(
             "user_sentiment.update",
             {"sentiment": provided, "metadata": metadata},
@@ -86,7 +83,6 @@ def create_user_sentiment_tool(
 
         if not result.success:
             return result.message
-
         updated_keys = ", ".join(provided.keys())
         return f"已记录用户状态更新：{updated_keys}。"
 
@@ -100,8 +96,18 @@ def create_user_sentiment_tool(
         parameters={
             "type": "object",
             "properties": {
-                "satisfaction": {"type": "integer", "minimum": 0, "maximum": 5, "description": "满意度，0-5数值（0=未知，1=非常不满意，5=非常满意）"},
-                "emotion": {"type": "integer", "minimum": 0, "maximum": 5, "description": "情绪，0-5数值（0=未知，1=非常消极，5=非常积极）"},
+                "satisfaction": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5,
+                    "description": "满意度，0-5数值（0=未知，1=非常不满意，5=非常满意）",
+                },
+                "emotion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5,
+                    "description": "情绪，0-5数值（0=未知，1=非常消极，5=非常积极）",
+                },
                 "intent": {"type": "string", "description": "意图（可选）"},
                 "metadata": {"type": "object", "description": "其他上下文字段（可选）"},
             },

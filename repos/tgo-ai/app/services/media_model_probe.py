@@ -46,10 +46,15 @@ async def probe_media_model(
             mime_type=mime_type,
             sha256=hashlib.sha256(content).hexdigest(),
         )
-        media = validate_media_content(request, content, max_bytes=MAX_PROBE_BYTES)
+        media = validate_media_content(
+            request, content, max_bytes=MAX_PROBE_BYTES
+        )
         # Transient selection only: never attach to the session or save defaults.
+
         selection = ProjectAIConfig(project_id=project_id)
-        setattr(selection, f"default_{capability.value}_provider_id", provider_id)
+        setattr(
+            selection, f"default_{capability.value}_provider_id", provider_id
+        )
         setattr(selection, f"default_{capability.value}_model", model_id)
         model = await ConfiguredMultimodalService(db)._model(
             project_id, capability, selection
@@ -66,20 +71,30 @@ async def probe_media_model(
             mime_type=request.mime_type,
             sha256=request.sha256,
         )
-        async with httpx.AsyncClient(transport=transport, trust_env=False) as client:
+        async with httpx.AsyncClient(
+            transport=transport, trust_env=False
+        ) as client:
             provider = HTTPMediaProvider(model, media, client)
             if capability is AnalysisCapability.ASR:
-                output = (await provider.transcribe(ASRRequest(**values))).transcript
+                output = (
+                    await provider.transcribe(ASRRequest(**values))
+                ).transcript
             elif capability is AnalysisCapability.OCR:
-                output = (await provider.extract_text(OCRRequest(**values))).text
+                output = (
+                    await provider.extract_text(OCRRequest(**values))
+                ).text
             else:
-                output = (await provider.describe(VLMRequest(**values))).summary
+                output = (
+                    await provider.describe(VLMRequest(**values))
+                ).summary
         return MediaProbeResult(
             success=True, message="调用成功，请核对识别内容是否准确。", output=output
         )
     except ProviderExecutionError as exc:
         return MediaProbeResult(
-            success=False, message=exc.public_message, error_code=exc.diagnostic_code
+            success=False,
+            message=exc.public_message,
+            error_code=exc.diagnostic_code,
         )
     except ValueError:
         return MediaProbeResult(

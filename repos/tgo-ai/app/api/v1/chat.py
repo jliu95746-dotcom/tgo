@@ -157,7 +157,9 @@ _completions_success_responses: ResponseDefinitions = {
 )
 async def create_chat_completion(
     request: ChatCompletionRequest,
-    project_id: uuid.UUID = Query(..., description="Project ID for authorization"),
+    project_id: uuid.UUID = Query(
+        ..., description="Project ID for authorization"
+    ),
     chat_service: ChatService = Depends(get_chat_service),
 ) -> Union[ChatCompletionResponse, StreamingResponse]:
     """Create a chat completion.
@@ -184,6 +186,4 @@ async def create_chat_completion(
                 "X-Accel-Buffering": "no",
             },
         )
-
     return await chat_service.create_completion(request, project_id)
-

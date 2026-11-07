@@ -11,7 +11,9 @@ from pydantic import JsonValue
 
 from app.schemas.agent_execution import AgentExecutionReference
 
-ReferenceReader = Callable[[AgentExecutionReference], Awaitable[AgentExecutionReference]]
+ReferenceReader = Callable[
+    [AgentExecutionReference], Awaitable[AgentExecutionReference]
+]
 REVOKED_MESSAGE = "本次执行的授权或配置已变化，答复暂停发送，请重新核验或转人工"
 
 
@@ -21,7 +23,9 @@ class ExecutionRevoked(StopAgentRun):
 
 
 class AgentExecutionScope:
-    def __init__(self, reference: AgentExecutionReference, reader: ReferenceReader):
+    def __init__(
+        self, reference: AgentExecutionReference, reader: ReferenceReader
+    ):
         self.reference = reference
         self.reader = reader
         self.owner = cast(asyncio.Task[object] | None, asyncio.current_task())
@@ -35,13 +39,23 @@ class AgentExecutionScope:
         self.closed = self.revoked = True
         # Agno gathers tool tasks with return_exceptions=True. Cancel the actual
         # model owner so a swallowed tool error cannot start another model call.
-        if not was_closed and self.owner is not None and self.owner is not asyncio.current_task() and not self.owner.done():
+        if (
+            not was_closed
+            and self.owner is not None
+            and self.owner is not asyncio.current_task()
+            and not self.owner.done()
+        ):
             if not self.owned_cancel:
                 self.owned_cancel = self.owner.cancel()
 
     def release_owned_cancel(self) -> None:
         owner = self.owner
-        if self.owned_cancel and owner is not None and owner is asyncio.current_task() and owner.cancelling() == 1:
+        if (
+            self.owned_cancel
+            and owner is not None
+            and owner is asyncio.current_task()
+            and owner.cancelling() == 1
+        ):
             owner.uncancel()
         self.owned_cancel = False
 
@@ -63,7 +77,11 @@ class AgentExecutionScope:
                 self._revoke()
                 raise ExecutionRevoked() from None
 
-    async def tool_hook(self, function_call: Callable[..., object], arguments: dict[str, JsonValue]) -> object:
+    async def tool_hook(
+        self,
+        function_call: Callable[..., object],
+        arguments: dict[str, JsonValue],
+    ) -> object:
         await self.check()
         value = function_call(**arguments)
         if inspect.isawaitable(value):
@@ -75,7 +93,9 @@ class AgentExecutionScope:
             return self._guarded_sync(value)
         return value
 
-    async def _guarded_async(self, iterator: AsyncIterator[object]) -> AsyncIterator[object]:
+    async def _guarded_async(
+        self, iterator: AsyncIterator[object]
+    ) -> AsyncIterator[object]:
         try:
             while True:
                 await self.check()
@@ -90,12 +110,15 @@ class AgentExecutionScope:
             if callable(close):
                 await close()
 
-    async def _guarded_sync(self, iterator: Iterator[object]) -> AsyncIterator[object]:
+    async def _guarded_sync(
+        self, iterator: Iterator[object]
+    ) -> AsyncIterator[object]:
         def next_item() -> tuple[bool, object]:
             try:
                 return True, next(iterator)
             except StopIteration:
                 return False, None
+
         try:
             while True:
                 await self.check()
@@ -117,7 +140,9 @@ class AgentExecutionScope:
                 close()
 
 
-_scope: ContextVar[AgentExecutionScope | None] = ContextVar("agent_execution_scope", default=None)
+_scope: ContextVar[AgentExecutionScope | None] = ContextVar(
+    "agent_execution_scope", default=None
+)
 
 
 def current_execution_scope() -> AgentExecutionScope | None:
@@ -131,8 +156,9 @@ async def check_current_execution() -> None:
 
 
 @asynccontextmanager
-async def track_execution_scope(reference: AgentExecutionReference | None,
-                                reader: ReferenceReader) -> AsyncIterator[AgentExecutionScope | None]:
+async def track_execution_scope(
+    reference: AgentExecutionReference | None, reader: ReferenceReader
+) -> AsyncIterator[AgentExecutionScope | None]:
     if reference is None:
         yield _scope.get()
         return

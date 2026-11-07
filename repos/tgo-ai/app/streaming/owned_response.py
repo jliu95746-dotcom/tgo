@@ -46,10 +46,13 @@ class _OwnedExecutionResponse(StreamingResponse):
         self._task = task
         self._on_finished = on_finished
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
         try:
             # Preserve source-specific cleanup and ASGI behavior. Rebuilding a
             # StreamingResponse loses these even though the iterator is shared.
+
             self._source_response.status_code = self.status_code
             self._source_response.raw_headers = self.raw_headers
             self._source_response.body_iterator = self.body_iterator
@@ -58,6 +61,7 @@ class _OwnedExecutionResponse(StreamingResponse):
         finally:
             # Starlette cancels its stream scope on disconnect; shield cleanup
             # so the tool task cannot continue after the HTTP request finishes.
+
             await finish_execution(self._task, self._on_finished)
 
 
@@ -91,20 +95,26 @@ async def run_until_disconnect(
                 return
             await asyncio.sleep(DISCONNECT_POLL_SECONDS)
 
-    task, watcher = asyncio.create_task(execute()), asyncio.create_task(watch())
+    task, watcher = asyncio.create_task(execute()), asyncio.create_task(
+        watch()
+    )
     try:
         done, _ = await asyncio.wait(
             {task, watcher}, return_when=asyncio.FIRST_COMPLETED
         )
         if watcher in done:
             # Watcher failure also stops work; never assume the caller is alive.
+
             await watcher
-            raise asyncio.CancelledError("Caller disconnected during execution")
+            raise asyncio.CancelledError(
+                "Caller disconnected during execution"
+            )
         return await task
     finally:
         with CancelScope(shield=True):
             # Request.is_disconnected uses its own cancellation scope; it can
             # absorb a concurrent task.cancel(). The flag still ends the loop.
+
             finished.set()
             for owned in (task, watcher):
                 if not owned.done() and not owned.cancelling():

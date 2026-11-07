@@ -21,7 +21,9 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-def get_llm_provider_service(db: AsyncSession = Depends(get_db)) -> LLMProviderService:
+def get_llm_provider_service(
+    db: AsyncSession = Depends(get_db),
+) -> LLMProviderService:
     return LLMProviderService(db)
 
 
@@ -42,25 +44,30 @@ async def sync_llm_providers(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No providers provided for sync",
         )
-
     try:
         providers = await service.sync_providers(
             [p.model_dump() for p in request.providers],
         )
     except SQLAlchemyError as exc:
-        logger.error(f"Database error during LLM provider sync: {str(exc)}", exc_info=exc)
+        logger.error(
+            f"Database error during LLM provider sync: {str(exc)}",
+            exc_info=exc,
+        )
         # If it's a conflict or other DB error, we want to see it
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to sync LLM providers: database error - {str(exc)}",
         )
     except Exception as exc:
-        logger.error(f"Unexpected error during LLM provider sync: {str(exc)}", exc_info=exc)
+        logger.error(
+            f"Unexpected error during LLM provider sync: {str(exc)}",
+            exc_info=exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to sync LLM providers: unexpected error - {str(exc)}",
         )
-
     if len(providers) != len(request.providers):
         logger.warning(
             "Provider sync count mismatch",
@@ -71,6 +78,6 @@ async def sync_llm_providers(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Sync incomplete: expected {len(request.providers)} providers, got {len(providers)}",
         )
-
-    return LLMProviderSyncResponse(data=[LLMProviderResponse.from_orm_model(p) for p in providers])
-
+    return LLMProviderSyncResponse(
+        data=[LLMProviderResponse.from_orm_model(p) for p in providers]
+    )

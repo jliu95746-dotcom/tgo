@@ -36,11 +36,15 @@ async def records(
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ) -> list[ModelUsageRecord]:
-    statement = select(ModelUsageRecord).where(ModelUsageRecord.deleted_at.is_(None))
+    statement = select(ModelUsageRecord).where(
+        ModelUsageRecord.deleted_at.is_(None)
+    )
     if project_id is not None:
         statement = statement.where(ModelUsageRecord.project_id == project_id)
     result = await db.scalars(
-        statement.order_by(ModelUsageRecord.created_at.desc(), ModelUsageRecord.id)
+        statement.order_by(
+            ModelUsageRecord.created_at.desc(), ModelUsageRecord.id
+        )
         .offset(offset)
         .limit(limit)
     )

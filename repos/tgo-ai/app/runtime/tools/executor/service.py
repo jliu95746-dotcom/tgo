@@ -42,7 +42,9 @@ from app.runtime.core.exceptions import (
 class ToolsRuntimeService:
     """封装工具智能体执行逻辑."""
 
-    def __init__(self, runtime_settings: ToolsRuntimeSettings | None = None) -> None:
+    def __init__(
+        self, runtime_settings: ToolsRuntimeSettings | None = None
+    ) -> None:
         self._settings = runtime_settings or settings.tools_runtime
         self._builder = AgentBuilder(self._settings)
         self._logger = get_logger(__name__)
@@ -66,11 +68,12 @@ class ToolsRuntimeService:
             AgentExecutionError: If agent execution fails
         """
         # Validate message
+
         if not request.message:
             self._logger.warning("Agent run request missing message")
             return AgentRunResponse(success=False, error="message is required")
-
         # Build agent
+
         try:
             agent = await self._builder.build_agent(request)
         except (InvalidConfigurationError, MissingConfigurationError) as e:
@@ -79,7 +82,7 @@ class ToolsRuntimeService:
                 error=str(e),
                 error_type=type(e).__name__,
                 session_id=request.session_id,
-                user_id=request.user_id
+                user_id=request.user_id,
             )
             return AgentRunResponse(
                 success=False,
@@ -93,21 +96,21 @@ class ToolsRuntimeService:
                 error_type=type(e).__name__,
                 session_id=request.session_id,
                 user_id=request.user_id,
-                exc_info=True
+                exc_info=True,
             )
             return AgentRunResponse(
                 success=False,
                 error=f"Failed to build agent: {str(e)}",
                 metadata={"error_type": type(e).__name__},
             )
-
         # Execute agent
+
         try:
             self._logger.debug(
                 "Starting agent execution",
                 session_id=request.session_id,
                 user_id=request.user_id,
-                message_length=len(request.message)
+                message_length=len(request.message),
             )
 
             result: RunOutput = await agent.arun(
@@ -121,7 +124,7 @@ class ToolsRuntimeService:
                 "Agent execution completed",
                 session_id=request.session_id,
                 user_id=request.user_id,
-                has_content=bool(result.content)
+                has_content=bool(result.content),
             )
         except Exception as exc:
             self._logger.error(
@@ -130,16 +133,16 @@ class ToolsRuntimeService:
                 error_type=type(exc).__name__,
                 session_id=request.session_id,
                 user_id=request.user_id,
-                exc_info=True
+                exc_info=True,
             )
             raise AgentExecutionError(
                 "Agent execution failed",
                 session_id=request.session_id,
                 user_id=request.user_id,
-                error=str(exc)
+                error=str(exc),
             ) from exc
-
         # Extract tool executions
+
         tool_records = []
         for tool_call in getattr(result, "tools", []) or []:
             tool_records.append(
@@ -151,7 +154,6 @@ class ToolsRuntimeService:
                     result=tool_call.result,
                 )
             )
-
         return AgentRunResponse(
             content=result.content,
             tools=tool_records or None,
@@ -159,13 +161,17 @@ class ToolsRuntimeService:
             metadata=None,
         )
 
-    async def stream_agent(self, request: AgentRunRequest) -> AsyncIterator[StreamEventType]:
+    async def stream_agent(
+        self, request: AgentRunRequest
+    ) -> AsyncIterator[StreamEventType]:
         async with mcp_request_scope():
             async with aclosing(self._stream_agent(request)) as stream:
                 async for event in stream:
                     yield event
 
-    async def _stream_agent(self, request: AgentRunRequest) -> AsyncGenerator[StreamEventType, None]:
+    async def _stream_agent(
+        self, request: AgentRunRequest
+    ) -> AsyncGenerator[StreamEventType, None]:
         """执行流式智能体调用, 返回事件流.
 
         Args:
@@ -180,6 +186,7 @@ class ToolsRuntimeService:
             StreamingError: If streaming fails
         """
         # Validate message
+
         if not request.message:
             self._logger.warning("Agent stream request missing message")
             yield ErrorStreamEvent(
@@ -189,8 +196,8 @@ class ToolsRuntimeService:
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
             return
-
         # Build agent
+
         try:
             agent = await self._builder.build_agent(request)
         except (InvalidConfigurationError, MissingConfigurationError) as e:
@@ -199,7 +206,7 @@ class ToolsRuntimeService:
                 error=str(e),
                 error_type=type(e).__name__,
                 session_id=request.session_id,
-                user_id=request.user_id
+                user_id=request.user_id,
             )
             yield ErrorStreamEvent(
                 error=str(e),
@@ -214,7 +221,7 @@ class ToolsRuntimeService:
                 error_type=type(e).__name__,
                 session_id=request.session_id,
                 user_id=request.user_id,
-                exc_info=True
+                exc_info=True,
             )
             yield ErrorStreamEvent(
                 error=f"Failed to build agent: {str(e)}",
@@ -222,15 +229,15 @@ class ToolsRuntimeService:
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
             return
-
         # Start streaming
+
         try:
             self._logger.debug(
                 "Starting agent streaming",
                 session_id=request.session_id,
                 user_id=request.user_id,
                 message_length=len(request.message),
-                stream_intermediate_steps=request.stream_intermediate_steps
+                stream_intermediate_steps=request.stream_intermediate_steps,
             )
 
             response_stream = agent.arun(
@@ -249,16 +256,16 @@ class ToolsRuntimeService:
                 error_type=type(exc).__name__,
                 session_id=request.session_id,
                 user_id=request.user_id,
-                exc_info=True
+                exc_info=True,
             )
             raise StreamingError(
                 "Failed to start agent streaming",
                 session_id=request.session_id,
                 user_id=request.user_id,
-                error=str(exc)
+                error=str(exc),
             ) from exc
-
         # Process stream events
+
         terminal_seen = False
         tool_records: list[ToolExecution] = []
         try:
@@ -269,31 +276,36 @@ class ToolsRuntimeService:
                         continue
                     if isinstance(converted, ToolCallStreamEvent):
                         if converted.status == "completed":
-                            tool_records.append(ToolExecution(
-                                tool_call_id=converted.tool_call_id,
-                                tool_name=converted.tool_name,
-                                tool_args=converted.tool_input,
-                                result=converted.tool_output,
-                                tool_call_error=converted.tool_call_error,
-                            ))
+                            tool_records.append(
+                                ToolExecution(
+                                    tool_call_id=converted.tool_call_id,
+                                    tool_name=converted.tool_name,
+                                    tool_args=converted.tool_input,
+                                    result=converted.tool_output,
+                                    tool_call_error=converted.tool_call_error,
+                                )
+                            )
                         if not request.stream_intermediate_steps:
                             continue
                     if isinstance(converted, CompleteStreamEvent):
                         terminal_seen = True
                         if converted.final_response is not None:
-                            converted.final_response.tools = tool_records or None
+                            converted.final_response.tools = (
+                                tool_records or None
+                            )
                     elif isinstance(converted, ErrorStreamEvent):
                         terminal_seen = True
                     if converted:
                         yield converted
                 except Exception as e:
                     # Log conversion error but continue streaming
+
                     self._logger.warning(
                         "Failed to convert stream event, skipping",
                         event_type=type(event).__name__,
                         error=str(e),
                         error_type=type(e).__name__,
-                        session_id=request.session_id
+                        session_id=request.session_id,
                     )
                     continue
         except Exception as exc:
@@ -303,7 +315,7 @@ class ToolsRuntimeService:
                 error_type=type(exc).__name__,
                 session_id=request.session_id,
                 user_id=request.user_id,
-                exc_info=True
+                exc_info=True,
             )
             yield ErrorStreamEvent(
                 error=f"Stream processing error: {str(exc)}",
@@ -314,24 +326,23 @@ class ToolsRuntimeService:
                 "Error during stream processing",
                 session_id=request.session_id,
                 user_id=request.user_id,
-                error=str(exc)
+                error=str(exc),
             ) from exc
         finally:
             # Finish the model generator before releasing its MCP connections.
+
             if isinstance(response_stream, AsyncGenerator):
                 await response_stream.aclose()
-
         if not terminal_seen:
             yield ErrorStreamEvent(
                 error="Agent stream ended without a completion event",
                 error_type="IncompleteStream",
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
-
         self._logger.debug(
             "Agent streaming completed",
             session_id=request.session_id,
-            user_id=request.user_id
+            user_id=request.user_id,
         )
 
     def _convert_agno_event(self, agno_event: Any) -> StreamEventType | None:
@@ -348,26 +359,24 @@ class ToolsRuntimeService:
         if isinstance(agno_event, RunContentEvent):
             content = agno_event.content or ""
             return ContentStreamEvent(content=content, timestamp=timestamp)
-
         if isinstance(agno_event, RunCompletedEvent):
             content = agno_event.content or ""
             final_response = AgentRunResponse(content=content, success=True)
-            return CompleteStreamEvent(final_response=final_response, timestamp=timestamp)
-
+            return CompleteStreamEvent(
+                final_response=final_response, timestamp=timestamp
+            )
         if isinstance(agno_event, RunErrorEvent):
             return ErrorStreamEvent(
                 error=agno_event.content or "Agent run failed",
                 error_type=agno_event.error_type or "RunErrorEvent",
                 timestamp=timestamp,
             )
-
         if isinstance(agno_event, RunCancelledEvent):
             return ErrorStreamEvent(
                 error=agno_event.reason or "Agent run cancelled",
                 error_type="RunCancelledEvent",
                 timestamp=timestamp,
             )
-
         if isinstance(agno_event, ToolCallStartedEvent) and agno_event.tool:
             tool = agno_event.tool
             return ToolCallStreamEvent(
@@ -377,7 +386,6 @@ class ToolsRuntimeService:
                 status="started",
                 timestamp=timestamp,
             )
-
         if isinstance(agno_event, ToolCallCompletedEvent) and agno_event.tool:
             tool = agno_event.tool
             return ToolCallStreamEvent(
@@ -389,5 +397,4 @@ class ToolsRuntimeService:
                 status="completed",
                 timestamp=timestamp,
             )
-
         return None

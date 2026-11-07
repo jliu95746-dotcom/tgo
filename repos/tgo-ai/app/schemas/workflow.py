@@ -13,11 +13,15 @@ class WorkflowResponse(BaseSchema):
 
     id: str = Field(description="Workflow ID")
     name: str = Field(description="Workflow name")
-    description: Optional[str] = Field(default=None, description="Workflow description")
+    description: Optional[str] = Field(
+        default=None, description="Workflow description"
+    )
     tags: List[str] = Field(default_factory=list, description="Workflow tags")
     status: str = Field(description="Current status")
     version: int = Field(description="Version number")
-    updated_at: Optional[str] = Field(description="Last update time, null if details are unavailable")
+    updated_at: Optional[str] = Field(
+        description="Last update time, null if details are unavailable"
+    )
     enabled: bool = Field(
         default=True,
         description="Whether this workflow is enabled for the current agent binding",

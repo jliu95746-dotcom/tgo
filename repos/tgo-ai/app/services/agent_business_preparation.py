@@ -29,7 +29,11 @@ if TYPE_CHECKING:
 
 
 def utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return (
+        value.replace(tzinfo=UTC)
+        if value.tzinfo is None
+        else value.astimezone(UTC)
+    )
 
 
 class AgentBusinessPreparation:
@@ -41,7 +45,10 @@ class AgentBusinessPreparation:
         lock_seconds: float = 5,
     ):
         self.trials, self.db = trials, trials.db
-        self.preparation_seconds, self.lock_seconds = preparation_seconds, lock_seconds
+        self.preparation_seconds, self.lock_seconds = (
+            preparation_seconds,
+            lock_seconds,
+        )
 
     async def _lock(self, project: UUID) -> None:
         # Cancellation interrupts SQL advisory-lock waits too; the caller rolls back.
@@ -74,11 +81,17 @@ class AgentBusinessPreparation:
             raise ConflictError("原业务测试请求范围不一致")
 
     async def register(
-        self, project: UUID, actor: UUID, agent: UUID, request: BusinessTrialRequest
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        request: BusinessTrialRequest,
     ) -> tuple[AgentBusinessRequest, bool]:
         digest = self.trials._digest(agent, request)
         control = BusinessRequestControl.model_validate(
-            request.model_dump(include=set(BusinessRequestControl.model_fields))
+            request.model_dump(
+                include=set(BusinessRequestControl.model_fields)
+            )
         )
         try:
             async with asyncio.timeout(self.lock_seconds):
@@ -88,8 +101,11 @@ class AgentBusinessPreparation:
                 existing = await self._find(project, actor, request.request_id)
                 if existing is not None:
                     self._scope(existing, agent, control)
-                    if existing.command_digest is not None and not hmac.compare_digest(
-                        existing.command_digest, digest
+                    if (
+                        existing.command_digest is not None
+                        and not hmac.compare_digest(
+                            existing.command_digest, digest
+                        )
                     ):
                         raise ConflictError("原业务测试请求内容不一致")
                     await self.db.commit()
@@ -116,9 +132,7 @@ class AgentBusinessPreparation:
                     .limit(1)
                 )
                 if pending is not None or running is not None:
-                    raise ConflictError(
-                        "该员工已有业务测试正在准备或运行，请查询或取消原请求"
-                    )
+                    raise ConflictError("该员工已有业务测试正在准备或运行，请查询或取消原请求")
                 now = datetime.now(UTC)
                 row = AgentBusinessRequest(
                     id=uuid4(),
@@ -131,7 +145,8 @@ class AgentBusinessPreparation:
                     command_digest=digest,
                     status="preparing",
                     created_at=now,
-                    deadline_at=now + timedelta(seconds=self.preparation_seconds),
+                    deadline_at=now
+                    + timedelta(seconds=self.preparation_seconds),
                 )
                 self.db.add(row)
                 await self.db.commit()
@@ -151,14 +166,18 @@ class AgentBusinessPreparation:
                     AgentBusinessRequest.status == "preparing",
                 )
                 .values(
-                    status="failed", error_code=error, completed_at=datetime.now(UTC)
+                    status="failed",
+                    error_code=error,
+                    completed_at=datetime.now(UTC),
                 )
                 .execution_options(synchronize_session=False)
             )
             await self.db.commit()
 
     async def _view(self, row: AgentBusinessRequest) -> BusinessRequestState:
-        if row.status == "preparing" and utc(row.deadline_at) <= datetime.now(UTC):
+        if row.status == "preparing" and utc(row.deadline_at) <= datetime.now(
+            UTC
+        ):
             await self._terminate(row, "preparation_timeout")
             await self.db.refresh(row)
         report = None
@@ -166,7 +185,10 @@ class AgentBusinessPreparation:
             if row.report_id is None:
                 raise ConflictError("原请求缺少报告编号")
             original = await self.trials._row(
-                row.project_id, row.actor_id, row.agent_id, report=row.report_id
+                row.project_id,
+                row.actor_id,
+                row.agent_id,
+                report=row.report_id,
             )
             report = self.trials.view(await self.trials._expire(original))
         return BusinessRequestState.model_validate(
@@ -188,7 +210,9 @@ class AgentBusinessPreparation:
         row = await self._find(project, actor, request)
         if row is None:
             # Compatibility with a pre-upgrade report or a fixture that owns only a report.
-            original = await self.trials._row(project, actor, agent, request=request)
+            original = await self.trials._row(
+                project, actor, agent, request=request
+            )
             report = self.trials.view(await self.trials._expire(original))
             return BusinessRequestState(
                 project_id=project,
@@ -222,12 +246,16 @@ class AgentBusinessPreparation:
             or utc(current.deadline_at) <= datetime.now(UTC)
         ):
             raise ConflictError("原请求已取消、到期或终止，请查询原请求结果")
-        employee = await self.trials._agent(command.project_id, command.agent_id)
+        employee = await self.trials._agent(
+            command.project_id, command.agent_id
+        )
         if employee.is_active:
             raise ConflictError("请先停用员工再进行独立业务测试")
         if current.command_digest is None:
             raise ConflictError("原请求缺少准备摘要")
-        values = command.model_dump(include=set(BusinessTrialIdentity.model_fields))
+        values = command.model_dump(
+            include=set(BusinessTrialIdentity.model_fields)
+        )
         values["id"] = values.pop("report_id")
         report = AgentBusinessTrial(
             **values,
@@ -249,7 +277,11 @@ class AgentBusinessPreparation:
         return self.trials.view(report)
 
     async def prepare(
-        self, project: UUID, actor: UUID, agent: UUID, request: BusinessTrialRequest
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        request: BusinessTrialRequest,
     ) -> tuple[BusinessTrialReport, BusinessTrialCommand | None]:
         row, created = await self.register(project, actor, agent, request)
         if not created:
@@ -263,7 +295,11 @@ class AgentBusinessPreparation:
             )
             async with asyncio.timeout(remaining):
                 binding, owner, fingerprint = await self.trials._current(
-                    project, actor, agent, request.connection_id, request.operation
+                    project,
+                    actor,
+                    agent,
+                    request.connection_id,
+                    request.operation,
                 )
                 proof = next(
                     item
@@ -313,7 +349,11 @@ class AgentBusinessPreparation:
             raise
 
     async def cancel(
-        self, project: UUID, actor: UUID, agent: UUID, control: BusinessRequestControl
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        control: BusinessRequestControl,
     ) -> BusinessRequestState:
         try:
             async with asyncio.timeout(self.lock_seconds * 2):
@@ -327,7 +367,8 @@ class AgentBusinessPreparation:
                         .where(
                             AgentBusinessTrial.project_id == project,
                             AgentBusinessTrial.actor_id == actor,
-                            AgentBusinessTrial.request_id == control.request_id,
+                            AgentBusinessTrial.request_id
+                            == control.request_id,
                         )
                         .execution_options(populate_existing=True)
                     )
@@ -344,7 +385,8 @@ class AgentBusinessPreparation:
                         error_code="cancelled",
                         created_at=now,
                         completed_at=now,
-                        deadline_at=now + timedelta(seconds=self.preparation_seconds),
+                        deadline_at=now
+                        + timedelta(seconds=self.preparation_seconds),
                     )
                     if original is not None:
                         if (
@@ -374,7 +416,8 @@ class AgentBusinessPreparation:
                             AgentBusinessTrial.project_id == project,
                             AgentBusinessTrial.actor_id == actor,
                             AgentBusinessTrial.agent_id == agent,
-                            AgentBusinessTrial.request_id == control.request_id,
+                            AgentBusinessTrial.request_id
+                            == control.request_id,
                             AgentBusinessTrial.status == "running",
                         )
                         .values(

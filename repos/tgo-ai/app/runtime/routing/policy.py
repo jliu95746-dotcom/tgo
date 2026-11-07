@@ -32,7 +32,9 @@ class IntentRoutingPolicy:
     _TEXT_ONLY_REPLY_INTENTS = frozenset(
         {IntentName.PRODUCT_INQUIRY, IntentName.PRICING_PROMOTION}
     )
-    _SENSITIVE_INTENTS = frozenset({IntentName.COMPLAINT, IntentName.HUMAN_HANDOFF})
+    _SENSITIVE_INTENTS = frozenset(
+        {IntentName.COMPLAINT, IntentName.HUMAN_HANDOFF}
+    )
     _HANDOFF_COMMANDS = frozenset(
         {
             "转人工",
@@ -291,14 +293,15 @@ class IntentRoutingPolicy:
 
         if cls._contains(text, cls._PROFILE_FAST_PATH_BLOCKERS):
             return False
-
         has_phone = cls._PROFILE_PHONE_PATTERN.search(text) is not None
         has_phone_label = has_phone and cls._contains(
             text,
             cls._PROFILE_PHONE_LABELS,
         )
         has_address_label = cls._contains(text, cls._PROFILE_ADDRESS_LABELS)
-        address_hint_count = sum(hint in text for hint in cls._PROFILE_ADDRESS_HINTS)
+        address_hint_count = sum(
+            hint in text for hint in cls._PROFILE_ADDRESS_HINTS
+        )
         has_unlabelled_address = len(text) >= 8 and address_hint_count >= 3
 
         return (

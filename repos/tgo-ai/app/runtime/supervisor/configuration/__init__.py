@@ -11,14 +11,14 @@ from .settings import (
     WorkflowPlanningConfig,
     ExecutionConfig,
     ConsolidationConfig,
-    get_coordination_config
+    get_coordination_config,
 )
 
 __all__ = [
     "CoordinationConfig",
     "QueryAnalysisConfig",
-    "WorkflowPlanningConfig", 
+    "WorkflowPlanningConfig",
     "ExecutionConfig",
     "ConsolidationConfig",
-    "get_coordination_config"
+    "get_coordination_config",
 ]

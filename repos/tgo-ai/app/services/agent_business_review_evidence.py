@@ -12,7 +12,10 @@ from app.exceptions import AuthorizationError, ConflictError, NotFoundError
 from app.models.agent_business_connection import AgentBusinessConnection
 from app.models.agent_business_trial import AgentBusinessTrial
 from app.schemas.agent_business_connections import BusinessConnectionOwner
-from app.schemas.agent_business_reviews import BusinessTestEvidenceQuery, ReviewIssue
+from app.schemas.agent_business_reviews import (
+    BusinessTestEvidenceQuery,
+    ReviewIssue,
+)
 from app.schemas.agent_business_trials import BusinessTrialReport
 from app.services.agent_business_connections import fresh
 from app.services.agent_business_trials import AgentBusinessTrialService, utc
@@ -36,7 +39,9 @@ def report_digest(report: BusinessTrialReport) -> str:
 
 def validity(report: BusinessTrialReport) -> datetime:
     observed = report.completed_at or report.created_at
-    result = utc(observed) + timedelta(hours=settings.agent_trial_review_validity_hours)
+    result = utc(observed) + timedelta(
+        hours=settings.agent_trial_review_validity_hours
+    )
     if report.receipt:
         result = min(result, report.receipt.configuration_test_valid_until)
     return result
@@ -60,25 +65,33 @@ class BusinessReviewEvidence:
                     AgentBusinessTrial.deleted_at.is_(None),
                 )
                 .order_by(
-                    AgentBusinessTrial.created_at.desc(), AgentBusinessTrial.id.desc()
+                    AgentBusinessTrial.created_at.desc(),
+                    AgentBusinessTrial.id.desc(),
                 )
                 .limit(1)
             ),
         )
 
     async def assess(
-        self, report: BusinessTrialReport, *, context: CurrentContext | None = None
+        self,
+        report: BusinessTrialReport,
+        *,
+        context: CurrentContext | None = None,
     ) -> ReviewEvidence:
         deadline = validity(report)
         result = report.receipt
         if report.status != "completed" or result is None:
-            return ReviewEvidence("not_eligible", ["test_not_completed"], deadline)
+            return ReviewEvidence(
+                "not_eligible", ["test_not_completed"], deadline
+            )
         if (
             result.outcome != "passed"
             or result.error_code is not None
             or result.summary is None
         ):
-            return ReviewEvidence("not_eligible", ["test_not_passed"], deadline)
+            return ReviewEvidence(
+                "not_eligible", ["test_not_passed"], deadline
+            )
         summary = result.summary
         customer_mapping_invalid = (
             report.operation == "customer_profile_query"
@@ -107,13 +120,19 @@ class BusinessReviewEvidence:
             or result.summary.amount_minor is not None
             and result.summary.currency is None
         ):
-            return ReviewEvidence("changed", ["result_mapping_unverified"], deadline)
+            return ReviewEvidence(
+                "changed", ["result_mapping_unverified"], deadline
+            )
         if deadline <= datetime.now(UTC):
             return ReviewEvidence("changed", ["report_expired"], deadline)
         if await self.latest_report(report) != report.id:
             return ReviewEvidence("changed", ["superseded"], deadline)
         try:
-            binding, owner, fingerprint = context or await self.trials._current(
+            (
+                binding,
+                owner,
+                fingerprint,
+            ) = context or await self.trials._current(
                 report.project_id,
                 report.actor_id,
                 report.agent_id,
@@ -136,8 +155,10 @@ class BusinessReviewEvidence:
                 or report.operation not in binding.operations
                 or fingerprint != report.configuration_fingerprint
                 or owner.revision != result.expected_revision
-                or owner.configuration_revision != result.configuration_revision
-                or owner.authorization_revision != result.authorization_revision
+                or owner.configuration_revision
+                != result.configuration_revision
+                or owner.authorization_revision
+                != result.authorization_revision
                 or owner.resource_revision != result.resource_revision
                 or not owner.enabled
                 or owner.mode != "http"
@@ -147,7 +168,9 @@ class BusinessReviewEvidence:
                 or proof.report_id != result.configuration_test_id
                 or proof.valid_until != result.configuration_test_valid_until
             ):
-                return ReviewEvidence("changed", ["configuration_changed"], deadline)
+                return ReviewEvidence(
+                    "changed", ["configuration_changed"], deadline
+                )
             query = BusinessTestEvidenceQuery(
                 project_id=report.project_id,
                 requested_by=report.actor_id,
@@ -156,19 +179,29 @@ class BusinessReviewEvidence:
                 customer_evidence=result.customer_evidence,
                 observed_at=result.checked_at,
             )
-            evidence = await self.trials.owner.get_agent_business_test_evidence(query)
+            evidence = (
+                await self.trials.owner.get_agent_business_test_evidence(query)
+            )
             if evidence.model_dump(
                 include=set(type(query).model_fields)
             ) != query.model_dump() or not fresh(evidence.checked_at):
-                return ReviewEvidence("unavailable", ["evidence_unavailable"], deadline)
+                return ReviewEvidence(
+                    "unavailable", ["evidence_unavailable"], deadline
+                )
             if evidence.status != "current":
-                return ReviewEvidence("changed", list(evidence.issues), deadline)
+                return ReviewEvidence(
+                    "changed", list(evidence.issues), deadline
+                )
             if deadline <= datetime.now(UTC):
                 return ReviewEvidence("changed", ["report_expired"], deadline)
             return ReviewEvidence("current", [], deadline)
         except AuthorizationError:
             raise
         except (ConflictError, NotFoundError):
-            return ReviewEvidence("changed", ["configuration_changed"], deadline)
+            return ReviewEvidence(
+                "changed", ["configuration_changed"], deadline
+            )
         except Exception:
-            return ReviewEvidence("unavailable", ["evidence_unavailable"], deadline)
+            return ReviewEvidence(
+                "unavailable", ["evidence_unavailable"], deadline
+            )

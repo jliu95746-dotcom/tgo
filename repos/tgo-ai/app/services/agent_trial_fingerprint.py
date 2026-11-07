@@ -13,8 +13,12 @@ json_object = TypeAdapter(dict[str, JsonValue])
 
 
 def private_digest(value: dict[str, JsonValue]) -> str:
-    encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hmac.new(settings.secret_key.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+    encoded = json.dumps(
+        value, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    )
+    return hmac.new(
+        settings.secret_key.encode(), encoded.encode(), hashlib.sha256
+    ).hexdigest()
 
 
 def configuration_fingerprint(agent: Agent) -> str:
@@ -27,9 +31,13 @@ def configuration_fingerprint(agent: Agent) -> str:
     if agent.model_owner_revision is not None:
         # The owner revision covers credentials. Read-only SaaS checks need no key.
         excluded.add("llm_provider_credentials")
-    snapshot = json_object.validate_python(agent.model_dump(mode="json", exclude=excluded))
+    snapshot = json_object.validate_python(
+        agent.model_dump(mode="json", exclude=excluded)
+    )
     for field in ("collections", "tools", "workflows", "business_connections"):
         rows = snapshot.get(field)
         if isinstance(rows, list):
-            snapshot[field] = sorted(rows, key=lambda row: json.dumps(row, sort_keys=True))
+            snapshot[field] = sorted(
+                rows, key=lambda row: json.dumps(row, sort_keys=True)
+            )
     return private_digest(snapshot)

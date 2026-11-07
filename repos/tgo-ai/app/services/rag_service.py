@@ -40,26 +40,34 @@ class CollectionData(BaseModel):
 
     id: uuid.UUID = Field(description="Collection ID")
     display_name: str = Field(description="Human-readable collection name")
-    description: Optional[str] = Field(default=None, description="Collection description")
+    description: Optional[str] = Field(
+        default=None, description="Collection description"
+    )
     collection_metadata: Optional[dict[str, JsonValue]] = Field(
         default=None, description="Collection metadata"
     )
     created_at: str = Field(description="Creation timestamp")
     updated_at: str = Field(description="Last update timestamp")
-    deleted_at: Optional[str] = Field(default=None, description="Deletion timestamp")
+    deleted_at: Optional[str] = Field(
+        default=None, description="Deletion timestamp"
+    )
 
 
 class CollectionBatchRequest(BaseModel):
     """Request model for batch collection retrieval."""
 
-    collection_ids: List[str] = Field(description="List of collection IDs to retrieve")
+    collection_ids: List[str] = Field(
+        description="List of collection IDs to retrieve"
+    )
 
 
 class CollectionBatchResponse(BaseModel):
     """Response model for batch collection retrieval."""
 
     collections: List[CollectionData] = Field(description="Found collections")
-    not_found: List[str] = Field(description="Collection IDs that were not found")
+    not_found: List[str] = Field(
+        description="Collection IDs that were not found"
+    )
 
 
 def _check_collection_batch(
@@ -94,7 +102,10 @@ class RAGServiceClient:
             ) as client:
                 response = await client.get(
                     f"{self.base_url}/v1/knowledge-governance/availability",
-                    params={"project_id": project_id, "channel": channel.value},
+                    params={
+                        "project_id": project_id,
+                        "channel": channel.value,
+                    },
                 )
                 result = KnowledgeAvailability.model_validate(
                     _rag_object(response, "knowledge")
@@ -119,9 +130,7 @@ class RAGServiceClient:
             ) from None
 
     async def get_collections_batch(
-        self,
-        collection_ids: List[str],
-        project_id: str
+        self, collection_ids: List[str], project_id: str
     ) -> CollectionBatchResponse:
         """
         Retrieve multiple collections by their IDs from the RAG service.
@@ -139,7 +148,6 @@ class RAGServiceClient:
         """
         if not collection_ids:
             return CollectionBatchResponse(collections=[], not_found=[])
-
         try:
             async with httpx.AsyncClient(
                 timeout=self.timeout, headers=rag_service_headers()
@@ -168,7 +176,8 @@ class RAGServiceClient:
                 else:
                     message = f"RAG service error: {response.status_code}"
                 raise ValidationError(
-                    message, "collections",
+                    message,
+                    "collections",
                     {"status_code": response.status_code},
                 )
         except httpx.RequestError:
@@ -179,9 +188,7 @@ class RAGServiceClient:
             ) from None
 
     async def validate_collections_exist(
-        self,
-        collection_ids: List[str],
-        project_id: str
+        self, collection_ids: List[str], project_id: str
     ) -> None:
         """
         Validate that collections exist in the RAG service.
@@ -196,8 +203,9 @@ class RAGServiceClient:
         """
         if not collection_ids:
             return
-
-        batch_response = await self.get_collections_batch(collection_ids, project_id)
+        batch_response = await self.get_collections_batch(
+            collection_ids, project_id
+        )
 
         if batch_response.not_found:
             raise NotFoundError(
@@ -206,9 +214,7 @@ class RAGServiceClient:
             )
 
     async def get_collection(
-        self,
-        collection_id: str,
-        project_id: str
+        self, collection_id: str, project_id: str
     ) -> Optional[CollectionData]:
         """
         Retrieve a single collection by ID from the RAG service.
@@ -223,7 +229,9 @@ class RAGServiceClient:
         Raises:
             ValidationError: If RAG service returns validation error
         """
-        batch_response = await self.get_collections_batch([collection_id], project_id)
+        batch_response = await self.get_collections_batch(
+            [collection_id], project_id
+        )
 
         if batch_response.collections:
             return batch_response.collections[0]
@@ -256,7 +264,6 @@ class RAGServiceClient:
                 "A supported knowledge channel is required for RAG search",
                 "knowledge_channel",
             ) from None
-
         try:
             async with httpx.AsyncClient(
                 timeout=self.timeout, headers=rag_service_headers()
@@ -290,7 +297,6 @@ class RAGServiceClient:
                 "Invalid RAG search response", "collections"
             ) from None
 
-
     async def batch_sync_embedding_configs(
         self,
         configs: List["EmbeddingConfigCreate"],
@@ -300,12 +306,16 @@ class RAGServiceClient:
         Maps to POST /v1/embedding-configs/batch-sync (no auth).
         """
         # Early return if nothing to sync
+
         if not configs:
             return EmbeddingConfigBatchSyncResponse(
                 success_count=0, failed_count=0, errors=[]
             )
-
-        payload = {"configs": [c.model_dump(mode="json", exclude_none=True) for c in configs]}
+        payload = {
+            "configs": [
+                c.model_dump(mode="json", exclude_none=True) for c in configs
+            ]
+        }
 
         try:
             async with httpx.AsyncClient(
@@ -325,13 +335,14 @@ class RAGServiceClient:
             raise NotFoundError("RAG Service") from None
         except ValueError:
             raise ValidationError(
-                "Invalid embedding synchronization response", "embedding-configs"
+                "Invalid embedding synchronization response",
+                "embedding-configs",
             ) from None
 
 
 # Global RAG service client instance
-rag_service_client = RAGServiceClient()
 
+rag_service_client = RAGServiceClient()
 
 
 class EmbeddingConfigCreate(BaseModel):
@@ -341,6 +352,7 @@ class EmbeddingConfigCreate(BaseModel):
     provider: str
     model: str
     # Optional extras supported by RAG; we pass when available
+
     dimensions: Optional[int] = Field(default=None)
     batch_size: Optional[int] = Field(default=None)
     api_key: Optional[str] = None

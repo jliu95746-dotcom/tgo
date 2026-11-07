@@ -18,13 +18,17 @@ class LogisticsProviderConfig(BaseModel):
     credential_encrypted: str = Field(default="", repr=False)
     credential_configured: bool = False
     credential_endpoint: str = ""
-    tracking_param: str = Field(default="tracking_no", min_length=1, max_length=100)
+    tracking_param: str = Field(
+        default="tracking_no", min_length=1, max_length=100
+    )
     fixed_params: dict[str, str] = Field(default_factory=dict)
     success_path: str = Field(default="success", min_length=1, max_length=200)
     success_value: str = Field(default="true", min_length=1, max_length=100)
     events_path: str = Field(default="events", min_length=1, max_length=200)
     time_field: str = Field(default="time", min_length=1, max_length=100)
-    description_field: str = Field(default="description", min_length=1, max_length=100)
+    description_field: str = Field(
+        default="description", min_length=1, max_length=100
+    )
     carrier_path: str = Field(default="carrier_name", max_length=200)
     tracking_path: str = Field(default="", max_length=200)
 

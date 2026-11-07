@@ -17,7 +17,9 @@ class AgentWorkflowPinTransition(BaseModel):
             "request_id",
             name="uq_ai_workflow_pin_request",
         ),
-        UniqueConstraint("binding_id", name="uq_ai_workflow_legacy_pin_binding"),
+        UniqueConstraint(
+            "binding_id", name="uq_ai_workflow_legacy_pin_binding"
+        ),
     )
 
     project_id: Mapped[UUID] = mapped_column(index=True)
@@ -26,9 +28,15 @@ class AgentWorkflowPinTransition(BaseModel):
     agent_id: Mapped[UUID] = mapped_column(index=True)
     binding_id: Mapped[UUID] = mapped_column()
     workflow_id: Mapped[str] = mapped_column(String(36))
-    old_release_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    old_release_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    old_release_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    old_release_version: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    old_release_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True
+    )
+    old_release_digest: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
     release_version: Mapped[int] = mapped_column(Integer)
     release_id: Mapped[str] = mapped_column(String(36))
     release_digest: Mapped[str] = mapped_column(String(64))

@@ -8,15 +8,20 @@ from app.models.agent_device_script_evidence import AgentDeviceScriptEvidence
 from app.models.agent_device_script_review import AgentDeviceScriptReview
 from app.models.agent_device_script_run import AgentDeviceScriptRun
 from app.models.agent_device_script_selection import (
-    AgentDeviceScriptSelection, AgentDeviceScriptSelectionRequest,
+    AgentDeviceScriptSelection,
+    AgentDeviceScriptSelectionRequest,
 )
 from app.models.agent_device_script_trial_request import (
     AgentDeviceScriptTrialRequest,
 )
 from app.models.agent_device_script_binding import (
-    AgentDeviceScriptBinding, AgentDeviceScriptBindingRequest,
+    AgentDeviceScriptBinding,
+    AgentDeviceScriptBindingRequest,
 )
-from app.models.agent_business_connection import AgentBusinessConnection, AgentBusinessConnectionRequest
+from app.models.agent_business_connection import (
+    AgentBusinessConnection,
+    AgentBusinessConnectionRequest,
+)
 from app.models.agent_test_report import AgentTestReport
 from app.models.agent_trial_review import AgentTrialReview
 from app.models.agent_draft_binding import AgentDraftBinding

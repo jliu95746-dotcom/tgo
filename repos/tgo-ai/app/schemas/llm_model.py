@@ -23,7 +23,9 @@ class LLMModelBase(BaseModel):
     context_window: Optional[int] = None
     max_tokens: Optional[int] = None
     is_active: bool = True
-    store_resource_id: Optional[str] = Field(None, description="Store resource ID for models installed from store")
+    store_resource_id: Optional[str] = Field(
+        None, description="Store resource ID for models installed from store"
+    )
 
 
 class LLMModelUpsert(LLMModelBase):

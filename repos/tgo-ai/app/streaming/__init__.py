@@ -11,9 +11,9 @@ from .stream_manager import StreamManager, StreamingSession
 
 __all__ = [
     "EventEmitter",
-    "StreamingEventEmitter", 
+    "StreamingEventEmitter",
     "SSEHandler",
     "SSEResponse",
     "StreamManager",
-    "StreamingSession"
+    "StreamingSession",
 ]

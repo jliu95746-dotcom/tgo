@@ -25,7 +25,9 @@ def credentials(model: PlatformModelRuntime) -> LLMProviderCredentials:
     )
 
 
-def provider_for_request(identifier: UUID, project_id: UUID) -> LLMProvider | None:
+def provider_for_request(
+    identifier: UUID, project_id: UUID
+) -> LLMProvider | None:
     model = current_model()
     if model is None:
         return None

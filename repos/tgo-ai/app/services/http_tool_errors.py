@@ -4,7 +4,9 @@ import httpx
 
 def http_tool_error(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
-        detail = f"HTTP execution failed with status {exc.response.status_code}"
+        detail = (
+            f"HTTP execution failed with status {exc.response.status_code}"
+        )
     elif isinstance(exc, httpx.TimeoutException):
         detail = "HTTP execution failed: Timeout"
     elif isinstance(exc, httpx.RequestError):

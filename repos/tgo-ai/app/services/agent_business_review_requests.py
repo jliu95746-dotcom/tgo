@@ -25,7 +25,11 @@ if TYPE_CHECKING:
 
 
 def utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return (
+        value.replace(tzinfo=UTC)
+        if value.tzinfo is None
+        else value.astimezone(UTC)
+    )
 
 
 class AgentBusinessReviewRequests:
@@ -40,7 +44,9 @@ class AgentBusinessReviewRequests:
         self.review_seconds, self.lock_seconds = review_seconds, lock_seconds
 
     @staticmethod
-    def digest(agent: UUID, report: UUID, command: BusinessReviewRequest) -> str:
+    def digest(
+        agent: UUID, report: UUID, command: BusinessReviewRequest
+    ) -> str:
         return private_digest(
             {
                 "agent_id": str(agent),
@@ -78,7 +84,9 @@ class AgentBusinessReviewRequests:
         return row
 
     @staticmethod
-    def _scope(row: AgentBusinessReviewRequest, agent: UUID, report: UUID) -> None:
+    def _scope(
+        row: AgentBusinessReviewRequest, agent: UUID, report: UUID
+    ) -> None:
         if row.agent_id != agent or row.report_id != report:
             raise ConflictError("原评审请求范围不一致")
 
@@ -98,13 +106,15 @@ class AgentBusinessReviewRequests:
                 row = await self._find(project, actor, command.request_id)
                 if row is not None:
                     self._scope(row, agent, report)
-                    if row.command_digest is not None and not hmac.compare_digest(
-                        row.command_digest, digest
+                    if (
+                        row.command_digest is not None
+                        and not hmac.compare_digest(row.command_digest, digest)
                     ):
-                        raise ConflictError(
-                            "原评审命令已保存，不能更改其内容或版本依据"
-                        )
-                    if row.status == "completed" and row.command_digest is None:
+                        raise ConflictError("原评审命令已保存，不能更改其内容或版本依据")
+                    if (
+                        row.status == "completed"
+                        and row.command_digest is None
+                    ):
                         previous = await self.reviews._request(
                             project, actor, command.request_id
                         )
@@ -149,7 +159,9 @@ class AgentBusinessReviewRequests:
             await self.db.rollback()
             raise
 
-    async def _terminate(self, entry_id: UUID, error: ReviewRequestError) -> None:
+    async def _terminate(
+        self, entry_id: UUID, error: ReviewRequestError
+    ) -> None:
         async with asyncio.timeout(self.lock_seconds):
             await self.db.execute(
                 update(AgentBusinessReviewRequest)
@@ -158,7 +170,9 @@ class AgentBusinessReviewRequests:
                     AgentBusinessReviewRequest.status == "pending",
                 )
                 .values(
-                    status="failed", error_code=error, completed_at=datetime.now(UTC)
+                    status="failed",
+                    error_code=error,
+                    completed_at=datetime.now(UTC),
                 )
                 .execution_options(synchronize_session=False)
             )
@@ -167,7 +181,9 @@ class AgentBusinessReviewRequests:
     async def _view(
         self, row: AgentBusinessReviewRequest
     ) -> BusinessReviewRequestState:
-        if row.status == "pending" and utc(row.deadline_at) <= datetime.now(UTC):
+        if row.status == "pending" and utc(row.deadline_at) <= datetime.now(
+            UTC
+        ):
             await self._terminate(row.id, "review_timeout")
             await self.db.refresh(row)
         command = (
@@ -204,12 +220,18 @@ class AgentBusinessReviewRequests:
                 and utc(row.deadline_at) > now,
                 "command": command,
                 "result": result,
-                "processing": row.status == "pending" and row.claimed_at is not None,
+                "processing": row.status == "pending"
+                and row.claimed_at is not None,
             }
         )
 
     async def state(
-        self, project: UUID, actor: UUID, agent: UUID, report: UUID, request: UUID
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        report: UUID,
+        request: UUID,
     ) -> BusinessReviewRequestState:
         await self.reviews.trials.get(project, actor, agent, report)
         row = await self._find(project, actor, request)
@@ -227,7 +249,8 @@ class AgentBusinessReviewRequests:
             request_id=request,
             status="completed",
             created_at=previous.created_at,
-            deadline_at=previous.created_at + timedelta(seconds=self.review_seconds),
+            deadline_at=previous.created_at
+            + timedelta(seconds=self.review_seconds),
             completed_at=previous.created_at,
             checked_at=datetime.now(UTC),
             can_resume=False,
@@ -265,13 +288,16 @@ class AgentBusinessReviewRequests:
         )
         if claimed is not None:
             return
-        row = await self._find(result.project_id, result.reviewed_by, result.request_id)
+        row = await self._find(
+            result.project_id, result.reviewed_by, result.request_id
+        )
         if (
             row is not None
             and row.id == entry_id
             and row.status == "completed"
             and row.result_json
-            and BusinessReviewRecord.model_validate_json(row.result_json) == result
+            and BusinessReviewRecord.model_validate_json(row.result_json)
+            == result
         ):
             return
         raise ConflictError("原评审已取消、终止或到期，请读取原请求")
@@ -328,7 +354,12 @@ class AgentBusinessReviewRequests:
             raise
 
     async def resume(
-        self, project: UUID, actor: UUID, agent: UUID, report: UUID, request: UUID
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        report: UUID,
+        request: UUID,
     ) -> BusinessReviewRecord:
         state = await self.state(project, actor, agent, report, request)
         if state.result is not None:
@@ -338,7 +369,12 @@ class AgentBusinessReviewRequests:
         return await self.submit(project, actor, agent, report, state.command)
 
     async def cancel(
-        self, project: UUID, actor: UUID, agent: UUID, report: UUID, request: UUID
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        report: UUID,
+        request: UUID,
     ) -> BusinessReviewRequestState:
         try:
             async with asyncio.timeout(self.lock_seconds * 2):
@@ -346,9 +382,12 @@ class AgentBusinessReviewRequests:
                 await self._lock(project, actor, request)
                 row = await self._find(project, actor, request)
                 if row is None:
-                    previous = await self.reviews._request(project, actor, request)
+                    previous = await self.reviews._request(
+                        project, actor, request
+                    )
                     if previous is not None and (
-                        previous.agent_id != agent or previous.report_id != report
+                        previous.agent_id != agent
+                        or previous.report_id != report
                     ):
                         raise ConflictError("原评审请求范围不一致")
                     now = datetime.now(UTC)
@@ -361,7 +400,8 @@ class AgentBusinessReviewRequests:
                         request_id=request,
                         status="completed" if previous else "cancelled",
                         created_at=now,
-                        deadline_at=now + timedelta(seconds=self.review_seconds),
+                        deadline_at=now
+                        + timedelta(seconds=self.review_seconds),
                         completed_at=now,
                         error_code=None if previous else "cancelled",
                         result_json=previous.result_json if previous else None,

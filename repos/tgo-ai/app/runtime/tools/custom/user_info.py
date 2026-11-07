@@ -12,9 +12,18 @@ from agno.tools import Function
 from .base import DEFAULT_TIMEOUT, EventClient, ToolContext
 
 # Fields that can be updated for user info
+
 USER_INFO_FIELDS = (
-    "email", "wechat", "phone", "name", "sex",
-    "age", "company", "position", "address", "birthday",
+    "email",
+    "wechat",
+    "phone",
+    "name",
+    "sex",
+    "age",
+    "company",
+    "position",
+    "address",
+    "birthday",
 )
 
 
@@ -41,23 +50,21 @@ def create_user_info_tool(
         """获取当前用户的详细资料，包括基本信息、标签、AI 画像及最近活动。"""
         if not client.is_configured:
             return error_messages["not_configured"]
-
         user_id = ctx.user_id
         if not user_id:
             return "无法确定当前用户 ID，请确保用户已初始化。"
-
         if not ctx.project_id:
             return "配置错误：未提供项目 ID。"
-
         internal_base_url = client.internal_base_url
         if not internal_base_url:
             return error_messages["not_configured"]
-
         url = f"{internal_base_url.rstrip('/')}/internal/users/{user_id}"
         params = {"project_id": ctx.project_id}
 
         try:
-            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as http_client:
+            async with httpx.AsyncClient(
+                timeout=DEFAULT_TIMEOUT
+            ) as http_client:
                 resp = await http_client.get(url, params=params)
                 if resp.status_code == 404:
                     return f"未找到用户 (ID: {user_id}) 的资料。"
@@ -88,16 +95,19 @@ def create_user_info_tool(
         # Collect provided fields
 
         local_vars = locals()
-        provided = {k: local_vars[k] for k in USER_INFO_FIELDS if local_vars.get(k) not in (None, "")}
+        provided = {
+            k: local_vars[k]
+            for k in USER_INFO_FIELDS
+            if local_vars.get(k) not in (None, "")
+        }
 
         if not provided:
             return "请至少提供一个需要更新的用户信息字段，例如邮箱、电话、微信、姓名等。"
-
         # Build user data
+
         user_data = dict(provided)
         if extra_info:
             user_data["extra_info"] = extra_info
-
         result = await client.post_event(
             "user_info.update",
             {"visitor": user_data, "metadata": metadata},
@@ -106,7 +116,6 @@ def create_user_info_tool(
 
         if not result.success:
             return result.message
-
         updated_keys = ", ".join(provided.keys())
         return f"已提交用户信息更新：{updated_keys}。感谢配合！"
 
@@ -136,8 +145,14 @@ def create_user_info_tool(
                     "position": {"type": "string", "description": "职位（可选）"},
                     "address": {"type": "string", "description": "地址（可选）"},
                     "birthday": {"type": "string", "description": "生日（可选）"},
-                    "extra_info": {"type": "object", "description": "扩展信息：存储其他未预定义的用户信息，如 Telegram、偏好等（可选）"},
-                    "metadata": {"type": "object", "description": "其他上下文字段（可选）"},
+                    "extra_info": {
+                        "type": "object",
+                        "description": "扩展信息：存储其他未预定义的用户信息，如 Telegram、偏好等（可选）",
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "description": "其他上下文字段（可选）",
+                    },
                 },
                 "required": [],
             },

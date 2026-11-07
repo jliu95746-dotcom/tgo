@@ -19,5 +19,7 @@ class WorkflowReleaseAuditItem(BaseSchema):
     details_available: bool
 
 
-class WorkflowReleaseAuditResponse(PaginatedResponse[WorkflowReleaseAuditItem]):
+class WorkflowReleaseAuditResponse(
+    PaginatedResponse[WorkflowReleaseAuditItem]
+):
     """One stable page of locally stored bindings requiring review."""

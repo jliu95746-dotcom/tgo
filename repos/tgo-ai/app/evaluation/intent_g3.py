@@ -50,7 +50,9 @@ class GoldenCase(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    case_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    case_id: str = Field(
+        min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$"
+    )
     expected_intent: IntentName
     requires_handoff: bool
     classification_input: IntentClassificationInput
@@ -61,7 +63,9 @@ class ObservedPrediction(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    case_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    case_id: str = Field(
+        min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$"
+    )
     intent: IntentName
     confidence: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
     recommended_route: IntentRoute
@@ -76,7 +80,9 @@ class ObservedPrediction(BaseModel):
 
     @model_validator(mode="after")
     def require_consistent_handoff(self) -> Self:
-        if self.need_human != (self.recommended_route is IntentRoute.HUMAN_HANDOFF):
+        if self.need_human != (
+            self.recommended_route is IntentRoute.HUMAN_HANDOFF
+        ):
             raise ValueError("handoff flag and route disagree")
         return self
 
@@ -89,7 +95,9 @@ class EvaluationTarget(BaseModel):
     base_url: str
     project_id: UUID
     provider_id: UUID
-    model: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:/-]+$")
+    model: str = Field(
+        min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:/-]+$"
+    )
 
     @field_validator("base_url")
     @classmethod
@@ -205,12 +213,18 @@ def load_predictions(path: Path) -> LoadedPredictions:
         try:
             prediction = ObservedPrediction.model_validate_json(line)
         except (ValidationError, ValueError) as exc:
-            raise ValueError(f"invalid prediction on line {line_number}") from exc
+            raise ValueError(
+                f"invalid prediction on line {line_number}"
+            ) from exc
         if prediction.case_id in seen_ids:
-            raise ValueError(f"duplicate prediction case_id on line {line_number}")
+            raise ValueError(
+                f"duplicate prediction case_id on line {line_number}"
+            )
         seen_ids.add(prediction.case_id)
         predictions.append(prediction)
-    return LoadedPredictions(tuple(predictions), hashlib.sha256(content).hexdigest())
+    return LoadedPredictions(
+        tuple(predictions), hashlib.sha256(content).hexdigest()
+    )
 
 
 def validate_prediction_versions(
@@ -283,7 +297,9 @@ async def run_cases(
             )
         try:
             predictions.append(
-                IntentClassificationResult.model_validate_json(response.content)
+                IntentClassificationResult.model_validate_json(
+                    response.content
+                )
             )
         except ValidationError:
             raise EvaluationRunError(
@@ -428,7 +444,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evaluate G3 intent gates")
     parser.add_argument("--input", type=Path, required=True)
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--run", action="store_true", help="call the configured model")
+    mode.add_argument(
+        "--run", action="store_true", help="call the configured model"
+    )
     mode.add_argument(
         "--predictions", type=Path, help="evaluate already-persisted results"
     )
@@ -443,7 +461,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.run and args.predictions is None:
             print(
                 json.dumps(
-                    {"validated_cases": len(cases), "dataset_sha256": dataset.sha256},
+                    {
+                        "validated_cases": len(cases),
+                        "dataset_sha256": dataset.sha256,
+                    },
                     ensure_ascii=False,
                 )
             )
@@ -465,8 +486,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(historical_report.model_dump_json())
             return 0 if historical_report.passed else 1
-        if not all((args.base_url, args.project_id, args.provider_id, args.model)):
-            raise ValueError("live run requires base URL, project, provider, and model")
+        if not all(
+            (args.base_url, args.project_id, args.provider_id, args.model)
+        ):
+            raise ValueError(
+                "live run requires base URL, project, provider, and model"
+            )
         internal_key = os.environ.get("TGO_INTENT_EVAL_INTERNAL_KEY", "")
         target = EvaluationTarget(
             base_url=args.base_url,

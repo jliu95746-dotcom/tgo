@@ -19,16 +19,21 @@ from app.schemas.workflow_binding_check import (
 )
 from app.services.agent_execution_channel import trusted_execution_channel
 from app.services.agent_execution_reference import read_reference
-from app.services.workflow_execution_authorization import require_current_binding
+from app.services.workflow_execution_authorization import (
+    require_current_binding,
+)
 
 router = APIRouter(route_class=PrivateTrialRoute)
 
 
 @router.get(
-    "/execution-reference/{agent_id}", response_model=AgentExecutionReference,
+    "/execution-reference/{agent_id}",
+    response_model=AgentExecutionReference,
 )
 async def capture_execution_reference(
-    agent_id: UUID, request: Request, db: AsyncSession = Depends(get_db),
+    agent_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
 ) -> AgentExecutionReference:
     """Capture the current execution reference for a reviewed answer."""
     try:
@@ -41,7 +46,9 @@ async def capture_execution_reference(
     return await read_reference(db, project, agent_id, channel)
 
 
-@router.post("/workflow-binding-check", response_model=WorkflowBindingCheckReceipt)
+@router.post(
+    "/workflow-binding-check", response_model=WorkflowBindingCheckReceipt
+)
 async def check_workflow_binding(
     reference: WorkflowBindingCheckRequest,
     request: Request,
@@ -91,4 +98,6 @@ async def check_execution(
     current = await read_reference(db, project, reference.agent_id, channel)
     if current != reference:
         raise HTTPException(409, "原执行的配置或授权已变化，请重新核验或转人工")
-    return AgentExecutionCheckReceipt(reference=current, checked_at=datetime.now(UTC))
+    return AgentExecutionCheckReceipt(
+        reference=current, checked_at=datetime.now(UTC)
+    )

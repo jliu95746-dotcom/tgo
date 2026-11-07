@@ -24,7 +24,9 @@ class CollectionBase(BaseSchema):
     collection_metadata: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Collection metadata (embedding model, chunk size, etc.)",
-        examples=[{"embedding_model": "text-embedding-ada-002", "chunk_size": 1000}],
+        examples=[
+            {"embedding_model": "text-embedding-ada-002", "chunk_size": 1000}
+        ],
     )
 
 
@@ -57,13 +59,18 @@ class CollectionResponse(BaseSchema):
 
     id: uuid.UUID = Field(description="Collection ID")
     display_name: str = Field(description="Human-readable collection name")
-    description: Optional[str] = Field(default=None, description="Collection description")
+    description: Optional[str] = Field(
+        default=None, description="Collection description"
+    )
     collection_metadata: Optional[Dict[str, Any]] = Field(
-        default=None, description="Collection metadata (embedding model, chunk size, etc.)"
+        default=None,
+        description="Collection metadata (embedding model, chunk size, etc.)",
     )
     created_at: str = Field(description="Creation timestamp")
     updated_at: str = Field(description="Last update timestamp")
-    deleted_at: Optional[str] = Field(default=None, description="Deletion timestamp")
+    deleted_at: Optional[str] = Field(
+        default=None, description="Deletion timestamp"
+    )
     enabled: Optional[bool] = Field(
         default=None,
         description="Whether this collection is enabled for the current agent binding",

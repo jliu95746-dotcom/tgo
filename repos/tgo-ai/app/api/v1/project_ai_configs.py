@@ -42,7 +42,9 @@ async def sync_project_ai_configs(
     request: ProjectAIConfigSyncRequest,
     service: ProjectAIConfigService = Depends(get_service),
 ) -> ProjectAIConfigSyncResponse:
-    items = await service.sync_configs([c.model_dump() for c in request.configs])
+    items = await service.sync_configs(
+        [c.model_dump() for c in request.configs]
+    )
     return ProjectAIConfigSyncResponse(
         data=[ProjectAIConfigResponse.from_orm_model(i) for i in items]
     )
@@ -64,8 +66,10 @@ async def upsert_project_ai_config(
     service: ProjectAIConfigService = Depends(get_service),
 ) -> ProjectAIConfigResponse:
     # Determine if record exists to set proper status code
+
     existing = await service.get(payload.project_id)
     item = await service.upsert_config(**payload.model_dump())
-    response.status_code = status.HTTP_201_CREATED if existing is None else status.HTTP_200_OK
+    response.status_code = (
+        status.HTTP_201_CREATED if existing is None else status.HTTP_200_OK
+    )
     return ProjectAIConfigResponse.from_orm_model(item)
-

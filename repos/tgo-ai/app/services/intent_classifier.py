@@ -61,8 +61,13 @@ class IntentClassifier:
         max_input_characters: int = 65536,
         max_response_characters: int = 65536,
     ) -> None:
-        if not math.isfinite(provider_timeout_seconds) or provider_timeout_seconds <= 0:
-            raise ValueError("provider_timeout_seconds must be finite and positive")
+        if (
+            not math.isfinite(provider_timeout_seconds)
+            or provider_timeout_seconds <= 0
+        ):
+            raise ValueError(
+                "provider_timeout_seconds must be finite and positive"
+            )
         if max_input_characters <= 0 or max_response_characters <= 0:
             raise ValueError("intent classifier size limits must be positive")
         self._client = client
@@ -76,7 +81,8 @@ class IntentClassifier:
             separators=(",", ":"),
         )
         self._context_json_schema = json.dumps(
-            ContextualIntentModelOutput.model_json_schema(), ensure_ascii=False,
+            ContextualIntentModelOutput.model_json_schema(),
+            ensure_ascii=False,
         )
 
     async def classify(
@@ -89,11 +95,15 @@ class IntentClassifier:
     ) -> IntentClassificationResult:
         """Classify text, allowing no more than one schema-repair request."""
         normalized_text = text.strip()
-        if not normalized_text or len(normalized_text) > self._max_input_characters:
+        if (
+            not normalized_text
+            or len(normalized_text) > self._max_input_characters
+        ):
             return self._policy.fail_closed()
 
         has_media_context = context is not None and (
-            context.contains_untrusted_media_text or context.contains_sensitive_data
+            context.contains_untrusted_media_text
+            or context.contains_sensitive_data
         )
         rule_result = (
             None
@@ -106,10 +116,13 @@ class IntentClassifier:
             return rule_result
 
         output_type = (
-            ContextualIntentModelOutput if assess_context else IntentModelOutput
+            ContextualIntentModelOutput
+            if assess_context
+            else IntentModelOutput
         )
         initial_request = self._request(
-            normalized_text, repair_attempt=False,
+            normalized_text,
+            repair_attempt=False,
             assess_context=assess_context,
         )
         try:
@@ -121,7 +134,9 @@ class IntentClassifier:
             output = output_type.model_validate_json(raw_output)
         except ValidationError:
             repaired_output = await self._repair_once(
-                normalized_text, raw_output, output_type,
+                normalized_text,
+                raw_output,
+                output_type,
             )
             if repaired_output is None:
                 return self._policy.fail_closed()
@@ -149,9 +164,13 @@ class IntentClassifier:
             contains_sensitive_data=bool(
                 classification_input.sensitive_data_categories
             ),
-            consecutive_unknown_count=(classification_input.consecutive_unknown_count),
+            consecutive_unknown_count=(
+                classification_input.consecutive_unknown_count
+            ),
         )
-        serialized_input = classification_input.model_dump_json(exclude_none=True)
+        serialized_input = classification_input.model_dump_json(
+            exclude_none=True
+        )
         return await self.classify(
             serialized_input,
             context,
@@ -173,7 +192,8 @@ class IntentClassifier:
             f"{json.dumps(invalid_excerpt, ensure_ascii=False)}"
         )
         request = self._request(
-            repair_prompt, repair_attempt=True,
+            repair_prompt,
+            repair_attempt=True,
             assess_context=output_type is ContextualIntentModelOutput,
         )
         try:
@@ -192,20 +212,24 @@ class IntentClassifier:
         return output
 
     def _request(
-        self, user_prompt: str, *, repair_attempt: bool,
+        self,
+        user_prompt: str,
+        *,
+        repair_attempt: bool,
         assess_context: bool = False,
     ) -> StructuredOutputRequest:
         return StructuredOutputRequest(
-            system_prompt=self._SYSTEM_PROMPT + (
-                self._CONTEXT_PROMPT if assess_context else ""
-            ),
+            system_prompt=self._SYSTEM_PROMPT
+            + (self._CONTEXT_PROMPT if assess_context else ""),
             user_prompt=user_prompt,
             schema_name=(
-                "contextual_intent_v1" if assess_context
+                "contextual_intent_v1"
+                if assess_context
                 else "intent_classification_v1"
             ),
             json_schema=(
-                self._context_json_schema if assess_context
+                self._context_json_schema
+                if assess_context
                 else self._json_schema
             ),
             repair_attempt=repair_attempt,

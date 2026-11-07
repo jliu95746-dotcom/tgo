@@ -9,7 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.schemas.knowledge import KnowledgeChannel
 
 TrialStatus = Literal["running", "completed", "blocked", "failed", "cancelled"]
-KnowledgeStatus = Literal["matched", "no_match", "unavailable", "over_budget", "skipped"]
+KnowledgeStatus = Literal[
+    "matched", "no_match", "unavailable", "over_budget", "skipped"
+]
 
 
 class AgentTrialRequest(BaseModel):
@@ -39,11 +41,14 @@ class TrialKnowledgeSource(BaseModel):
 class TrialKnowledgeRevision(BaseModel):
     model_config = ConfigDict(extra="forbid")
     collection_id: UUID
-    resource_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    resource_revision: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
 
 
 class TrialKnowledgeSnapshot(BaseModel):
     """Owner-read revisions surrounding the isolated knowledge generation."""
+
     model_config = ConfigDict(extra="forbid")
     version: Literal[1] = 1
     channel: KnowledgeChannel
@@ -51,19 +56,32 @@ class TrialKnowledgeSnapshot(BaseModel):
     collections: list[TrialKnowledgeRevision]
     issues: list[str] = Field(default_factory=list)
     captured_at: datetime
-    verification: Literal["pending", "consistent", "changed", "unknown"] = "pending"
+    verification: Literal[
+        "pending", "consistent", "changed", "unknown"
+    ] = "pending"
 
 
 class TrialApplicability(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    scope: Literal["agent_configuration_and_knowledge"] = "agent_configuration_and_knowledge"
-    status: Literal["not_recorded", "not_checked", "current", "changed", "unknown"] = "not_recorded"
+    scope: Literal[
+        "agent_configuration_and_knowledge"
+    ] = "agent_configuration_and_knowledge"
+    status: Literal[
+        "not_recorded", "not_checked", "current", "changed", "unknown"
+    ] = "not_recorded"
     checked_at: datetime | None = None
-    issues: list[Literal[
-        "trial_not_completed", "snapshot_not_recorded", "changed_during_trial",
-        "configuration_changed", "knowledge_changed", "knowledge_unavailable",
-        "agent_unavailable", "revision_unconfirmed",
-    ]] = Field(default_factory=list)
+    issues: list[
+        Literal[
+            "trial_not_completed",
+            "snapshot_not_recorded",
+            "changed_during_trial",
+            "configuration_changed",
+            "knowledge_changed",
+            "knowledge_unavailable",
+            "agent_unavailable",
+            "revision_unconfirmed",
+        ]
+    ] = Field(default_factory=list)
 
 
 class AgentTrialReport(BaseModel):
@@ -80,7 +98,9 @@ class AgentTrialReport(BaseModel):
     answer: str = ""
     configuration_fingerprint: str | None = None
     knowledge_snapshot: TrialKnowledgeSnapshot | None = None
-    applicability: TrialApplicability = Field(default_factory=TrialApplicability)
+    applicability: TrialApplicability = Field(
+        default_factory=TrialApplicability
+    )
     knowledge_status: KnowledgeStatus | None = None
     sources: list[TrialKnowledgeSource] = Field(default_factory=list)
     error_code: str | None = None

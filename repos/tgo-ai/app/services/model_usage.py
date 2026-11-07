@@ -19,7 +19,9 @@ logger = get_logger(__name__)
 
 
 def estimate_cost(
-    rate: ModelCostRate | None, input_tokens: int | None, output_tokens: int | None
+    rate: ModelCostRate | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
 ) -> Decimal | None:
     if rate is None or input_tokens is None or output_tokens is None:
         return None
@@ -96,7 +98,9 @@ async def track_model_usage(
             "Paid model execution is missing its quota authorization context"
         )
     if authorization.project_id != UUID(project_id):
-        raise ValueError("Model accounting project does not match authorization")
+        raise ValueError(
+            "Model accounting project does not match authorization"
+        )
     rate = settings.saas_model_cost_rates.get(model_name)
     from app.services.platform_models import current_model
 
@@ -140,6 +144,7 @@ async def track_model_usage(
                 await save_finished(identifier, tracker, rate)
             except Exception as exc:
                 # The started row remains visible as incomplete, never a zero-cost success.
+
                 logger.error(
                     "Model usage completion could not persist",
                     error_type=type(exc).__name__,

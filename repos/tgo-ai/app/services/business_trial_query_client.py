@@ -7,7 +7,10 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.exceptions import ExternalServiceError
-from app.schemas.agent_business_trials import BusinessTrialCommand, BusinessTrialReceipt
+from app.schemas.agent_business_trials import (
+    BusinessTrialCommand,
+    BusinessTrialReceipt,
+)
 
 
 async def query(
@@ -19,7 +22,10 @@ async def query(
     started = datetime.now(UTC)
     try:
         async with httpx.AsyncClient(
-            timeout=100, transport=transport, trust_env=False, follow_redirects=False
+            timeout=100,
+            transport=transport,
+            trust_env=False,
+            follow_redirects=False,
         ) as client:
             async with client.stream(
                 "POST",
@@ -38,7 +44,8 @@ async def query(
         result = BusinessTrialReceipt.model_validate_json(b"".join(chunks))
         if (
             not result.matches(command)
-            or result.model_fields_set != set(BusinessTrialReceipt.model_fields)
+            or result.model_fields_set
+            != set(BusinessTrialReceipt.model_fields)
             or result.customer_evidence.model_fields_set
             != set(type(result.customer_evidence).model_fields)
             or not started - timedelta(seconds=5)
@@ -48,6 +55,4 @@ async def query(
             raise ValueError("Unconfirmed business trial")
         return result
     except (httpx.HTTPError, ValidationError, ValueError):
-        raise ExternalServiceError(
-            "tgo-api", "业务测试结果暂不可确认，请查询原请求"
-        ) from None
+        raise ExternalServiceError("tgo-api", "业务测试结果暂不可确认，请查询原请求") from None

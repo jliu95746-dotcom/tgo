@@ -13,6 +13,7 @@ from app.schemas.humanization import ConversationTurn
 # Response Schemas (parsed from file system)
 # ---------------------------------------------------------------------------
 
+
 class SkillEmployeeUsage(BaseSchema):
     id: str
     name: str
@@ -114,6 +115,7 @@ class SkillDetail(SkillSummary):
 # Request Schemas
 # ---------------------------------------------------------------------------
 
+
 class SkillCreateRequest(BaseSchema):
     """Schema for creating a new skill directory with SKILL.md."""
 
@@ -171,7 +173,9 @@ class SkillImportRequest(BaseSchema):
 
     filename: str = Field(..., min_length=1, max_length=255)
     content_base64: str = Field(..., min_length=1, max_length=13981016)
-    display_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    display_name: Optional[str] = Field(
+        default=None, min_length=1, max_length=100
+    )
 
 
 class SkillToggleRequest(BaseSchema):
@@ -193,7 +197,9 @@ class SkillToggleResponse(BaseSchema):
 class SkillUpdateRequest(BaseSchema):
     """Schema for updating an existing skill's SKILL.md content."""
 
-    display_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    display_name: Optional[str] = Field(
+        default=None, min_length=1, max_length=100
+    )
 
     description: Optional[str] = Field(
         default=None,
@@ -258,7 +264,9 @@ class HumanizationTrainingSampleRequest(BaseSchema):
     ai_draft: str = Field(..., min_length=1, max_length=10000)
     final_reply: str = Field(..., min_length=1, max_length=10000)
     source_message_id: Optional[str] = Field(default=None, max_length=255)
-    recent_messages: list[ConversationTurn] = Field(default_factory=list, max_length=12)
+    recent_messages: list[ConversationTurn] = Field(
+        default_factory=list, max_length=12
+    )
 
 
 class HumanizationTrainingStatus(BaseSchema):

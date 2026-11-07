@@ -9,7 +9,9 @@ from app.config import settings
 from app.schemas.knowledge import KnowledgeChannel
 
 
-def trusted_execution_channel(request: Request, project: UUID) -> KnowledgeChannel | None:
+def trusted_execution_channel(
+    request: Request, project: UUID
+) -> KnowledgeChannel | None:
     key = request.headers.get("X-Internal-API-Key", "")
     raw = request.headers.get("X-Execution-Channel", "")
     if not key and not raw:

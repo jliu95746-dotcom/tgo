@@ -101,7 +101,10 @@ class AgentBusinessQueryLink(BaseModel):
     tool_name: str = Field(min_length=1, max_length=200)
     query_id: UUID
     operation: Literal[
-        "order_query", "logistics_query", "customer_profile_query", "membership_query"
+        "order_query",
+        "logistics_query",
+        "customer_profile_query",
+        "membership_query",
     ]
     outcome: Literal["passed", "failed"]
 
@@ -118,7 +121,9 @@ class AgentToolCallData(BaseEventData):
     tool_output: Optional[str] = None
     status: str
     error: Optional[str] = None
-    business_query_links: list[AgentBusinessQueryLink] = Field(default_factory=list)
+    business_query_links: list[AgentBusinessQueryLink] = Field(
+        default_factory=list
+    )
 
 
 class AgentResponseCompleteData(BaseEventData):
@@ -140,7 +145,8 @@ class JsonRenderUpdateData(BaseEventData):
     """Data for json-render patch updates."""
 
     patches: List[Dict[str, Any]] = Field(
-        ..., description="Array of RFC 6902 JSON Patch lines for json-render SpecStream"
+        ...,
+        description="Array of RFC 6902 JSON Patch lines for json-render SpecStream",
     )
     text_content: Optional[str] = Field(
         default=None,
@@ -152,10 +158,16 @@ class StreamingEvent(BaseModel):
     """A single streaming event emitted during one run."""
 
     event_type: EventType = Field(..., description="Type of the event")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
-    correlation_id: str = Field(..., description="Correlation ID for tracking related events")
+    timestamp: datetime = Field(
+        default_factory=datetime.utcnow, description="Event timestamp"
+    )
+    correlation_id: str = Field(
+        ..., description="Correlation ID for tracking related events"
+    )
     request_id: str = Field(..., description="Request ID for the run")
-    severity: EventSeverity = Field(default=EventSeverity.INFO, description="Event severity level")
+    severity: EventSeverity = Field(
+        default=EventSeverity.INFO, description="Event severity level"
+    )
     data: Union[
         WorkflowStartedData,
         ProgressUpdateData,
@@ -167,7 +179,9 @@ class StreamingEvent(BaseModel):
         JsonRenderUpdateData,
         BaseEventData,
     ] = Field(..., description="Event-specific payload")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata"
+    )
 
     class Config:
         """Pydantic configuration."""

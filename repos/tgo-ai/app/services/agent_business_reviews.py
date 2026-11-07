@@ -24,7 +24,9 @@ from app.services.agent_business_review_evidence import (
     validity,
 )
 from app.services.agent_business_trials import AgentBusinessTrialService
-from app.services.agent_business_review_requests import AgentBusinessReviewRequests
+from app.services.agent_business_review_requests import (
+    AgentBusinessReviewRequests,
+)
 
 
 class AgentBusinessReviewService:
@@ -64,7 +66,8 @@ class AgentBusinessReviewService:
             .execution_options(populate_existing=True)
         )
         return [
-            BusinessReviewRecord.model_validate_json(row.result_json) for row in rows
+            BusinessReviewRecord.model_validate_json(row.result_json)
+            for row in rows
         ]
 
     async def state(
@@ -99,7 +102,9 @@ class AgentBusinessReviewService:
         if status == "current" and context is None:
             try:
                 if (
-                    await self.trials.fingerprint(self.db, project, actor, agent)
+                    await self.trials.fingerprint(
+                        self.db, project, actor, agent
+                    )
                     != report.configuration_fingerprint
                 ):
                     status = "changed"
@@ -140,7 +145,12 @@ class AgentBusinessReviewService:
         )
 
     async def request_result(
-        self, project: UUID, actor: UUID, agent: UUID, report: UUID, request: UUID
+        self,
+        project: UUID,
+        actor: UUID,
+        agent: UUID,
+        report: UUID,
+        request: UUID,
     ) -> BusinessReviewRecord:
         await self.trials.get(project, actor, agent, report)
         row = await self._request(project, actor, request)
@@ -186,7 +196,9 @@ class AgentBusinessReviewService:
                     or previous.request_digest != digest
                 ):
                     raise ConflictError("原业务评审请求内容不一致")
-                result = BusinessReviewRecord.model_validate_json(previous.result_json)
+                result = BusinessReviewRecord.model_validate_json(
+                    previous.result_json
+                )
                 await requests.install(entry_id, digest, result)
                 await self.db.commit()
                 return result
@@ -194,7 +206,9 @@ class AgentBusinessReviewService:
                 raise ConflictError("业务测试尚未完成，不能评审")
             records = await self._records(project, actor, agent, report_id)
             latest = records[0] if records else None
-            if (latest.id if latest else None) != command.expected_latest_review_id:
+            if (
+                latest.id if latest else None
+            ) != command.expected_latest_review_id:
                 raise ConflictError("业务评审已有新记录，请刷新后确认")
             if command.decision == "passed":
                 if not command.checks.confirmed():

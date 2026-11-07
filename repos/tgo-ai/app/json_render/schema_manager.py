@@ -35,11 +35,17 @@ class JsonRenderSchemaManager:
 
     def _load(self) -> None:
         if self._schema_path.exists():
-            self._schema = json.loads(self._schema_path.read_text(encoding="utf-8"))
-            logger.info("json-render patch schema loaded", path=str(self._schema_path))
+            self._schema = json.loads(
+                self._schema_path.read_text(encoding="utf-8")
+            )
+            logger.info(
+                "json-render patch schema loaded", path=str(self._schema_path)
+            )
         else:
-            logger.warning("json-render patch schema not found", path=str(self._schema_path))
-
+            logger.warning(
+                "json-render patch schema not found",
+                path=str(self._schema_path),
+            )
         if self._examples_dir.exists():
             parts: List[str] = []
             for p in sorted(self._examples_dir.glob("*.jsonl")):
@@ -70,23 +76,18 @@ class JsonRenderSchemaManager:
 
         if role_description:
             parts.append(f"## Role\n{role_description}")
-
         if workflow_description:
             parts.append(f"## Workflow\n{workflow_description}")
-
         if ui_description:
             parts.append(f"## UI Guidelines\n{ui_description}")
-
         if include_schema and self._schema is not None:
             parts.append(
                 "## json-render Patch Schema\n"
                 "Each JSONL patch line MUST validate against this schema.\n"
                 f"```json\n{self.schema_json}\n```"
             )
-
         if include_examples and self._examples:
             parts.append(f"## json-render Examples\n{self._examples}")
-
         return "\n\n".join(parts)
 
 

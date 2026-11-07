@@ -24,17 +24,29 @@ from app.schemas.chat_provider_state import ProviderStateCarrier
 class FunctionCall(BaseModel):
     """Function call in a message."""
 
-    name: Optional[str] = Field(default=None, description="The name of the function to call")
-    arguments: Optional[str] = Field(default=None, description="JSON string of function arguments")
+    name: Optional[str] = Field(
+        default=None, description="The name of the function to call"
+    )
+    arguments: Optional[str] = Field(
+        default=None, description="JSON string of function arguments"
+    )
 
 
 class ToolCall(BaseModel):
     """Tool call in a message."""
 
-    index: Optional[int] = Field(default=None, description="The index of the tool call")
-    id: Optional[str] = Field(default=None, description="The ID of the tool call")
-    type: Optional[Literal["function"]] = Field(default="function", description="The type of tool call")
-    function: Optional[FunctionCall] = Field(default=None, description="The function call details")
+    index: Optional[int] = Field(
+        default=None, description="The index of the tool call"
+    )
+    id: Optional[str] = Field(
+        default=None, description="The ID of the tool call"
+    )
+    type: Optional[Literal["function"]] = Field(
+        default="function", description="The type of tool call"
+    )
+    function: Optional[FunctionCall] = Field(
+        default=None, description="The function call details"
+    )
 
 
 class ChatMessage(ProviderStateCarrier):
@@ -53,7 +65,8 @@ class ChatMessage(ProviderStateCarrier):
         default=None, description="Tool calls made by the assistant"
     )
     tool_call_id: Optional[str] = Field(
-        default=None, description="The ID of the tool call this message is responding to"
+        default=None,
+        description="The ID of the tool call this message is responding to",
     )
 
 
@@ -72,8 +85,12 @@ class FunctionDefinition(BaseModel):
 class ToolDefinition(BaseModel):
     """Definition of a tool that can be used."""
 
-    type: Literal["function"] = Field(default="function", description="The type of tool")
-    function: FunctionDefinition = Field(..., description="The function definition")
+    type: Literal["function"] = Field(
+        default="function", description="The type of tool"
+    )
+    function: FunctionDefinition = Field(
+        ..., description="The function definition"
+    )
 
 
 class ResponseFormat(BaseModel):
@@ -92,12 +109,14 @@ class ChatCompletionRequest(BaseModel):
     """
 
     # TGO-AI specific: provider credentials lookup
+
     provider_id: uuid.UUID = Field(
         ...,
         description="UUID of the LLM provider to use (from ai_llm_providers table)",
     )
 
     # Standard OpenAI parameters
+
     model: str = Field(
         ...,
         description="Model identifier (e.g., 'gpt-4', 'claude-3-opus', 'gemini-pro')",
@@ -176,6 +195,7 @@ class ChatCompletionRequest(BaseModel):
     )
 
     # TGO-AI Extension: Dynamic Tool Loading
+
     tool_ids: Optional[List[uuid.UUID]] = Field(
         default=None,
         description="Tool IDs to load from database (will be converted to function definitions)",
@@ -211,16 +231,24 @@ class ChatCompletionRequest(BaseModel):
 class Usage(BaseModel):
     """Token usage statistics."""
 
-    prompt_tokens: int = Field(..., description="Number of tokens in the prompt")
-    completion_tokens: int = Field(..., description="Number of tokens in the completion")
+    prompt_tokens: int = Field(
+        ..., description="Number of tokens in the prompt"
+    )
+    completion_tokens: int = Field(
+        ..., description="Number of tokens in the completion"
+    )
     total_tokens: int = Field(..., description="Total number of tokens used")
 
 
 class ChoiceMessage(ProviderStateCarrier):
     """Message in a completion choice."""
 
-    role: Literal["assistant"] = Field(default="assistant", description="The role of the author")
-    content: Optional[str] = Field(default=None, description="The content of the message")
+    role: Literal["assistant"] = Field(
+        default="assistant", description="The role of the author"
+    )
+    content: Optional[str] = Field(
+        default=None, description="The content of the message"
+    )
     tool_calls: Optional[List[ToolCall]] = Field(
         default=None, description="Tool calls made by the assistant"
     )
@@ -231,7 +259,9 @@ class Choice(BaseModel):
 
     index: int = Field(..., description="The index of the choice")
     message: ChoiceMessage = Field(..., description="The generated message")
-    finish_reason: Optional[Literal["stop", "length", "tool_calls", "content_filter"]] = Field(
+    finish_reason: Optional[
+        Literal["stop", "length", "tool_calls", "content_filter"]
+    ] = Field(
         default=None, description="The reason the model stopped generating"
     )
 
@@ -252,8 +282,12 @@ class ChatCompletionResponse(BaseModel):
         description="Unix timestamp of creation",
     )
     model: str = Field(..., description="The model used for completion")
-    choices: List[Choice] = Field(..., description="List of completion choices")
-    usage: Optional[Usage] = Field(default=None, description="Token usage statistics")
+    choices: List[Choice] = Field(
+        ..., description="List of completion choices"
+    )
+    usage: Optional[Usage] = Field(
+        default=None, description="Token usage statistics"
+    )
     system_fingerprint: Optional[str] = Field(
         default=None, description="System fingerprint for reproducibility"
     )
@@ -281,7 +315,9 @@ class StreamChoice(BaseModel):
 
     index: int = Field(..., description="The index of the choice")
     delta: DeltaMessage = Field(..., description="The delta message")
-    finish_reason: Optional[Literal["stop", "length", "tool_calls", "content_filter"]] = Field(
+    finish_reason: Optional[
+        Literal["stop", "length", "tool_calls", "content_filter"]
+    ] = Field(
         default=None, description="The reason the model stopped generating"
     )
 
@@ -296,7 +332,9 @@ class ChatCompletionChunk(BaseModel):
     )
     created: int = Field(..., description="Unix timestamp of creation")
     model: str = Field(..., description="The model used for completion")
-    choices: List[StreamChoice] = Field(..., description="List of streaming choices")
+    choices: List[StreamChoice] = Field(
+        ..., description="List of streaming choices"
+    )
     system_fingerprint: Optional[str] = Field(
         default=None, description="System fingerprint for reproducibility"
     )
@@ -341,4 +379,3 @@ def create_chunk(
             )
         ],
     )
-

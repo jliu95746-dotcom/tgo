@@ -20,7 +20,10 @@ class AgentBusinessTrial(BaseModel):
     __tablename__ = "ai_agent_business_trials"
     __table_args__ = (
         UniqueConstraint(
-            "project_id", "actor_id", "request_id", name="uq_ai_business_trial_request"
+            "project_id",
+            "actor_id",
+            "request_id",
+            name="uq_ai_business_trial_request",
         ),
         CheckConstraint(
             "status IN ('running', 'completed', 'failed', 'cancelled')",
@@ -29,7 +32,9 @@ class AgentBusinessTrial(BaseModel):
     )
     project_id: Mapped[UUID] = mapped_column(index=True)
     actor_id: Mapped[UUID] = mapped_column()
-    agent_id: Mapped[UUID] = mapped_column(ForeignKey("ai_agents.id"), index=True)
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("ai_agents.id"), index=True
+    )
     connection_id: Mapped[UUID] = mapped_column()
     request_id: Mapped[UUID] = mapped_column()
     attempt_id: Mapped[UUID] = mapped_column()
@@ -48,8 +53,14 @@ class AgentBusinessTrial(BaseModel):
     command_digest: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(16), default="running")
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    query_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    query_claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     receipt_json: Mapped[str | None] = mapped_column(Text)
     error_code: Mapped[str | None] = mapped_column(String(64))

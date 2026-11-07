@@ -32,14 +32,22 @@ from app.schemas.agent_business_reviews import (
     AgentBusinessCapabilities,
 )
 from app.services.agent_business_reviews import AgentBusinessReviewService
-from app.services.agent_business_review_requests import AgentBusinessReviewRequests
-from app.schemas.agent_business_review_requests import BusinessReviewRequestState
-from app.services.agent_business_capabilities import AgentBusinessCapabilityService
+from app.services.agent_business_review_requests import (
+    AgentBusinessReviewRequests,
+)
+from app.schemas.agent_business_review_requests import (
+    BusinessReviewRequestState,
+)
+from app.services.agent_business_capabilities import (
+    AgentBusinessCapabilityService,
+)
 
 router = APIRouter(route_class=PrivateTrialRoute)
 
 
-def get_service(db: AsyncSession = Depends(get_db)) -> AgentBusinessTrialService:
+def get_service(
+    db: AsyncSession = Depends(get_db),
+) -> AgentBusinessTrialService:
     return AgentBusinessTrialService(db)
 
 
@@ -50,7 +58,8 @@ def get_reviews(
 
 
 @router.get(
-    "/{agent_id}/business-current-state", response_model=BusinessEmployeeCurrentState
+    "/{agent_id}/business-current-state",
+    response_model=BusinessEmployeeCurrentState,
 )
 async def current_employee(
     agent_id: UUID,
@@ -63,7 +72,8 @@ async def current_employee(
 
 
 @router.get(
-    "/{agent_id}/business-capabilities", response_model=AgentBusinessCapabilities
+    "/{agent_id}/business-capabilities",
+    response_model=AgentBusinessCapabilities,
 )
 async def capabilities(
     agent_id: UUID,
@@ -118,7 +128,11 @@ async def recover_review(
     reviews: AgentBusinessReviewService = Depends(get_reviews),
 ) -> BusinessReviewRecord:
     return await reviews.request_result(
-        principal.project_id, principal.staff_id, agent_id, report_id, request_id
+        principal.project_id,
+        principal.staff_id,
+        agent_id,
+        report_id,
+        request_id,
     )
 
 
@@ -139,7 +153,11 @@ async def review_request_state(
     reviews: AgentBusinessReviewService = Depends(get_reviews),
 ) -> BusinessReviewRequestState:
     return await AgentBusinessReviewRequests(reviews).state(
-        principal.project_id, principal.staff_id, agent_id, report_id, request_id
+        principal.project_id,
+        principal.staff_id,
+        agent_id,
+        report_id,
+        request_id,
     )
 
 
@@ -155,7 +173,11 @@ async def resume_review_request(
     reviews: AgentBusinessReviewService = Depends(get_reviews),
 ) -> BusinessReviewRecord:
     return await AgentBusinessReviewRequests(reviews).resume(
-        principal.project_id, principal.staff_id, agent_id, report_id, request_id
+        principal.project_id,
+        principal.staff_id,
+        agent_id,
+        report_id,
+        request_id,
     )
 
 
@@ -171,7 +193,11 @@ async def cancel_review_request(
     reviews: AgentBusinessReviewService = Depends(get_reviews),
 ) -> BusinessReviewRequestState:
     return await AgentBusinessReviewRequests(reviews).cancel(
-        principal.project_id, principal.staff_id, agent_id, report_id, request_id
+        principal.project_id,
+        principal.staff_id,
+        agent_id,
+        report_id,
+        request_id,
     )
 
 
@@ -209,7 +235,9 @@ async def cancel_request(
 
 
 @router.post(
-    "/{agent_id}/business-trials", response_model=BusinessTrialReport, status_code=202
+    "/{agent_id}/business-trials",
+    response_model=BusinessTrialReport,
+    status_code=202,
 )
 async def start(
     agent_id: UUID,
@@ -227,7 +255,8 @@ async def start(
 
 
 @router.post(
-    "/{agent_id}/business-trials/authorize", response_model=BusinessTrialAuthority
+    "/{agent_id}/business-trials/authorize",
+    response_model=BusinessTrialAuthority,
 )
 async def authorize(
     agent_id: UUID,
@@ -260,7 +289,8 @@ async def recover(
 
 
 @router.get(
-    "/{agent_id}/business-trials/{report_id}", response_model=BusinessTrialReport
+    "/{agent_id}/business-trials/{report_id}",
+    response_model=BusinessTrialReport,
 )
 async def read(
     agent_id: UUID,
@@ -274,7 +304,8 @@ async def read(
 
 
 @router.post(
-    "/{agent_id}/business-trials/{report_id}/cancel", response_model=BusinessTrialReport
+    "/{agent_id}/business-trials/{report_id}/cancel",
+    response_model=BusinessTrialReport,
 )
 async def cancel(
     agent_id: UUID,

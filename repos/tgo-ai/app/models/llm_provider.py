@@ -38,12 +38,12 @@ class LLMProvider(BaseModel):
 
     __tablename__ = "ai_llm_providers"
     # Override BaseModel.id to require externally-provided IDs (no default)
+
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         comment="Primary key UUID (externally provided)",
     )
-
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -51,19 +51,45 @@ class LLMProvider(BaseModel):
         comment="Associated project ID",
     )
 
-    alias: Mapped[str] = mapped_column(String(80), nullable=False, comment="Unique alias within project")
-    provider_kind: Mapped[str] = mapped_column(String(40), nullable=False, comment="Provider kind: openai/anthropic/google/openai_compatible")
-    vendor: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, comment="Vendor label (e.g. deepseek)")
+    alias: Mapped[str] = mapped_column(
+        String(80), nullable=False, comment="Unique alias within project"
+    )
+    provider_kind: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        comment="Provider kind: openai/anthropic/google/openai_compatible",
+    )
+    vendor: Mapped[Optional[str]] = mapped_column(
+        String(40), nullable=True, comment="Vendor label (e.g. deepseek)"
+    )
 
-    api_base_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment="Custom API base URL")
-    api_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="API key (do NOT log)")
-    default_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="Default model identifier (e.g., gpt-4o, qwen-plus)")
-    organization: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="Organization/tenant id")
-    timeout: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="Request timeout seconds")
+    api_base_url: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, comment="Custom API base URL"
+    )
+    api_key: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, comment="API key (do NOT log)"
+    )
+    default_model: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="Default model identifier (e.g., gpt-4o, qwen-plus)",
+    )
+    organization: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, comment="Organization/tenant id"
+    )
+    timeout: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True, comment="Request timeout seconds"
+    )
 
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, comment="Whether this provider is active")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Whether this provider is active",
+    )
 
     # Synchronization timestamp
+
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -75,6 +101,7 @@ class LLMProvider(BaseModel):
     # Note: (project_id, alias) is NOT unique - multiple providers can share the same alias within a project.
 
     # Relationships
+
     models: Mapped[List["LLMModel"]] = relationship(
         "LLMModel", back_populates="llm_provider", cascade="all, delete-orphan"
     )

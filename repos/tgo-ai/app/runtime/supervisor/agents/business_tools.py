@@ -18,11 +18,19 @@ from app.schemas.agent_business_execution import (
     BusinessExecutionReceipt,
 )
 from app.schemas.business_execution_context import BusinessContextCheck
-from app.schemas.knowledge_evidence import BusinessToolEvidence, KnowledgeEvidence
-from app.services.agent_execution_scope import ExecutionRevoked, current_execution_scope
+from app.schemas.knowledge_evidence import (
+    BusinessToolEvidence,
+    KnowledgeEvidence,
+)
+from app.services.agent_execution_scope import (
+    ExecutionRevoked,
+    current_execution_scope,
+)
 from app.services.api_service import api_service_client
 
-Query = Callable[[BusinessExecutionCommand], Awaitable[BusinessExecutionReceipt]]
+Query = Callable[
+    [BusinessExecutionCommand], Awaitable[BusinessExecutionReceipt]
+]
 ORDER_NUMBER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$")
 
 
@@ -60,27 +68,32 @@ def _tool(
             raise ExecutionRevoked()
         await scope.check()
         if operation in {"order_query", "logistics_query"}:
-            if order_no is None or not ORDER_NUMBER.fullmatch(order_no.strip()):
+            if order_no is None or not ORDER_NUMBER.fullmatch(
+                order_no.strip()
+            ):
                 return "订单号格式不完整，请客户核对后重新提供；本次没有查询结果。"
             secret_order = SecretStr(order_no.strip())
         else:
             secret_order = None
-        command = BusinessExecutionCommand.model_validate({
-            "query_id": uuid4(),
-            "reference": reference,
-            "connection_id": binding.connection_id,
-            "binding_id": binding.id,
-            "binding_revision": binding.revision,
-            "operation": operation,
-            "context_digest": principal.context_digest,
-            "order_no": secret_order,
-            "context": BusinessContextCheck(
-                **principal.model_dump(
-                    include=set(BusinessContextCheck.model_fields) - {"context_token"}
+        command = BusinessExecutionCommand.model_validate(
+            {
+                "query_id": uuid4(),
+                "reference": reference,
+                "connection_id": binding.connection_id,
+                "binding_id": binding.id,
+                "binding_revision": binding.revision,
+                "operation": operation,
+                "context_digest": principal.context_digest,
+                "order_no": secret_order,
+                "context": BusinessContextCheck(
+                    **principal.model_dump(
+                        include=set(BusinessContextCheck.model_fields)
+                        - {"context_token"}
+                    ),
+                    context_token=token,
                 ),
-                context_token=token,
-            ),
-        })
+            }
+        )
         try:
             result = await query(command)
             if not result.matches(
@@ -106,8 +119,11 @@ def _tool(
         )
         context.knowledge_evidence.tool_results.append(
             BusinessToolEvidence(
-                name=name, content=content, success=passed,
-                query_id=command.query_id, operation=operation,
+                name=name,
+                content=content,
+                success=passed,
+                query_id=command.query_id,
+                operation=operation,
             )
         )
         return str(content)
@@ -126,7 +142,9 @@ def _tool(
             "type": "object",
             "properties": {
                 "order_no": {"type": "string", "description": "客户提供的订单号"}
-            } if needs_order else {},
+            }
+            if needs_order
+            else {},
             "required": ["order_no"] if needs_order else [],
             "additionalProperties": False,
         },
@@ -139,7 +157,10 @@ def build_business_tools(
     *,
     query: Query = api_service_client.query_business_execution,
 ) -> list[Function]:
-    reference, principal = context.execution_reference, context.business_principal
+    reference, principal = (
+        context.execution_reference,
+        context.business_principal,
+    )
     if (
         context.disable_tools
         or context.response_purpose == "expression"
@@ -159,7 +180,8 @@ def build_business_tools(
             and binding.agent_id == reference.agent_id
             and binding.project_id == reference.project_id
             and any(
-                row.connection_id == binding.connection_id for row in principal.bindings
+                row.connection_id == binding.connection_id
+                for row in principal.bindings
             )
         ):
             for operation in binding.operations:

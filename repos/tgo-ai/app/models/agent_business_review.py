@@ -25,10 +25,14 @@ class AgentBusinessReview(BaseModel):
             name="uq_ai_business_review_request",
         ),
         UniqueConstraint(
-            "project_id", "report_id", "revision", name="uq_ai_business_review_revision"
+            "project_id",
+            "report_id",
+            "revision",
+            name="uq_ai_business_review_revision",
         ),
         CheckConstraint(
-            "decision IN ('passed', 'rejected')", name="ck_ai_business_review_decision"
+            "decision IN ('passed', 'rejected')",
+            name="ck_ai_business_review_decision",
         ),
     )
     project_id: Mapped[UUID] = mapped_column(index=True)

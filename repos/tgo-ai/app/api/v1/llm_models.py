@@ -20,7 +20,9 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-def get_llm_model_service(db: AsyncSession = Depends(get_db)) -> LLMModelService:
+def get_llm_model_service(
+    db: AsyncSession = Depends(get_db),
+) -> LLMModelService:
     return LLMModelService(db)
 
 
@@ -41,22 +43,26 @@ async def sync_llm_models(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No models provided for sync",
         )
-
     try:
         models = await service.sync_models(
             [m.model_dump() for m in request.models],
         )
     except SQLAlchemyError as exc:
-        logger.error(f"Database error during LLM model sync: {str(exc)}", exc_info=exc)
+        logger.error(
+            f"Database error during LLM model sync: {str(exc)}", exc_info=exc
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to sync LLM models: database error - {str(exc)}",
         )
     except Exception as exc:
-        logger.error(f"Unexpected error during LLM model sync: {str(exc)}", exc_info=exc)
+        logger.error(
+            f"Unexpected error during LLM model sync: {str(exc)}", exc_info=exc
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to sync LLM models: unexpected error - {str(exc)}",
         )
-
-    return LLMModelSyncResponse(data=[LLMModelResponse.from_orm_model(m) for m in models])
+    return LLMModelSyncResponse(
+        data=[LLMModelResponse.from_orm_model(m) for m in models]
+    )

@@ -29,7 +29,11 @@ from app.services.agent_trial_reviews import (
 
 class AgentKnowledgeCapabilityService:
     def __init__(self, reviews: AgentTrialReviewService) -> None:
-        self.reviews, self.db, self.trials = reviews, reviews.db, reviews.trials
+        self.reviews, self.db, self.trials = (
+            reviews,
+            reviews.db,
+            reviews.trials,
+        )
 
     async def read(
         self,
@@ -47,11 +51,16 @@ class AgentKnowledgeCapabilityService:
         )
         if enabled is None:
             raise HTTPException(404, "未找到 AI 员工")
-        cache: dict[KnowledgeChannel, tuple[str, TrialKnowledgeSnapshot] | None] = {}
+        cache: dict[
+            KnowledgeChannel, tuple[str, TrialKnowledgeSnapshot] | None
+        ] = {}
         knowledge: Literal["available", "missing", "unknown"] = "unknown"
         try:
             current = await self.trials.dependencies.current(
-                project, agent, query.channel, requested_by=reviewer,
+                project,
+                agent,
+                query.channel,
+                requested_by=reviewer,
             )
             cache[query.channel] = current
             snapshot = current[1]
@@ -61,34 +70,52 @@ class AgentKnowledgeCapabilityService:
                 and all(row.resource_revision for row in snapshot.collections)
             ):
                 knowledge = "available"
-            elif snapshot.issues and set(snapshot.issues).issubset({"no_binding"}):
+            elif snapshot.issues and set(snapshot.issues).issubset(
+                {"no_binding"}
+            ):
                 knowledge = "missing"
         except Exception:
             cache[query.channel] = None
 
         groups: dict[str, list[KnowledgeCaseCoverage]] = {}
         for case in query.cases:
-            row = await self._case(project, reviewer, agent, case, query.channel, cache)
+            row = await self._case(
+                project, reviewer, agent, case, query.channel, cache
+            )
             groups.setdefault(case.template_id, []).append(row)
         capabilities = []
         for rows in groups.values():
             answers = [
-                row for row in rows if row.case.expected_result == "grounded_answer"
+                row
+                for row in rows
+                if row.case.expected_result == "grounded_answer"
             ]
-            safety = [row for row in rows if row.case.expected_result == "safe_refusal"]
+            safety = [
+                row
+                for row in rows
+                if row.case.expected_result == "safe_refusal"
+            ]
             # A safety-only catalog cannot grant answer coverage.
-            status = self._status(rows, bool(answers) and bool(safety), knowledge)
+            status = self._status(
+                rows, bool(answers) and bool(safety), knowledge
+            )
             capabilities.append(
                 KnowledgeCapabilityCoverage(
                     template_id=rows[0].case.template_id,
                     template_version=rows[0].case.template_version,
                     status=status,
-                    answer_cases_passed=sum(row.status == "passed" for row in answers),
+                    answer_cases_passed=sum(
+                        row.status == "passed" for row in answers
+                    ),
                     answer_cases_required=len(answers),
-                    safety_cases_passed=sum(row.status == "passed" for row in safety),
+                    safety_cases_passed=sum(
+                        row.status == "passed" for row in safety
+                    ),
                     safety_cases_required=len(safety),
                     cases=rows,
-                    valid_until=min(row.valid_until for row in rows if row.valid_until)
+                    valid_until=min(
+                        row.valid_until for row in rows if row.valid_until
+                    )
                     if status == "passed"
                     else None,
                 )
@@ -133,7 +160,9 @@ class AgentKnowledgeCapabilityService:
         agent: UUID,
         case: KnowledgeReviewCase,
         channel: KnowledgeChannel,
-        cache: dict[KnowledgeChannel, tuple[str, TrialKnowledgeSnapshot] | None],
+        cache: dict[
+            KnowledgeChannel, tuple[str, TrialKnowledgeSnapshot] | None
+        ],
     ) -> KnowledgeCaseCoverage:
         rows = (
             await self.db.scalars(
@@ -146,7 +175,9 @@ class AgentKnowledgeCapabilityService:
                     AgentTestReport.question == case.question.strip(),
                     AgentTestReport.deleted_at.is_(None),
                 )
-                .order_by(AgentTestReport.created_at.desc(), AgentTestReport.id)
+                .order_by(
+                    AgentTestReport.created_at.desc(), AgentTestReport.id
+                )
                 .limit(2)
             )
         ).all()
@@ -161,7 +192,8 @@ class AgentKnowledgeCapabilityService:
         )
         created = (
             report.created_at.replace(tzinfo=UTC)
-            if report.created_at.tzinfo is None else report.created_at
+            if report.created_at.tzinfo is None
+            else report.created_at
         )
         if case.valid_from is not None and (
             case.valid_from.tzinfo is None or created < case.valid_from
@@ -169,7 +201,9 @@ class AgentKnowledgeCapabilityService:
             return coverage
         if report.status == "running":
             expiry = rows[0].expires_at
-            expiry = expiry.replace(tzinfo=UTC) if expiry.tzinfo is None else expiry
+            expiry = (
+                expiry.replace(tzinfo=UTC) if expiry.tzinfo is None else expiry
+            )
             coverage.status = (
                 "in_progress" if expiry > datetime.now(UTC) else "needs_retest"
             )
@@ -180,7 +214,9 @@ class AgentKnowledgeCapabilityService:
         applicable = await self.trials.dependencies.check(
             report, project, cache, allow_safe_refusal=True
         )
-        if applicable.status != "current" or valid_until(report) <= datetime.now(UTC):
+        if applicable.status != "current" or valid_until(
+            report
+        ) <= datetime.now(UTC):
             return coverage
         review = await self.db.scalar(
             select(AgentTrialReview)
@@ -201,10 +237,15 @@ class AgentKnowledgeCapabilityService:
         receipt = self.reviews._response(
             review, report, applicable, {case.id: case_digest(case)}, False
         )
-        coverage.review_id, coverage.review_revision = receipt.id, receipt.revision
+        coverage.review_id, coverage.review_revision = (
+            receipt.id,
+            receipt.revision,
+        )
         coverage.valid_until = receipt.valid_until
         if receipt.effective:
             coverage.status = "passed"
-        elif receipt.case_status == "current" and receipt.decision == "rejected":
+        elif (
+            receipt.case_status == "current" and receipt.decision == "rejected"
+        ):
             coverage.status = "failed"
         return coverage

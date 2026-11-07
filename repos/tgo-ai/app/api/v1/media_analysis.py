@@ -20,7 +20,11 @@ from app.services.media_model_probe import MAX_PROBE_BYTES, probe_media_model
 router = APIRouter()
 
 
-@router.post("/probe", response_model=MediaProbeResult, dependencies=[Depends(require_internal_reply_quota)])
+@router.post(
+    "/probe",
+    response_model=MediaProbeResult,
+    dependencies=[Depends(require_internal_reply_quota)],
+)
 async def probe_media(
     provider_id: Annotated[uuid.UUID, Form()],
     model_id: Annotated[str, Form(min_length=1, max_length=150)],
@@ -46,7 +50,11 @@ async def probe_media(
         await file.close()
 
 
-@router.post("/media", response_model=MediaAnalysisResult, dependencies=[Depends(require_internal_reply_quota)])
+@router.post(
+    "/media",
+    response_model=MediaAnalysisResult,
+    dependencies=[Depends(require_internal_reply_quota)],
+)
 async def analyze_media(
     metadata: Annotated[str, Form(max_length=8192)],
     file: Annotated[UploadFile, File()],
@@ -59,7 +67,10 @@ async def analyze_media(
             request = MediaAnalysisRequest.model_validate_json(metadata)
         except ValidationError as exc:
             raise HTTPException(422, "媒体描述不符合格式要求") from exc
-        if file.size is not None and file.size > settings.multimodal_max_media_bytes:
+        if (
+            file.size is not None
+            and file.size > settings.multimodal_max_media_bytes
+        ):
             raise HTTPException(413, "媒体文件超过识别大小限制")
         content = await file.read(settings.multimodal_max_media_bytes + 1)
         if len(content) > settings.multimodal_max_media_bytes:

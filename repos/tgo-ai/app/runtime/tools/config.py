@@ -20,7 +20,9 @@ class ModelSettings(BaseSettings):
 
     name: str = Field(default="openai:gpt-4o", description="默认模型标识")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="采样温度")
-    max_tokens: int = Field(default=4000, ge=100, le=16_000, description="最大生成token")
+    max_tokens: int = Field(
+        default=4000, ge=100, le=16_000, description="最大生成token"
+    )
     system_prompt: str = Field(
         default="You are a helpful assistant that has access to a variety of tools.",
         description="默认系统提示词",
@@ -67,10 +69,12 @@ class SupabaseSettings(BaseSettings):
     )
 
     url: Optional[str] = Field(default=None, description="Supabase项目URL")
-    key: Optional[str] = Field(default=None, description="Supabase Service Role Key")
-    access_token: Optional[str] = Field(default=None, description="Supabase访问令牌")
-
-
+    key: Optional[str] = Field(
+        default=None, description="Supabase Service Role Key"
+    )
+    access_token: Optional[str] = Field(
+        default=None, description="Supabase访问令牌"
+    )
 
 
 class ToolsRuntimeSettings(BaseSettings):

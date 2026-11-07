@@ -7,7 +7,9 @@ from pydantic import BaseModel, SecretStr
 
 class PlatformModelRuntime(BaseModel):
     model: str
-    provider_kind: Literal["openai", "openai_compatible", "anthropic", "google"]
+    provider_kind: Literal[
+        "openai", "openai_compatible", "anthropic", "google"
+    ]
     api_base_url: str | None = None
     vendor: str | None = None
     active: bool = True

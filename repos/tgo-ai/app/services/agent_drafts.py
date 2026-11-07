@@ -10,7 +10,12 @@ from app.models.agent import Agent, AgentToolAssociation
 from app.models.collection import AgentCollection
 from app.models.workflow import AgentWorkflow
 from app.models.agent_draft_binding import AgentDraftBinding
-from app.schemas.agent import AgentBase, AgentCreate, AgentToolCreate, AgentUpdate
+from app.schemas.agent import (
+    AgentBase,
+    AgentCreate,
+    AgentToolCreate,
+    AgentUpdate,
+)
 from app.schemas.agent_drafts import AgentDraftReceipt, AgentDraftRequest
 from app.schemas.agent_activation import AgentActivationSelection
 from app.services.agent_activation import lock_account_agents
@@ -24,12 +29,24 @@ class AgentDraftService:
         self.db = db
         self.policies = AgentActivationPolicyService(db)
 
-    async def _binding(self, project: UUID, draft: UUID) -> AgentDraftBinding | None:
-        return cast(AgentDraftBinding | None, await self.db.scalar(select(AgentDraftBinding).where(
-            AgentDraftBinding.project_id == project, AgentDraftBinding.draft_id == draft,
-        ).execution_options(populate_existing=True)))
+    async def _binding(
+        self, project: UUID, draft: UUID
+    ) -> AgentDraftBinding | None:
+        return cast(
+            AgentDraftBinding | None,
+            await self.db.scalar(
+                select(AgentDraftBinding)
+                .where(
+                    AgentDraftBinding.project_id == project,
+                    AgentDraftBinding.draft_id == draft,
+                )
+                .execution_options(populate_existing=True)
+            ),
+        )
 
-    async def get(self, project: UUID, staff: UUID, draft: UUID) -> AgentDraftReceipt:
+    async def get(
+        self, project: UUID, staff: UUID, draft: UUID
+    ) -> AgentDraftReceipt:
         row = await self._binding(project, draft)
         if row is None or row.created_by != staff:
             raise NotFoundError("配置员工")
@@ -43,54 +60,107 @@ class AgentDraftService:
         return await self._receipt(row, selection)
 
     async def _receipt(
-        self, row: AgentDraftBinding,
+        self,
+        row: AgentDraftBinding,
         selection: AgentActivationSelection | None = None,
     ) -> AgentDraftReceipt:
         # Keep tombstones: deleting the saved employee must not create another.
-        agent = await self.db.scalar(select(Agent).where(
-            Agent.id == row.agent_id, Agent.project_id == row.project_id,
-            Agent.deleted_at.is_(None),
-        ).execution_options(populate_existing=True))
+        agent = await self.db.scalar(
+            select(Agent)
+            .where(
+                Agent.id == row.agent_id,
+                Agent.project_id == row.project_id,
+                Agent.deleted_at.is_(None),
+            )
+            .execution_options(populate_existing=True)
+        )
         if agent is None:
             raise ConflictError("此草稿关联的员工已删除，请建立新的配置草稿")
         return AgentDraftReceipt(
-            project_id=row.project_id, created_by=row.created_by, draft_id=row.draft_id,
-            revision=row.revision, agent_id=agent.id, is_active=agent.is_active,
+            project_id=row.project_id,
+            created_by=row.created_by,
+            draft_id=row.draft_id,
+            revision=row.revision,
+            agent_id=agent.id,
+            is_active=agent.is_active,
             activation_selection=selection,
         )
 
     @staticmethod
     def _digest(request: AgentDraftRequest) -> str:
         agent = request.agent.model_copy(deep=True)
-        agent.tools = sorted(agent.tools or [], key=lambda item: str(item.tool_id))
+        agent.tools = sorted(
+            agent.tools or [], key=lambda item: str(item.tool_id)
+        )
         agent.collections = sorted(agent.collections or [])
         agent.workflows = sorted(agent.workflows or [])
         snapshot = request.model_copy(update={"agent": agent})
         # Preserve digests of legacy requests that had no selection field.
-        omitted = {"activation_selection"} if snapshot.activation_selection is None else set()
-        return private_digest(json_object.validate_python(snapshot.model_dump(mode="json", exclude=omitted)))
+        omitted = (
+            {"activation_selection"}
+            if snapshot.activation_selection is None
+            else set()
+        )
+        return private_digest(
+            json_object.validate_python(
+                snapshot.model_dump(mode="json", exclude=omitted)
+            )
+        )
 
     async def _configuration_matches(
-        self, row: AgentDraftBinding,
+        self,
+        row: AgentDraftBinding,
         selection: AgentActivationSelection | None,
     ) -> bool:
         agent = await self.db.get(Agent, row.agent_id, populate_existing=True)
         if agent is None:
             return False
-        fields: dict[str, object] = {key: getattr(agent, key) for key in AgentBase.model_fields}
+        fields: dict[str, object] = {
+            key: getattr(agent, key) for key in AgentBase.model_fields
+        }
         # Activation state is independent; same-revision retries never toggle it.
-        fields.update(is_active=False, is_default=False, llm_provider_id=agent.llm_provider_id)
-        tools = (await self.db.scalars(select(AgentToolAssociation).where(
-            AgentToolAssociation.agent_id == agent.id, AgentToolAssociation.deleted_at.is_(None),
-        ))).all()
-        fields["tools"] = [AgentToolCreate(tool_id=tool.tool_id, enabled=tool.enabled,
-            permissions=tool.permissions, config=tool.config) for tool in tools]
-        fields["collections"] = list((await self.db.scalars(select(AgentCollection.collection_id).where(
-            AgentCollection.agent_id == agent.id, AgentCollection.deleted_at.is_(None),
-        ))).all())
-        fields["workflows"] = list((await self.db.scalars(select(AgentWorkflow.workflow_id).where(
-            AgentWorkflow.agent_id == agent.id, AgentWorkflow.deleted_at.is_(None),
-        ))).all())
+        fields.update(
+            is_active=False,
+            is_default=False,
+            llm_provider_id=agent.llm_provider_id,
+        )
+        tools = (
+            await self.db.scalars(
+                select(AgentToolAssociation).where(
+                    AgentToolAssociation.agent_id == agent.id,
+                    AgentToolAssociation.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        fields["tools"] = [
+            AgentToolCreate(
+                tool_id=tool.tool_id,
+                enabled=tool.enabled,
+                permissions=tool.permissions,
+                config=tool.config,
+            )
+            for tool in tools
+        ]
+        fields["collections"] = list(
+            (
+                await self.db.scalars(
+                    select(AgentCollection.collection_id).where(
+                        AgentCollection.agent_id == agent.id,
+                        AgentCollection.deleted_at.is_(None),
+                    )
+                )
+            ).all()
+        )
+        fields["workflows"] = list(
+            (
+                await self.db.scalars(
+                    select(AgentWorkflow.workflow_id).where(
+                        AgentWorkflow.agent_id == agent.id,
+                        AgentWorkflow.deleted_at.is_(None),
+                    )
+                )
+            ).all()
+        )
         snapshot = AgentDraftRequest(
             revision=row.revision,
             agent=AgentCreate.model_validate(fields),
@@ -98,8 +168,13 @@ class AgentDraftService:
         )
         return self._digest(snapshot) == row.request_digest
 
-    async def save(self, project: UUID, staff: UUID, draft: UUID,
-                   request: AgentDraftRequest) -> AgentDraftReceipt:
+    async def save(
+        self,
+        project: UUID,
+        staff: UUID,
+        draft: UUID,
+        request: AgentDraftRequest,
+    ) -> AgentDraftReceipt:
         digest = self._digest(request)
         await lock_account_agents(self.db, project)
         row = await self._binding(project, draft)
@@ -120,12 +195,14 @@ class AgentDraftService:
                 return await self._receipt(row, request.activation_selection)
             try:
                 await self.policies.draft_selection(
-                    row.project_id, row.agent_id, row.draft_id, row.revision)
+                    row.project_id, row.agent_id, row.draft_id, row.revision
+                )
             except ConflictError:
                 # Keep independent policies only if the saved employee and
                 # original selection still match.
                 if not await self._configuration_matches(
-                    row, request.activation_selection,
+                    row,
+                    request.activation_selection,
                 ):
                     raise ConflictError("员工或草稿岗位已变化，请核对当前员工配置")
                 preserve_policies = True
@@ -137,24 +214,50 @@ class AgentDraftService:
             if row is None:
                 # Validate every persisted association, including creation.
                 if request.agent.collections:
-                    await service._validate_collections_belong_to_project(request.agent.collections, project)
+                    await service._validate_collections_belong_to_project(
+                        request.agent.collections, project
+                    )
                 if request.agent.workflows:
-                    await service._validate_workflows_belong_to_project(request.agent.workflows, project)
-                agent = await service.create_agent(project, request.agent, commit=False)
-                row = AgentDraftBinding(project_id=project, created_by=staff, draft_id=draft,
-                    agent_id=agent.id, revision=request.revision, request_digest=digest)
+                    await service._validate_workflows_belong_to_project(
+                        request.agent.workflows, project
+                    )
+                agent = await service.create_agent(
+                    project, request.agent, commit=False
+                )
+                row = AgentDraftBinding(
+                    project_id=project,
+                    created_by=staff,
+                    draft_id=draft,
+                    agent_id=agent.id,
+                    revision=request.revision,
+                    request_digest=digest,
+                )
                 self.db.add(row)
             else:
-                fields = request.agent.model_dump(exclude={
-                    "agent_category", "is_remote_store_agent", "remote_agent_url", "store_agent_id",
-                })
-                await service.update_agent(project, row.agent_id, AgentUpdate.model_validate(fields),
-                                           commit=False, enrich_resources=False)
+                fields = request.agent.model_dump(
+                    exclude={
+                        "agent_category",
+                        "is_remote_store_agent",
+                        "remote_agent_url",
+                        "store_agent_id",
+                    }
+                )
+                await service.update_agent(
+                    project,
+                    row.agent_id,
+                    AgentUpdate.model_validate(fields),
+                    commit=False,
+                    enrich_resources=False,
+                )
                 row.revision, row.request_digest = request.revision, digest
             if not preserve_policies:
                 await self.policies.save_for_draft(
-                    project, staff, row.agent_id, draft,
-                    request.revision, request.activation_selection,
+                    project,
+                    staff,
+                    row.agent_id,
+                    draft,
+                    request.revision,
+                    request.activation_selection,
                 )
             await self.db.commit()
         except BaseException:

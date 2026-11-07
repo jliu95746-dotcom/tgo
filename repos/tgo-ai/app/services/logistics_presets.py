@@ -71,7 +71,9 @@ async def query_preset(
             payload["ShipperCode"] = carrier.upper()
         if phone:
             payload["CustomerName"] = phone[-4:]
-        request_data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        request_data = json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")
+        )
         digest = hashlib.md5((request_data + credential).encode()).hexdigest()
         return await _post(
             client,
@@ -103,7 +105,12 @@ async def query_preset(
         carrier = str(next(iter(codes)))
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,40}", carrier):
             raise ValueError("服务商返回的快递公司编码无效")
-    param = {"com": carrier.lower(), "num": tracking_no, "show": "0", "order": "desc"}
+    param = {
+        "com": carrier.lower(),
+        "num": tracking_no,
+        "show": "0",
+        "order": "desc",
+    }
     if phone:
         param["phone"] = phone
     encoded = json.dumps(param, ensure_ascii=False, separators=(",", ":"))

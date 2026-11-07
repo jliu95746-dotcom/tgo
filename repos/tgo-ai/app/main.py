@@ -23,7 +23,9 @@ from app.exceptions import TGOAIServiceException
 
 
 request_logger = logging.getLogger("app.requests")
-request_logger.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
+request_logger.setLevel(
+    getattr(logging, settings.log_level.upper(), logging.INFO)
+)
 SAFE_REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 
 
@@ -32,8 +34,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
 
     # Start periodic embedding sync retry loop (if enabled)
+
     from app.tasks.embedding_sync_retry import start_embedding_sync_retry_loop
     from app.tasks.script_evidence_retention import run_retention
+
     stop_event = asyncio.Event()
     task = asyncio.create_task(start_embedding_sync_retry_loop(stop_event))
     retention_task = asyncio.create_task(run_retention(stop_event))
@@ -42,6 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         yield
     finally:
         # Shutdown
+
         stop_event.set()
         retention_task.cancel()
         await asyncio.gather(retention_task, return_exceptions=True)
@@ -57,7 +62,6 @@ class _TGOApplication(FastAPI):
         """Custom OpenAPI schema with security definitions."""
         if self.openapi_schema:
             return self.openapi_schema
-
         from fastapi.openapi.utils import get_openapi
 
         openapi_schema = get_openapi(
@@ -68,9 +72,9 @@ class _TGOApplication(FastAPI):
         )
 
         # Add error response schemas
+
         if "schemas" not in openapi_schema["components"]:
             openapi_schema["components"]["schemas"] = {}
-
         openapi_schema["components"]["schemas"]["ErrorDetail"] = {
             "type": "object",
             "properties": {
@@ -118,6 +122,7 @@ class _TGOApplication(FastAPI):
 
 
 # Create FastAPI application
+
 app = _TGOApplication(
     title="TGO-Tech AI Service",
     description="AI/ML Operations Microservice for TGO-Tech customer service platform",
@@ -146,6 +151,7 @@ def custom_openapi() -> dict[str, JsonValue]:
 
 
 # Add CORS middleware
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -157,7 +163,8 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_requests(
-    request: Request, call_next: RequestResponseEndpoint,
+    request: Request,
+    call_next: RequestResponseEndpoint,
 ) -> Response:
     """Log incoming requests and their outcomes."""
     supplied_id = request.headers.get("X-Request-ID", "")
@@ -193,7 +200,6 @@ async def log_requests(
             duration_ms,
         )
         raise
-
     duration_ms = (time.perf_counter() - start_time) * 1000
     response.headers["X-Request-ID"] = request_id
     response_length = response.headers.get("content-length", "-")
@@ -212,14 +218,17 @@ async def log_requests(
 
 
 # Global exception handler
+
+
 @app.exception_handler(TGOAIServiceException)
 async def tgo_ai_service_exception_handler(
     request: Request, exc: TGOAIServiceException
 ) -> JSONResponse:
     """Handle custom TGO AI Service exceptions."""
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-    
+
     # Map exception types to HTTP status codes
+
     if exc.code == "AUTHENTICATION_FAILED":
         status_code = status.HTTP_401_UNAUTHORIZED
     elif exc.code == "ACCESS_DENIED":
@@ -232,7 +241,6 @@ async def tgo_ai_service_exception_handler(
         status_code = status.HTTP_409_CONFLICT
     elif exc.code == "RATE_LIMIT_EXCEEDED":
         status_code = status.HTTP_429_TOO_MANY_REQUESTS
-
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
 
     return JSONResponse(
@@ -250,8 +258,12 @@ async def tgo_ai_service_exception_handler(
 
 
 # Global HTTP exception handler
+
+
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+async def http_exception_handler(
+    request: Request, exc: HTTPException
+) -> JSONResponse:
     """Handle FastAPI HTTP exceptions."""
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
 
@@ -270,6 +282,8 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 
 # Health check endpoint
+
+
 @app.get("/health", include_in_schema=settings.health_check_enabled)
 async def health_check() -> dict:
     """Health check endpoint."""
@@ -282,6 +296,8 @@ async def health_check() -> dict:
 
 
 # Root endpoint
+
+
 @app.get("/", include_in_schema=False)
 async def root() -> dict:
     """Root endpoint with service information."""
@@ -295,6 +311,7 @@ async def root() -> dict:
 
 
 # Include API routes
+
 app.include_router(api_router)
 
 

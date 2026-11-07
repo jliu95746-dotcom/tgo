@@ -73,13 +73,17 @@ def knowledge_search_query(context: AgentExecutionContext) -> str:
             data = json.loads(payload)
         except ValueError:
             data = None
-        if isinstance(data, dict) and set(data) == {"recognized_customer_content"}:
+        if isinstance(data, dict) and set(data) == {
+            "recognized_customer_content"
+        }:
             recognized = data["recognized_customer_content"]
             if isinstance(recognized, str) and recognized.strip():
                 message = recognized
         elif isinstance(data, list) and all(
-            isinstance(item, dict) and set(item) == {"kind", "content"}
-            and isinstance(item["content"], str) for item in data
+            isinstance(item, dict)
+            and set(item) == {"kind", "content"}
+            and isinstance(item["content"], str)
+            for item in data
         ):
             contents = []
             for item in data:
@@ -89,12 +93,15 @@ def knowledge_search_query(context: AgentExecutionContext) -> str:
                     recognized = json.loads(envelope)
                 except ValueError:
                     recognized = None
-                if isinstance(recognized, dict) and isinstance(recognized.get("recognized_customer_content"), str):
+                if isinstance(recognized, dict) and isinstance(
+                    recognized.get("recognized_customer_content"), str
+                ):
                     content = recognized["recognized_customer_content"]
                 contents.append(content)
             message = "\n".join(contents)
     history = [
-        text[:800] for text in context.knowledge_context
+        text[:800]
+        for text in context.knowledge_context
         if text.strip() and not SOCIAL_ONLY.fullmatch(text)
     ][-2:]
     # Length does not indicate whether a follow-up needs its preceding topic.
@@ -118,10 +125,7 @@ async def retrieve_current_knowledge(
     if SOCIAL_ONLY.fullmatch(context.message):
         evidence.status = "skipped"
         return evidence
-    if (
-        not context.rag_url
-        or not context.knowledge_channel
-    ):
+    if not context.rag_url or not context.knowledge_channel:
         return evidence
     collections = list(
         dict.fromkeys(
@@ -194,7 +198,10 @@ def evidence_prompt(evidence: KnowledgeEvidence) -> str:
         + "\n本轮检索证据：\n"
         + json.dumps(
             evidence.model_dump(
-                mode="json", exclude={"tool_results": {"__all__": {"query_id", "operation"}}},
+                mode="json",
+                exclude={
+                    "tool_results": {"__all__": {"query_id", "operation"}}
+                },
             ),
             ensure_ascii=False,
         )

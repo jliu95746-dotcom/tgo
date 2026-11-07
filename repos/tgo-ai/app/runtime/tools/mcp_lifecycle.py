@@ -9,10 +9,13 @@ from app.runtime.core.exceptions import MCPToolError
 
 
 class MCPConnection(Protocol):
-    async def close(self) -> None: ...
+    async def close(self) -> None:
+        ...
 
 
-_connections: ContextVar[AsyncExitStack | None] = ContextVar("mcp_request_connections", default=None)
+_connections: ContextVar[AsyncExitStack | None] = ContextVar(
+    "mcp_request_connections", default=None
+)
 _logger = get_logger(__name__)
 
 
@@ -20,7 +23,9 @@ async def _close_connection(connection: MCPConnection) -> None:
     try:
         await connection.close()
     except Exception as exc:
-        _logger.warning("MCP connection cleanup failed", error_type=type(exc).__name__)
+        _logger.warning(
+            "MCP connection cleanup failed", error_type=type(exc).__name__
+        )
         raise MCPToolError("工具连接清理失败，请稍后重试。") from None
 
 

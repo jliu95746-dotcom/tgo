@@ -46,7 +46,8 @@ class AgentBusinessCapabilityService:
                 AgentBusinessTrial.deleted_at.is_(None),
             )
             .order_by(
-                AgentBusinessTrial.created_at.desc(), AgentBusinessTrial.id.desc()
+                AgentBusinessTrial.created_at.desc(),
+                AgentBusinessTrial.id.desc(),
             )
             .limit(1)
             .execution_options(populate_existing=True)
@@ -119,7 +120,9 @@ class AgentBusinessCapabilityService:
             result.issues = ["evidence_unavailable"]
             return result
         result.valid_until = state.valid_until
-        result.review_id = state.latest_review.id if state.latest_review else None
+        result.review_id = (
+            state.latest_review.id if state.latest_review else None
+        )
         result.issues = list(state.issues)
         result.status = (
             "unavailable"
@@ -158,7 +161,8 @@ class AgentBusinessCapabilityService:
         try:
             operations = {
                 row.id: _operations.validate_python(
-                    row.operations, strict=True,
+                    row.operations,
+                    strict=True,
                 )
                 for row in bindings
             }
@@ -179,7 +183,12 @@ class AgentBusinessCapabilityService:
                     for operation in operations[binding.id]:
                         values.append(
                             await self._operation(
-                                project, actor, agent, binding, operation, contexts
+                                project,
+                                actor,
+                                agent,
+                                binding,
+                                operation,
+                                contexts,
                             )
                         )
         except TimeoutError:
@@ -225,10 +234,14 @@ class AgentBusinessCapabilityService:
                 project, actor, agent, value.connection_id, value.operation
             )
             current_binding = await self.db.get(
-                AgentBusinessConnection, value.binding_id, populate_existing=True
+                AgentBusinessConnection,
+                value.binding_id,
+                populate_existing=True,
             )
             records = (
-                await self.reviews._records(project, actor, agent, value.report_id)
+                await self.reviews._records(
+                    project, actor, agent, value.report_id
+                )
                 if value.report_id
                 else []
             )
@@ -244,7 +257,10 @@ class AgentBusinessCapabilityService:
             ):
                 value.status = "needs_retest"
                 value.issues = ["superseded"]
-            elif value.valid_until is None or value.valid_until <= datetime.now(UTC):
+            elif (
+                value.valid_until is None
+                or value.valid_until <= datetime.now(UTC)
+            ):
                 value.status = "needs_retest"
                 value.issues = ["report_expired"]
         await self.trials._actor(project, actor)

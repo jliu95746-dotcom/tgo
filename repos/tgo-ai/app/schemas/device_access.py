@@ -21,8 +21,13 @@ class BoundDeviceReadPolicy(BaseModel):
 
 
 AgentDeviceActionStatus = Literal[
-    "not_bound", "ready", "needs_rebind", "needs_test",
-    "legacy_unverified", "device_missing", "invalid_binding",
+    "not_bound",
+    "ready",
+    "needs_rebind",
+    "needs_test",
+    "legacy_unverified",
+    "device_missing",
+    "invalid_binding",
 ]
 
 
@@ -39,10 +44,14 @@ class AgentDeviceActionReadiness(BaseModel):
     def validate_ready_identity(self) -> "AgentDeviceActionReadiness":
         if self.status == "ready":
             if self.device_id is None or self.policy_digest is None:
-                raise ValueError("Ready device action requires a device ID and policy digest")
+                raise ValueError(
+                    "Ready device action requires a device ID and policy digest"
+                )
             UUID(self.device_id)
         elif self.status == "not_bound" and self.device_id is not None:
             raise ValueError("Unbound action cannot carry a device ID")
         elif self.policy_digest is not None:
-            raise ValueError("Unready device action cannot carry a policy digest")
+            raise ValueError(
+                "Unready device action cannot carry a policy digest"
+            )
         return self

@@ -29,7 +29,9 @@ class WorkflowEventEmitter:
     def __init__(self, event_emitter: StreamingEventEmitter):
         self.emitter = event_emitter
 
-    def emit_workflow_started(self, request_id: str, context: AgentExecutionContext) -> None:
+    def emit_workflow_started(
+        self, request_id: str, context: AgentExecutionContext
+    ) -> None:
         """Emit workflow started event."""
         data = WorkflowStartedData(
             request_id=request_id,
@@ -44,10 +46,13 @@ class WorkflowEventEmitter:
         }
         if context.session_id:
             metadata["session_id"] = context.session_id
+        self.emitter.emit(
+            EventType.WORKFLOW_STARTED, data, EventSeverity.INFO, metadata
+        )
 
-        self.emitter.emit(EventType.WORKFLOW_STARTED, data, EventSeverity.INFO, metadata)
-
-    def emit_workflow_completed(self, total_time: float, agents_consulted: int) -> None:
+    def emit_workflow_completed(
+        self, total_time: float, agents_consulted: int
+    ) -> None:
         """Emit workflow completed event."""
         data = ProgressUpdateData(
             phase="completed",
@@ -180,7 +185,9 @@ class WorkflowEventEmitter:
             tool_input=tool_input,
             tool_output=tool_output,
             status="failed" if tool_call_error else "completed",
-            error=(tool_output or "Tool execution failed") if tool_call_error else None,
+            error=(tool_output or "Tool execution failed")
+            if tool_call_error
+            else None,
             business_query_links=business_query_links or [],
         )
         self.emitter.emit(
@@ -239,10 +246,13 @@ class WorkflowEventEmitter:
         metadata: Dict[str, Any] = {"phase": "json_render"}
         if member_id:
             metadata["member_id"] = member_id
-        self.emitter.emit(EventType.JSON_RENDER_UPDATE, data, EventSeverity.INFO, metadata)
+        self.emitter.emit(
+            EventType.JSON_RENDER_UPDATE, data, EventSeverity.INFO, metadata
+        )
 
 
-
-def create_workflow_events(event_emitter: StreamingEventEmitter) -> WorkflowEventEmitter:
+def create_workflow_events(
+    event_emitter: StreamingEventEmitter,
+) -> WorkflowEventEmitter:
     """Create a workflow event emitter."""
     return WorkflowEventEmitter(event_emitter)

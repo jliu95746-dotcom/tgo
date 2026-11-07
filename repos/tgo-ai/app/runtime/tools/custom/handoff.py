@@ -38,36 +38,43 @@ def create_handoff_tool(
         """Request human support via manual_service.request event."""
         result = await client.post_event(
             "manual_service.request",
-            {"reason": reason, "urgency": urgency, "channel": channel, "metadata": metadata},
+            {
+                "reason": reason,
+                "urgency": urgency,
+                "channel": channel,
+                "metadata": metadata,
+            },
             error_messages=error_messages,
         )
 
         if not result.success:
             return result.message
-
         if result.notification_status != "submitted":
             return (
                 f"[handoff_requested] 人工转接已记录，编号 {result.request_id}。"
                 "通知状态未知，请人工核对，暂勿重复提交。"
             )
-
         return (
-            f"[handoff_requested] 人工转接已记录，编号 {result.request_id}。"
-            "已提交客服通知。"
+            f"[handoff_requested] 人工转接已记录，编号 {result.request_id}。" "已提交客服通知。"
         )
 
     return Function(
         name="request_human_support",
         description=(
-            "当用户明确要求人工或你判断需要人工介入时调用此工具，用于发起人工支持流程。"
-            "请在参数中简要说明原因与紧急程度。"
+            "当用户明确要求人工或你判断需要人工介入时调用此工具，用于发起人工支持流程。" "请在参数中简要说明原因与紧急程度。"
         ),
         parameters={
             "type": "object",
             "properties": {
                 "reason": {"type": "string", "description": "触发人工介入的原因（必填）"},
-                "urgency": {"type": "string", "description": "紧急程度：low|normal|high|urgent（默认 normal）"},
-                "channel": {"type": "string", "description": "期望的人工渠道（如 phone/wechat/email/ticket 等，可选）"},
+                "urgency": {
+                    "type": "string",
+                    "description": "紧急程度：low|normal|high|urgent（默认 normal）",
+                },
+                "channel": {
+                    "type": "string",
+                    "description": "期望的人工渠道（如 phone/wechat/email/ticket 等，可选）",
+                },
                 "metadata": {"type": "object", "description": "其他上下文字段（可选）"},
             },
             "required": ["reason"],

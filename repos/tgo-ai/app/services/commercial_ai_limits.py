@@ -15,7 +15,9 @@ def constrain_chat(request: ChatCompletionRequest) -> ChatCompletionRequest:
     if platform is not None and request.model == "__system_default__":
         request = request.model_copy(update={"model": platform.model})
     approved = (
-        [platform.model] if platform is not None else settings.saas_approved_models
+        [platform.model]
+        if platform is not None
+        else settings.saas_approved_models
     )
     if request.model not in approved:
         raise ValueError("该模型尚未由平台批准用于企业订阅")
@@ -32,7 +34,9 @@ def constrain_chat(request: ChatCompletionRequest) -> ChatCompletionRequest:
                 settings.saas_max_output_tokens,
             ),
             "max_tool_rounds": min(
-                request.max_tool_rounds if request.max_tool_rounds is not None else 5,
+                request.max_tool_rounds
+                if request.max_tool_rounds is not None
+                else 5,
                 settings.saas_max_tool_calls,
             ),
         }
@@ -46,7 +50,9 @@ def constrain_agent(config: AgentConfig, message: str) -> AgentConfig:
 
     platform = current_model()
     approved = (
-        [platform.model] if platform is not None else settings.saas_approved_models
+        [platform.model]
+        if platform is not None
+        else settings.saas_approved_models
     )
     if not config.model_name or config.model_name not in approved:
         raise ValueError("该模型尚未由平台批准用于企业订阅，请联系平台配置")
@@ -60,7 +66,10 @@ def constrain_agent(config: AgentConfig, message: str) -> AgentConfig:
         config.system_message,
         config.expected_output,
     )
-    if sum(len(value or "") for value in inputs) > settings.saas_max_input_characters:
+    if (
+        sum(len(value or "") for value in inputs)
+        > settings.saas_max_input_characters
+    ):
         raise ValueError("本轮输入超过企业 AI 处理长度上限，请缩短消息或资料")
     return config.model_copy(
         update={

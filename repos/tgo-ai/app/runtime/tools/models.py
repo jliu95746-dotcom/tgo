@@ -15,7 +15,9 @@ class MCPConfig(BaseModel):
     """MCP服务器配置."""
 
     url: Optional[str] = Field(default=None, description="MCP服务URL")
-    tools: Optional[List[str]] = Field(default=None, description="需要暴露的MCP工具列表")
+    tools: Optional[List[str]] = Field(
+        default=None, description="需要暴露的MCP工具列表"
+    )
     auth_required: bool = Field(default=False, description="是否需要鉴权")
 
 
@@ -31,19 +33,27 @@ class RagConfig(BaseModel):
         default=None,
         description="Channel used for automatic-answer knowledge governance",
     )
-    collections: Optional[List[str]] = Field(default=None, description="启用的集合列表")
-    filters: Optional[Dict[str, Any]] = Field(default=None, description="搜索过滤条件")
+    collections: Optional[List[str]] = Field(
+        default=None, description="启用的集合列表"
+    )
+    filters: Optional[Dict[str, Any]] = Field(
+        default=None, description="搜索过滤条件"
+    )
 
 
 class WorkflowConfig(BaseModel):
     """工作流配置."""
 
     workflow_url: Optional[str] = Field(default=None, description="工作流服务地址")
-    agent_id: str = Field(description="Employee whose current binding authorizes execution")
+    agent_id: str = Field(
+        description="Employee whose current binding authorizes execution"
+    )
     project_id: Optional[str] = Field(
         default=None, description="Project ID for Workflow service calls"
     )
-    workflows: Optional[List[str]] = Field(default=None, description="启用的工作流ID列表")
+    workflows: Optional[List[str]] = Field(
+        default=None, description="启用的工作流ID列表"
+    )
     release_versions: Dict[str, int] = Field(default_factory=dict)
     release_ids: Dict[str, str] = Field(default_factory=dict)
     release_digests: Dict[str, str] = Field(default_factory=dict)
@@ -57,7 +67,8 @@ class LLMProviderCredentials(BaseModel):
     )
     api_key: str = Field(..., description="API key for the provider")
     api_base_url: Optional[str] = Field(
-        default=None, description="Custom API base URL (for compatible vendors)"
+        default=None,
+        description="Custom API base URL (for compatible vendors)",
     )
     organization: Optional[str] = Field(
         default=None, description="Organization/Tenant identifier"
@@ -66,7 +77,8 @@ class LLMProviderCredentials(BaseModel):
         default=None, description="Request timeout in seconds"
     )
     vendor: Optional[str] = Field(
-        default=None, description="Vendor label (e.g., deepseek, openai, openrouter)"
+        default=None,
+        description="Vendor label (e.g., deepseek, openai, openrouter)",
     )
 
 
@@ -88,22 +100,35 @@ class AgentConfig(BaseModel):
     )
     mcp_config: Optional[MCPConfig] = Field(default=None, description="MCP配置")
     rag: Optional[RagConfig] = Field(default=None, description="RAG配置")
-    workflow: Optional[WorkflowConfig] = Field(default=None, description="工作流配置")
-    enable_memory: Optional[bool] = Field(default=None, description="是否为该智能体启用记忆功能")
+    workflow: Optional[WorkflowConfig] = Field(
+        default=None, description="工作流配置"
+    )
+    enable_memory: Optional[bool] = Field(
+        default=None, description="是否为该智能体启用记忆功能"
+    )
     system_message: Optional[str] = Field(default=None, description="自定义系统消息")
     expected_output: Optional[str] = Field(default=None, description="期望的输出格式")
 
     # 扩展配置参数
-    markdown: Optional[bool] = Field(default=None, description="是否使用markdown格式输出")
+
+    markdown: Optional[bool] = Field(
+        default=None, description="是否使用markdown格式输出"
+    )
     add_datetime_to_context: Optional[bool] = Field(
         default=None, description="是否添加日期时间到上下文"
     )
     add_location_to_context: Optional[bool] = Field(
         default=None, description="是否添加位置信息到上下文"
     )
-    timezone_identifier: Optional[str] = Field(default=None, description="时区标识")
-    tool_call_limit: Optional[int] = Field(default=None, description="单次运行工具调用次数限制")
-    num_history_runs: Optional[int] = Field(default=None, description="历史会话轮数限制")
+    timezone_identifier: Optional[str] = Field(
+        default=None, description="时区标识"
+    )
+    tool_call_limit: Optional[int] = Field(
+        default=None, description="单次运行工具调用次数限制"
+    )
+    num_history_runs: Optional[int] = Field(
+        default=None, description="历史会话轮数限制"
+    )
 
     ui_mode: Optional[str] = Field(
         default=None,
@@ -127,13 +152,21 @@ class AgentRunRequest(BaseModel):
     project_id: Optional[str] = Field(default=None, description="项目ID")
     agent_id: Optional[str] = Field(default=None, description="执行中的智能体 ID")
     request_id: Optional[str] = Field(default=None, description="请求追踪 ID")
-    parent_workflow_execution_id: UUID | None = Field(default=None, exclude=True, repr=False)
-    workflow_lineage: tuple[str, ...] = Field(default=(), exclude=True, repr=False)
+    parent_workflow_execution_id: UUID | None = Field(
+        default=None, exclude=True, repr=False
+    )
+    workflow_lineage: tuple[str, ...] = Field(
+        default=(), exclude=True, repr=False
+    )
     business_principal: BusinessRequestPrincipal | None = Field(
-        default=None, exclude=True, repr=False,
+        default=None,
+        exclude=True,
+        repr=False,
     )
     business_context_token: SecretStr | None = Field(
-        default=None, exclude=True, repr=False,
+        default=None,
+        exclude=True,
+        repr=False,
     )
     skills_enabled: bool = Field(default=True, description="是否启用技能发现")
     stream: bool = Field(default=False, description="是否开启流式输出")

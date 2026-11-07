@@ -37,7 +37,9 @@ def validate_endpoint(endpoint: str) -> None:
 
 
 def _cipher() -> Fernet:
-    if not settings.secret_key or settings.secret_key.startswith("your-super-secret"):
+    if not settings.secret_key or settings.secret_key.startswith(
+        "your-super-secret"
+    ):
         raise ValueError("请管理员先配置服务端 SECRET_KEY，再保存服务商密钥")
     key = hashlib.sha256(
         ("logistics-provider:" + settings.secret_key).encode()
@@ -51,8 +53,11 @@ def prepare_config(
     config = LogisticsProviderConfig.model_validate(raw)
     endpoint = configure_preset(config, endpoint)
     validate_endpoint(endpoint)
-    old = LogisticsProviderConfig.model_validate(previous) if previous else None
+    old = (
+        LogisticsProviderConfig.model_validate(previous) if previous else None
+    )
     # Never trust client-supplied ciphertext; only reuse this record's stored key.
+
     config.credential_encrypted = ""
     if config.auth_type != "none":
         if config.credential:
@@ -104,7 +109,9 @@ def normalize_result(
     if _scalar(_path(raw, config.success_path)) != config.success_value:
         raise ValueError("服务商未返回查询成功状态，请检查账号权限、额度、单号或成功字段配置")
     if config.tracking_path:
-        returned = _scalar(_path(raw, config.tracking_path)).replace(" ", "").upper()
+        returned = (
+            _scalar(_path(raw, config.tracking_path)).replace(" ", "").upper()
+        )
         if returned != tracking_no:
             raise ValueError("服务商返回的单号与查询单号不一致，已停止使用该结果")
     rows = _path(raw, config.events_path)
@@ -123,6 +130,7 @@ def normalize_result(
             raise ValueError("轨迹时间或内容字段无效，请检查返回字段配置；时间需为 ISO 日期格式")
         events.append({"time": timestamp, "description": description[:4000]})
     # No raw payload/headers: avoid echoing credentials or unrelated customer data.
+
     return {
         "tracking_no": tracking_no,
         "carrier_name": _scalar(_path(raw, config.carrier_path))[:128],
@@ -153,7 +161,9 @@ async def execute_logistics_provider(
     if config.credential_encrypted:
         if config.credential_endpoint != endpoint:
             raise ValueError("接口地址已变更，请重新保存服务商授权密钥")
-        credential = _cipher().decrypt(config.credential_encrypted.encode()).decode()
+        credential = (
+            _cipher().decrypt(config.credential_encrypted.encode()).decode()
+        )
     headers: dict[str, str] = {}
     if config.auth_type != "none":
         if not credential:
@@ -162,9 +172,12 @@ async def execute_logistics_provider(
             config.auth_type
         ]
         headers[
-            config.auth_header if config.auth_type == "header" else "Authorization"
+            config.auth_header
+            if config.auth_type == "header"
+            else "Authorization"
         ] = (prefix + credential)
     # Only declared tracking number goes to provider; LLM cannot override credentials.
+
     params = {**config.fixed_params, config.tracking_param: tracking_no}
 
     async def request(active: httpx.AsyncClient) -> dict[str, JsonValue]:
@@ -175,7 +188,10 @@ async def execute_logistics_provider(
             return normalize_result(preset_payload, config, tracking_no)
         if config.method == "GET":
             response = await active.get(
-                endpoint, params=params, headers=headers, follow_redirects=False
+                endpoint,
+                params=params,
+                headers=headers,
+                follow_redirects=False,
             )
         elif config.body_format == "form":
             response = await active.post(

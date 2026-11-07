@@ -13,7 +13,9 @@ from app.schemas.agent_business_execution import (
 from app.services.agent_activation_policies import AgentActivationPolicyService
 from app.services.agent_business_trials import AgentBusinessTrialService
 from app.services.agent_business_reviews import AgentBusinessReviewService
-from app.services.agent_business_capabilities import AgentBusinessCapabilityService
+from app.services.agent_business_capabilities import (
+    AgentBusinessCapabilityService,
+)
 from app.services.agent_execution_reference import read_reference
 from app.services.api_service import api_service_client
 
@@ -58,7 +60,9 @@ class AgentBusinessExecutionService:
             raise ConflictError("原员工执行或业务评审依据已变化")
         policies = [
             row
-            for row in await AgentActivationPolicyService(self.db)._rows(project, agent)
+            for row in await AgentActivationPolicyService(self.db)._rows(
+                project, agent
+            )
             if row.channel == channel.value and row.deleted_at is None
         ]
         if len(policies) != 1 or policies[0].template_id != "logistics":
@@ -134,7 +138,9 @@ class AgentBusinessExecutionService:
             raise ConflictError("连接配置测试已失效")
         checked_at = datetime.now(UTC)
         expires_at = min(
-            operation.valid_until, config_test.valid_until, principal.expires_at
+            operation.valid_until,
+            config_test.valid_until,
+            principal.expires_at,
         )
         if expires_at <= checked_at:
             raise ConflictError("原正式查询授权已到期")

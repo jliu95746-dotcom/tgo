@@ -89,7 +89,8 @@ class SupervisorRunRequest(BaseSchema):
         description="Require the resolved agent's device binding to match; never overrides the binding",
     )
     expected_device_policy_digest: str | None = Field(
-        default=None, pattern=r"^[0-9a-f]{64}$",
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
         description="Require the resolved agent's verified device policy to match",
     )
     disable_tools: bool = Field(
@@ -103,7 +104,8 @@ class SupervisorRunRequest(BaseSchema):
     response_purpose: Literal["standard", "expression"] = "standard"
     require_current_knowledge: bool = False
     knowledge_context: list[Annotated[str, Field(max_length=800)]] = Field(
-        default_factory=list, max_length=4,
+        default_factory=list,
+        max_length=4,
     )
     markdown: Optional[bool] = Field(
         default=None,
@@ -131,7 +133,10 @@ class SupervisorRunRequest(BaseSchema):
     def require_owned_reply_phase(self) -> "SupervisorRunRequest":
         if self.reply_phase is not None and not self.cancel_on_disconnect:
             raise ValueError("Reply phase requires cancel_on_disconnect")
-        if self.expected_device_policy_digest is not None and self.expected_device_id is None:
+        if (
+            self.expected_device_policy_digest is not None
+            and self.expected_device_id is None
+        ):
             raise ValueError("Device policy pin requires expected_device_id")
         if self.knowledge_only and (
             not self.require_current_knowledge
@@ -144,7 +149,9 @@ class SupervisorRunRequest(BaseSchema):
             or self.expected_device_id is not None
             or self.ui_mode != "text"
         ):
-            raise ValueError("Knowledge-only run requires governed, action-free non-streaming context")
+            raise ValueError(
+                "Knowledge-only run requires governed, action-free non-streaming context"
+            )
         return self
 
 
@@ -212,7 +219,8 @@ class SupervisorRunResponse(BaseSchema):
         description="Whether the request was successful",
     )
     execution_id: uuid.UUID | None = Field(
-        default=None, description="Stable ID shared by the agent run and its device session",
+        default=None,
+        description="Stable ID shared by the agent run and its device session",
     )
     message: str = Field(description="Human-readable status message")
     result: Optional[AgentExecutionResult] = Field(

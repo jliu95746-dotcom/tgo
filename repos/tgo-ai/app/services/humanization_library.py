@@ -31,7 +31,12 @@ class StyleRelease(BaseModel):
 def example_id(sample: dict[str, object]) -> str:
     identity = [
         sample.get(k, "")
-        for k in ("source_message_id", "customer_message", "ai_draft", "final_reply")
+        for k in (
+            "source_message_id",
+            "customer_message",
+            "ai_draft",
+            "final_reply",
+        )
     ]
     if sample.get("delivery_id"):
         identity.append(sample["delivery_id"])
@@ -47,7 +52,9 @@ class HumanizationLibrary:
     def read(self, fallback_version: int = 1) -> StyleRelease:
         if not self.path.exists():
             return StyleRelease(version=fallback_version)
-        return StyleRelease.model_validate_json(self.path.read_text(encoding="utf-8"))
+        return StyleRelease.model_validate_json(
+            self.path.read_text(encoding="utf-8")
+        )
 
     def pending_examples(
         self, pending: list[dict[str, object]], release: StyleRelease
@@ -62,12 +69,17 @@ class HumanizationLibrary:
                     if k in TrainingExample.model_fields and k != "id"
                 }
                 samples.append(
-                    TrainingExample.model_validate({"id": sample_id, **payload})
+                    TrainingExample.model_validate(
+                        {"id": sample_id, **payload}
+                    )
                 )
         return samples
 
     def review(
-        self, name: str, pending: list[dict[str, object]], fallback_version: int = 1
+        self,
+        name: str,
+        pending: list[dict[str, object]],
+        fallback_version: int = 1,
     ) -> TrainingReview:
         release = self.read(fallback_version)
         examples = self.pending_examples(pending, release)
@@ -94,7 +106,9 @@ class HumanizationLibrary:
         self, review: TrainingReview, request: TrainingPublishRequest
     ) -> StyleRelease:
         if request.snapshot_id != review.snapshot_id:
-            raise ValueError("Training changed; refresh preview before publishing")
+            raise ValueError(
+                "Training changed; refresh preview before publishing"
+            )
         originals = {e.id: e for e in review.pending}
         if len({e.id for e in request.samples}) != len(request.samples):
             raise ValueError("Duplicate training sample")
@@ -103,10 +117,14 @@ class HumanizationLibrary:
         consumed = list(self.read(review.published_version).consumed_ids)
         for candidate in request.samples:
             if candidate.change_kind == "review":
-                raise ValueError("Unreviewed samples must remain pending for review")
+                raise ValueError(
+                    "Unreviewed samples must remain pending for review"
+                )
             original = originals.get(candidate.id)
             if original is None:
-                raise ValueError("Training sample does not belong to this snapshot")
+                raise ValueError(
+                    "Training sample does not belong to this snapshot"
+                )
             if any(
                 getattr(candidate, field) != getattr(original, field)
                 for field in (
@@ -119,6 +137,7 @@ class HumanizationLibrary:
                 raise ValueError("Training source content cannot be changed")
             consumed.append(candidate.id)
             # Fact/mixed edits remain review history, never become phrase examples.
+
             if candidate.selected and candidate.change_kind == "expression":
                 examples.append(candidate)
                 rules.extend(candidate.rules)
@@ -159,7 +178,9 @@ class HumanizationLibrary:
             release.examples, query, factual_draft, recent_messages
         )
         rules = list(
-            dict.fromkeys(rule for example in examples for rule in example.rules)
+            dict.fromkeys(
+                rule for example in examples for rule in example.rules
+            )
         )
         return HumanizationContext(
             name=name,

@@ -8,7 +8,11 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from app.schemas.mcp_connection import mcp_connection_headers
-from app.schemas.tool_probe import MCPDiscoverRequest, MCPDiscoverResponse, DiscoveredTool
+from app.schemas.tool_probe import (
+    MCPDiscoverRequest,
+    MCPDiscoverResponse,
+    DiscoveredTool,
+)
 
 
 def connection_error(exc: BaseException) -> str:
@@ -26,20 +30,34 @@ async def discover_mcp(request: MCPDiscoverRequest) -> MCPDiscoverResponse:
         headers = mcp_connection_headers({"headers": request.headers})
         async with asyncio.timeout(20), AsyncExitStack() as stack:
             if request.transport == "http":
-                streams = await stack.enter_async_context(streamablehttp_client(request.endpoint, headers=headers))
+                streams = await stack.enter_async_context(
+                    streamablehttp_client(request.endpoint, headers=headers)
+                )
             else:
-                streams = await stack.enter_async_context(sse_client(request.endpoint, headers=headers))
-            session = await stack.enter_async_context(ClientSession(streams[0], streams[1]))
+                streams = await stack.enter_async_context(
+                    sse_client(request.endpoint, headers=headers)
+                )
+            session = await stack.enter_async_context(
+                ClientSession(streams[0], streams[1])
+            )
             await session.initialize()
             result: list[DiscoveredTool] = []
             cursor = None
             for _ in range(10):
                 page = await session.list_tools(cursor=cursor)
-                result.extend(DiscoveredTool(name=tool.name, description=tool.description or "", input_schema=tool.inputSchema) for tool in page.tools)
+                result.extend(
+                    DiscoveredTool(
+                        name=tool.name,
+                        description=tool.description or "",
+                        input_schema=tool.inputSchema,
+                    )
+                    for tool in page.tools
+                )
                 cursor = page.nextCursor
                 if not cursor:
                     return MCPDiscoverResponse(success=True, tools=result)
-            return MCPDiscoverResponse(success=False, error="服务返回的工具过多，请缩小服务范围。")
+            return MCPDiscoverResponse(
+                success=False, error="服务返回的工具过多，请缩小服务范围。"
+            )
     except Exception as exc:
         return MCPDiscoverResponse(success=False, error=connection_error(exc))
-

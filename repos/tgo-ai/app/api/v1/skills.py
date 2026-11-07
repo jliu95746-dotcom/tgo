@@ -9,7 +9,10 @@ from app.services.agent_humanization import humanization_usage
 
 from app.config import settings
 from app.schemas.humanization import (
-    HumanizationContext, HumanizationMatchRequest, TrainingReview, TrainingPublishRequest,
+    HumanizationContext,
+    HumanizationMatchRequest,
+    TrainingReview,
+    TrainingPublishRequest,
 )
 from app.core.logging import get_logger
 from app.schemas.skill import (
@@ -44,7 +47,9 @@ def _get_skill_service() -> SkillFileService:
     return SkillFileService(settings.skills_base_dir)
 
 
-def _get_project_id(x_project_id: str = Header(..., description="Project ID")) -> str:
+def _get_project_id(
+    x_project_id: str = Header(..., description="Project ID")
+) -> str:
     """Extract project_id from the X-Project-Id header."""
     return x_project_id
 
@@ -87,7 +92,9 @@ async def create_skill(
     try:
         return await service.create_skill(x_project_id, data)
     except SkillConflictError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -109,7 +116,9 @@ async def create_humanization_skill(
     try:
         return await service.create_humanization_skill(x_project_id, data)
     except SkillConflictError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -133,7 +142,9 @@ async def add_humanization_training_sample(
             x_project_id, skill_name, data
         )
     except SkillNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -157,9 +168,13 @@ async def apply_humanization_training(
             x_project_id, skill_name, data
         )
     except SkillNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        )
     except SkillReadOnlyError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -167,9 +182,13 @@ async def apply_humanization_training(
 
 
 @router.get("/{skill_name}/training-review", response_model=TrainingReview)
-async def review_training(skill_name: str, x_project_id: str = Header(..., alias="X-Project-Id")) -> TrainingReview:
+async def review_training(
+    skill_name: str, x_project_id: str = Header(..., alias="X-Project-Id")
+) -> TrainingReview:
     try:
-        return await _get_skill_service().review_humanization_training(x_project_id, skill_name)
+        return await _get_skill_service().review_humanization_training(
+            x_project_id, skill_name
+        )
     except SkillNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -177,12 +196,20 @@ async def review_training(skill_name: str, x_project_id: str = Header(..., alias
 
 
 @router.post("/{skill_name}/match-context", response_model=HumanizationContext)
-async def match_context(skill_name: str, data: HumanizationMatchRequest,
-                        x_project_id: str = Header(..., alias="X-Project-Id")) -> HumanizationContext:
+async def match_context(
+    skill_name: str,
+    data: HumanizationMatchRequest,
+    x_project_id: str = Header(..., alias="X-Project-Id"),
+) -> HumanizationContext:
     try:
         return await _get_skill_service().match_humanization_context(
-            x_project_id, skill_name, data.customer_message, data.candidate,
-            data.factual_draft, data.recent_messages)
+            x_project_id,
+            skill_name,
+            data.customer_message,
+            data.candidate,
+            data.factual_draft,
+            data.recent_messages,
+        )
     except SkillNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -203,7 +230,9 @@ async def get_skill(
     try:
         return await service.get_skill(x_project_id, skill_name)
     except SkillNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -225,9 +254,13 @@ async def update_skill(
     try:
         return await service.update_skill(x_project_id, skill_name, data)
     except SkillNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        )
     except SkillReadOnlyError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -252,9 +285,13 @@ async def delete_skill(
         await service.delete_skill(x_project_id, skill_name)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except SkillNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        )
     except SkillReadOnlyError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -279,10 +316,14 @@ async def toggle_skill(
 ) -> SkillToggleResponse:
     service = _get_skill_service()
     try:
-        new_state = await service.toggle_skill(x_project_id, skill_name, data.enabled)
+        new_state = await service.toggle_skill(
+            x_project_id, skill_name, data.enabled
+        )
         return SkillToggleResponse(name=skill_name, enabled=new_state)
     except SkillNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -305,11 +346,14 @@ async def import_skill(
     x_project_id: str = Header(..., alias="X-Project-Id"),
 ) -> SkillDetail:
     try:
-        return await import_local_skill(_get_skill_service(), x_project_id, data)
+        return await import_local_skill(
+            _get_skill_service(), x_project_id, data
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except SkillConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
 
 # ---------------------------------------------------------------------------
 # Skill sub-file endpoints
@@ -329,11 +373,17 @@ async def get_skill_file(
     service = _get_skill_service()
     try:
         content = await service.get_file(x_project_id, skill_name, file_path)
-        return Response(content=content, media_type="text/plain; charset=utf-8")
+        return Response(
+            content=content, media_type="text/plain; charset=utf-8"
+        )
     except SkillNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        )
     except SkillPathTraversalError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -357,11 +407,17 @@ async def put_skill_file(
         await service.put_file(x_project_id, skill_name, file_path, content)
         return {"status": "ok", "file_path": file_path}
     except SkillNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        )
     except SkillReadOnlyError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        )
     except SkillPathTraversalError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        )
 
 
 @router.delete(
@@ -380,8 +436,14 @@ async def delete_skill_file(
         await service.delete_file(x_project_id, skill_name, file_path)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except SkillNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        )
     except SkillReadOnlyError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        )
     except SkillPathTraversalError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        )

@@ -27,7 +27,9 @@ class ProviderExecutionError(RuntimeError):
     def __init__(
         self,
         public_message: str,
-        category: AnalysisErrorCategory = (AnalysisErrorCategory.PROVIDER_FAILURE),
+        category: AnalysisErrorCategory = (
+            AnalysisErrorCategory.PROVIDER_FAILURE
+        ),
         retryable: bool = True,
         diagnostic_code: str = "provider_failure",
     ) -> None:

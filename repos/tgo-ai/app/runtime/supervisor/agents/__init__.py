@@ -21,7 +21,7 @@ __all__ = [
     "AgentRunResult",
     "BuiltAgent",
     "create_query_analysis_agent",
-    "create_result_consolidation_agent", 
+    "create_result_consolidation_agent",
     "get_system_agent_by_type",
     "create_system_agents",
     "get_result_consolidation_instruction",

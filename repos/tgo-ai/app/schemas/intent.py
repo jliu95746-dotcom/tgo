@@ -182,7 +182,9 @@ class IntentClassificationInput(StrictIntentSchema):
     asr_text: str | None = Field(default=None, min_length=1, max_length=65535)
     ocr_text: str | None = Field(default=None, min_length=1, max_length=65535)
     vlm_text: str | None = Field(default=None, min_length=1, max_length=65535)
-    conversation_context: list[str] = Field(default_factory=list, max_length=12)
+    conversation_context: list[str] = Field(
+        default_factory=list, max_length=12
+    )
     sensitive_data_categories: tuple[SensitiveDataCategory, ...] = ()
     consecutive_unknown_count: int = Field(default=0, ge=0)
     prior_turns: tuple[IntentHistoryTurn, ...] | None = Field(

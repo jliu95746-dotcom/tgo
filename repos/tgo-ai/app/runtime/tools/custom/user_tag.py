@@ -56,10 +56,12 @@ def _normalize_user_tags(tags: Iterable[object]) -> list[dict[str, str]] | str:
         if canonical_name in seen_names:
             continue
         seen_names.add(canonical_name)
-        normalized_tags.append({
-            "name": canonical_name,
-            "name_zh": ALLOWED_USER_TAGS[canonical_name],
-        })
+        normalized_tags.append(
+            {
+                "name": canonical_name,
+                "name_zh": ALLOWED_USER_TAGS[canonical_name],
+            }
+        )
     return normalized_tags
 
 
@@ -95,21 +97,22 @@ def create_user_tag_tool(
         """
         if not tags:
             return "请至少提供一个标签。"
-
         # Validate and normalize tags
+
         normalized_tags = _normalize_user_tags(tags)
         if isinstance(normalized_tags, str):
             return normalized_tags
-
         result = await client.post_event(
             "user_tag.add",
-            {"tags": normalized_tags, "metadata": metadata or {"source": "ai_analysis"}},
+            {
+                "tags": normalized_tags,
+                "metadata": metadata or {"source": "ai_analysis"},
+            },
             error_messages=error_messages,
         )
 
         if not result.success:
             return result.message
-
         tag_names = ", ".join(t["name"] for t in normalized_tags)
         return f"已为用户添加标签：{tag_names}。"
 
@@ -135,7 +138,10 @@ def create_user_tag_tool(
                                 "enum": list(ALLOWED_USER_TAGS),
                                 "description": "受控标签英文名（必填）",
                             },
-                            "name_zh": {"type": "string", "description": "标签中文名（建议提供）"},
+                            "name_zh": {
+                                "type": "string",
+                                "description": "标签中文名（建议提供）",
+                            },
                         },
                         "required": ["name"],
                     },

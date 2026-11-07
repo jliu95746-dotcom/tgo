@@ -12,7 +12,9 @@ from app.config import settings
 from app.dependencies import get_current_or_internal_project_id
 from app.schemas.platform_models import PlatformModelRuntime
 
-metered_execution: ContextVar[bool] = ContextVar("metered_ai_execution", default=False)
+metered_execution: ContextVar[bool] = ContextVar(
+    "metered_ai_execution", default=False
+)
 
 
 class UsageAuthorization(BaseModel):
@@ -84,11 +86,14 @@ async def authorize(request: Request, project_id: UUID) -> None:
         raise HTTPException(503, "额度服务暂不可用，已暂停新 AI 调用") from exc
 
 
-async def require_reply_quota(request: Request, project_id: UUID = Query(...)) -> None:
+async def require_reply_quota(
+    request: Request, project_id: UUID = Query(...)
+) -> None:
     await authorize(request, project_id)
 
 
 async def require_internal_reply_quota(
-    request: Request, project_id: UUID = Depends(get_current_or_internal_project_id)
+    request: Request,
+    project_id: UUID = Depends(get_current_or_internal_project_id),
 ) -> None:
     await authorize(request, project_id)

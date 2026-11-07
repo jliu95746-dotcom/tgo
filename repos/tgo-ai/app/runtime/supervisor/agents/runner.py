@@ -24,7 +24,9 @@ from app.core.logging import get_logger
 from app.services.model_usage import track_model_usage
 from app.services.agent_execution_scope import check_current_execution
 from app.models.internal import AgentExecutionContext
-from app.runtime.supervisor.streaming.workflow_events import WorkflowEventEmitter
+from app.runtime.supervisor.streaming.workflow_events import (
+    WorkflowEventEmitter,
+)
 from app.schemas.agent_run import (
     AgentExecutionResult,
     AgentRunMetadata,
@@ -92,10 +94,16 @@ class AgnoAgentRunner:
             status = getattr(output, "status", None)
             status_value = getattr(status, "value", status)
             final_content = self._extract_final_content(output)
-            if (status_value is not None and status_value != "COMPLETED") or not final_content:
-                usage.status = "cancelled" if status_value == "CANCELLED" else "failed"
+            if (
+                status_value is not None and status_value != "COMPLETED"
+            ) or not final_content:
+                usage.status = (
+                    "cancelled" if status_value == "CANCELLED" else "failed"
+                )
                 return SupervisorRunResponse(
-                    success=False, message="AI 生成未完成", content="",
+                    success=False,
+                    message="AI 生成未完成",
+                    content="",
                     error="模型未完成可发送的答复，请重试或转人工处理",
                     execution_id=context.execution_id,
                 )
@@ -104,7 +112,6 @@ class AgnoAgentRunner:
         if context.knowledge_evidence is not None:
             for tool in getattr(output, "tools", None) or []:
                 self._capture_tool_evidence(context, tool)
-
         result = AgentExecutionResult(
             agent_id=context.agent.id,
             agent_name=context.agent.name,
@@ -121,10 +128,13 @@ class AgnoAgentRunner:
             total_execution_time=total_time,
             session_id=context.session_id,
             model_name=(
-                None if context.agent.is_remote_store_agent else context.agent.model
+                None
+                if context.agent.is_remote_store_agent
+                else context.agent.model
             ),
             configured_prompt_sha256=(
-                None if context.agent.is_remote_store_agent
+                None
+                if context.agent.is_remote_store_agent
                 else self._configured_prompt_sha256(built_agent.agent)
             ),
         )
@@ -133,8 +143,11 @@ class AgnoAgentRunner:
             execution_id=context.execution_id,
             execution_reference=getattr(context, "execution_reference", None),
             message="Agent run completed",
-            **({"knowledge_evidence": context.knowledge_evidence}
-               if context.knowledge_evidence is not None else {}),
+            **(
+                {"knowledge_evidence": context.knowledge_evidence}
+                if context.knowledge_evidence is not None
+                else {}
+            ),
             result=result,
             content=final_content,
             metadata=metadata,
@@ -175,6 +188,7 @@ class AgnoAgentRunner:
             ):
                 # The API holds customer drafts until final publication. Only
                 # nearby text chunks may share a check within this interval.
+
                 if not (
                     buffered_draft
                     and isinstance(event, RunContentEvent)
@@ -198,51 +212,73 @@ class AgnoAgentRunner:
                         )
                         chunk_index += 1
                     continue
-
                 if isinstance(event, ToolCallStartedEvent) and event.tool:
                     tool_calls += 1
                     workflow_events.emit_agent_tool_call_started(
                         agent_id=str(context.agent.id),
                         agent_name=context.agent.name,
                         execution_id=execution_id,
-                        tool_name=getattr(event.tool, "tool_name", "unknown_tool"),
+                        tool_name=getattr(
+                            event.tool, "tool_name", "unknown_tool"
+                        ),
                         tool_call_id=getattr(event.tool, "tool_call_id", None),
-                        tool_input=(None if str(getattr(event.tool, "tool_name", "")).startswith("employee_business_")
-                                    else getattr(event.tool, "tool_args", None)),
+                        tool_input=(
+                            None
+                            if str(
+                                getattr(event.tool, "tool_name", "")
+                            ).startswith("employee_business_")
+                            else getattr(event.tool, "tool_args", None)
+                        ),
                     )
                     continue
-
                 if isinstance(event, ToolCallCompletedEvent) and event.tool:
                     self._capture_tool_evidence(context, event.tool)
                     business_query_links = self._new_business_query_links(
-                        context, reported_query_links,
+                        context,
+                        reported_query_links,
                     )
-                    tool_name = str(getattr(event.tool, "tool_name", "unknown_tool"))
-                    is_business_query = tool_name.startswith("employee_business_")
+                    tool_name = str(
+                        getattr(event.tool, "tool_name", "unknown_tool")
+                    )
+                    is_business_query = tool_name.startswith(
+                        "employee_business_"
+                    )
                     workflow_events.emit_agent_tool_call_completed(
                         agent_id=str(context.agent.id),
                         agent_name=context.agent.name,
                         execution_id=execution_id,
                         tool_name=tool_name,
                         tool_call_id=getattr(event.tool, "tool_call_id", None),
-                        tool_input=(None if is_business_query else getattr(event.tool, "tool_args", None)),
-                        tool_output=(None if is_business_query else getattr(event.tool, "result", None)),
-                        tool_call_error=bool(getattr(event.tool, "tool_call_error", False)),
+                        tool_input=(
+                            None
+                            if is_business_query
+                            else getattr(event.tool, "tool_args", None)
+                        ),
+                        tool_output=(
+                            None
+                            if is_business_query
+                            else getattr(event.tool, "result", None)
+                        ),
+                        tool_call_error=bool(
+                            getattr(event.tool, "tool_call_error", False)
+                        ),
                         business_query_links=business_query_links,
                     )
                     continue
-
                 if isinstance(event, RunCompletedEvent):
                     usage.observe(getattr(event, "metrics", None))
                     completed_seen = True
-                    completed_content = self._ensure_text(getattr(event, "content", None))
+                    completed_content = self._ensure_text(
+                        getattr(event, "content", None)
+                    )
                     continue
-
                 if isinstance(event, RunErrorEvent):
                     usage.failed()
                     usage.observe(getattr(event, "metrics", None))
                     success = False
-                    error = event.content or event.error_type or "Agent run failed"
+                    error = (
+                        event.content or event.error_type or "Agent run failed"
+                    )
                     self._logger.error(
                         "Agent streaming run failed",
                         agent_id=str(context.agent.id),
@@ -251,7 +287,6 @@ class AgnoAgentRunner:
                         error=error,
                     )
                     continue
-
                 if isinstance(event, RunCancelledEvent):
                     usage.status = "cancelled"
                     success = False
@@ -263,12 +298,10 @@ class AgnoAgentRunner:
                         timestamp=timestamp,
                         error=error,
                     )
-
             if not completed_seen and success:
                 usage.failed()
                 success = False
                 error = "Agent stream ended without a completion event"
-
         streamed_content = "".join(content_chunks)
         final_content = completed_content or streamed_content
         await check_current_execution()
@@ -310,8 +343,11 @@ class AgnoAgentRunner:
             if tool.query_id is None and tool.operation is None:
                 continue
             action = actions.get(tool.operation or "")
-            if tool.query_id is None or tool.operation is None or action is None or not tool.name.startswith(
-                f"employee_business_{action}_"
+            if (
+                tool.query_id is None
+                or tool.operation is None
+                or action is None
+                or not tool.name.startswith(f"employee_business_{action}_")
             ):
                 raise ValueError("Invalid business query trace")
             link = AgentBusinessQueryLink(
@@ -331,22 +367,34 @@ class AgnoAgentRunner:
 
     @staticmethod
     def _capture_tool_evidence(
-        context: AgentExecutionContext, tool: object,
+        context: AgentExecutionContext,
+        tool: object,
     ) -> None:
         if context.knowledge_evidence is None:
             return
         name = str(getattr(tool, "tool_name", "unknown_tool"))
         # Memory is context, never an authoritative business tool receipt.
+
         if (
-            name.startswith(("rag_search_", "get_skill", "read_skill", "employee_business_"))
+            name.startswith(
+                (
+                    "rag_search_",
+                    "get_skill",
+                    "read_skill",
+                    "employee_business_",
+                )
+            )
             or "memory" in name.lower()
         ):
             return
         content = AgnoAgentRunner._ensure_text(getattr(tool, "result", None))
-        context.knowledge_evidence.tool_results.append(BusinessToolEvidence(
-            name=name, content=content,
-            success=not bool(getattr(tool, "tool_call_error", False)),
-        ))
+        context.knowledge_evidence.tool_results.append(
+            BusinessToolEvidence(
+                name=name,
+                content=content,
+                success=not bool(getattr(tool, "tool_call_error", False)),
+            )
+        )
 
     @staticmethod
     def _ensure_text(value: Optional[Any]) -> str:
@@ -370,7 +418,9 @@ class AgnoAgentRunner:
                     continue
                 if getattr(message, "tool_calls", None):
                     continue
-                content = cls._ensure_text(getattr(message, "content", None)).strip()
+                content = cls._ensure_text(
+                    getattr(message, "content", None)
+                ).strip()
                 if content:
                     return content
         return cls._ensure_text(getattr(output, "content", None)).strip()
@@ -379,7 +429,6 @@ class AgnoAgentRunner:
     def _extract_tool_names(tools: Any) -> list[str]:
         if not tools:
             return []
-
         names: list[str] = []
         for tool in tools:
             name = getattr(tool, "tool_name", None)

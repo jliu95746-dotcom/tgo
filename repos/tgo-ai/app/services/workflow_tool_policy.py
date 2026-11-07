@@ -17,7 +17,9 @@ def workflow_read_only_tool(tool: Tool) -> bool:
     ):
         return False
     try:
-        config = LogisticsProviderConfig.model_validate(tool.config.get("logistics_provider"))
+        config = LogisticsProviderConfig.model_validate(
+            tool.config.get("logistics_provider")
+        )
     except ValidationError:
         return False
     # Presets replace the caller's endpoint with a server-owned query endpoint.

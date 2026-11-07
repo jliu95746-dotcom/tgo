@@ -116,10 +116,16 @@ class CoordinationSettings(BaseSettings):
     enable_consensus: bool = False
     consensus_threshold: float = Field(default=0.7, ge=0.5, le=1.0)
 
-    query_analysis: QueryAnalysisSettings = Field(default_factory=QueryAnalysisSettings)
-    workflow_planning: WorkflowPlanningSettings = Field(default_factory=WorkflowPlanningSettings)
+    query_analysis: QueryAnalysisSettings = Field(
+        default_factory=QueryAnalysisSettings
+    )
+    workflow_planning: WorkflowPlanningSettings = Field(
+        default_factory=WorkflowPlanningSettings
+    )
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
-    result_consolidation: ResultConsolidationSettings = Field(default_factory=ResultConsolidationSettings)
+    result_consolidation: ResultConsolidationSettings = Field(
+        default_factory=ResultConsolidationSettings
+    )
 
     enable_caching: bool = True
     cache_ttl: int = Field(default=3600, ge=1)
@@ -140,5 +146,7 @@ class SupervisorRuntimeSettings(BaseSettings):
         extra="ignore",
     )
 
-    coordination: CoordinationSettings = Field(default_factory=CoordinationSettings)
+    coordination: CoordinationSettings = Field(
+        default_factory=CoordinationSettings
+    )
     enable_streaming: bool = True

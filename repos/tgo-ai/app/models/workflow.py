@@ -46,9 +46,12 @@ class AgentWorkflow(BaseModel):
 
     release_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     release_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    release_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    release_digest: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
 
     # Relationships
+
     agent: Mapped["Agent"] = relationship(
         "Agent",
         back_populates="workflows",

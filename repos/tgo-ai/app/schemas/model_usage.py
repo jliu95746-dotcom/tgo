@@ -10,8 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ModelCostRate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    input_fen_per_million: Decimal = Field(ge=0, max_digits=18, decimal_places=6)
-    output_fen_per_million: Decimal = Field(ge=0, max_digits=18, decimal_places=6)
+    input_fen_per_million: Decimal = Field(
+        ge=0, max_digits=18, decimal_places=6
+    )
+    output_fen_per_million: Decimal = Field(
+        ge=0, max_digits=18, decimal_places=6
+    )
 
 
 class ModelUsageResponse(BaseModel):

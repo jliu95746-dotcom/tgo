@@ -7,7 +7,9 @@ from fastapi import HTTPException, Query, Request
 from app.api.v1.agent_trials import require_trial_principal
 
 
-async def optional_mutation_actor(request: Request, project_id: UUID = Query(...)) -> UUID | None:
+async def optional_mutation_actor(
+    request: Request, project_id: UUID = Query(...)
+) -> UUID | None:
     headers = ("X-Internal-API-Key", "X-Project-Id", "X-Staff-Id")
     if not any(request.headers.get(name) for name in headers):
         # Legacy internal callers can save paused drafts and revoke resources.
