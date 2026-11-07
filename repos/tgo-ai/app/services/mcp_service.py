@@ -1,23 +1,27 @@
 """
 MCP Service Client
 
-This module provides a client for interacting with the MCP (Model Context Protocol) service.
-It handles HTTP requests to the MCP service for tools and other MCP-related operations.
+HTTP client for tools and other Model Context Protocol service operations.
 """
 
 import logging
 from typing import Any, Dict, Optional
 import httpx
+from pydantic import JsonValue, TypeAdapter
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+_json_object = TypeAdapter(dict[str, JsonValue])
 
 
 class MCPServiceError(Exception):
     """Exception raised when MCP service operations fail."""
 
-    def __init__(self, message: str, status_code: Optional[int] = None, response_data: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self, message: str, status_code: Optional[int] = None,
+        response_data: Optional[dict[str, JsonValue]] = None,
+    ) -> None:
         self.message = message
         self.status_code = status_code
         self.response_data = response_data
@@ -27,11 +31,13 @@ class MCPServiceError(Exception):
 class MCPServiceClient:
     """Client for interacting with the MCP service."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.base_url = settings.mcp_service_url.rstrip('/')
         self.timeout = 30.0
 
-    def _get_headers(self, additional_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    def _get_headers(
+        self, additional_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, str]:
         """Get headers for MCP service requests (no authentication)."""
         headers = {
             "Content-Type": "application/json",
@@ -51,7 +57,7 @@ class MCPServiceClient:
         params: Optional[Dict[str, Any]] = None,
         json_data: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, JsonValue]:
         """
         Make a request to the MCP service.
 
@@ -63,7 +69,7 @@ class MCPServiceClient:
             headers: Optional additional headers
 
         Returns:
-            Dict[str, Any]: The JSON response from the MCP service
+            The JSON object returned by the MCP service.
 
         Raises:
             MCPServiceError: If the request fails
@@ -73,7 +79,7 @@ class MCPServiceClient:
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                logger.info(f"Making {method} request to MCP service: {url}")
+                logger.info("Calling MCP service")
 
                 response = await client.request(
                     method=method,
@@ -83,27 +89,35 @@ class MCPServiceClient:
                     json=json_data
                 )
 
-                logger.info(f"MCP service responded with status: {response.status_code}")
+                logger.info(
+                    "MCP service responded with status: %s",
+                    response.status_code,
+                )
 
                 # Handle different response status codes
-                if response.status_code == 200:
-                    return response.json()
-                elif response.status_code == 201:
-                    return response.json()
+                if response.status_code in (200, 201):
+                    try:
+                        return _json_object.validate_python(
+                            response.json(), strict=True,
+                        )
+                    except (TypeError, ValueError):
+                        raise MCPServiceError(
+                            "Invalid response from MCP service",
+                            status_code=502,
+                        ) from None
                 elif response.status_code == 204:
                     return {}
                 elif response.status_code == 404:
                     raise MCPServiceError(
                         "Resource not found in MCP service",
                         status_code=404,
-                        response_data=response.json() if response.content else None
+                        response_data={"status_code": 404},
                     )
                 elif response.status_code == 400:
-                    error_data = response.json() if response.content else {}
                     raise MCPServiceError(
-                        f"Bad request to MCP service: {error_data.get('detail', 'Invalid request')}",
+                        "Bad request to MCP service",
                         status_code=400,
-                        response_data=error_data
+                        response_data={"status_code": 400},
                     )
                 elif response.status_code >= 500:
                     raise MCPServiceError(
@@ -111,33 +125,36 @@ class MCPServiceClient:
                         status_code=response.status_code
                     )
                 else:
-                    error_data = response.json() if response.content else {}
                     raise MCPServiceError(
-                        f"MCP service error: {error_data.get('detail', 'Unknown error')}",
+                        "MCP service error",
                         status_code=response.status_code,
-                        response_data=error_data
+                        response_data={
+                            "status_code": response.status_code,
+                        },
                     )
 
         except httpx.TimeoutException:
-            logger.error(f"Timeout when calling MCP service: {url}")
+            logger.error("MCP service request timed out")
             raise MCPServiceError(
                 "MCP service request timed out",
                 status_code=504
-            )
-        except httpx.ConnectError:
-            logger.error(f"Connection error when calling MCP service: {url}")
+            ) from None
+        except httpx.RequestError:
+            logger.error("Unable to connect to MCP service")
             raise MCPServiceError(
                 "Unable to connect to MCP service",
                 status_code=502
-            )
+            ) from None
         except MCPServiceError:
             raise
         except Exception as e:
-            logger.error(f"Unexpected error when calling MCP service: {e}")
-            raise MCPServiceError(
-                f"MCP service request failed: {str(e)}",
-                status_code=500
+            logger.error(
+                "Unexpected MCP service failure (%s)", type(e).__name__,
             )
+            raise MCPServiceError(
+                "MCP service request failed",
+                status_code=500
+            ) from None
 
 
 # Global MCP service client instance

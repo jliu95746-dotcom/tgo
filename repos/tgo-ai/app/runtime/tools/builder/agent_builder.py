@@ -1439,6 +1439,10 @@ class AgentBuilder:
     ) -> Optional[Dict[str, str]]:
         if not mcp_config.auth_required:
             return None
+        if not mcp_config.url:
+            raise MCPAuthenticationError(
+                "MCP service URL is required for authentication"
+            )
 
         supabase_token = self._settings.supabase.access_token
         if not supabase_token:
@@ -1449,15 +1453,14 @@ class AgentBuilder:
 
         try:
             tokens = await get_mcp_access_token(supabase_token, mcp_config.url)
+            access_token = tokens.access_token.get_secret_value()
         except Exception as exc:  # noqa: BLE001
             raise MCPAuthenticationError(
                 "Failed to fetch MCP access token",
-                mcp_url=mcp_config.url,
-                session_id=session_id,
-                user_id=user_id,
-            ) from exc
+                error_type=type(exc).__name__,
+            ) from None
 
-        return {"Authorization": f"Bearer {tokens['access_token']}"}
+        return {"Authorization": f"Bearer {access_token}"}
 
     # ------------------------------------------------------------------
     # Model helpers
