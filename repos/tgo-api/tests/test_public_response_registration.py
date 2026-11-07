@@ -1,39 +1,44 @@
-"""Load legacy annotations without enabling their routes in the application."""
+"""Registered tools keep authentication context out of query input."""
 
-from importlib import import_module
-
-from fastapi import FastAPI
 from fastapi.routing import APIRoute
 import pytest
 
 from app.core.security import get_authenticated_project
+from app.main import app
 
 
-@pytest.mark.parametrize("module_name", ["mcp_tools", "mcp_project_tools"])
-def test_legacy_router_annotations_can_register_in_an_isolated_app(
-    module_name,
-):
-    module = import_module("app.api.v1.endpoints." + module_name)
-    application = FastAPI()
-    application.include_router(module.router, prefix="/isolated")
-    schema = application.openapi()
-    assert schema["paths"]
-    scoped_routes = [
-        route
-        for route in application.routes
-        if isinstance(route, APIRoute)
-        and any(
-            dependency.call is get_authenticated_project
-            for dependency in route.dependant.dependencies
-        )
-    ]
-    assert scoped_routes
-    assert all(
-        "project_and_api_key"
-        not in {
-            parameter["name"]
-            for operation in schema["paths"][route.path].values()
-            for parameter in operation.get("parameters", [])
-        }
-        for route in scoped_routes
+def has_project_authentication(dependency) -> bool:
+    return dependency.call is get_authenticated_project or any(
+        has_project_authentication(child) for child in dependency.dependencies
     )
+
+
+@pytest.mark.parametrize(
+    "method,path,parameters",
+    [
+        ("get", "/v1/ai/tools", {"tool_type", "include_deleted"}),
+        ("post", "/v1/ai/tools", set()),
+        ("post", "/v1/ai/tools/discover", set()),
+        ("post", "/v1/ai/tools/{tool_id}/execute", {"tool_id"}),
+        ("patch", "/v1/ai/tools/{tool_id}", {"tool_id"}),
+        ("delete", "/v1/ai/tools/{tool_id}", {"tool_id"}),
+    ],
+)
+def test_registered_tools_require_project_auth_without_public_context_fields(
+    method,
+    path,
+    parameters,
+):
+    route = next(
+        route
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        and route.path == path
+        and method.upper() in route.methods
+    )
+    assert has_project_authentication(route.dependant)
+    operation = app.openapi()["paths"][path][method]
+    assert operation["security"]
+    assert {
+        item["name"] for item in operation.get("parameters", [])
+    } == parameters
