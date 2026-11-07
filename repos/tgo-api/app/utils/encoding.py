@@ -35,7 +35,7 @@ def _int_to_base62(n: int) -> str:
     return "".join(reversed(digits))
 
 
-def encode_channel_id(raw_string: str) -> str:
+def encode_channel_id(raw_string: str | None) -> str:
     """Encode a channel identifier using Base62.
 
     Implementation details:

@@ -45,12 +45,17 @@ def pending_assist_notifications(
         .limit(100)
         .all()
     )
-    return [
-        NativeAssistNotification(
-            visitor_id=row.id,
-            event_id=row.last_client_msg_no
-            or f"{row.last_message_seq}:{row.last_message_at.isoformat()}",
+    notifications: list[NativeAssistNotification] = []
+    for row in rows:
+        if resolve_service_mode(platform, row) != "assist":
+            continue
+        event_id = row.last_client_msg_no
+        if not event_id:
+            last_message_at = row.last_message_at
+            if last_message_at is None:
+                continue
+            event_id = f"{row.last_message_seq}:{last_message_at.isoformat()}"
+        notifications.append(
+            NativeAssistNotification(visitor_id=row.id, event_id=event_id)
         )
-        for row in rows
-        if resolve_service_mode(platform, row) == "assist"
-    ]
+    return notifications

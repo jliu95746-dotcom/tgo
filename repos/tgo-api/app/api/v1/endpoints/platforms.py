@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header, UploadFile, File, Query
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session, joinedload, contains_eager
 from sqlalchemy import func
@@ -974,12 +975,12 @@ async def upload_platform_logo(
 
     base_dir = Path(settings.PLATFORM_LOGO_UPLOAD_DIR).resolve()
     dest_path = base_dir / str(platform_id) / fname
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     # 4) Save file with size limit
     max_bytes = int(settings.PLATFORM_LOGO_MAX_SIZE_MB) * 1024 * 1024
     total = 0
     try:
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
         with open(dest_path, "wb") as out:
             while True:
                 chunk = await file.read(1024 * 1024)
@@ -1000,20 +1001,28 @@ async def upload_platform_logo(
                 out.write(chunk)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as exc:
         # Cleanup on failure
         try:
             if dest_path.exists():
                 os.unlink(dest_path)
         except Exception:
             pass
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Logo storage failed: {e}")
+        logger.warning(
+            "Platform logo storage failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Logo storage failed",
+        ) from None
 
     # 5) Remove previous logo if present
     try:
-        if getattr(platform, "logo_path", None):
+        previous_logo_path = platform.logo_path
+        if previous_logo_path:
             old_base = Path(settings.PLATFORM_LOGO_UPLOAD_DIR).resolve()
-            old_path = (old_base / platform.logo_path).resolve()
+            old_path = (old_base / previous_logo_path).resolve()
             try:
                 old_path.relative_to(old_base)
                 if old_path.exists() and old_path.is_file():
@@ -1037,18 +1046,19 @@ async def upload_platform_logo(
 async def get_platform_logo(
     platform_id: UUID,
     db: Session = Depends(get_db),
-):
+) -> FileResponse:
     """Serve the stored logo image for a platform (public access)."""
     platform = (
         db.query(Platform)
         .filter(Platform.id == platform_id, Platform.deleted_at.is_(None))
         .first()
     )
-    if not platform or not getattr(platform, "logo_path", None):
+    logo_path = platform.logo_path if platform else None
+    if not logo_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logo not found")
 
     base_dir = Path(settings.PLATFORM_LOGO_UPLOAD_DIR).resolve()
-    file_path = (base_dir / platform.logo_path).resolve()
+    file_path = (base_dir / logo_path).resolve()
     try:
         file_path.relative_to(base_dir)
     except Exception:
@@ -1060,7 +1070,6 @@ async def get_platform_logo(
     mime = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
     headers = {"Cache-Control": "public, max-age=86400"}
 
-    from fastapi.responses import FileResponse  # local import to avoid global weight
     return FileResponse(path=str(file_path), media_type=mime, headers=headers)
 
 

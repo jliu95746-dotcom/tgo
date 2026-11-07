@@ -61,7 +61,7 @@ def resolve_connection(
                 or draft.provider != item.provider
             ):
                 raise HTTPException(422, '接口地址或服务类型已修改，请重新填写密钥后获取模型或测试')
-            key = decrypt_str(item.api_key) if item.api_key else ''
+            key = (decrypt_str(item.api_key) or '') if item.api_key else ''
     if not key and draft.provider != 'ollama':
         raise HTTPException(422, '请填写 API 密钥')
     return Connection(draft.provider, base, key, config)

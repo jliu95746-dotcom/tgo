@@ -1,7 +1,7 @@
 """Onboarding progress schemas."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, NotRequired, Optional, TypedDict
 from uuid import UUID
 
 from pydantic import Field
@@ -9,8 +9,19 @@ from pydantic import Field
 from app.schemas.base import BaseSchema, TimestampMixin
 
 
+class OnboardingStepDefinition(TypedDict):
+    step_number: int
+    step_name: str
+    description: str
+    description_zh: str
+    route: str
+    step_type: Literal["action", "notify"]
+    title: NotRequired[str]
+    title_zh: NotRequired[str]
+
+
 # Step definitions
-ONBOARDING_STEPS = [
+ONBOARDING_STEPS: list[OnboardingStepDefinition] = [
     {
         "step_number": 1,
         "step_name": "setup_ai_provider",

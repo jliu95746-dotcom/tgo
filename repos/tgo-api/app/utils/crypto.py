@@ -26,7 +26,7 @@ def _get_fernet() -> Fernet:
     return Fernet(_DEF_FERNET_KEY)
 
 
-def encrypt_str(plain: str) -> str:
+def encrypt_str(plain: str | None) -> str:
     """Encrypt a string and return urlsafe base64 token."""
     if plain is None:
         return ""

@@ -1,6 +1,6 @@
 """Application configuration using Pydantic Settings."""
 
-from typing import List, Optional
+from typing import List, Optional, TypeVar
 from uuid import UUID
 
 from pydantic import Field, PostgresDsn, SecretStr
@@ -720,5 +720,13 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{rest}"
 
 
+SettingsType = TypeVar("SettingsType", bound=BaseSettings)
+
+
+def load_settings(settings_type: type[SettingsType]) -> SettingsType:
+    """Load environment-backed settings without supplying fake defaults."""
+    return settings_type()
+
+
 # Create global settings instance
-settings = Settings()
+settings = load_settings(Settings)

@@ -7,8 +7,11 @@ Provides access to OpenAPI/Swagger documentation for:
 - /docs/platform - Platform service
 """
 
+from html import escape
+from typing import TypedDict
+
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 
 from app.core.config import settings
@@ -18,9 +21,15 @@ logger = get_logger("docs")
 
 router = APIRouter(prefix="/docs", tags=["Documentation"])
 
-# Service configuration mapping
 
-SERVICES = {
+class ServiceDefinition(TypedDict):
+    name: str
+    url: str | None
+    openapi_path: str
+
+
+# Service configuration mapping
+SERVICES: dict[str, ServiceDefinition] = {
     "api": {
         "name": "TGO API Service",
         "url": None,  # Local service, use internal openapi
@@ -78,6 +87,8 @@ def _swagger_ui_html(title: str, openapi_url: str) -> str:
 
 def _error_html(title: str, message: str) -> str:
     """Generate error page HTML."""
+    title = escape(title)
+    message = escape(message)
     return f"""
 <!DOCTYPE html>
 <html>
@@ -101,13 +112,13 @@ def _error_html(title: str, message: str) -> str:
 
 
 @router.get("", response_class=HTMLResponse, summary="Documentation Index")
-async def docs_index():
+async def docs_index() -> HTMLResponse:
     """List all available service documentation."""
     links = "".join(
         f'<li><a href="/v1/docs/{key}">{svc["name"]}</a></li>'
         for key, svc in SERVICES.items()
     )
-    return f"""
+    return HTMLResponse(f"""
 <!DOCTYPE html>
 <html>
 <head><title>API Documentation</title>
@@ -119,13 +130,13 @@ async def docs_index():
 </head>
 <body><div class="container"><h1>📚 API Documentation</h1><ul>{links}</ul></div></body>
 </html>
-"""
+""")
 
 
 @router.get(
     "/api", response_class=HTMLResponse, summary="TGO API Documentation"
 )
-async def docs_api():
+async def docs_api() -> HTMLResponse:
     """Swagger UI for the current TGO API service."""
     return HTMLResponse(
         _swagger_ui_html(
@@ -135,29 +146,37 @@ async def docs_api():
 
 
 @router.get("/{service}/openapi.json", summary="Proxy OpenAPI JSON")
-async def proxy_openapi_json(service: str):
+async def proxy_openapi_json(service: str) -> JSONResponse:
     """Proxy OpenAPI JSON from remote service."""
     if service not in SERVICES or service == "api":
         raise HTTPException(status_code=404, detail="Service not found")
     svc = SERVICES[service]
-    url = f"{svc['url'].rstrip('/')}{svc['openapi_path']}"
+    service_url = svc['url']
+    if not service_url:
+        raise HTTPException(
+            status_code=503, detail=f"Service unavailable: {svc['name']}"
+        )
+    url = f"{service_url.rstrip('/')}{svc['openapi_path']}"
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url)
             resp.raise_for_status()
-            return resp.json()
-    except Exception as e:
-        logger.warning(f"Failed to fetch OpenAPI from {service}: {e}")
+            return JSONResponse(content=resp.json())
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch service OpenAPI",
+            extra={"service": service, "error_type": type(exc).__name__},
+        )
         raise HTTPException(
             status_code=503, detail=f"Service unavailable: {svc['name']}"
-        )
+        ) from None
 
 
 @router.get(
     "/{service}", response_class=HTMLResponse, summary="Service Documentation"
 )
-async def docs_service(service: str):
+async def docs_service(service: str) -> HTMLResponse:
     """Swagger UI for a remote microservice."""
     if service not in SERVICES:
         return HTMLResponse(
