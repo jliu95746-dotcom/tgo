@@ -268,7 +268,7 @@ class PluginRuntimeClient:
 
     async def uninstall_plugin(
         self, plugin_id: str, project_id: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> JsonObject | None:
         """Uninstall a plugin."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -280,9 +280,9 @@ class PluginRuntimeClient:
     async def start_plugin(
         self,
         plugin_id: str,
-        request_data: Dict[str, Any],
+        request_data: Mapping[str, object] | None,
         project_id: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> JsonObject | None:
         """Start a plugin process."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -294,7 +294,7 @@ class PluginRuntimeClient:
 
     async def stop_plugin(
         self, plugin_id: str, project_id: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> JsonObject | None:
         """Stop a plugin process."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -305,7 +305,7 @@ class PluginRuntimeClient:
 
     async def restart_plugin(
         self, plugin_id: str, project_id: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> JsonObject | None:
         """Restart a plugin process."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
@@ -316,7 +316,7 @@ class PluginRuntimeClient:
 
     async def get_plugin_logs(
         self, plugin_id: str, project_id: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> JsonObject | None:
         """Get plugin logs."""
         params = {"project_id": project_id} if project_id else None
         return await self._request(
