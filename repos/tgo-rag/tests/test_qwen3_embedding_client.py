@@ -9,7 +9,9 @@ from src.rag_service.services import embedding as embedding_module
 
 
 @pytest.mark.asyncio
-async def test_qwen3_client_requests_configured_dimensions(monkeypatch) -> None:
+async def test_qwen3_client_requests_configured_dimensions(
+    monkeypatch,
+) -> None:
     captured: dict[str, object] = {}
 
     class FakeEmbeddingsAPI:
@@ -34,7 +36,7 @@ async def test_qwen3_client_requests_configured_dimensions(monkeypatch) -> None:
         batch_size=10,
     )
 
-    vector = await client.embed_query("企业微信的退换货规则是什么？")
+    vector = await client.aembed_query("企业微信的退换货规则是什么？")
 
     assert len(vector) == 1536
     assert captured["model"] == "qwen3.7-text-embedding"
@@ -47,20 +49,28 @@ async def test_qwen3_client_requests_configured_dimensions(monkeypatch) -> None:
 @pytest.mark.parametrize("provider", ["qwen3", "openai_compatible"])
 @pytest.mark.parametrize("batch", [False, True])
 async def test_embedding_chain_does_not_log_provider_secrets(
-    monkeypatch, provider, batch,
+    monkeypatch,
+    provider,
+    batch,
 ) -> None:
     logger = Mock()
 
     class FailingOpenAI:
         def __init__(self, **kwargs):
-            self.embeddings = SimpleNamespace(create=Mock(side_effect=RuntimeError(
-                "HTTP 401 api_key=fixture-private-secret",
-            )))
+            self.embeddings = SimpleNamespace(
+                create=Mock(
+                    side_effect=RuntimeError(
+                        "HTTP 401 api_key=fixture-private-secret",
+                    )
+                )
+            )
 
     monkeypatch.setattr(embedding_module, "OpenAI", FailingOpenAI)
     monkeypatch.setattr(embedding_module, "logger", logger)
     service = embedding_module.EmbeddingService(
-        provider=provider, model="fixture-model", dimensions=1536,
+        provider=provider,
+        model="fixture-model",
+        dimensions=1536,
         api_key="fixture-key",
         base_url="https://example.invalid/v1?token=fixture-private-secret",
     )
@@ -71,4 +81,6 @@ async def test_embedding_chain_does_not_log_provider_secrets(
             await service.generate_embedding("测试问题")
     assert logger.error.call_count >= 2
     assert "fixture-private-secret" not in repr(logger.mock_calls)
-    assert all(call.kwargs.get("error_type") for call in logger.error.call_args_list)
+    assert all(
+        call.kwargs.get("error_type") for call in logger.error.call_args_list
+    )

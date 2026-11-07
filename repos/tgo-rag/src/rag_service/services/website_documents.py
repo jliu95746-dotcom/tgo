@@ -83,7 +83,7 @@ async def publish_website_documents(
     collection_id = UUID(str(source.collection_id))
     if not chunks or any(not chunk["content"].strip() for chunk in chunks):
         raise ValueError("Website chunks cannot be empty")
-    service = await get_embedding_service_for_project(source.project_id)
+    service = await get_embedding_service_for_project(project_id)
     vectors = await service.generate_embeddings_batch(
         [chunk["content"] for chunk in chunks],
     )

@@ -6,13 +6,15 @@ Supports:
 - Qwen3-Embedding (qwen3.7-text-embedding) via Alibaba Cloud DashScope
 """
 
-import asyncio
 from abc import abstractmethod
 from enum import Enum
 from typing import List, Optional
+from uuid import UUID
+
 from langchain_core.embeddings import Embeddings
 from langchain_openai import OpenAIEmbeddings
 from openai import OpenAI
+from pydantic import SecretStr
 
 from ..config import get_settings
 from ..logging_config import get_logger
@@ -22,6 +24,7 @@ logger = get_logger(__name__)
 
 class EmbeddingProvider(Enum):
     """Supported embedding providers."""
+
     OPENAI = "openai"
     QWEN3 = "qwen3"
     OPENAI_COMPATIBLE = "openai_compatible"
@@ -31,22 +34,12 @@ class BaseEmbeddingClient(Embeddings):
     """Abstract base class for embedding clients."""
 
     @abstractmethod
-    async def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> List[float]:
         """Generate embedding for a single text query."""
-        pass
-    async def aembed_query(self, text: str) -> List[float]:
-        """Generate embedding for a single text query."""
-        pass
 
     @abstractmethod
-    async def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple documents."""
-        pass
-
-    @abstractmethod
-    async def aembed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for multiple documents."""
-        pass
 
     @abstractmethod
     def get_dimensions(self) -> int:
@@ -62,7 +55,14 @@ class BaseEmbeddingClient(Embeddings):
 class OpenAIEmbeddingClient(BaseEmbeddingClient):
     """OpenAI embedding client implementation."""
 
-    def __init__(self, api_key: str, model: str, dimensions: int, batch_size: int = 100, base_url: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        dimensions: int,
+        batch_size: int = 100,
+        base_url: Optional[str] = None,
+    ):
         """
         Initialize OpenAI embedding client.
 
@@ -71,14 +71,16 @@ class OpenAIEmbeddingClient(BaseEmbeddingClient):
             model: Model name (e.g., text-embedding-ada-002)
             dimensions: Embedding dimensions
             batch_size: Batch size for processing
-            base_url: Optional custom API base URL (for OpenAI-compatible endpoints)
+            base_url: Optional custom API base URL (for OpenAI-compatible
+        endpoints)
         """
         self.api_key = api_key
         self.model = model
         self.dimensions = dimensions
         self.batch_size = batch_size
 
-        # Compatibility mode: if base_url provided, try to pass through to LangChain; otherwise
+        # Compatibility mode: if base_url provided, try to pass through to
+        # LangChain; otherwise
         # fall back to using the official OpenAI SDK directly.
         self._compat_mode = False
         self._compat_client = None
@@ -87,19 +89,28 @@ class OpenAIEmbeddingClient(BaseEmbeddingClient):
             self._compat_mode = True
             self._compat_client = OpenAI(api_key=api_key, base_url=base_url)
             self._client = None
-            logger.info("Initialized OpenAI-compatible embedding client", model=model)
-                
+            logger.info(
+                "Initialized OpenAI-compatible embedding client", model=model
+            )
+
         else:
             # Standard OpenAI embeddings via LangChain
             self._client = OpenAIEmbeddings(
-                openai_api_key=api_key,
+                api_key=SecretStr(api_key),
                 model=model,
                 chunk_size=batch_size,
             )
-            logger.info(f"Initialized OpenAI embedding client with model: {model}")
+            logger.info(
+                f"Initialized OpenAI embedding client with model: {model}"
+            )
 
-    def _compat_make_embeddings_request(self, texts: List[str]) -> List[List[float]]:
-        """Make embeddings request using OpenAI SDK for OpenAI-compatible endpoints."""
+    def _compat_make_embeddings_request(
+        self, texts: List[str]
+    ) -> List[List[float]]:
+        """
+        Make embeddings request using OpenAI SDK for OpenAI-compatible
+        endpoints.
+        """
         try:
             if not self._compat_client:
                 raise RuntimeError("Compatibility client not initialized")
@@ -117,31 +128,30 @@ class OpenAIEmbeddingClient(BaseEmbeddingClient):
             )
             raise
 
-    async def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> List[float]:
         """Generate embedding for a single text query."""
-        loop = asyncio.get_event_loop()
         if self._compat_mode:
-            embeddings = await loop.run_in_executor(None, self._compat_make_embeddings_request, [text])
+            embeddings = self._compat_make_embeddings_request([text])
             if embeddings:
                 return embeddings[0]
             raise ValueError("No embedding returned for query")
-        return await loop.run_in_executor(None, self._client.embed_query, text)
+        if self._client is None:
+            raise RuntimeError("OpenAI embedding client not initialized")
+        return self._client.embed_query(text)
 
-    async def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple documents."""
-        loop = asyncio.get_event_loop()
         if self._compat_mode:
             all_embeddings = []
             for i in range(0, len(texts), self.batch_size):
-                batch = texts[i:i + self.batch_size]
-                batch_embeddings = await loop.run_in_executor(
-                    None,
-                    self._compat_make_embeddings_request,
-                    batch,
-                )
+                batch_end = i + self.batch_size
+                batch = texts[i:batch_end]
+                batch_embeddings = self._compat_make_embeddings_request(batch)
                 all_embeddings.extend(batch_embeddings)
             return all_embeddings
-        return await loop.run_in_executor(None, self._client.embed_documents, texts)
+        if self._client is None:
+            raise RuntimeError("OpenAI embedding client not initialized")
+        return self._client.embed_documents(texts)
 
     def get_dimensions(self) -> int:
         """Get the embedding dimensions for this model."""
@@ -151,40 +161,37 @@ class OpenAIEmbeddingClient(BaseEmbeddingClient):
         """Get the model name."""
         return self.model
 
-    async def aembed_query(self, text: str) -> List[float]:
-        """Generate embedding for a single text query (async interface)."""
-        return await self.embed_query(text)
-
-    async def aembed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for multiple documents (async interface)."""
-        return await self.embed_documents(texts)
-
 
 class Qwen3EmbeddingClient(BaseEmbeddingClient):
     """Qwen3-Embedding client implementation using OpenAI client library."""
 
-    def __init__(self, api_key: str, base_url: str, model: str, dimensions: int, batch_size: int = 100):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        dimensions: int,
+        batch_size: int = 100,
+    ):
         """
         Initialize Qwen3-Embedding client.
 
         Args:
             api_key: Alibaba Cloud DashScope API key
-            base_url: API base URL (https://dashscope.aliyuncs.com/compatible-mode/v1)
+            base_url: API base URL
+        (https://dashscope.aliyuncs.com/compatible-mode/v1)
             model: Model name (qwen3.7-text-embedding)
             dimensions: Embedding dimensions
             batch_size: Batch size for processing
         """
         self.api_key = api_key
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.model = model
         self.dimensions = dimensions
         self.batch_size = batch_size
 
         # Initialize OpenAI client with DashScope endpoint
-        self._client = OpenAI(
-            api_key=api_key,
-            base_url=base_url
-        )
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
 
         logger.info("Initialized Qwen3-Embedding client", model=model)
 
@@ -196,7 +203,7 @@ class Qwen3EmbeddingClient(BaseEmbeddingClient):
                 model=self.model,
                 input=texts,
                 dimensions=self.dimensions,
-                encoding_format="float"
+                encoding_format="float",
             )
 
             # Extract embeddings from response
@@ -208,25 +215,23 @@ class Qwen3EmbeddingClient(BaseEmbeddingClient):
 
         except Exception as e:
             from .qa_errors import safe_exception_chain
+
             logger.error(
-                f"OpenAI client embeddings request failed ({safe_exception_chain(e)})",
+                "OpenAI client embeddings request failed"
+                f" ({safe_exception_chain(e)})",
                 error_type=type(e).__name__,
             )
             raise Exception(f"Qwen3 embeddings API request failed: {str(e)}")
 
-    async def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> List[float]:
         """Generate embedding for a single text query."""
         try:
-            # Run synchronous OpenAI client call in thread pool
-            loop = asyncio.get_event_loop()
-            embeddings = await loop.run_in_executor(
-                None,
-                self._make_embeddings_request,
-                [text]
-            )
+            embeddings = self._make_embeddings_request([text])
 
             if embeddings:
-                logger.debug(f"Generated Qwen3 embedding for text of length {len(text)}")
+                logger.debug(
+                    f"Generated Qwen3 embedding for text of length {len(text)}"
+                )
                 return embeddings[0]
             else:
                 raise ValueError("No embedding returned for query")
@@ -237,27 +242,27 @@ class Qwen3EmbeddingClient(BaseEmbeddingClient):
             )
             raise
 
-    async def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple documents."""
         try:
             # Process in batches to respect API limits
             all_embeddings = []
 
             for i in range(0, len(texts), self.batch_size):
-                batch = texts[i:i + self.batch_size]
+                batch_end = i + self.batch_size
+                batch = texts[i:batch_end]
 
-                # Run synchronous OpenAI client call in thread pool
-                loop = asyncio.get_event_loop()
-                batch_embeddings = await loop.run_in_executor(
-                    None,
-                    self._make_embeddings_request,
-                    batch
-                )
+                batch_embeddings = self._make_embeddings_request(batch)
 
                 all_embeddings.extend(batch_embeddings)
-                logger.debug(f"Generated Qwen3 embeddings for batch {i//self.batch_size + 1}")
+                logger.debug(
+                    "Generated Qwen3 embeddings for batch"
+                    f" {i//self.batch_size + 1}"
+                )
 
-            logger.debug(f"Generated Qwen3 embeddings for {len(texts)} documents")
+            logger.debug(
+                f"Generated Qwen3 embeddings for {len(texts)} documents"
+            )
             return all_embeddings
         except Exception as e:
             logger.error(
@@ -274,17 +279,12 @@ class Qwen3EmbeddingClient(BaseEmbeddingClient):
         """Get the model name."""
         return self.model
 
-    async def aembed_query(self, text: str) -> List[float]:
-        """Generate embedding for a single text query (async interface)."""
-        return await self.embed_query(text)
-
-    async def aembed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for multiple documents (async interface)."""
-        return await self.embed_documents(texts)
-
 
 class EmbeddingService:
-    """Service for generating and managing vector embeddings with multiple provider support."""
+    """
+    Service for generating and managing vector embeddings with multiple
+    provider support.
+    """
 
     def __init__(
         self,
@@ -294,16 +294,19 @@ class EmbeddingService:
         batch_size: Optional[int] = None,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-    ):
-        """Initialize the embedding service.
+    ) -> None:
+        """
+        Initialize the embedding service.
 
         Args:
-            provider: Override provider ("openai", "qwen3", or "openai_compatible"). If None, use global settings
+            provider: Override provider ("openai", "qwen3", or
+        "openai_compatible"). If None, use global settings
             model: Override model name
             dimensions: Override embedding dimensions
             batch_size: Override embedding batch size
             api_key: Override provider API key
-            base_url: Override provider base URL (for Qwen3 or openai_compatible)
+            base_url: Override provider base URL (for Qwen3 or
+        openai_compatible)
         """
         self.settings = get_settings()
         self._embeddings_client: Optional[BaseEmbeddingClient] = None
@@ -313,9 +316,15 @@ class EmbeddingService:
         self._override_dimensions = dimensions
         self._override_api_key = api_key
         self._override_base_url = base_url
-        self._batch_size = batch_size if batch_size is not None else self.settings.embedding_batch_size
+        self._batch_size = (
+            batch_size
+            if batch_size is not None
+            else self.settings.embedding_batch_size
+        )
         # Effective provider
-        effective_provider = self._override_provider or self.settings.embedding_provider.lower()
+        effective_provider = (
+            self._override_provider or self.settings.embedding_provider.lower()
+        )
         self._provider = EmbeddingProvider(effective_provider)
 
     @property
@@ -334,16 +343,25 @@ class EmbeddingService:
         elif self._provider == EmbeddingProvider.OPENAI_COMPATIBLE:
             return self._create_openai_compatible_client()
         else:
-            raise ValueError(f"Unsupported embedding provider: {self._provider.value}")
+            raise ValueError(
+                f"Unsupported embedding provider: {self._provider.value}"
+            )
 
     def _create_openai_client(self) -> OpenAIEmbeddingClient:
-        """Create OpenAI embedding client (with per-project overrides if provided)."""
+        """
+        Create OpenAI embedding client (with per-project overrides if
+        provided).
+        """
         api_key = self._override_api_key or self.settings.openai_api_key
         if not api_key:
-            raise ValueError("OpenAI API key is required for OpenAI embedding generation")
+            raise ValueError(
+                "OpenAI API key is required for OpenAI embedding generation"
+            )
 
         model = self._override_model or self.settings.embedding_model
-        dimensions = self._override_dimensions or self.settings.embedding_dimensions
+        dimensions = (
+            self._override_dimensions or self.settings.embedding_dimensions
+        )
         batch_size = self._batch_size
 
         return OpenAIEmbeddingClient(
@@ -351,18 +369,27 @@ class EmbeddingService:
             model=model,
             dimensions=dimensions,
             batch_size=batch_size,
-            base_url=self._override_base_url or self.settings.openai_compatible_base_url,
+            base_url=self._override_base_url
+            or self.settings.openai_compatible_base_url,
         )
 
     def _create_qwen3_client(self) -> Qwen3EmbeddingClient:
-        """Create Qwen3-Embedding client (with per-project overrides if provided)."""
+        """
+        Create Qwen3-Embedding client (with per-project overrides if provided).
+        """
         api_key = self._override_api_key or self.settings.qwen3_api_key
         if not api_key:
-            raise ValueError("Qwen3 API key is required for Qwen3-Embedding generation")
+            raise ValueError(
+                "Qwen3 API key is required for Qwen3-Embedding generation"
+            )
 
-        base_url = (self._override_base_url or self.settings.qwen3_base_url).rstrip('/')
+        base_url = (
+            self._override_base_url or self.settings.qwen3_base_url
+        ).rstrip("/")
         model = self._override_model or self.settings.qwen3_model
-        dimensions = self._override_dimensions or self.settings.qwen3_dimensions
+        dimensions = (
+            self._override_dimensions or self.settings.qwen3_dimensions
+        )
         batch_size = self._batch_size
 
         return Qwen3EmbeddingClient(
@@ -370,21 +397,35 @@ class EmbeddingService:
             base_url=base_url,
             model=model,
             dimensions=dimensions,
-            batch_size=batch_size
+            batch_size=batch_size,
         )
 
     def _create_openai_compatible_client(self) -> OpenAIEmbeddingClient:
-        """Create OpenAI-compatible client (OpenAI SDK with custom base_url)."""
+        """
+        Create OpenAI-compatible client (OpenAI SDK with custom base_url).
+        """
         api_key = self._override_api_key or self.settings.openai_api_key
         if not api_key:
-            raise ValueError("OpenAI API key is required for openai_compatible embedding generation")
+            raise ValueError(
+                "OpenAI API key is required for openai_compatible embedding"
+                " generation"
+            )
 
-        base_url = (self._override_base_url or self.settings.openai_compatible_base_url or "").strip()
+        base_url = (
+            self._override_base_url
+            or self.settings.openai_compatible_base_url
+            or ""
+        ).strip()
         if not base_url:
-            raise ValueError("base_url is required for openai_compatible embedding generation")
+            raise ValueError(
+                "base_url is required for openai_compatible embedding"
+                " generation"
+            )
 
         model = self._override_model or self.settings.embedding_model
-        dimensions = self._override_dimensions or self.settings.embedding_dimensions
+        dimensions = (
+            self._override_dimensions or self.settings.embedding_dimensions
+        )
         batch_size = self._batch_size
 
         return OpenAIEmbeddingClient(
@@ -394,7 +435,6 @@ class EmbeddingService:
             batch_size=batch_size,
             base_url=base_url,
         )
-
 
     async def generate_embedding(self, text: str) -> List[float]:
         """
@@ -414,18 +454,24 @@ class EmbeddingService:
             raise ValueError("Text cannot be empty")
 
         try:
-            embedding = await self.embeddings_client.embed_query(text)
-            logger.debug(f"Generated embedding for text of length {len(text)} using {self._provider.value}")
+            embedding = await self.embeddings_client.aembed_query(text)
+            logger.debug(
+                f"Generated embedding for text of length {len(text)} using"
+                f" {self._provider.value}"
+            )
             return embedding
 
         except Exception as e:
             logger.error(
-                "Failed to generate embedding", provider=self._provider.value,
+                "Failed to generate embedding",
+                provider=self._provider.value,
                 error_type=type(e).__name__,
             )
             raise
 
-    async def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
+    async def generate_embeddings_batch(
+        self, texts: List[str]
+    ) -> List[List[float]]:
         """
         Generate embeddings for multiple texts in batch.
 
@@ -453,18 +499,28 @@ class EmbeddingService:
             all_embeddings = []
 
             for i in range(0, len(non_empty_texts), batch_size):
-                batch = non_empty_texts[i:i + batch_size]
-                batch_embeddings = await self.embeddings_client.embed_documents(batch)
+                batch_end = i + batch_size
+                batch = non_empty_texts[i:batch_end]
+                batch_embeddings = (
+                    await self.embeddings_client.aembed_documents(batch)
+                )
                 all_embeddings.extend(batch_embeddings)
 
-                logger.debug(f"Generated embeddings for batch {i//batch_size + 1} using {self._provider.value}")
+                logger.debug(
+                    f"Generated embeddings for batch {i//batch_size + 1} using"
+                    f" {self._provider.value}"
+                )
 
-            logger.info(f"Generated {len(all_embeddings)} embeddings using {self._provider.value}")
+            logger.info(
+                f"Generated {len(all_embeddings)} embeddings using"
+                f" {self._provider.value}"
+            )
             return all_embeddings
 
         except Exception as e:
             logger.error(
-                "Failed to generate batch embeddings", provider=self._provider.value,
+                "Failed to generate batch embeddings",
+                provider=self._provider.value,
                 error_type=type(e).__name__,
             )
             raise
@@ -514,8 +570,9 @@ def get_embedding_service() -> EmbeddingService:
     return _embedding_service
 
 
-
-async def get_embedding_service_for_project(project_id) -> EmbeddingService:
+async def get_embedding_service_for_project(
+    project_id: UUID | None,
+) -> EmbeddingService:
     """Resolve and construct an EmbeddingService scoped to the given project.
 
     Looks up the active embedding configuration in rag_embedding_configs.
@@ -526,7 +583,9 @@ async def get_embedding_service_for_project(project_id) -> EmbeddingService:
     from ..models.embedding_config import EmbeddingConfig
 
     if project_id is None:
-        raise ValueError("Project ID is required to resolve embedding configuration")
+        raise ValueError(
+            "Project ID is required to resolve embedding configuration"
+        )
 
     # Query active config
     async with get_db_session() as db:
@@ -539,12 +598,16 @@ async def get_embedding_service_for_project(project_id) -> EmbeddingService:
         rec = result.scalar_one_or_none()
 
     if rec is None:
-        raise ValueError(f"No active embedding configuration found for project {project_id}")
+        raise ValueError(
+            f"No active embedding configuration found for project {project_id}"
+        )
 
     provider = (rec.provider or "").lower()
     if provider == EmbeddingProvider.OPENAI.value:
         if not rec.api_key:
-            raise ValueError(f"Project {project_id} embedding config missing OpenAI api_key")
+            raise ValueError(
+                f"Project {project_id} embedding config missing OpenAI api_key"
+            )
         return EmbeddingService(
             provider="openai",
             model=rec.model,
@@ -555,9 +618,13 @@ async def get_embedding_service_for_project(project_id) -> EmbeddingService:
         )
     elif provider == EmbeddingProvider.QWEN3.value:
         if not rec.api_key:
-            raise ValueError(f"Project {project_id} embedding config missing Qwen3 api_key")
+            raise ValueError(
+                f"Project {project_id} embedding config missing Qwen3 api_key"
+            )
         if not rec.base_url:
-            raise ValueError(f"Project {project_id} embedding config missing Qwen3 base_url")
+            raise ValueError(
+                f"Project {project_id} embedding config missing Qwen3 base_url"
+            )
         return EmbeddingService(
             provider="qwen3",
             model=rec.model,
@@ -568,9 +635,15 @@ async def get_embedding_service_for_project(project_id) -> EmbeddingService:
         )
     elif provider == EmbeddingProvider.OPENAI_COMPATIBLE.value:
         if not rec.api_key:
-            raise ValueError(f"Project {project_id} embedding config missing OpenAI-compatible api_key")
+            raise ValueError(
+                f"Project {project_id} embedding config missing"
+                " OpenAI-compatible api_key"
+            )
         if not rec.base_url:
-            raise ValueError(f"Project {project_id} embedding config missing OpenAI-compatible base_url")
+            raise ValueError(
+                f"Project {project_id} embedding config missing"
+                " OpenAI-compatible base_url"
+            )
         return EmbeddingService(
             provider="openai_compatible",
             model=rec.model,
