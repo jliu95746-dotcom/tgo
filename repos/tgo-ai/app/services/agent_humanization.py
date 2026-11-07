@@ -10,7 +10,11 @@ from app.exceptions import ValidationError
 from app.services.skill_file_service import SkillFileService, SkillNotFoundError
 
 
-async def validate_humanization_binding(project_id: UUID, name: str | None, enabled: bool) -> None:
+async def validate_humanization_binding(
+    project_id: UUID, name: str | None, enabled: bool | None,
+) -> None:
+    if enabled is None:
+        raise ValidationError("拟人技能开关不能为 null")
     if not name:
         if enabled:
             raise ValidationError("请先选择拟人技能，再打开开关")

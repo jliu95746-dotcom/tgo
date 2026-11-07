@@ -24,7 +24,12 @@ from app.schemas.agent_configuration_actor import AgentConfigurationActor
 from app.services.agent_business_trials import AgentBusinessTrialService
 
 directory = Path(os.environ["BUSINESS_FAULT_DIRECTORY"]).resolve()
-assert directory.name.startswith("business-fault-") and directory.parent.name == ".tmp"
+owned_root = Path(os.environ["BUSINESS_FAULT_ROOT"]).resolve()
+assert directory.name.startswith("business-fault-")
+assert directory.parent == owned_root
+assert engine.url.get_backend_name() == "sqlite"
+assert engine.url.database is not None
+assert Path(engine.url.database).resolve() == directory / "state.sqlite"
 project, actor, agent, connection, proof = [
     UUID(os.environ["BUSINESS_FAULT_" + name])
     for name in ("PROJECT", "ACTOR", "AGENT", "CONNECTION", "PROOF")

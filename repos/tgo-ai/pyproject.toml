@@ -43,6 +43,8 @@ pre-commit = "^3.5.0"
 httpx = "^0.28.1"
 pytest-mock = "^3.12.0"
 aiosqlite = "^0.21.0"
+types-jsonschema = "4.26.0.20261006"
+types-pyyaml = "6.0.12.20261103"
 
 [build-system]
 requires = ["poetry-core"]

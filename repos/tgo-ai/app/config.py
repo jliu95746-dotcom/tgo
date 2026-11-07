@@ -1,6 +1,6 @@
 """Application configuration using Pydantic Settings."""
 
-from typing import List, Union, Optional
+from typing import List, Union, Optional, TypeVar
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -8,6 +8,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.runtime.supervisor.config import SupervisorRuntimeSettings
 from app.runtime.tools.config import ToolsRuntimeSettings
 from app.schemas.model_usage import ModelCostRate
+
+RuntimeSettings = TypeVar("RuntimeSettings", bound=BaseSettings)
+
+
+def load_runtime_settings(kind: type[RuntimeSettings]) -> RuntimeSettings:
+    """Load nested settings through the inherited BaseSettings constructor."""
+    return kind(_env_file=".env")
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -234,11 +242,13 @@ class Settings(BaseSettings):
     # Note: These nested settings will be loaded from environment variables
     # with the appropriate prefixes (SUPERVISOR_RUNTIME__ and TOOLS_RUNTIME__)
     supervisor_runtime: SupervisorRuntimeSettings = Field(
-        default_factory=lambda: SupervisorRuntimeSettings(_env_file=".env"),
+        default_factory=lambda: load_runtime_settings(
+            SupervisorRuntimeSettings,
+        ),
         description="Supervisor运行时配置",
     )
     tools_runtime: ToolsRuntimeSettings = Field(
-        default_factory=lambda: ToolsRuntimeSettings(_env_file=".env"),
+        default_factory=lambda: load_runtime_settings(ToolsRuntimeSettings),
         description="工具智能体运行时配置",
     )
 

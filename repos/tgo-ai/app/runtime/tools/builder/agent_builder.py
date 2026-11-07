@@ -5,7 +5,7 @@ from __future__ import annotations
 import traceback
 import types
 from math import ceil
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, TypedDict, Union
 from uuid import UUID
 
 import httpx
@@ -92,6 +92,18 @@ UNEDITABLE_SYSTEM_PROMPT = (
 DEFAULT_SYSTEM_PROMPT = (
     "You are a helpful assistant that has access to a variety of tools."
 )
+
+
+if TYPE_CHECKING:
+    from agno.skills.loaders import SkillLoader
+
+
+class _CustomToolArguments(TypedDict):
+    agent_id: str
+    session_id: str | None
+    user_id: str | None
+    project_id: str | None
+    request_id: str | None
 
 
 class AgentBuilder:
@@ -509,7 +521,7 @@ class AgentBuilder:
         )
 
         tools: List[Any] = []
-        tool_context = {
+        tool_context: _CustomToolArguments = {
             "agent_id": agent_id,
             "session_id": session_id,
             "user_id": user_id,
@@ -563,7 +575,7 @@ class AgentBuilder:
         from app.services.skill_file_service import SkillFileService, _parse_frontmatter
 
         base_dir = Path(settings.skills_base_dir)
-        loaders: list[LocalSkills] = []
+        loaders: list[SkillLoader] = []
 
         # Load the set of disabled skill names for this project
         skill_service = SkillFileService(settings.skills_base_dir)

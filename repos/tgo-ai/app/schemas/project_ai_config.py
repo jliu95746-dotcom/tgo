@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
+
+if TYPE_CHECKING:
+    from app.models.project_ai_config import ProjectAIConfig
 
 
 class ProjectAIConfigUpsert(BaseModel):
@@ -63,7 +66,7 @@ class ProjectAIConfigResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_orm_model(cls, m) -> "ProjectAIConfigResponse":
+    def from_orm_model(cls, m: ProjectAIConfig) -> "ProjectAIConfigResponse":
         return cls(
             project_id=str(m.project_id),
             default_chat_provider_id=str(m.default_chat_provider_id) if m.default_chat_provider_id else None,

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID, uuid4
 from datetime import datetime
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, JsonValue, SecretStr, TypeAdapter
 
 from app.schemas.knowledge import KnowledgeChannel
 from app.schemas.knowledge_evidence import KnowledgeEvidence
@@ -20,6 +20,8 @@ from app.schemas.agent_business_connections import (
 from app.schemas.agent_device_script_selection import ScriptSelectionRecord
 from app.schemas.business_execution_context import BusinessRequestPrincipal
 from app.runtime.tools.models import LLMProviderCredentials
+
+_tool_input_schema = TypeAdapter(dict[str, JsonValue])
 
 
 class AgentTool(BaseModel):
@@ -64,7 +66,7 @@ class AgentTool(BaseModel):
     )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, JsonValue]:
         """获取工具的 inputSchema，优先从 base_config 获取"""
         if self.base_config:
             # 支持 inputSchema 和 input_schema 两种命名
@@ -72,7 +74,12 @@ class AgentTool(BaseModel):
                 "inputSchema"
             ) or self.base_config.get("input_schema")
             if schema:
-                return schema
+                try:
+                    return _tool_input_schema.validate_python(
+                        schema, strict=True,
+                    )
+                except (TypeError, ValueError):
+                    raise ValueError("Invalid tool input schema") from None
         return {"type": "object", "properties": {}}
 
     class Config:

@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
+from pydantic import JsonValue
 
 from app.core.logging import get_logger
 from app.models.streaming import StreamingEvent, EventType, EventSeverity, BaseEventData
@@ -88,7 +89,7 @@ class StreamingEventEmitter(EventEmitter):
     def __init__(self, request_id: str, correlation_id: str):
         super().__init__(request_id, correlation_id)
         self._streaming_enabled = False
-        self._stream_queue: Optional[asyncio.Queue] = None
+        self._stream_queue: Optional[asyncio.Queue[StreamingEvent]] = None
         self._active_streams: List[Any] = []
     
     def enable_streaming(self) -> None:
@@ -163,7 +164,7 @@ class StreamingEventEmitter(EventEmitter):
         except asyncio.TimeoutError:
             return None
     
-    def get_stream_stats(self) -> Dict[str, Any]:
+    def get_stream_stats(self) -> dict[str, JsonValue]:
         """Get streaming statistics."""
         return {
             "streaming_enabled": self._streaming_enabled,

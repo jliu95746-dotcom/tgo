@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from uuid import UUID
 
 from app.schemas.llm_model import LLMModelUpsert, LLMModelResponse
+
+if TYPE_CHECKING:
+    from app.models.llm_provider import LLMProvider
 
 
 def mask_api_key(value: Optional[str]) -> Optional[str]:
@@ -63,7 +66,7 @@ class LLMProviderResponse(LLMProviderBase):
     updated_at: datetime
 
     @classmethod
-    def from_orm_model(cls, m) -> "LLMProviderResponse":
+    def from_orm_model(cls, m: LLMProvider) -> "LLMProviderResponse":
         return cls(
             id=str(m.id),
             alias=m.alias,

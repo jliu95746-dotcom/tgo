@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, Optional
 
 from agno.tools import Function
@@ -33,6 +34,33 @@ def _canonical_tag_name(value: str) -> str | None:
     normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
     canonical = USER_TAG_ALIASES.get(normalized, normalized)
     return canonical if canonical in ALLOWED_USER_TAGS else None
+
+
+def _normalize_user_tags(tags: Iterable[object]) -> list[dict[str, str]] | str:
+    """Validate actual tool arguments without changing the published schema."""
+    normalized_tags: list[dict[str, str]] = []
+    seen_names: set[str] = set()
+    for tag in tags:
+        if not isinstance(tag, dict):
+            return "标签格式错误，每个标签应包含 name 字段。"
+        raw_name = tag.get("name", "")
+        if not isinstance(raw_name, str):
+            return "标签的 name 字段必须是文本。"
+        name = raw_name.strip()
+        if not name:
+            return "标签的 name 字段不能为空。"
+        canonical_name = _canonical_tag_name(name)
+        if canonical_name is None:
+            allowed = ", ".join(ALLOWED_USER_TAGS)
+            return f"不支持的标签：{name}。可用标签：{allowed}。"
+        if canonical_name in seen_names:
+            continue
+        seen_names.add(canonical_name)
+        normalized_tags.append({
+            "name": canonical_name,
+            "name_zh": ALLOWED_USER_TAGS[canonical_name],
+        })
+    return normalized_tags
 
 
 def create_user_tag_tool(
@@ -69,30 +97,9 @@ def create_user_tag_tool(
             return "请至少提供一个标签。"
 
         # Validate and normalize tags
-        normalized_tags: list[dict[str, str]] = []
-        seen_names: set[str] = set()
-        for tag in tags:
-            if not isinstance(tag, dict):
-                return "标签格式错误，每个标签应包含 name 字段。"
-
-            name = tag.get("name", "").strip()
-            if not name:
-                return "标签的 name 字段不能为空。"
-
-            canonical_name = _canonical_tag_name(name)
-            if canonical_name is None:
-                allowed = ", ".join(ALLOWED_USER_TAGS)
-                return f"不支持的标签：{name}。可用标签：{allowed}。"
-            if canonical_name in seen_names:
-                continue
-            seen_names.add(canonical_name)
-
-            normalized_tags.append(
-                {
-                    "name": canonical_name,
-                    "name_zh": ALLOWED_USER_TAGS[canonical_name],
-                }
-            )
+        normalized_tags = _normalize_user_tags(tags)
+        if isinstance(normalized_tags, str):
+            return normalized_tags
 
         result = await client.post_event(
             "user_tag.add",

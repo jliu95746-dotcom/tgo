@@ -11,6 +11,9 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import JsonValue
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response
 
 from app import __version__
 from app.api import api_router
@@ -49,8 +52,73 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await close_db()
 
 
+class _TGOApplication(FastAPI):
+    def openapi(self) -> dict[str, JsonValue]:
+        """Custom OpenAPI schema with security definitions."""
+        if self.openapi_schema:
+            return self.openapi_schema
+
+        from fastapi.openapi.utils import get_openapi
+
+        openapi_schema = get_openapi(
+            title=self.title,
+            version=self.version,
+            description=self.description,
+            routes=self.routes,
+        )
+
+        # Add error response schemas
+        if "schemas" not in openapi_schema["components"]:
+            openapi_schema["components"]["schemas"] = {}
+
+        openapi_schema["components"]["schemas"]["ErrorDetail"] = {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Error code",
+                    "examples": [
+                        "TEAM_NOT_FOUND",
+                        "AGENT_NOT_FOUND",
+                        "AUTHENTICATION_FAILED",
+                    ],
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Human-readable error message",
+                    "examples": ["The specified agent was not found"],
+                },
+                "details": {
+                    "type": "object",
+                    "nullable": True,
+                    "description": "Additional error context and details",
+                    "examples": [
+                        {"agent_id": "123e4567-e89b-12d3-a456-426614174000"}
+                    ],
+                },
+            },
+            "required": ["code", "message", "details"],
+        }
+
+        openapi_schema["components"]["schemas"]["Error"] = {
+            "type": "object",
+            "properties": {
+                "error": {"$ref": "#/components/schemas/ErrorDetail"},
+                "request_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Unique request identifier for tracking",
+                },
+            },
+            "required": ["error", "request_id"],
+        }
+
+        self.openapi_schema = openapi_schema
+        return self.openapi_schema
+
+
 # Create FastAPI application
-app = FastAPI(
+app = _TGOApplication(
     title="TGO-Tech AI Service",
     description="AI/ML Operations Microservice for TGO-Tech customer service platform",
     version=__version__,
@@ -71,68 +139,11 @@ app = FastAPI(
 )
 
 # Configure OpenAPI security schemas
-def custom_openapi():
-    """Custom OpenAPI schema with security definitions."""
-    if app.openapi_schema:
-        return app.openapi_schema
-
-    from fastapi.openapi.utils import get_openapi
-
-    openapi_schema = get_openapi(
-        title=app.title,
-        version=app.version,
-        description=app.description,
-        routes=app.routes,
-    )
 
 
-    # Add error response schemas
-    if "schemas" not in openapi_schema["components"]:
-        openapi_schema["components"]["schemas"] = {}
+def custom_openapi() -> dict[str, JsonValue]:
+    return _TGOApplication.openapi(app)
 
-    openapi_schema["components"]["schemas"]["ErrorDetail"] = {
-        "type": "object",
-        "properties": {
-            "code": {
-                "type": "string",
-                "description": "Error code",
-                "examples": ["TEAM_NOT_FOUND", "AGENT_NOT_FOUND", "AUTHENTICATION_FAILED"]
-            },
-            "message": {
-                "type": "string",
-                "description": "Human-readable error message",
-                "examples": ["The specified agent was not found"]
-            },
-            "details": {
-                "type": "object",
-                "nullable": True,
-                "description": "Additional error context and details",
-                "examples": [{"agent_id": "123e4567-e89b-12d3-a456-426614174000"}]
-            }
-        },
-        "required": ["code", "message", "details"]
-    }
-
-    openapi_schema["components"]["schemas"]["Error"] = {
-        "type": "object",
-        "properties": {
-            "error": {
-                "$ref": "#/components/schemas/ErrorDetail"
-            },
-            "request_id": {
-                "type": "string",
-                "format": "uuid",
-                "description": "Unique request identifier for tracking"
-            }
-        },
-        "required": ["error", "request_id"]
-    }
-
-
-    app.openapi_schema = openapi_schema
-    return app.openapi_schema
-
-app.openapi = custom_openapi
 
 # Add CORS middleware
 app.add_middleware(
@@ -145,7 +156,9 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
+async def log_requests(
+    request: Request, call_next: RequestResponseEndpoint,
+) -> Response:
     """Log incoming requests and their outcomes."""
     supplied_id = request.headers.get("X-Request-ID", "")
     request_id = (

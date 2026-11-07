@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from app.models.project import Project
     from app.models.llm_provider import LLMProvider
     from app.models.tool import Tool
+    from app.schemas.tool import AgentToolDetail
+    from app.services.rag_service import CollectionData
 
 
 class Agent(BaseModel):
@@ -28,6 +30,11 @@ class Agent(BaseModel):
     """
 
     __tablename__ = "ai_agents"
+
+    if TYPE_CHECKING:
+        # These instance caches are attached only after resource enrichment.
+        _collection_data: list[CollectionData]
+        _tools_data: list[AgentToolDetail]
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

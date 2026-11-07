@@ -37,7 +37,7 @@ class ScriptCaseRequests:
     async def _find(
         self, project: UUID, actor: UUID, request: UUID
     ) -> ScriptCaseSaveRequest | None:
-        return await self.db.scalar(
+        rows = await self.db.scalars(
             select(ScriptCaseSaveRequest)
             .where(
                 ScriptCaseSaveRequest.project_id == project,
@@ -46,6 +46,7 @@ class ScriptCaseRequests:
             )
             .execution_options(populate_existing=True)
         )
+        return rows.first()
 
     @staticmethod
     def _scope(

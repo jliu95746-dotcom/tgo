@@ -3,6 +3,7 @@
 import asyncio
 from datetime import UTC, datetime
 from uuid import UUID
+from pydantic import TypeAdapter
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,8 @@ from app.schemas.agent_business_trials import Operation
 from app.services.agent_business_reviews import AgentBusinessReviewService
 from app.services.agent_business_review_evidence import CurrentContext
 
+_operations = TypeAdapter(list[Operation])
+
 
 class AgentBusinessCapabilityService:
     def __init__(self, db: AsyncSession, reviews: AgentBusinessReviewService):
@@ -32,7 +35,7 @@ class AgentBusinessCapabilityService:
         connection: UUID,
         operation: Operation,
     ) -> AgentBusinessTrial | None:
-        return await self.db.scalar(
+        rows = await self.db.scalars(
             select(AgentBusinessTrial)
             .where(
                 AgentBusinessTrial.project_id == project,
@@ -48,6 +51,7 @@ class AgentBusinessCapabilityService:
             .limit(1)
             .execution_options(populate_existing=True)
         )
+        return rows.first()
 
     async def _operation(
         self,
@@ -151,14 +155,28 @@ class AgentBusinessCapabilityService:
                 )
             ).all()
         )
-        if sum(len(row.operations) for row in bindings) > 200:
+        try:
+            operations = {
+                row.id: _operations.validate_python(
+                    row.operations, strict=True,
+                )
+                for row in bindings
+            }
+            if any(
+                len(values) != len(set(values))
+                for values in operations.values()
+            ):
+                raise ValueError("Duplicate operation")
+        except (TypeError, ValueError):
+            raise ConflictError("业务连接操作配置无效，请重新保存关联") from None
+        if sum(len(values) for values in operations.values()) > 200:
             raise ConflictError("当前员工关联过多，请整理业务连接后核验")
         values: list[BusinessOperationCapability] = []
         contexts: dict[UUID, CurrentContext] = {}
         try:
             async with asyncio.timeout(20):
                 for binding in bindings:
-                    for operation in binding.operations:
+                    for operation in operations[binding.id]:
                         values.append(
                             await self._operation(
                                 project, actor, agent, binding, operation, contexts
@@ -178,7 +196,7 @@ class AgentBusinessCapabilityService:
                     issues=["evidence_unavailable"],
                 )
                 for binding in bindings
-                for operation in binding.operations
+                for operation in operations[binding.id]
             ]
         await self.trials._actor(project, actor)
         # Final local freshness fence: configuration changes, a later test or a
@@ -206,7 +224,7 @@ class AgentBusinessCapabilityService:
             latest = await self._latest(
                 project, actor, agent, value.connection_id, value.operation
             )
-            binding = await self.db.get(
+            current_binding = await self.db.get(
                 AgentBusinessConnection, value.binding_id, populate_existing=True
             )
             records = (
@@ -215,10 +233,10 @@ class AgentBusinessCapabilityService:
                 else []
             )
             if (
-                binding is None
-                or not binding.enabled
-                or binding.revision != value.binding_revision
-                or value.operation not in binding.operations
+                current_binding is None
+                or not current_binding.enabled
+                or current_binding.revision != value.binding_revision
+                or value.operation not in current_binding.operations
                 or latest is None
                 or latest.id != value.report_id
                 or not records

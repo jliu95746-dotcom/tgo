@@ -165,9 +165,14 @@ def _prepare_logistics_tool(data: dict[str, object], previous: Tool | None = Non
     if not config.get("logistics_provider"):
         return
     try:
+        endpoint = data.get("endpoint", previous.endpoint if previous else "")
+        if endpoint is None:
+            endpoint = ""
+        if not isinstance(endpoint, str):
+            raise ValueError("Invalid endpoint type")
         prepared = prepare_config(
             config["logistics_provider"], old_config.get("logistics_provider"),
-            endpoint=data.get("endpoint", previous.endpoint if previous else "") or "",
+            endpoint=endpoint,
         )
     except ValueError:
         # Validation errors can contain the input value (including credentials).

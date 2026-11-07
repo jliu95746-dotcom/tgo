@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 from uuid import uuid4
+from pydantic import JsonValue
 
 from app.core.logging import get_logger
 from app.models.streaming import StreamingEvent
@@ -61,7 +62,7 @@ class StreamingSession:
         self.is_active = False
         cleanup_event_emitter(self.request_id, self.correlation_id)
     
-    def get_stats(self) -> Dict[str, any]:
+    def get_stats(self) -> dict[str, JsonValue]:
         """Get session statistics."""
         return {
             "session_id": self.session_id,
@@ -78,7 +79,7 @@ class StreamingSession:
 class StreamManager:
     """Manages streaming sessions and event distribution."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.sessions: Dict[str, StreamingSession] = {}
         self.request_to_session: Dict[str, str] = {}
         self._cleanup_task: Optional[asyncio.Task] = None
@@ -190,7 +191,7 @@ class StreamManager:
         """Get all active streaming sessions."""
         return [session for session in self.sessions.values() if session.is_active]
     
-    def get_session_stats(self) -> Dict[str, any]:
+    def get_session_stats(self) -> dict[str, JsonValue]:
         """Get statistics for all sessions."""
         active_sessions = self.get_active_sessions()
         

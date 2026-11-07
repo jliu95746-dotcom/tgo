@@ -7,6 +7,7 @@ record via llm_provider_id.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, Float, String, UniqueConstraint, func
@@ -63,7 +64,7 @@ class LLMProvider(BaseModel):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, comment="Whether this provider is active")
 
     # Synchronization timestamp
-    synced_at: Mapped[DateTime] = mapped_column(
+    synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,

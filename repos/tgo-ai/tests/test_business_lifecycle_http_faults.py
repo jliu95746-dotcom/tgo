@@ -17,10 +17,10 @@ import pytest
 async def test_original_business_requests_survive_real_http_timeout_and_process_restart(
     tmp_path,
 ):
-    root = Path(__file__).resolve().parents[3]
-    directory = root / ".tmp" / ("business-fault-" + uuid4().hex)
+    owned_root = tmp_path.resolve()
+    directory = owned_root / ("business-fault-" + uuid4().hex)
     directory.mkdir()
-    assert directory.resolve().parent == (root / ".tmp").resolve()
+    assert directory.resolve().parent == owned_root
     server_path = Path(__file__).parent / "fixtures/business_fault_http_server.py"
     project, actor, agent, connection, proof = [uuid4() for _ in range(5)]
     with socket.socket() as sock:
@@ -33,6 +33,7 @@ async def test_original_business_requests_survive_real_http_timeout_and_process_
         "DATABASE_URL": "sqlite+aiosqlite:///"
         + (directory / "state.sqlite").as_posix(),
         "BUSINESS_FAULT_DIRECTORY": str(directory),
+        "BUSINESS_FAULT_ROOT": str(owned_root),
         "BUSINESS_FAULT_PORT": str(port),
         "BUSINESS_FAULT_VALID_UNTIL": (
             datetime.now(UTC) + timedelta(hours=1)
@@ -224,5 +225,5 @@ async def test_original_business_requests_survive_real_http_timeout_and_process_
         for log in logs:
             log.close()
         print(
-            "Owned fault processes stopped; isolated artifacts retained under ignored .tmp"
+            "Owned fault processes stopped; artifacts retained in pytest temp"
         )

@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
+
+if TYPE_CHECKING:
+    from app.models.llm_model import LLMModel
 
 
 class LLMModelBase(BaseModel):
@@ -36,7 +39,7 @@ class LLMModelResponse(LLMModelBase):
     updated_at: datetime
 
     @classmethod
-    def from_orm_model(cls, m) -> "LLMModelResponse":
+    def from_orm_model(cls, m: LLMModel) -> "LLMModelResponse":
         return cls(
             id=m.id,
             provider_id=m.provider_id,
