@@ -4,7 +4,7 @@ Base model class and common database utilities.
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TypeVar
 
 from sqlalchemy import DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -15,6 +15,9 @@ class Base(DeclarativeBase):
     """Base class for all database models."""
 
     pass
+
+
+ModelType = TypeVar("ModelType", bound=Base)
 
 
 class TimestampMixin:
@@ -69,20 +72,20 @@ class UUIDMixin:
     )
 
 
-def to_dict(obj: Any, exclude: Optional[set] = None) -> Dict[str, Any]:
+def to_dict(obj: Base, exclude: Optional[set[str]] = None) -> Dict[str, Any]:
     """
     Convert SQLAlchemy model instance to dictionary.
-    
+
     Args:
         obj: SQLAlchemy model instance
         exclude: Set of field names to exclude from the result
-        
+
     Returns:
         Dictionary representation of the model
     """
     exclude = exclude or set()
     result = {}
-    
+
     for column in obj.__table__.columns:
         if column.name not in exclude:
             value = getattr(obj, column.name)
@@ -91,23 +94,23 @@ def to_dict(obj: Any, exclude: Optional[set] = None) -> Dict[str, Any]:
             elif isinstance(value, uuid.UUID):
                 value = str(value)
             result[column.name] = value
-    
+
     return result
 
 
-def from_dict(model_class: type, data: Dict[str, Any]) -> Any:
+def from_dict(model_class: type[ModelType], data: Dict[str, Any]) -> ModelType:
     """
     Create SQLAlchemy model instance from dictionary.
-    
+
     Args:
         model_class: SQLAlchemy model class
         data: Dictionary with model data
-        
+
     Returns:
         Model instance
     """
     # Filter out keys that don't exist as columns
     valid_columns = {column.name for column in model_class.__table__.columns}
     filtered_data = {k: v for k, v in data.items() if k in valid_columns}
-    
+
     return model_class(**filtered_data)

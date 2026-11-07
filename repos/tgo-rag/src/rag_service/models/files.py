@@ -2,19 +2,32 @@
 File model for uploaded files.
 """
 
-from typing import List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
+from uuid import UUID as UUIDValue
 
-from sqlalchemy import ARRAY, BigInteger, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    ARRAY,
+    BigInteger,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, SoftDeleteMixin, TimestampMixin, UUIDMixin
 
+if TYPE_CHECKING:
+    from .collections import Collection
+    from .documents import FileDocument
+
 
 class File(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     """
     File model representing uploaded files for RAG processing.
-    
+
     This model stores metadata about uploaded files and tracks their
     processing status through the document extraction pipeline.
     """
@@ -22,13 +35,13 @@ class File(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "rag_files"
 
     # Foreign keys
-    project_id: Mapped[UUID] = mapped_column(
+    project_id: Mapped[UUIDValue] = mapped_column(
         UUID(as_uuid=True),
         nullable=False,
         doc="Associated project ID (logical reference to API service)",
     )
 
-    collection_id: Mapped[Optional[UUID]] = mapped_column(
+    collection_id: Mapped[Optional[UUIDValue]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("rag_collections.id", ondelete="SET NULL"),
         nullable=True,
@@ -67,7 +80,7 @@ class File(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
         doc="Path to file in storage system",
     )
 
-    storage_metadata: Mapped[Optional[dict]] = mapped_column(
+    storage_metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB,
         nullable=True,
         doc="Storage-specific metadata (bucket, region, etc.)",
@@ -78,7 +91,10 @@ class File(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
         String(64),
         nullable=False,
         default="pending",
-        doc="Processing status (pending, processing, chunking_documents, generating_embeddings, completed, failed, archived)",
+        doc=(
+            "Processing status (pending, processing, chunking_documents,"
+            " generating_embeddings, completed, failed, archived)"
+        ),
     )
 
     document_count: Mapped[int] = mapped_column(
@@ -152,15 +168,22 @@ class File(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
         Index("idx_rag_files_language", "language"),
         Index("idx_rag_files_created_at", "created_at"),
         Index("idx_rag_files_project_status", "project_id", "status"),
-        Index("idx_rag_files_project_content_type", "project_id", "content_type"),
-        Index("idx_rag_files_project_uploaded_by", "project_id", "uploaded_by"),
+        Index(
+            "idx_rag_files_project_content_type", "project_id", "content_type"
+        ),
+        Index(
+            "idx_rag_files_project_uploaded_by", "project_id", "uploaded_by"
+        ),
         Index("idx_rag_files_deleted_at", "deleted_at"),
         Index("idx_rag_files_tags", "tags", postgresql_using="gin"),
     )
 
     def __repr__(self) -> str:
         """String representation of the file."""
-        return f"<File(id={self.id}, filename='{self.original_filename}', status='{self.status}')>"
+        return (
+            f"<File(id={self.id}, filename='{self.original_filename}',"
+            f" status='{self.status}')>"
+        )
 
     @property
     def is_processing(self) -> bool:
@@ -180,13 +203,23 @@ class File(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     def update_status(self, status: str) -> None:
         """
         Update the file processing status.
-        
+
         Args:
             status: New status value
         """
-        valid_statuses = {"pending", "processing", "chunking_documents", "generating_embeddings", "completed", "failed", "archived"}
+        valid_statuses = {
+            "pending",
+            "processing",
+            "chunking_documents",
+            "generating_embeddings",
+            "completed",
+            "failed",
+            "archived",
+        }
         if status not in valid_statuses:
-            raise ValueError(f"Invalid status: {status}. Must be one of {valid_statuses}")
+            raise ValueError(
+                f"Invalid status: {status}. Must be one of {valid_statuses}"
+            )
         self.status = status
 
     def has_tag(self, tag: str) -> bool:

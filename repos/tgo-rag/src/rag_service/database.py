@@ -4,10 +4,15 @@ Database connection and session management.
 
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, NotRequired, TypedDict
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import NullPool, Pool
 from sqlalchemy import text
 
 from .config import get_settings
@@ -16,11 +21,28 @@ from .models import Base
 logger = logging.getLogger(__name__)
 
 # Global variables for database engine and session factory
-engine = None
-async_session_factory = None
+engine: AsyncEngine | None = None
+async_session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def reset_db_state():
+class EngineOptions(TypedDict):
+    echo: bool
+    hide_parameters: bool
+    pool_pre_ping: bool
+    poolclass: NotRequired[type[Pool]]
+    pool_size: NotRequired[int]
+    max_overflow: NotRequired[int]
+    pool_timeout: NotRequired[int]
+
+
+class DatabaseHealth(TypedDict):
+    status: str
+    connection: bool
+    tables_exist: bool
+    error: str | None
+
+
+def reset_db_state() -> None:
     """
     Reset the global database engine and session factory.
 
@@ -29,9 +51,11 @@ def reset_db_state():
 
     The issue occurs because:
     1. SQLAlchemy async engine/connections are bound to a specific event loop
-    2. When Celery tasks create new event loops, old connections are still bound
+    2. When Celery tasks create new event loops, old connections are still
+    bound
        to the previous (closed) event loop
-    3. This causes 'Event loop is closed' or 'attached to a different loop' errors
+    3. This causes 'Event loop is closed' or 'attached to a different loop'
+    errors
 
     Call this function in:
     - Celery worker_process_init signal handler
@@ -56,14 +80,14 @@ def reset_db_state():
     logger.debug("Database state reset for new event loop")
 
 
-def create_database_engine():
+def create_database_engine() -> AsyncEngine:
     """Create and configure the database engine."""
     global engine
-    
+
     settings = get_settings()
-    
+
     # Create async engine with connection pooling
-    engine_kwargs = {
+    engine_kwargs: EngineOptions = {
         "echo": settings.debug,
         "hide_parameters": True,
         "pool_pre_ping": True,
@@ -74,25 +98,29 @@ def create_database_engine():
         engine_kwargs["poolclass"] = NullPool
     else:
         # Only add pool settings when not using NullPool
-        engine_kwargs.update({
-            "pool_size": settings.database_pool_size,
-            "max_overflow": settings.database_max_overflow,
-            "pool_timeout": settings.database_pool_timeout,
-        })
+        engine_kwargs.update(
+            {
+                "pool_size": settings.database_pool_size,
+                "max_overflow": settings.database_max_overflow,
+                "pool_timeout": settings.database_pool_timeout,
+            }
+        )
 
     engine = create_async_engine(settings.database_url, **engine_kwargs)
-    
-    logger.info(f"Database engine created for {settings.environment} environment")
+
+    logger.info(
+        f"Database engine created for {settings.environment} environment"
+    )
     return engine
 
 
-def create_session_factory():
+def create_session_factory() -> async_sessionmaker[AsyncSession]:
     """Create the async session factory."""
     global async_session_factory, engine
-    
+
     if engine is None:
         engine = create_database_engine()
-    
+
     async_session_factory = async_sessionmaker(
         engine,
         class_=AsyncSession,
@@ -100,7 +128,7 @@ def create_session_factory():
         autoflush=True,
         autocommit=False,
     )
-    
+
     logger.info("Async session factory created")
     return async_session_factory
 
@@ -109,23 +137,23 @@ def create_session_factory():
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     Get an async database session.
-    
+
     This is the main way to get a database session for use in the application.
     It ensures proper cleanup and error handling.
-    
+
     Yields:
         AsyncSession: Database session
-        
+
     Example:
         async with get_db_session() as session:
             result = await session.execute(select(Project))
             projects = result.scalars().all()
     """
     global async_session_factory
-    
+
     if async_session_factory is None:
         async_session_factory = create_session_factory()
-    
+
     async with async_session_factory() as session:
         try:
             yield session
@@ -141,10 +169,10 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 async def get_db_session_dependency() -> AsyncGenerator[AsyncSession, None]:
     """
     FastAPI dependency for getting database sessions.
-    
+
     This function is used as a FastAPI dependency to inject database sessions
     into route handlers.
-    
+
     Yields:
         AsyncSession: Database session
     """
@@ -152,29 +180,29 @@ async def get_db_session_dependency() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-async def init_database():
+async def init_database() -> None:
     """
     Initialize the database engine.
-    
+
     Schema creation is handled by Alembic migrations.
     """
     global engine
-    
+
     if engine is None:
         engine = create_database_engine()
-    
+
     logger.info("Database initialized (schema management by Alembic)")
 
 
-async def close_database():
+async def close_database() -> None:
     """
     Close the database engine and clean up connections.
-    
+
     This function should be called during application shutdown to ensure
     proper cleanup of database connections.
     """
     global engine
-    
+
     if engine:
         await engine.dispose()
         logger.info("Database engine disposed")
@@ -183,7 +211,7 @@ async def close_database():
 async def check_database_connection() -> bool:
     """
     Check if the database connection is working.
-    
+
     Returns:
         bool: True if connection is successful, False otherwise
     """
@@ -200,25 +228,26 @@ async def check_database_connection() -> bool:
 
 # Utility functions for common database operations
 
-async def create_tables():
+
+async def create_tables() -> None:
     """Create all database tables."""
     await init_database()
 
 
-async def drop_tables():
+async def drop_tables() -> None:
     """Drop all database tables (use with caution!)."""
     global engine
-    
+
     if engine is None:
         engine = create_database_engine()
-    
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-    
+
     logger.warning("All database tables dropped")
 
 
-async def reset_database():
+async def reset_database() -> None:
     """Reset the database by dropping and recreating all tables."""
     await drop_tables()
     await create_tables()
@@ -226,36 +255,38 @@ async def reset_database():
 
 
 # Database health check for monitoring
-async def database_health_check() -> dict:
+async def database_health_check() -> DatabaseHealth:
     """
     Perform a comprehensive database health check.
-    
+
     Returns:
         dict: Health check results with status and metrics
     """
-    health_info = {
+    health_info: DatabaseHealth = {
         "status": "unhealthy",
         "connection": False,
         "tables_exist": False,
         "error": None,
     }
-    
+
     try:
         # Check basic connection
         connection_ok = await check_database_connection()
         health_info["connection"] = connection_ok
-        
+
         if connection_ok:
             # Check if tables exist
             async with get_db_session() as session:
                 # Try to query one of our main tables
-                result = await session.execute(text("SELECT COUNT(*) FROM rag_projects"))
+                result = await session.execute(
+                    text("SELECT COUNT(*) FROM rag_projects")
+                )
                 result.scalar()
                 health_info["tables_exist"] = True
                 health_info["status"] = "healthy"
-        
+
     except Exception as e:
         health_info["error"] = str(e)
         logger.error(f"Database health check failed: {e}")
-    
+
     return health_info

@@ -2,7 +2,7 @@
 Document model for processed document chunks.
 """
 
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Iterator, Optional, Protocol
 from uuid import UUID as UUIDValue
 
 from sqlalchemy import ForeignKey, Index, Integer, Numeric, String, Text
@@ -15,19 +15,36 @@ try:
 except ImportError:
     # Fallback for development without pgvector installed
     from sqlalchemy import ARRAY, Float
-    Vector = lambda dim: ARRAY(Float)
+
+    def Vector(dim: int) -> ARRAY[float]:
+        return ARRAY(Float)
+
 
 from .base import Base, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from .collections import Collection
+    from .files import File
+
+
+class VectorValues(Protocol):
+    """Values accepted by vector storage, including lists and NumPy arrays."""
+
+    def __iter__(self) -> Iterator[float]:
+        ...
+
+    def __len__(self) -> int:
+        ...
 
 
 class FileDocument(Base, UUIDMixin, TimestampMixin):
     """
     Document model representing processed document chunks for RAG operations.
-    
+
     This model stores individual document chunks extracted from files,
     along with their vector embeddings and metadata for semantic search.
     """
-    
+
     staticmethod
     table_name = "rag_file_documents"
 
@@ -54,8 +71,6 @@ class FileDocument(Base, UUIDMixin, TimestampMixin):
         doc="Associated collection ID",
     )
 
-
-
     # Document content
     document_title: Mapped[Optional[str]] = mapped_column(
         String(500),
@@ -72,7 +87,9 @@ class FileDocument(Base, UUIDMixin, TimestampMixin):
     content_tsv: Mapped[Optional[str]] = mapped_column(
         TSVECTOR,
         nullable=True,
-        doc="PostgreSQL full-text search vector for hybrid search capabilities",
+        doc=(
+            "PostgreSQL full-text search vector for hybrid search capabilities"
+        ),
     )
 
     content_length: Mapped[int] = mapped_column(
@@ -110,9 +127,12 @@ class FileDocument(Base, UUIDMixin, TimestampMixin):
     # Content classification
     content_type: Mapped[str] = mapped_column(
         String(50),
-        nullable=True, 
+        nullable=True,
         default="paragraph",
-        doc="Type of content (paragraph, heading, table, list, code, image, metadata)",
+        doc=(
+            "Type of content (paragraph, heading, table, list, code, image,"
+            " metadata)"
+        ),
     )
 
     language: Mapped[Optional[str]] = mapped_column(
@@ -128,7 +148,7 @@ class FileDocument(Base, UUIDMixin, TimestampMixin):
     )
 
     # Metadata and tags
-    tags: Mapped[Optional[dict]] = mapped_column(
+    tags: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB,
         nullable=True,
         doc="Document tags and metadata for RAG categorization",
@@ -148,7 +168,7 @@ class FileDocument(Base, UUIDMixin, TimestampMixin):
     )
 
     # Vector embedding (stored in PostgreSQL with pgvector)
-    embedding: Mapped[Optional[list]] = mapped_column(
+    embedding: Mapped[Optional[VectorValues]] = mapped_column(
         Vector(1536),  # Default OpenAI embedding dimensions
         nullable=True,
         doc="Vector embedding for semantic search",
@@ -179,13 +199,20 @@ class FileDocument(Base, UUIDMixin, TimestampMixin):
         Index("idx_rag_file_documents_confidence_score", "confidence_score"),
         Index("idx_rag_file_documents_embedding_model", "embedding_model"),
         Index("idx_rag_file_documents_created_at", "created_at"),
-        Index("idx_rag_file_documents_content_tsv", "content_tsv", postgresql_using="gin"),
+        Index(
+            "idx_rag_file_documents_content_tsv",
+            "content_tsv",
+            postgresql_using="gin",
+        ),
         Index("idx_rag_file_documents_file_chunk", "file_id", "chunk_index"),
     )
 
     def __repr__(self) -> str:
         """String representation of the document."""
-        return f"<FileDocument(id={self.id}, content_type='{self.content_type}', file_id={self.file_id})>"
+        return (
+            f"<FileDocument(id={self.id}, content_type='{self.content_type}',"
+            f" file_id={self.file_id})>"
+        )
 
     @property
     def has_embedding(self) -> bool:
@@ -196,10 +223,10 @@ class FileDocument(Base, UUIDMixin, TimestampMixin):
     def content_preview(self, length: int = 100) -> str:
         """
         Get a preview of the document content.
-        
+
         Args:
             length: Maximum length of the preview
-            
+
         Returns:
             Truncated content preview
         """
@@ -207,14 +234,14 @@ class FileDocument(Base, UUIDMixin, TimestampMixin):
             return self.content
         return self.content[:length] + "..."
 
-    def get_tag_value(self, key: str, default=None):
+    def get_tag_value(self, key: str, default: Any = None) -> Any:
         """
         Get a specific tag value.
-        
+
         Args:
             key: Tag key to retrieve
             default: Default value if key not found
-            
+
         Returns:
             Tag value or default
         """
@@ -222,10 +249,10 @@ class FileDocument(Base, UUIDMixin, TimestampMixin):
             return default
         return self.tags.get(key, default)
 
-    def set_tag_value(self, key: str, value) -> None:
+    def set_tag_value(self, key: str, value: Any) -> None:
         """
         Set a specific tag value.
-        
+
         Args:
             key: Tag key to set
             value: Value to set

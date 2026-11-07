@@ -11,7 +11,7 @@ Design: Hierarchical page structure with parent-child relationships
 - Crawl configuration is stored in Collection.crawl_config
 """
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 from uuid import UUID as PyUUID
 
 from sqlalchemy import ForeignKey, Index, Integer, String, Text
@@ -100,7 +100,10 @@ class WebsitePage(Base, UUIDMixin, TimestampMixin):
         String(64),
         nullable=False,
         default="discovered",
-        doc="How this page was added: 'initial', 'discovered', 'manual', 'deep_crawl'",
+        doc=(
+            "How this page was added: 'initial', 'discovered', 'manual',"
+            " 'deep_crawl'"
+        ),
     )
 
     # Content
@@ -124,17 +127,20 @@ class WebsitePage(Base, UUIDMixin, TimestampMixin):
     )
 
     # Discovered links (stored for future deep crawling)
-    discovered_links: Mapped[Optional[dict]] = mapped_column(
+    discovered_links: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(
         JSONB,
         nullable=True,
         doc="Links found on this page: [{url, text, created}]",
     )
 
     # Per-page crawl configuration (overrides Collection.crawl_config)
-    crawl_config: Mapped[Optional[dict]] = mapped_column(
+    crawl_config: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB,
         nullable=True,
-        doc="Page-specific crawl configuration that overrides collection defaults",
+        doc=(
+            "Page-specific crawl configuration that overrides collection"
+            " defaults"
+        ),
     )
 
     # Metadata
@@ -144,7 +150,7 @@ class WebsitePage(Base, UUIDMixin, TimestampMixin):
         doc="Page meta description",
     )
 
-    page_metadata: Mapped[Optional[dict]] = mapped_column(
+    page_metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB,
         nullable=True,
         doc="Additional page metadata (headers, images, etc.)",
@@ -155,7 +161,10 @@ class WebsitePage(Base, UUIDMixin, TimestampMixin):
         String(64),
         nullable=False,
         default="pending",
-        doc="Page status: pending, crawling, fetched, extracted, processing, processed, failed, skipped",
+        doc=(
+            "Page status: pending, crawling, fetched, extracted, processing,"
+            " processed, failed, skipped"
+        ),
     )
 
     error_message: Mapped[Optional[str]] = mapped_column(
@@ -208,9 +217,16 @@ class WebsitePage(Base, UUIDMixin, TimestampMixin):
         Index("idx_website_pages_crawl_source", "crawl_source"),
         Index("idx_website_pages_created_at", "created_at"),
         # Unique constraint on URL within a collection
-        Index("idx_website_pages_collection_url", "collection_id", "url_hash", unique=True),
+        Index(
+            "idx_website_pages_collection_url",
+            "collection_id",
+            "url_hash",
+            unique=True,
+        ),
     )
 
     def __repr__(self) -> str:
-        return f"<WebsitePage(id={self.id}, url='{self.url[:50]}...', depth={self.depth}, status='{self.status}')>"
-
+        return (
+            f"<WebsitePage(id={self.id}, url='{self.url[:50]}...',"
+            f" depth={self.depth}, status='{self.status}')>"
+        )
