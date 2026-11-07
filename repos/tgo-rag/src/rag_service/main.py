@@ -2,22 +2,22 @@
 Main FastAPI application for TGO RAG Service.
 """
 
-import time
-import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Dict
 
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .config import get_settings
-from .database import close_database, database_health_check, init_database
-from .logging_config import get_logger, init_logging_from_settings, set_request_context, clear_request_context
+from .config import Settings, get_settings
+from .database import close_database, init_database
+from .logging_config import (
+    get_logger,
+    init_logging_from_settings,
+)
 from .routers import (
     collections,
     embedding_config,
@@ -30,6 +30,12 @@ from .routers import (
     websites,
 )
 from .schemas.common import ErrorResponse
+from .services.http_diagnostics import (
+    HTTPErrorPrivacyMiddleware,
+    RequestLoggingMiddleware,
+    public_validation_errors,
+    request_diagnostics,
+)
 from .services.request_metrics import RequestMetricsMiddleware
 from .services.service_auth import ServiceIdentityMiddleware
 from .startup_banner import (
@@ -41,7 +47,7 @@ from .startup_banner import (
     log_startup_error,
     print_section_header,
     print_section_footer,
-    Symbols
+    Symbols,
 )
 
 # Initialize centralized logging configuration
@@ -52,15 +58,17 @@ logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
-    Application lifespan manager for startup and shutdown events with enhanced logging.
+    Manage application startup and shutdown with enhanced logging.
     """
     settings = get_settings()
     dev_project_created = False
 
     # Print beautiful startup banner
-    print_startup_banner(settings.app_name, settings.app_version, settings.environment)
+    print_startup_banner(
+        settings.app_name, settings.app_version, settings.environment
+    )
 
     # Show configuration information
     config_info = {
@@ -70,20 +78,23 @@ async def lifespan(app: FastAPI):
         "Port": settings.port,
         "Database URL": settings.database_url,
         "Redis URL": settings.redis_url,
-        "Log Level": settings.log_level
+        "Log Level": settings.log_level,
     }
     print_config_info(config_info)
 
     # Startup process
     print_section_header("Initialization", Symbols.GEAR)
-    log_startup_step("Starting TGO RAG Service initialization", version=settings.app_version, environment=settings.environment)
+    log_startup_step(
+        "Starting TGO RAG Service initialization",
+        version=settings.app_version,
+        environment=settings.environment,
+    )
 
     try:
         # Initialize database
         log_startup_step("Initializing database connection...")
         await init_database()
         log_startup_success("Database initialized successfully")
-
 
         # TODO: Initialize other services (Redis, Vector DB, etc.)
         log_startup_step("Initializing additional services...")
@@ -97,7 +108,7 @@ async def lifespan(app: FastAPI):
             port=settings.port,
             environment=settings.environment,
             docs_enabled=settings.debug,
-            dev_project_created=dev_project_created
+            dev_project_created=dev_project_created,
         )
 
         yield
@@ -128,7 +139,10 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
-        description="TGO-Tech RAG (Retrieval-Augmented Generation) Service for document processing and semantic search",
+        description=(
+            "TGO-Tech RAG (Retrieval-Augmented Generation) Service "
+            "for document processing and semantic search"
+        ),
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
@@ -148,7 +162,7 @@ def create_app() -> FastAPI:
 
     # Root endpoint
     @app.get("/", include_in_schema=False)
-    async def root():
+    async def root() -> dict[str, str]:
         """Root endpoint with basic service information."""
         settings = get_settings()
         return {
@@ -163,9 +177,7 @@ def create_app() -> FastAPI:
     return app
 
 
-
-
-def setup_middleware(app: FastAPI, settings) -> None:
+def setup_middleware(app: FastAPI, settings: Settings) -> None:
     """
     Configure application middleware.
 
@@ -184,64 +196,14 @@ def setup_middleware(app: FastAPI, settings) -> None:
 
     # Trusted host middleware (security)
     if settings.environment == "production":
-        app.add_middleware(
-            TrustedHostMiddleware,
-            allowed_hosts=["*"]
-        )
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
-    # Request context and logging middleware
-    @app.middleware("http")
-    async def log_requests(request: Request, call_next):
-        """
-        Log all HTTP requests with timing information and set request context.
+    app.add_middleware(RequestLoggingMiddleware, logger=logger)
 
-        Automatically generates a request_id and sets it in the logging context
-        so all logs within this request will include the request_id.
-        """
-        start_time = time.time()
-
-        # Generate unique request ID
-        request_id = str(uuid.uuid4())
-
-        # Set request context for automatic inclusion in all logs
-        set_request_context(request_id=request_id)
-
-        try:
-            # Log request (will automatically include request_id from context)
-            logger.info(
-                "Request started",
-                method=request.method,
-                url=str(request.url),
-                client_ip=request.client.host if request.client else None,
-                user_agent=request.headers.get("user-agent"),
-            )
-
-            # Process request
-            response = await call_next(request)
-
-            # Calculate processing time
-            process_time = time.time() - start_time
-
-            # Log response (will automatically include request_id from context)
-            logger.info(
-                "Request completed",
-                method=request.method,
-                url=str(request.url),
-                status_code=response.status_code,
-                process_time_ms=round(process_time * 1000, 2),
-            )
-
-            # Add timing and request ID headers
-            response.headers["X-Process-Time"] = str(process_time)
-            response.headers["X-Request-ID"] = request_id
-
-            return response
-        finally:
-            # Clean up request context
-            clear_request_context()
-
-    # Observe middleware-generated replies (including CORS) as well as route replies.
-    app.add_middleware(RequestMetricsMiddleware, enabled=settings.metrics_enabled)
+    # Observe middleware replies (including CORS) as well as route replies.
+    app.add_middleware(
+        RequestMetricsMiddleware, enabled=settings.metrics_enabled
+    )
     app.add_middleware(ServiceIdentityMiddleware)
 
 
@@ -263,14 +225,12 @@ def setup_routers(app: FastAPI) -> None:
     app.include_router(
         collections.router,
         prefix=f"{api_v1_prefix}/collections",
-        tags=["Collections"]
+        tags=["Collections"],
     )
 
     # Files endpoints
     app.include_router(
-        files.router,
-        prefix=f"{api_v1_prefix}/files",
-        tags=["Files"]
+        files.router, prefix=f"{api_v1_prefix}/files", tags=["Files"]
     )
 
     app.include_router(
@@ -279,7 +239,11 @@ def setup_routers(app: FastAPI) -> None:
         tags=["Knowledge Governance"],
     )
     # Embedding configuration endpoints (no auth)
-    app.include_router(knowledge_versions.router, prefix=f"{api_v1_prefix}/knowledge-versions", tags=["Knowledge Versions"])
+    app.include_router(
+        knowledge_versions.router,
+        prefix=f"{api_v1_prefix}/knowledge-versions",
+        tags=["Knowledge Versions"],
+    )
     app.include_router(
         embedding_config.router,
         prefix=f"{api_v1_prefix}/embedding-configs",
@@ -300,24 +264,25 @@ def setup_routers(app: FastAPI) -> None:
         tags=["QA Knowledge Base"],
     )
 
-
     # TODO: Add more routers (documents, search, etc.)
 
 
 def setup_exception_handlers(app: FastAPI) -> None:
     """
-    Configure global exception handlers to ensure consistent error response format.
+    Configure global handlers with a consistent error response format.
 
     Args:
         app: FastAPI application instance
     """
 
-    # Unified HTTP exception handler for both Starlette and FastAPI HTTP exceptions
-    async def _http_exception_handler(request: Request, exc):
-        """Handle HTTP exceptions with a single handler and consistent ErrorResponse format."""
-        # DEBUG: Print to console to verify handler is called
-        print(f"[DEBUG] HTTP exception handler called! Exception type: {type(exc).__name__}")
-
+    # Use one HTTP error handler for Starlette and FastAPI exceptions.
+    @app.exception_handler(StarletteHTTPException)
+    @app.exception_handler(HTTPException)
+    async def _http_exception_handler(
+        request: Request,
+        exc: StarletteHTTPException,
+    ) -> JSONResponse:
+        """Handle HTTP exceptions with the common ErrorResponse format."""
         error_code_map = {
             400: "BAD_REQUEST",
             401: "UNAUTHORIZED",
@@ -335,23 +300,15 @@ def setup_exception_handlers(app: FastAPI) -> None:
             504: "GATEWAY_TIMEOUT",
         }
 
-        status_code = getattr(exc, "status_code", 500)
-        detail = getattr(exc, "detail", "HTTP error")
+        status_code = exc.status_code
+        detail = exc.detail
         error_code = error_code_map.get(status_code, "HTTP_ERROR")
-
-        # DEBUG: Print before logging
-        print(f"[DEBUG] About to log warning: status_code={status_code}, detail={detail}")
 
         logger.warning(
             "HTTP exception occurred",
             status_code=status_code,
-            detail=detail,
-            url=str(request.url),
-            method=request.method,
+            **request_diagnostics(request),
         )
-
-        # DEBUG: Print after logging
-        print(f"[DEBUG] Warning logged successfully")
 
         return JSONResponse(
             status_code=status_code,
@@ -360,22 +317,23 @@ def setup_exception_handlers(app: FastAPI) -> None:
                     "code": error_code,
                     "message": detail,
                     "details": {"status_code": status_code},
-                }
+                },
+                request_id=None,
             ).model_dump(),
+            headers=exc.headers,
         )
 
-    # Register the same handler for both FastAPI and Starlette HTTP exceptions to avoid duplication
-    app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
-    app.add_exception_handler(HTTPException, _http_exception_handler)
-
     @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        """Handle Pydantic validation errors with consistent ErrorResponse format."""
+    async def validation_exception_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        """Handle Pydantic errors with the common ErrorResponse format."""
+        errors = public_validation_errors(exc)
         logger.warning(
             "Validation error occurred",
-            errors=exc.errors(),
-            url=str(request.url),
-            method=request.method
+            error_count=len(errors),
+            **request_diagnostics(request),
         )
 
         return JSONResponse(
@@ -384,42 +342,62 @@ def setup_exception_handlers(app: FastAPI) -> None:
                 error={
                     "code": "VALIDATION_ERROR",
                     "message": "Request validation failed",
-                    "details": {
-                        "validation_errors": exc.errors()
-                    }
-                }
-            ).model_dump()
+                    "details": {"validation_errors": errors},
+                },
+                request_id=None,
+            ).model_dump(),
         )
 
     @app.exception_handler(ValueError)
-    async def value_error_handler(request: Request, exc: ValueError):
+    async def value_error_handler(
+        request: Request,
+        exc: ValueError,
+    ) -> JSONResponse:
         """Handle ValueError exceptions."""
-        logger.error("ValueError occurred", error=str(exc), url=str(request.url))
+        logger.error(
+            "ValueError occurred",
+            error_type=type(exc).__name__,
+            **request_diagnostics(request),
+        )
         return JSONResponse(
             status_code=400,
             content=ErrorResponse(
                 error={
                     "code": "VALIDATION_ERROR",
-                    "message": str(exc),
-                    "details": {"type": "ValueError"}
-                }
-            ).model_dump()
+                    "message": "Invalid request value",
+                    "details": {"type": "ValueError"},
+                },
+                request_id=None,
+            ).model_dump(),
         )
 
     @app.exception_handler(Exception)
-    async def general_exception_handler(request: Request, exc: Exception):
+    async def general_exception_handler(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
         """Handle all other exceptions."""
-        logger.error("Unhandled exception occurred", error=str(exc), url=str(request.url), exc_info=True)
+        logger.error(
+            "Unhandled exception occurred",
+            error_type=type(exc).__name__,
+            **request_diagnostics(request),
+        )
         return JSONResponse(
             status_code=500,
             content=ErrorResponse(
                 error={
                     "code": "INTERNAL_SERVER_ERROR",
                     "message": "An internal server error occurred",
-                    "details": {"type": type(exc).__name__}
-                }
-            ).model_dump()
+                    "details": {"type": type(exc).__name__},
+                },
+                request_id=None,
+            ).model_dump(),
         )
+
+    app.add_middleware(
+        HTTPErrorPrivacyMiddleware,
+        handler=general_exception_handler,
+    )
 
 
 # Create the application instance
@@ -436,6 +414,6 @@ if __name__ == "__main__":
         port=settings.port,
         reload=settings.reload,
         log_level=settings.log_level.lower(),
-        # Disable uvicorn's log config to prevent it from overriding our logging setup
+        # Retain application logging when disabling Uvicorn's log config.
         # log_config=None,  # Uncomment this if warning logs don't appear
     )
