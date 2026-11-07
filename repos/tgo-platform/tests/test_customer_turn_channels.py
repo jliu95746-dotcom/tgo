@@ -28,7 +28,7 @@ def message(**changes):
         platform_api_key="fixture-channel",
         platform_type="slack",
         content="问题",
-        **changes
+        **changes,
     )
 
 
@@ -56,7 +56,8 @@ def test_encrypted_context_survives_reopen_and_does_not_contain_channel_secrets(
     platform = SimpleNamespace(id=original.platform_id, api_key="current-channel-key")
     restored = turn_context.unseal(row, platform)
     assert (
-        restored.content == "问题" and restored.platform_api_key == "current-channel-key"
+        restored.content == "问题"
+        and restored.platform_api_key == "current-channel-key"
     )
     assert "bot_token" not in restored.extra["slack"]
     with pytest.raises(Exception):

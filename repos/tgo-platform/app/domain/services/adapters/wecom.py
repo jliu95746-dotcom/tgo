@@ -6,7 +6,11 @@ from typing import Optional
 
 
 from app.domain.entities import StreamEvent
-from app.domain.services.adapters.base import BasePlatformAdapter, provider_receipt, DeliveryRejected
+from app.domain.services.adapters.base import (
+    BasePlatformAdapter,
+    provider_receipt,
+    DeliveryRejected,
+)
 from app.core.config import settings
 
 from app.api.wecom_utils import (
@@ -60,9 +64,13 @@ class WeComAdapter(BasePlatformAdapter):
         self.source_message_id = source_message_id
 
     async def _get_access_token(self) -> str:
-        return await wecom_get_access_token(self.corp_id, self.app_secret, timeout=self.http_timeout)
+        return await wecom_get_access_token(
+            self.corp_id, self.app_secret, timeout=self.http_timeout
+        )
 
-    async def send_incremental(self, ev: StreamEvent) -> None:  # pragma: no cover - not used
+    async def send_incremental(
+        self, ev: StreamEvent
+    ) -> None:  # pragma: no cover - not used
         # WeCom adapter does not support streaming output; ignore incremental events
         return
 
@@ -93,11 +101,15 @@ class WeComAdapter(BasePlatformAdapter):
         else:
             # Send via KF customer service API to external user
             if not (self.open_kfid and (self.external_userid or self.to_user)):
-                raise RuntimeError("WeCom KF send requires open_kfid and external_userid")
+                raise RuntimeError(
+                    "WeCom KF send requires open_kfid and external_userid"
+                )
             ext_uid = self.external_userid or self.to_user
             reply_message_id = None
             if self.source_message_id:
-                digest = hashlib.sha256(self.source_message_id.encode("utf-8")).hexdigest()
+                digest = hashlib.sha256(
+                    self.source_message_id.encode("utf-8")
+                ).hexdigest()
                 reply_message_id = f"tgo_{digest[:28]}"
             result = await wecom_kf_send_msg(
                 access_token=access_token,

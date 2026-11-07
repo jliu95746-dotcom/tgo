@@ -39,7 +39,10 @@ def error_response(
     details: Any | None = None,
     request_id: str | None = None,
 ) -> JSONResponse:
-    payload = ErrorResponse(error=ErrorDetail(code=code, message=message, details=details), request_id=request_id)
+    payload = ErrorResponse(
+        error=ErrorDetail(code=code, message=message, details=details),
+        request_id=request_id,
+    )
     return JSONResponse(status_code=status_code, content=payload.model_dump())
 
 
@@ -54,35 +57,66 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         details = exc.detail.get("details")
     if not message:
         message = code.replace("_", " ")
-    return error_response(exc.status_code, code=code, message=message, details=details, request_id=request_id)
+    return error_response(
+        exc.status_code,
+        code=code,
+        message=message,
+        details=details,
+        request_id=request_id,
+    )
 
 
-async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+async def request_validation_exception_handler(
+    request: Request, exc: RequestValidationError
+):
     request_id = get_request_id(request)
-    return error_response(status.HTTP_422_UNPROCESSABLE_ENTITY, code="VALIDATION_ERROR", message="Request validation failed", details=exc.errors(), request_id=request_id)
+    return error_response(
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        code="VALIDATION_ERROR",
+        message="Request validation failed",
+        details=exc.errors(),
+        request_id=request_id,
+    )
 
 
 async def pydantic_validation_exception_handler(request: Request, exc: ValidationError):
     request_id = get_request_id(request)
-    return error_response(status.HTTP_422_UNPROCESSABLE_ENTITY, code="VALIDATION_ERROR", message="Validation failed", details=exc.errors(), request_id=request_id)
+    return error_response(
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        code="VALIDATION_ERROR",
+        message="Validation failed",
+        details=exc.errors(),
+        request_id=request_id,
+    )
 
 
 async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
     request_id = get_request_id(request)
     logger.error("Database request failed: error_type=%s", type(exc).__name__)
-    return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="DATABASE_ERROR", message="A database error occurred", request_id=request_id)
+    return error_response(
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        code="DATABASE_ERROR",
+        message="A database error occurred",
+        request_id=request_id,
+    )
 
 
 async def generic_exception_handler(request: Request, exc: Exception):
     request_id = get_request_id(request)
     logger.error("Unexpected request failure: error_type=%s", type(exc).__name__)
-    return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="INTERNAL_SERVER_ERROR", message="An unexpected error occurred", request_id=request_id)
+    return error_response(
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        code="INTERNAL_SERVER_ERROR",
+        message="An unexpected error occurred",
+        request_id=request_id,
+    )
 
 
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
-    app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
+    app.add_exception_handler(
+        RequestValidationError, request_validation_exception_handler
+    )
     app.add_exception_handler(ValidationError, pydantic_validation_exception_handler)
     app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
     app.add_exception_handler(Exception, generic_exception_handler)
-

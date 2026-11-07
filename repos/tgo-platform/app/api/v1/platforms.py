@@ -29,7 +29,7 @@ EMAIL_CONFIG_EXAMPLE = {
     "imap_password": "replace-with-imap-app-password",
     "imap_use_ssl": True,
     "mailbox": "INBOX",
-    "poll_interval_seconds": 60
+    "poll_interval_seconds": 60,
 }
 
 WECOM_CONFIG_EXAMPLE = {
@@ -41,32 +41,47 @@ WECOM_CONFIG_EXAMPLE = {
     "encoding_aes_key": "replace-with-encoding-aes-key",
     "processing_batch_size": 10,
     "max_retry_attempts": 3,
-    "consumer_poll_interval_seconds": 5
+    "consumer_poll_interval_seconds": 5,
 }
 
 WUKONGIM_CONFIG_EXAMPLE = {
     # Consumer-only settings
     "processing_batch_size": 10,
     "max_retry_attempts": 3,
-    "consumer_poll_interval_seconds": 5
+    "consumer_poll_interval_seconds": 5,
 }
-
 
 
 class PlatformCreateRequest(BaseModel):
     """Request body for creating a platform (POST /v1/platforms)."""
 
-    id: uuid.UUID | None = Field(default=None, description="Optional platform UUID; auto-generated if omitted")
+    id: uuid.UUID | None = Field(
+        default=None, description="Optional platform UUID; auto-generated if omitted"
+    )
     project_id: uuid.UUID = Field(..., description="Project/Tenant UUID")
-    name: Optional[str] = Field(default=None, max_length=100, description="Optional platform display name")
-    type: str = Field(..., max_length=20, description="Platform type, e.g., 'email', 'wecom', 'website'")
+    name: Optional[str] = Field(
+        default=None, max_length=100, description="Optional platform display name"
+    )
+    type: str = Field(
+        ...,
+        max_length=20,
+        description="Platform type, e.g., 'email', 'wecom', 'website'",
+    )
     config: dict[str, Any] | None = Field(
         default=None,
         description="Platform configuration (JSON)",
-        json_schema_extra={"examples": [EMAIL_CONFIG_EXAMPLE, WECOM_CONFIG_EXAMPLE, WUKONGIM_CONFIG_EXAMPLE]},
+        json_schema_extra={
+            "examples": [
+                EMAIL_CONFIG_EXAMPLE,
+                WECOM_CONFIG_EXAMPLE,
+                WUKONGIM_CONFIG_EXAMPLE,
+            ]
+        },
     )
     is_active: bool = Field(default=True, description="Whether platform is active")
-    api_key: str | None = Field(default=None, max_length=255, description="Optional API key")
+    api_key: str | None = Field(
+        default=None, max_length=255, description="Optional API key"
+    )
 
 
 class PlatformResponse(BaseModel):
@@ -84,9 +99,15 @@ class PlatformResponse(BaseModel):
     api_key: str | None = None
 
 
-
-@router.post("/v1/platforms", response_model=PlatformResponse, status_code=status.HTTP_200_OK, responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-async def upsert_platform(body: PlatformCreateRequest, db: AsyncSession = Depends(get_db)) -> PlatformResponse:
+@router.post(
+    "/v1/platforms",
+    response_model=PlatformResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+async def upsert_platform(
+    body: PlatformCreateRequest, db: AsyncSession = Depends(get_db)
+) -> PlatformResponse:
     """Create or update a platform (upsert) and return the record.
 
     Behavior:
@@ -105,7 +126,9 @@ async def upsert_platform(body: PlatformCreateRequest, db: AsyncSession = Depend
         existing = None
         if body.id is not None:
             existing = await db.scalar(
-                select(Platform).where(Platform.id == body.id, Platform.deleted_at.is_(None))
+                select(Platform).where(
+                    Platform.id == body.id, Platform.deleted_at.is_(None)
+                )
             )
 
         if existing:
@@ -139,21 +162,44 @@ async def upsert_platform(body: PlatformCreateRequest, db: AsyncSession = Depend
     except SQLAlchemyError as e:
         logging.error("DB error upserting platform: %s", e)
         await db.rollback()
-        return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="DATABASE_ERROR", message="An error occurred while processing your request")
+        return error_response(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="DATABASE_ERROR",
+            message="An error occurred while processing your request",
+        )
 
 
 class PlatformUpdateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=100)
     type: str | None = Field(default=None, max_length=20)
-    config: dict[str, Any] | None = Field(default=None, description="Platform configuration (JSON)", json_schema_extra={"example": EMAIL_CONFIG_EXAMPLE})
+    config: dict[str, Any] | None = Field(
+        default=None,
+        description="Platform configuration (JSON)",
+        json_schema_extra={"example": EMAIL_CONFIG_EXAMPLE},
+    )
     is_active: bool | None = None
     api_key: str | None = Field(default=None, max_length=255)
 
 
-@router.patch("/v1/platforms/{platform_id}", response_model=PlatformResponse, status_code=status.HTTP_200_OK, responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-async def update_platform(platform_id: uuid.UUID, body: PlatformUpdateRequest, db: AsyncSession = Depends(get_db)) -> PlatformResponse:
+@router.patch(
+    "/v1/platforms/{platform_id}",
+    response_model=PlatformResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
+)
+async def update_platform(
+    platform_id: uuid.UUID,
+    body: PlatformUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PlatformResponse:
     try:
-        stmt = select(Platform).where(Platform.id == platform_id, Platform.deleted_at.is_(None))
+        stmt = select(Platform).where(
+            Platform.id == platform_id, Platform.deleted_at.is_(None)
+        )
         platform = await db.scalar(stmt)
         if not platform:
             return error_response(
@@ -181,13 +227,25 @@ async def update_platform(platform_id: uuid.UUID, body: PlatformUpdateRequest, d
         return PlatformResponse.model_validate(platform)
     except SQLAlchemyError:
         await db.rollback()
-        return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="DATABASE_ERROR", message="An error occurred while processing your request")
+        return error_response(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="DATABASE_ERROR",
+            message="An error occurred while processing your request",
+        )
 
 
-@router.delete("/v1/platforms/{platform_id}", status_code=status.HTTP_204_NO_CONTENT, responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-async def delete_platform(platform_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Response:
+@router.delete(
+    "/v1/platforms/{platform_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+async def delete_platform(
+    platform_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> Response:
     try:
-        stmt = select(Platform).where(Platform.id == platform_id, Platform.deleted_at.is_(None))
+        stmt = select(Platform).where(
+            Platform.id == platform_id, Platform.deleted_at.is_(None)
+        )
         platform = await db.scalar(stmt)
         if not platform:
             return error_response(
@@ -203,6 +261,8 @@ async def delete_platform(platform_id: uuid.UUID, db: AsyncSession = Depends(get
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except SQLAlchemyError:
         await db.rollback()
-        return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, code="DATABASE_ERROR", message="An error occurred while processing your request")
-
-
+        return error_response(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="DATABASE_ERROR",
+            message="An error occurred while processing your request",
+        )

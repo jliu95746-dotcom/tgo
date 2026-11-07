@@ -86,7 +86,9 @@ async def get_redis_client():
 
 
 # --- WeCom token and API wrappers --------------------------------------------------
-async def wecom_get_access_token(corp_id: str, app_secret: str, timeout: Optional[int] = None) -> str:
+async def wecom_get_access_token(
+    corp_id: str, app_secret: str, timeout: Optional[int] = None
+) -> str:
     """Fetch WeCom access_token.
 
     Raises RuntimeError if WeCom returns an error.
@@ -161,7 +163,13 @@ async def invalidate_wecom_access_token(corp_id: str, app_secret: str) -> None:
         logging.warning("[WECOM] Access-token cache invalidation failed")
 
 
-async def wecom_upload_temp_media(access_token: str, file_bytes: bytes, media_type: str = "image", filename: Optional[str] = None, content_type: Optional[str] = None) -> str:
+async def wecom_upload_temp_media(
+    access_token: str,
+    file_bytes: bytes,
+    media_type: str = "image",
+    filename: Optional[str] = None,
+    content_type: Optional[str] = None,
+) -> str:
     """Upload temporary media to WeCom and return media_id.
 
     Docs: https://developer.work.weixin.qq.com/document/25551
@@ -169,7 +177,9 @@ async def wecom_upload_temp_media(access_token: str, file_bytes: bytes, media_ty
     """
     url = f"https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token={access_token}&type={media_type}"
     fname = filename or ("upload.jpg" if media_type == "image" else "upload.bin")
-    ctype = content_type or ("image/jpeg" if media_type == "image" else "application/octet-stream")
+    ctype = content_type or (
+        "image/jpeg" if media_type == "image" else "application/octet-stream"
+    )
     files = {"media": (fname, file_bytes, ctype)}
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         resp = await client.post(url, files=files)
@@ -185,7 +195,9 @@ async def wecom_upload_temp_media(access_token: str, file_bytes: bytes, media_ty
         return media_id
 
 
-async def wecom_kf_sync_msg(access_token: str, open_kf_id: str, cursor: str, event_token: str, limit: int = 500) -> dict:
+async def wecom_kf_sync_msg(
+    access_token: str, open_kf_id: str, cursor: str, event_token: str, limit: int = 500
+) -> dict:
     """Call KF sync_msg API and return JSON result.
 
     Required payload params per docs: open_kfid, token; optional: cursor, limit
@@ -207,7 +219,9 @@ async def wecom_kf_sync_msg(access_token: str, open_kf_id: str, cursor: str, eve
 
 
 # --- Visitor profile APIs (KF + ExternalContact) ---------------------------------
-async def _wecom_kf_batch_get_customer_basic(access_token: str, external_userids: Sequence[str]) -> Dict[str, Dict[str, Any]]:
+async def _wecom_kf_batch_get_customer_basic(
+    access_token: str, external_userids: Sequence[str]
+) -> Dict[str, Dict[str, Any]]:
     """Call KF batchget to retrieve basic customer info (nickname, avatar).
 
     Returns a map: { external_userid: {"nickname": str|None, "avatar": str|None} }
@@ -225,7 +239,7 @@ async def _wecom_kf_batch_get_customer_basic(access_token: str, external_userids
                 f"kf customer batchget failed with errcode {_safe_provider_errcode(data)}"
             )
         result: Dict[str, Dict[str, Any]] = {}
-        for item in (data.get("customer_list", []) or []):
+        for item in data.get("customer_list", []) or []:
             eu = item.get("external_userid")
             if eu:
                 result[eu] = {
@@ -235,7 +249,9 @@ async def _wecom_kf_batch_get_customer_basic(access_token: str, external_userids
         return result
 
 
-async def _wecom_externalcontact_get(access_token: str, external_userid: str) -> Dict[str, Any] | None:
+async def _wecom_externalcontact_get(
+    access_token: str, external_userid: str
+) -> Dict[str, Any] | None:
     """Fallback: Get external contact detail via customer contact API.
 
     Returns {"name": str|None, "avatar": str|None} or None on failure.
@@ -252,7 +268,9 @@ async def _wecom_externalcontact_get(access_token: str, external_userid: str) ->
         return {"name": ec.get("name"), "avatar": ec.get("avatar")}
 
 
-async def get_wecom_visitor_profile(corp_id: str, app_secret: str, external_userid: str) -> Dict[str, str | None]:
+async def get_wecom_visitor_profile(
+    corp_id: str, app_secret: str, external_userid: str
+) -> Dict[str, str | None]:
     """Fetch WeCom visitor profile (nickname, avatar) for a given external_userid.
 
     Strategy:
@@ -269,7 +287,9 @@ async def get_wecom_visitor_profile(corp_id: str, app_secret: str, external_user
 
     # 1) Try KF batchget (works when external_userid belongs to KF contact)
     try:
-        basic_map = await _wecom_kf_batch_get_customer_basic(access_token, [external_userid])
+        basic_map = await _wecom_kf_batch_get_customer_basic(
+            access_token, [external_userid]
+        )
         info = basic_map.get(external_userid)
         if info:
             return {"nickname": info.get("nickname"), "avatar": info.get("avatar")}
@@ -285,6 +305,7 @@ async def get_wecom_visitor_profile(corp_id: str, app_secret: str, external_user
         logging.warning("[WECOM] External customer profile lookup failed")
 
     return {"nickname": None, "avatar": None}
+
 
 # --- KF send message API -----------------------------------------------------------
 async def wecom_kf_send_msg(
@@ -321,7 +342,9 @@ async def wecom_kf_send_msg(
         return data
 
 
-async def wecom_kf_send_image_msg(access_token: str, open_kfid: str, external_userid: str, media_id: str) -> dict:
+async def wecom_kf_send_image_msg(
+    access_token: str, open_kfid: str, external_userid: str, media_id: str
+) -> dict:
     """Convenience wrapper to send KF image message.
 
     Equivalent to calling wecom_kf_send_msg(..., msgtype="image", content={"media_id": media_id}).
@@ -333,6 +356,7 @@ async def wecom_kf_send_image_msg(access_token: str, open_kfid: str, external_us
         msgtype="image",
         content={"media_id": media_id},
     )
+
 
 # --- WeCom Bot (智能机器人) response API via response_url ----------------------
 async def wecom_bot_send_response(
@@ -366,7 +390,9 @@ async def wecom_bot_send_response(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            timeout=timeout or settings.request_timeout_seconds
+        ) as client:
             resp = await client.post(response_url, json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -407,7 +433,12 @@ async def wecom_bot_send_response_text(
         content: Message text content (max 20480 bytes)
     """
     # Use markdown type since text type is not supported by 主动回复消息 API
-    return await wecom_bot_send_response(response_url, msgtype="markdown", content={"content": content[:20480]}, timeout=timeout)
+    return await wecom_bot_send_response(
+        response_url,
+        msgtype="markdown",
+        content={"content": content[:20480]},
+        timeout=timeout,
+    )
 
 
 async def wecom_bot_send_response_markdown(
@@ -423,7 +454,12 @@ async def wecom_bot_send_response_markdown(
         response_url: The response URL from the incoming message
         content: Markdown content (max 20480 bytes)
     """
-    return await wecom_bot_send_response(response_url, msgtype="markdown", content={"content": content[:20480]}, timeout=timeout)
+    return await wecom_bot_send_response(
+        response_url,
+        msgtype="markdown",
+        content={"content": content[:20480]},
+        timeout=timeout,
+    )
 
 
 # --- App (colleague) send message API -----------------------------------------
@@ -443,7 +479,9 @@ async def wecom_send_app_message(
     Endpoint: POST /cgi-bin/message/send
     Raises RuntimeError when WeCom errcode != 0.
     """
-    url = f"https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token={access_token}"
+    url = (
+        f"https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token={access_token}"
+    )
     payload: Dict[str, Any] = {
         "touser": to_user,
         "agentid": int(agent_id),
@@ -455,8 +493,12 @@ async def wecom_send_app_message(
     if enable_duplicate_check:
         payload["enable_duplicate_check"] = 1
 
-    async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
-        resp = await client.post(url, content=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    async with httpx.AsyncClient(
+        timeout=timeout or settings.request_timeout_seconds
+    ) as client:
+        resp = await client.post(
+            url, content=json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        )
         resp.raise_for_status()
         data = resp.json()
         if data.get("errcode") != 0:
@@ -464,8 +506,6 @@ async def wecom_send_app_message(
                 f"WeCom app send message failed: errcode={_safe_provider_errcode(data)}"
             )
         return data
-
-
 
 
 # --- Visitor/platform resolution helpers -----------------------------------------
@@ -487,7 +527,9 @@ async def resolve_visitor_platform_open_id(visitor_id: str) -> str:
                 return cached
         except Exception:
             logging.warning("[RESOLVE] Visitor cache read failed")
-    async with httpx.AsyncClient(base_url=settings.api_base_url, timeout=settings.request_timeout_seconds) as client:
+    async with httpx.AsyncClient(
+        base_url=settings.api_base_url, timeout=settings.request_timeout_seconds
+    ) as client:
         resp = await client.get(f"/v1/visitors/{vid}/basic")
         resp.raise_for_status()
         data = resp.json()
@@ -502,7 +544,9 @@ async def resolve_visitor_platform_open_id(visitor_id: str) -> str:
     return platform_open_id
 
 
-async def resolve_wecom_open_kfid(visitor_id: str, platform_id, db: AsyncSession) -> str:
+async def resolve_wecom_open_kfid(
+    visitor_id: str, platform_id, db: AsyncSession
+) -> str:
     """Resolve WeCom open_kfid for a visitor on a platform with Redis caching.
 
     Cache key: wecom:visitor:{visitor_id}:open_kfid
@@ -526,14 +570,19 @@ async def resolve_wecom_open_kfid(visitor_id: str, platform_id, db: AsyncSession
 
     stmt = (
         select(WeComInbox.open_kfid)
-        .where(WeComInbox.platform_id == platform_id, WeComInbox.from_user == platform_open_id)
+        .where(
+            WeComInbox.platform_id == platform_id,
+            WeComInbox.from_user == platform_open_id,
+        )
         .order_by(WeComInbox.received_at.desc(), WeComInbox.fetched_at.desc())
         .limit(1)
     )
     row = await db.execute(stmt)
     r = row.first()
     if not r or not (r[0] or "").strip():
-        raise RuntimeError("No WeCom KF conversation found for visitor; cannot resolve open_kfid")
+        raise RuntimeError(
+            "No WeCom KF conversation found for visitor; cannot resolve open_kfid"
+        )
 
     open_kfid = str(r[0]).strip()
     if redis:
@@ -545,7 +594,9 @@ async def resolve_wecom_open_kfid(visitor_id: str, platform_id, db: AsyncSession
 
 
 # --- Shared helpers ---------------------------------------------------------------
-def build_xml_raw_payload(raw_xml: str, decrypted_xml: Optional[str], parsed: Dict[str, Any]) -> Dict[str, Any]:
+def build_xml_raw_payload(
+    raw_xml: str, decrypted_xml: Optional[str], parsed: Dict[str, Any]
+) -> Dict[str, Any]:
     """Construct a standardized raw_payload for XML-based webhooks."""
     payload: Dict[str, Any] = {"raw_xml": raw_xml}
     if decrypted_xml is not None:
@@ -583,6 +634,7 @@ async def try_store_wecom_inbox(
                 db.add(media_job)
         if settings.saas_internal_token is not None:
             from app.domain.services.wecom_turn_capture import capture_inbox
+
             await db.flush()
             await capture_inbox(db, record)
         await db.commit()
@@ -662,9 +714,7 @@ async def _ensure_duplicate_media_state(
                     original_filename=media_reference.original_filename,
                     declared_size=media_reference.declared_size,
                 )
-                .on_conflict_do_nothing(
-                    index_elements=["source_channel", "inbox_id"]
-                )
+                .on_conflict_do_nothing(index_elements=["source_channel", "inbox_id"])
             )
             await db.execute(media_insert)
         media_id = await db.scalar(
@@ -697,7 +747,11 @@ async def _ensure_duplicate_media_state(
         await db.rollback()
         logging.error("[WECOM] Failed to repair duplicate inbox media state")
         return False
-def _extract_kf_content(msg: Dict[str, Any]) -> Tuple[str, str, str, Optional[datetime]]:
+
+
+def _extract_kf_content(
+    msg: Dict[str, Any],
+) -> Tuple[str, str, str, Optional[datetime]]:
     """Extract minimal fields from a KF message for inbox storage.
 
     Returns a tuple: (external_userid, msgtype, content_text, received_at)
@@ -716,24 +770,24 @@ def _extract_kf_content(msg: Dict[str, Any]) -> Tuple[str, str, str, Optional[da
     # Rich content extraction for common types
     content = ""
     if msgtype == "text":
-        content = ((msg.get("text") or {}).get("content") or "")
+        content = (msg.get("text") or {}).get("content") or ""
     elif msgtype == "image":
-        media_id = ((msg.get("image") or {}).get("media_id") or "")
+        media_id = (msg.get("image") or {}).get("media_id") or ""
         content = f"[image]{' ' + media_id if media_id else ''}"
     elif msgtype == "file":
-        file_obj = (msg.get("file") or {})
+        file_obj = msg.get("file") or {}
         name = file_obj.get("file_name") or ""
         size = file_obj.get("file_size")
         size_str = f" ({size}B)" if isinstance(size, int) else ""
         content = f"[file]{' ' + name if name else ''}{size_str}"
     elif msgtype == "video":
-        media_id = ((msg.get("video") or {}).get("media_id") or "")
+        media_id = (msg.get("video") or {}).get("media_id") or ""
         content = f"[video]{' ' + media_id if media_id else ''}"
     elif msgtype == "voice":
-        media_id = ((msg.get("voice") or {}).get("media_id") or "")
+        media_id = (msg.get("voice") or {}).get("media_id") or ""
         content = f"[voice]{' ' + media_id if media_id else ''}"
     elif msgtype == "link":
-        link = (msg.get("link") or {})
+        link = msg.get("link") or {}
         title = link.get("title") or ""
         url = link.get("url") or ""
         content = f"[link]{' ' + title if title else ''}{' ' + url if url else ''}"
@@ -920,7 +974,12 @@ async def sync_kf_messages(
                 continue
             msgid = str(msg.get("msgid") or "")
             if not msgid and include_native_context and origin in {4, 5}:
-                msgid = "native_event_" + hashlib.sha256(json.dumps(msg, sort_keys=True).encode()).hexdigest()
+                msgid = (
+                    "native_event_"
+                    + hashlib.sha256(
+                        json.dumps(msg, sort_keys=True).encode()
+                    ).hexdigest()
+                )
             if not msgid:
                 raise RuntimeError("WeCom KF customer message is missing msgid")
             ext_uid, msgtype, content, received_at = _extract_kf_content(msg)
@@ -981,4 +1040,3 @@ async def sync_kf_messages(
         raise WeComSyncContinuation(
             "WeCom KF sync page budget exhausted; continue from durable cursor"
         )
-

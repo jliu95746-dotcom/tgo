@@ -3,6 +3,7 @@
 These endpoints are called by tgo-api to notify tgo-platform about platform changes,
 and by tgo-vision-agent to send inbound messages.
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 class SlackPlatformConfig(BaseModel):
     """Slack platform configuration passed from tgo-api."""
+
     platform_id: str
     project_id: str
     api_key: Optional[str] = None
@@ -43,14 +45,14 @@ class ReloadResponse(BaseModel):
 @router.post("/slack/reload", response_model=ReloadResponse)
 async def reload_slack_platform(config: SlackPlatformConfig, request: Request):
     """Hot-reload a Slack platform listener.
-    
+
     Called by tgo-api when a Slack platform is enabled or its config is updated.
     tgo-api passes the platform config directly to avoid cross-database queries.
     """
     slack_listener = getattr(request.app.state, "slack_listener", None)
     if not slack_listener:
         raise HTTPException(status_code=503, detail="Slack listener not initialized")
-    
+
     try:
         success = await slack_listener.reload_platform_with_config(
             platform_id=config.platform_id,
@@ -61,36 +63,52 @@ async def reload_slack_platform(config: SlackPlatformConfig, request: Request):
             signing_secret=config.signing_secret,
         )
         if success:
-            return ReloadResponse(success=True, message=f"Slack platform {config.platform_id} reloaded successfully")
+            return ReloadResponse(
+                success=True,
+                message=f"Slack platform {config.platform_id} reloaded successfully",
+            )
         else:
-            return ReloadResponse(success=False, message=f"Failed to reload Slack platform {config.platform_id}")
+            return ReloadResponse(
+                success=False,
+                message=f"Failed to reload Slack platform {config.platform_id}",
+            )
     except Exception as e:
         logger.error("Slack reload failed: error_type=%s", type(e).__name__)
-        raise HTTPException(status_code=500, detail="Slack listener reload failed") from None
+        raise HTTPException(
+            status_code=500, detail="Slack listener reload failed"
+        ) from None
 
 
 @router.post("/slack/stop/{platform_id}", response_model=ReloadResponse)
 async def stop_slack_platform(platform_id: str, request: Request):
     """Stop a Slack platform listener.
-    
+
     Called by tgo-api when a Slack platform is disabled.
     """
     slack_listener = getattr(request.app.state, "slack_listener", None)
     if not slack_listener:
         raise HTTPException(status_code=503, detail="Slack listener not initialized")
-    
+
     try:
         success = await slack_listener.stop_platform(platform_id)
         if success:
-            return ReloadResponse(success=True, message=f"Slack platform {platform_id} stopped successfully")
+            return ReloadResponse(
+                success=True,
+                message=f"Slack platform {platform_id} stopped successfully",
+            )
         else:
-            return ReloadResponse(success=False, message=f"Platform {platform_id} was not running")
+            return ReloadResponse(
+                success=False, message=f"Platform {platform_id} was not running"
+            )
     except Exception as e:
         logger.error("Slack stop failed: error_type=%s", type(e).__name__)
-        raise HTTPException(status_code=500, detail="Slack listener stop failed") from None
+        raise HTTPException(
+            status_code=500, detail="Slack listener stop failed"
+        ) from None
 
 
 # --- Vision Agent Inbound Messages ---
+
 
 class VisionAgentInboundMessage(BaseModel):
     """Inbound message from tgo-vision-agent."""
@@ -136,7 +154,9 @@ async def vision_agent_inbound(
             )
         )
         if not platform:
-            raise HTTPException(status_code=404, detail="Platform not found or inactive")
+            raise HTTPException(
+                status_code=404, detail="Platform not found or inactive"
+            )
 
         if platform.type == "wechat_personal" or msg.platform_type == "wechat_personal":
             raise HTTPException(status_code=410, detail="This channel has been retired")
@@ -144,7 +164,9 @@ async def vision_agent_inbound(
             raise HTTPException(status_code=400, detail="Platform type mismatch")
 
         if not platform.api_key:
-            raise HTTPException(status_code=400, detail="Platform has no API key configured")
+            raise HTTPException(
+                status_code=400, detail="Platform has no API key configured"
+            )
 
         # Build normalized message
         extra = msg.extra or {}
@@ -178,5 +200,9 @@ async def vision_agent_inbound(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Vision agent inbound message failed: error_type=%s", type(e).__name__)
-        raise HTTPException(status_code=500, detail="Inbound message processing failed") from None
+        logger.error(
+            "Vision agent inbound message failed: error_type=%s", type(e).__name__
+        )
+        raise HTTPException(
+            status_code=500, detail="Inbound message processing failed"
+        ) from None

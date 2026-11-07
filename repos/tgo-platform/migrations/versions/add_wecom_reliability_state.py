@@ -56,7 +56,9 @@ def upgrade() -> None:
         ),
         sa.Column("event_token", sa.String(length=128), nullable=False),
         sa.Column("open_kfid", sa.String(length=128), nullable=False),
-        sa.Column("status", sa.String(length=20), server_default="pending", nullable=False),
+        sa.Column(
+            "status", sa.String(length=20), server_default="pending", nullable=False
+        ),
         sa.Column("retry_count", sa.Integer(), server_default="0", nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(

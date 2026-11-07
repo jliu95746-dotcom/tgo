@@ -71,9 +71,12 @@ async def test_inbox_storage_failures_do_not_log_customer_payload(caplog) -> Non
         caplog.clear()
         result = await wecom_utils.try_store_wecom_inbox(
             FailingSession(error),
-            platform_id=uuid4(), message_id="message-id",
-            source_type="wecom_kf", from_user="external-user",
-            msg_type="text", content=private_text,
+            platform_id=uuid4(),
+            message_id="message-id",
+            source_type="wecom_kf",
+            from_user="external-user",
+            msg_type="text",
+            content=private_text,
             raw_payload={"text": private_text},
         )
         assert result == wecom_utils.InboxStoreResult.ERROR
@@ -99,7 +102,9 @@ async def test_duplicate_media_repair_failure_does_not_log_provider_data(
         supported=True,
     )
     result = await wecom_utils._ensure_duplicate_media_state(
-        ReadFailure(), platform_id=uuid4(), message_id="message-id",
+        ReadFailure(),
+        platform_id=uuid4(),
+        message_id="message-id",
         media_reference=reference,
     )
     assert result is False
@@ -114,21 +119,26 @@ async def test_changed_duplicate_media_does_not_log_message_identifier(
 
     class ExistingMediaSession:
         def __init__(self) -> None:
-            self.values = iter((
-                uuid4(),
-                SimpleNamespace(
-                    source_media_id="canonical-media-id",
-                    media_type="image",
-                ),
-            ))
+            self.values = iter(
+                (
+                    uuid4(),
+                    SimpleNamespace(
+                        source_media_id="canonical-media-id",
+                        media_type="image",
+                    ),
+                )
+            )
 
         async def scalar(self, _statement):
             return next(self.values)
 
     result = await wecom_utils._ensure_duplicate_media_state(
-        ExistingMediaSession(), platform_id=uuid4(), message_id=private_id,
+        ExistingMediaSession(),
+        platform_id=uuid4(),
+        message_id=private_id,
         media_reference=wecom_utils.WeComMediaReference(
-            source_media_id="changed-media-id", media_type="image",
+            source_media_id="changed-media-id",
+            media_type="image",
             supported=True,
         ),
     )
@@ -138,7 +148,8 @@ async def test_changed_duplicate_media_does_not_log_message_identifier(
 
 @pytest.mark.asyncio
 async def test_token_cache_errors_do_not_log_credentials(
-    monkeypatch: pytest.MonkeyPatch, caplog,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog,
 ) -> None:
     secret = "private-app-secret-marker"
 
@@ -181,7 +192,8 @@ async def test_token_cache_errors_do_not_log_credentials(
 
 @pytest.mark.asyncio
 async def test_visitor_cache_error_does_not_log_visitor_id(
-    monkeypatch: pytest.MonkeyPatch, caplog,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog,
 ) -> None:
     visitor_id = "private-visitor-id-marker"
 

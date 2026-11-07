@@ -8,7 +8,10 @@ from uuid import uuid4
 import pytest
 
 from app.domain.services.listeners.media_cleanup_listener import MediaCleanupListener
-from app.domain.services.listeners.wecom_media_listener import WeComMediaListener, _ClaimedMediaJob
+from app.domain.services.listeners.wecom_media_listener import (
+    WeComMediaListener,
+    _ClaimedMediaJob,
+)
 from app.domain.services.media.types import (
     DownloadedMedia,
     MediaDownloadError,
@@ -350,7 +353,9 @@ async def test_media_processing_respects_explicit_concurrency_limit(
     monkeypatch.setattr(listener, "_record_staging_object", fake_record_staging)
     monkeypatch.setattr(listener, "_finalize_success", fake_finalize)
 
-    await asyncio.gather(*(listener._process_claimed_job(claimed_job()) for _ in range(3)))
+    await asyncio.gather(
+        *(listener._process_claimed_job(claimed_job()) for _ in range(3))
+    )
 
     assert downloader.peak == 1
     assert metrics.snapshot().peak_in_flight == 1
@@ -437,9 +442,7 @@ async def test_temporary_cleanup_failure_keeps_database_cleanup_running(
     assert (
         metrics.snapshot().count(event="cleanup_failed", cleanup_kind="temporary") == 1
     )
-    assert (
-        metrics.snapshot().count(event="cleanup_failed", cleanup_kind="cycle") == 1
-    )
+    assert metrics.snapshot().count(event="cleanup_failed", cleanup_kind="cycle") == 1
     assert "private/customer/object-key" not in caplog.text
 
 

@@ -2,10 +2,15 @@
 
 Sends messages to DingTalk using the sessionWebhook.
 """
+
 from __future__ import annotations
 
 from app.domain.entities import StreamEvent
-from app.domain.services.adapters.base import BasePlatformAdapter, provider_receipt, DeliveryRejected
+from app.domain.services.adapters.base import (
+    BasePlatformAdapter,
+    provider_receipt,
+    DeliveryRejected,
+)
 from app.core.config import settings
 
 from app.api.dingtalk_utils import dingtalk_send_text

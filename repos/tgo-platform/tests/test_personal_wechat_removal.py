@@ -23,7 +23,11 @@ async def test_retired_channel_never_calls_ai():
     db = AsyncMock()
     db.scalar.return_value = SimpleNamespace(type="wechat_personal")
     ai = AsyncMock()
-    msg = SimpleNamespace(platform_id=uuid4(), platform_type="wechat_personal", platform_api_key="test-only")
+    msg = SimpleNamespace(
+        platform_id=uuid4(),
+        platform_type="wechat_personal",
+        platform_api_key="test-only",
+    )
     with pytest.raises(ValueError, match="retired"):
         await process_message(msg, db, ai, AsyncMock())
     assert not ai.mock_calls
@@ -33,7 +37,12 @@ async def test_retired_channel_never_calls_ai():
 async def test_retired_inbound_is_rejected_before_processing():
     db = AsyncMock()
     db.scalar.return_value = SimpleNamespace(type="wechat_personal")
-    msg = VisionAgentInboundMessage(platform_id=str(uuid4()), platform_type="wechat_personal", from_uid="test", content="test")
+    msg = VisionAgentInboundMessage(
+        platform_id=str(uuid4()),
+        platform_type="wechat_personal",
+        from_uid="test",
+        content="test",
+    )
     with pytest.raises(HTTPException) as error:
         await vision_agent_inbound(msg, None, db)
     assert error.value.status_code == 410
@@ -44,6 +53,12 @@ async def test_retired_staff_send_does_not_forward():
     db = AsyncMock()
     db.scalar.return_value = SimpleNamespace(type="wechat_personal")
     request = SimpleNamespace(state=SimpleNamespace(request_id="removal-test"))
-    body = SendMessageRequest(platform_api_key="test-only", from_uid="staff-test", channel_id="test-vtr", channel_type=251, payload={"type": 1, "content": "test"})
+    body = SendMessageRequest(
+        platform_api_key="test-only",
+        from_uid="staff-test",
+        channel_id="test-vtr",
+        channel_type=251,
+        payload={"type": 1, "content": "test"},
+    )
     response = await send_message(body, request, db)
     assert response.status_code == 410

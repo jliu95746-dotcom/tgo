@@ -14,7 +14,9 @@ def _json_or_text(s: str):
 
 
 class DefaultSSEManager(SSEManager):
-    async def stream_events(self, frames: AsyncIterator[bytes]) -> AsyncIterator[StreamEvent]:
+    async def stream_events(
+        self, frames: AsyncIterator[bytes]
+    ) -> AsyncIterator[StreamEvent]:
         buffer_event: str | None = None
         async for b in frames:
             line = b.decode("utf-8")
@@ -39,7 +41,10 @@ class DefaultSSEManager(SSEManager):
                     text = data.get("content")
                     if text:
                         chunks.append(text)
-                if et in {"workflow_completed", "team_run_completed", "workflow_failed"}:
+                if et in {
+                    "workflow_completed",
+                    "team_run_completed",
+                    "workflow_failed",
+                }:
                     break
         return {"text": "".join(chunks)}
-

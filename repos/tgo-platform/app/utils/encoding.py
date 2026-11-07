@@ -5,11 +5,14 @@ Provides a Base62 encoder for channel_id generation.
 We avoid external dependencies; Base62 is implemented by treating input bytes as a big integer and converting to a Base62 alphabet.
 This maintains a deterministic, reversible mapping for the same input string.
 """
+
 from __future__ import annotations
 
 from typing import Final
 
-_BASE62_ALPHABET: Final[str] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+_BASE62_ALPHABET: Final[str] = (
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+)
 _BASE62_BASE: Final[int] = 62
 
 
@@ -47,8 +50,6 @@ def encode_channel_id(raw_string: str) -> str:
     # Interpret bytes as big integer (unsigned)
     int_value = int.from_bytes(data, byteorder="big", signed=False) if data else 0
     return _int_to_base62(int_value)
-
-
 
 
 def _base62_to_int(s: str) -> int:

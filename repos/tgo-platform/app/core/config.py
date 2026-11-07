@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     # Inbound media ingestion (disabled until an encryption key is configured)
     media_ingestion_enabled: bool = False
     media_cleanup_enabled: bool = True
-    media_storage_path: str = Field(default="./data/media", min_length=1, max_length=1024)
+    media_storage_path: str = Field(
+        default="./data/media", min_length=1, max_length=1024
+    )
     media_encryption_key: SecretStr | None = None
     media_encryption_key_id: str = Field(
         default="local-media-v1",
@@ -70,4 +72,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

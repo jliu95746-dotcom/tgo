@@ -7,7 +7,17 @@ from app.core.config import settings
 from app.db.models import Platform
 from app.domain.entities import NormalizedMessage, ChatCompletionRequest
 from app.domain.ports import TgoApiClient, SSEManager, PlatformAdapter
-from app.domain.services.adapters import SimpleStdoutAdapter, EmailAdapter, WeComAdapter, WeComBotAdapter, FeishuBotAdapter, DingTalkBotAdapter, TelegramAdapter, SlackAdapter, VisionAgentAdapter
+from app.domain.services.adapters import (
+    SimpleStdoutAdapter,
+    EmailAdapter,
+    WeComAdapter,
+    WeComBotAdapter,
+    FeishuBotAdapter,
+    DingTalkBotAdapter,
+    TelegramAdapter,
+    SlackAdapter,
+    VisionAgentAdapter,
+)
 from app.domain.services.wecom_credentials import resolve_wecom_kf_secret
 from app.domain.services.adapters.base import DeliveryRejected
 from app.domain.services.conversation_scope import upstream_scope
@@ -80,8 +90,9 @@ def _default_system_message_for(ptype: str) -> str | None:
     return None
 
 
-
-async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) -> PlatformAdapter:
+async def select_adapter_for_target(
+    msg: NormalizedMessage, platform: Platform
+) -> PlatformAdapter:
     """Choose platform adapter based on platform.type and per-platform config.
 
     For type="email", construct EmailAdapter using SMTP settings from Platform.config.
@@ -102,7 +113,9 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
         # Determine addressing and subject from message extras
         to_addr = (msg.extra or {}).get("email_to") or msg.from_uid
         subject = (msg.extra or {}).get("subject") or ""
-        if not (smtp_host and smtp_username and smtp_password and from_addr and to_addr):
+        if not (
+            smtp_host and smtp_username and smtp_password and from_addr and to_addr
+        ):
             # Fallback to stdout if config incomplete
             return SimpleStdoutAdapter()
         return EmailAdapter(
@@ -120,16 +133,19 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
         corp_id = cfg.get("corp_id")
         agent_id = cfg.get("agent_id")
         to_user = msg.from_uid
-        wc = ((msg.extra or {}).get("wecom") or {})
+        wc = (msg.extra or {}).get("wecom") or {}
         is_from_colleague = bool(wc.get("is_from_colleague", True))
         app_secret = (
-            cfg.get("app_secret") if is_from_colleague
+            cfg.get("app_secret")
+            if is_from_colleague
             else resolve_wecom_kf_secret(cfg.get("kf_secret"), cfg.get("app_secret"))
         )
         open_kfid = wc.get("open_kfid")
         external_userid = wc.get("external_userid") or msg.from_uid
         if not (corp_id and app_secret and to_user):
-            raise RuntimeError("WeCom adapter requires corp_id, channel secret, and recipient")
+            raise RuntimeError(
+                "WeCom adapter requires corp_id, channel secret, and recipient"
+            )
         if is_from_colleague and not agent_id:
             raise RuntimeError("WeCom colleague reply requires agent_id")
         if not is_from_colleague and not (open_kfid and external_userid):
@@ -146,7 +162,7 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
         )
     if ptype == "wecom_bot":
         # Get wecom context which contains response_url from the incoming message
-        wc = ((msg.extra or {}).get("wecom") or {})
+        wc = (msg.extra or {}).get("wecom") or {}
         # response_url is required for replying to the message
         response_url = wc.get("response_url") or ""
         if not response_url:
@@ -155,7 +171,7 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
     if ptype == "feishu_bot":
         cfg = platform.config or {}
         # Get feishu context which contains message_id for reply
-        fc = ((msg.extra or {}).get("feishu") or {})
+        fc = (msg.extra or {}).get("feishu") or {}
         app_id = fc.get("app_id") or cfg.get("app_id") or ""
         app_secret = fc.get("app_secret") or cfg.get("app_secret") or ""
         message_id = fc.get("message_id") or ""
@@ -168,7 +184,7 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
         )
     if ptype == "dingtalk_bot":
         # Get dingtalk context which contains session_webhook for reply
-        dc = ((msg.extra or {}).get("dingtalk") or {})
+        dc = (msg.extra or {}).get("dingtalk") or {}
         session_webhook = dc.get("session_webhook") or ""
         if not session_webhook:
             return SimpleStdoutAdapter()
@@ -176,7 +192,7 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
     if ptype == "telegram":
         cfg = platform.config or {}
         # Get telegram context which contains chat_id for reply
-        tc = ((msg.extra or {}).get("telegram") or {})
+        tc = (msg.extra or {}).get("telegram") or {}
         bot_token = tc.get("bot_token") or cfg.get("bot_token") or ""
         chat_id = tc.get("chat_id") or msg.from_uid or ""
         if not (bot_token and chat_id):
@@ -185,7 +201,7 @@ async def select_adapter_for_target(msg: NormalizedMessage, platform: Platform) 
     if ptype == "slack":
         cfg = platform.config or {}
         # Get slack context which contains channel for reply
-        sc = ((msg.extra or {}).get("slack") or {})
+        sc = (msg.extra or {}).get("slack") or {}
         bot_token = sc.get("bot_token") or cfg.get("bot_token") or ""
         channel = sc.get("channel") or ""
         thread_ts = sc.get("thread_ts")  # Optional: reply in thread
@@ -303,6 +319,7 @@ async def process_message(
     )
     if getattr(tgo_api_client, "durable_turns", False) is True:
         from app.domain.services.turn_context import capture
+
         await capture(db, msg)
         return None
     frames = tgo_api_client.chat_completion(request)
@@ -321,7 +338,15 @@ async def process_message(
         "team_member_failed",
         "stream.error",
     }
-    no_reply_events = {"ai_disabled", "assist_mode", "queued", "human_handoff", "superseded", "received", "accepted"}
+    no_reply_events = {
+        "ai_disabled",
+        "assist_mode",
+        "queued",
+        "human_handoff",
+        "superseded",
+        "received",
+        "accepted",
+    }
     chunks: list[str] = []
     final_content: str | None = None
     completed = False
@@ -380,8 +405,10 @@ async def process_message(
                 raise UnsentReplyFailure("AI workflow completed with success=false")
             completed = True
             if _extract_named_value(payload.get("data"), "delivery_required") is True:
-                delivery = {name: _extract_named_value(payload.get("data"), name)
-                            for name in ("turn_id", "version", "channel_id")}
+                delivery = {
+                    name: _extract_named_value(payload.get("data"), name)
+                    for name in ("turn_id", "version", "channel_id")
+                }
             break
 
     if not completed:
@@ -393,8 +420,12 @@ async def process_message(
     final: dict[str, object] = {"text": reply_text}
     if delivery:
         turn_id = str(delivery["turn_id"])
-        body = {"platform_api_key": msg.platform_api_key, "channel_id": delivery["channel_id"],
-                "channel_type": 251, "version": delivery["version"]}
+        body = {
+            "platform_api_key": msg.platform_api_key,
+            "channel_id": delivery["channel_id"],
+            "channel_type": 251,
+            "version": delivery["version"],
+        }
         try:
             claimed = await tgo_api_client.turn_action(turn_id, "claim", body)
         except httpx.HTTPStatusError as error:
@@ -405,19 +436,33 @@ async def process_message(
         try:
             await adapter.send_final(final)
         except DeliveryRejected:
-            await tgo_api_client.turn_action(turn_id, "receipt", {
-                **body, "claim_id": claimed["claim_id"], "result": "rejected"})
+            await tgo_api_client.turn_action(
+                turn_id,
+                "receipt",
+                {**body, "claim_id": claimed["claim_id"], "result": "rejected"},
+            )
             return None
         except Exception as error:
-            logging.warning("Channel send requires reconciliation: %s", type(error).__name__)
-            await tgo_api_client.turn_action(turn_id, "receipt", {
-                **body, "claim_id": claimed["claim_id"], "result": "unknown"})
+            logging.warning(
+                "Channel send requires reconciliation: %s", type(error).__name__
+            )
+            await tgo_api_client.turn_action(
+                turn_id,
+                "receipt",
+                {**body, "claim_id": claimed["claim_id"], "result": "unknown"},
+            )
             return None
         proof = getattr(adapter, "delivery_receipt", None)
-        await tgo_api_client.turn_action(turn_id, "receipt", {
-            **body, "claim_id": claimed["claim_id"],
-            "result": "sent" if proof else "unknown", "receipt": proof})
+        await tgo_api_client.turn_action(
+            turn_id,
+            "receipt",
+            {
+                **body,
+                "claim_id": claimed["claim_id"],
+                "result": "sent" if proof else "unknown",
+                "receipt": proof,
+            },
+        )
     else:
         await adapter.send_final(final)
     return reply_text
-

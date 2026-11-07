@@ -261,7 +261,9 @@ class NativeBridge:
             from app.domain.services.wecom_app_notifications import AppNotifier
 
             try:
-                await AppNotifier(self.platform.id, self.config, await self._redis()).native_state(
+                await AppNotifier(
+                    self.platform.id, self.config, await self._redis()
+                ).native_state(
                     result.visitor_id, state.service_state, state.servicer_userid
                 )
             except (httpx.HTTPError, RuntimeError, ValueError, RedisError):
@@ -437,8 +439,10 @@ class NativeBridge:
                 for reminder in reminders:
                     if isinstance(reminder, dict):
                         await notifier.deliver(
-                            "assist", UUID(_text(reminder.get("visitor_id"))),
-                            _text(reminder.get("event_id")), self.config.app_notification_users,
+                            "assist",
+                            UUID(_text(reminder.get("visitor_id"))),
+                            _text(reminder.get("event_id")),
+                            self.config.app_notification_users,
                         )
 
 

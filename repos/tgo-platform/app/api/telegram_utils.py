@@ -7,6 +7,7 @@ This module provides helper functions for interacting with the Telegram Bot API:
 
 Docs: https://core.telegram.org/bots/api
 """
+
 from __future__ import annotations
 
 import hmac
@@ -72,12 +73,12 @@ async def telegram_send_text(
         httpx.HTTPStatusError: If the request fails
     """
     url = f"{TELEGRAM_API_BASE}/bot{bot_token}/sendMessage"
-    
+
     payload: dict[str, Any] = {
         "chat_id": chat_id,
         "text": text[:4096],  # Telegram text limit
     }
-    
+
     if parse_mode:
         payload["parse_mode"] = parse_mode
 
@@ -86,10 +87,10 @@ async def telegram_send_text(
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         response = await _telegram_response(client.post(url, json=payload), "POST")
         result = response.json()
-        
+
         if not result.get("ok"):
             logger.error("[TELEGRAM] sendMessage failed")
-        
+
         return result
 
 
@@ -115,7 +116,7 @@ async def telegram_send_photo(
         Telegram API response as dict
     """
     url = f"{TELEGRAM_API_BASE}/bot{bot_token}/sendPhoto"
-    
+
     data: dict[str, Any] = {
         "chat_id": chat_id,
     }
@@ -139,10 +140,10 @@ async def telegram_send_photo(
             response = await _telegram_response(client.post(url, data=data), "POST")
 
         result = response.json()
-        
+
         if not result.get("ok"):
             logger.error("[TELEGRAM] sendPhoto failed")
-        
+
         return result
 
 
@@ -247,7 +248,7 @@ async def telegram_set_webhook(
     payload: dict[str, Any] = {
         "url": webhook_url,
     }
-    
+
     if secret_token:
         payload["secret_token"] = secret_token
 
@@ -256,12 +257,12 @@ async def telegram_set_webhook(
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         response = await _telegram_response(client.post(url, json=payload), "POST")
         result = response.json()
-        
+
         if result.get("ok"):
             logger.info("[TELEGRAM] Webhook set successfully")
         else:
             logger.error("[TELEGRAM] Failed to set webhook")
-        
+
         return result
 
 
@@ -310,7 +311,7 @@ def telegram_verify_secret_token(
     if not expected_secret_token:
         # No secret configured, skip verification
         return True
-    
+
     return hmac.compare_digest(request_secret_token or "", expected_secret_token)
 
 
@@ -329,25 +330,25 @@ def extract_message_from_update(update: dict[str, Any]) -> dict[str, Any] | None
     # Check for regular message
     if "message" in update:
         return update["message"]
-    
+
     # Check for edited message
     if "edited_message" in update:
         return update["edited_message"]
-    
+
     # Check for channel post
     if "channel_post" in update:
         return update["channel_post"]
-    
+
     # Check for edited channel post
     if "edited_channel_post" in update:
         return update["edited_channel_post"]
-    
+
     # Check for callback query (button click)
     if "callback_query" in update:
         callback = update["callback_query"]
         if "message" in callback:
             return callback["message"]
-    
+
     return None
 
 
@@ -363,53 +364,53 @@ def extract_text_from_message(message: dict[str, Any]) -> str:
     # Regular text message
     if "text" in message:
         return message["text"]
-    
+
     # Caption for media messages
     if "caption" in message:
         return message["caption"]
-    
+
     # Photo
     if "photo" in message:
         return "[photo]"
-    
+
     # Document
     if "document" in message:
         doc = message["document"]
         return f"[document] {doc.get('file_name', '')}"
-    
+
     # Voice message
     if "voice" in message:
         return "[voice message]"
-    
+
     # Video
     if "video" in message:
         return "[video]"
-    
+
     # Audio
     if "audio" in message:
         audio = message["audio"]
         return f"[audio] {audio.get('title', audio.get('file_name', ''))}"
-    
+
     # Sticker
     if "sticker" in message:
         sticker = message["sticker"]
         return f"[sticker] {sticker.get('emoji', '')}"
-    
+
     # Location
     if "location" in message:
         loc = message["location"]
         return f"[location] {loc.get('latitude')}, {loc.get('longitude')}"
-    
+
     # Contact
     if "contact" in message:
         contact = message["contact"]
         return f"[contact] {contact.get('first_name', '')} {contact.get('phone_number', '')}"
-    
+
     # Poll
     if "poll" in message:
         poll = message["poll"]
         return f"[poll] {poll.get('question', '')}"
-    
+
     return "[unsupported message type]"
 
 
@@ -438,10 +439,10 @@ def get_sender_info(message: dict[str, Any]) -> tuple[str, str | None, str | Non
     from_user = message.get("from", {})
     user_id = str(from_user.get("id", ""))
     username = from_user.get("username")
-    
+
     # Build display name
     first_name = from_user.get("first_name", "")
     last_name = from_user.get("last_name", "")
     display_name = f"{first_name} {last_name}".strip() or username or user_id
-    
+
     return user_id, username, display_name

@@ -28,9 +28,7 @@ def png_chunk(name: bytes, payload: bytes) -> bytes:
 
 def minimal_png(*, width: int, height: int) -> bytes:
     ihdr = (
-        width.to_bytes(4, "big")
-        + height.to_bytes(4, "big")
-        + b"\x08\x02\x00\x00\x00"
+        width.to_bytes(4, "big") + height.to_bytes(4, "big") + b"\x08\x02\x00\x00\x00"
     )
     return (
         b"\x89PNG\r\n\x1a\n"
@@ -50,9 +48,7 @@ def make_downloader(response: httpx.Response) -> WeComMediaDownloader:
 
 @pytest.mark.asyncio
 async def test_downloads_and_identifies_jpeg() -> None:
-    downloader = make_downloader(
-        httpx.Response(200, content=minimal_jpeg())
-    )
+    downloader = make_downloader(httpx.Response(200, content=minimal_jpeg()))
 
     media = await downloader.download(
         access_token="secret-token",
@@ -70,12 +66,16 @@ async def test_downloads_and_identifies_jpeg() -> None:
 async def test_wecom_jpeg_with_short_trailer_is_trimmed() -> None:
     original = minimal_jpeg()
     downloader = make_downloader(
-        httpx.Response(200, headers={"content-type": "image/jpeg"}, content=original + b"x" * 24)
+        httpx.Response(
+            200, headers={"content-type": "image/jpeg"}, content=original + b"x" * 24
+        )
     )
 
     media = await downloader.download(
-        access_token="secret-token", source_media_id="media-id",
-        media_type="image", max_bytes=1024,
+        access_token="secret-token",
+        source_media_id="media-id",
+        media_type="image",
+        max_bytes=1024,
     )
 
     assert media.content == original
@@ -86,13 +86,19 @@ async def test_wecom_jpeg_with_short_trailer_is_trimmed() -> None:
 @pytest.mark.asyncio
 async def test_jpeg_with_long_trailer_is_rejected() -> None:
     downloader = make_downloader(
-        httpx.Response(200, headers={"content-type": "image/jpeg"}, content=minimal_jpeg() + b"x" * 129)
+        httpx.Response(
+            200,
+            headers={"content-type": "image/jpeg"},
+            content=minimal_jpeg() + b"x" * 129,
+        )
     )
 
     with pytest.raises(MediaDownloadError) as error:
         await downloader.download(
-            access_token="secret-token", source_media_id="media-id",
-            media_type="image", max_bytes=1024,
+            access_token="secret-token",
+            source_media_id="media-id",
+            media_type="image",
+            max_bytes=1024,
         )
 
     assert error.value.code == "unsupported_media_format"
@@ -172,9 +178,7 @@ async def test_rate_limit_is_retryable() -> None:
 
 @pytest.mark.asyncio
 async def test_unrequested_partial_response_is_rejected() -> None:
-    downloader = make_downloader(
-        httpx.Response(206, content=b"\xff\xd8\xffpartial")
-    )
+    downloader = make_downloader(httpx.Response(206, content=b"\xff\xd8\xffpartial"))
 
     with pytest.raises(MediaDownloadError) as error:
         await downloader.download(

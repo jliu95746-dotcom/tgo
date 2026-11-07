@@ -130,8 +130,12 @@ class EmailChannelListener:
     async def start(self) -> None:
         """Start producer (IMAP fetch) supervisor and consumer processing loop."""
         # Launch both loops as background tasks; this method runs until stop is requested
-        self._supervisor_task = asyncio.create_task(self._supervisor_loop(), name="email-supervisor-loop")
-        self._consumer_task = asyncio.create_task(self._consumer_loop(), name="email-consumer-loop")
+        self._supervisor_task = asyncio.create_task(
+            self._supervisor_loop(), name="email-supervisor-loop"
+        )
+        self._consumer_task = asyncio.create_task(
+            self._consumer_loop(), name="email-consumer-loop"
+        )
         try:
             await asyncio.gather(self._supervisor_task, self._consumer_task)
         except asyncio.CancelledError:
@@ -147,7 +151,9 @@ class EmailChannelListener:
                 print(f"[EMAIL] Supervisor error: {type(e).__name__}")
             # Wait for refresh or stop earlier
             try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self._refresh_interval)
+                await asyncio.wait_for(
+                    self._stop_event.wait(), timeout=self._refresh_interval
+                )
             except asyncio.TimeoutError:
                 pass
 
@@ -159,18 +165,23 @@ class EmailChannelListener:
 
     async def _load_active_email_platforms(self) -> list[_PlatformEntry]:
         async with self._session_factory() as session:
-            stmt = (
-                select(Platform.id, Platform.project_id, Platform.api_key, Platform.config)
-                .where(Platform.is_active.is_(True), Platform.type == "email")
-            )
+            stmt = select(
+                Platform.id, Platform.project_id, Platform.api_key, Platform.config
+            ).where(Platform.is_active.is_(True), Platform.type == "email")
             rows = (await session.execute(stmt)).all()
         platforms: list[_PlatformEntry] = []
         for pid, project_id, api_key, cfg_dict in rows:
             try:
                 cfg = EmailPlatformConfig(**(cfg_dict or {}))
-                platforms.append(_PlatformEntry(id=pid, project_id=project_id, api_key=api_key, cfg=cfg))
+                platforms.append(
+                    _PlatformEntry(
+                        id=pid, project_id=project_id, api_key=api_key, cfg=cfg
+                    )
+                )
             except Exception as e:
-                print(f"[EMAIL] Skip platform {pid}: invalid config: {type(e).__name__}")
+                print(
+                    f"[EMAIL] Skip platform {pid}: invalid config: {type(e).__name__}"
+                )
         return platforms
 
     async def _reconcile_platform_tasks(self, platforms: list[_PlatformEntry]) -> None:
@@ -180,7 +191,9 @@ class EmailChannelListener:
         # Start new tasks
         to_start = [p for p in platforms if p.id not in current_ids]
         for p in to_start:
-            task = asyncio.create_task(self._poll_platform(p), name=f"email-poller-{p.id}")
+            task = asyncio.create_task(
+                self._poll_platform(p), name=f"email-poller-{p.id}"
+            )
             self._tasks[p.id] = task
             print(f"[EMAIL] Started poller for platform {p.id}")
 
@@ -211,8 +224,8 @@ class EmailChannelListener:
             if conn is not None:
                 try:
                     typ, _ = await asyncio.to_thread(conn.noop)
-                    if typ != 'OK':
-                        raise Exception('NOOP failed')
+                    if typ != "OK":
+                        raise Exception("NOOP failed")
                 except Exception:
                     await self._close_imap_conn(p.id)
                     conn = None
@@ -225,7 +238,11 @@ class EmailChannelListener:
             return None
 
     async def _connect_imap(self, cfg: EmailPlatformConfig):
-        conn = imaplib.IMAP4_SSL(cfg.imap_host, cfg.imap_port) if cfg.imap_use_ssl else imaplib.IMAP4(cfg.imap_host, cfg.imap_port)
+        conn = (
+            imaplib.IMAP4_SSL(cfg.imap_host, cfg.imap_port)
+            if cfg.imap_use_ssl
+            else imaplib.IMAP4(cfg.imap_host, cfg.imap_port)
+        )
         # Login
         print("[EMAIL] Connecting to IMAP server")
         await asyncio.to_thread(conn.login, cfg.imap_username, cfg.imap_password)
@@ -235,24 +252,35 @@ class EmailChannelListener:
         # RFC 2971 - IMAP4 ID extension
         try:
             # Register ID command as an AUTH-phase command
-            imaplib.Commands["ID"] = ('AUTH',)
+            imaplib.Commands["ID"] = ("AUTH",)
             # Build ID arguments tuple and format as required by IMAP protocol
-            args = ("name", cfg.imap_username, "contact", cfg.imap_username, "version", "1.0.0", "vendor", "tgo-platform")
+            args = (
+                "name",
+                cfg.imap_username,
+                "contact",
+                cfg.imap_username,
+                "version",
+                "1.0.0",
+                "vendor",
+                "tgo-platform",
+            )
             # Convert to IMAP format: remove commas and use double quotes
             id_args = str(args).replace(",", "").replace("'", '"')
-            await asyncio.to_thread(conn._simple_command, 'ID', id_args)
+            await asyncio.to_thread(conn._simple_command, "ID", id_args)
             print("[EMAIL] IMAP ID command sent successfully")
         except Exception as id_err:
             # ID command failure is non-critical, continue anyway
-            print(f"[EMAIL] Could not send IMAP ID command (non-critical): {type(id_err).__name__}")
+            print(
+                f"[EMAIL] Could not send IMAP ID command (non-critical): {type(id_err).__name__}"
+            )
 
         # Select mailbox (read-only for fetching)
         typ, _ = await asyncio.to_thread(conn.select, cfg.mailbox, True)
-        if typ != 'OK':
+        if typ != "OK":
             # List available mailboxes for debugging
             try:
                 list_typ, mailboxes = await asyncio.to_thread(conn.list)
-                if list_typ == 'OK' and mailboxes:
+                if list_typ == "OK" and mailboxes:
                     print("[EMAIL] IMAP server returned mailbox list")
             except Exception as list_err:
                 print(f"[EMAIL] Could not list mailboxes: {type(list_err).__name__}")
@@ -280,39 +308,38 @@ class EmailChannelListener:
         html_raw: Optional[str] = None
         if msg.is_multipart():
             for part in msg.walk():
-                if part.get_content_maintype() == 'multipart':
+                if part.get_content_maintype() == "multipart":
                     continue
-                disp = part.get('Content-Disposition', '') or ''
-                if 'attachment' in disp.lower():
+                disp = part.get("Content-Disposition", "") or ""
+                if "attachment" in disp.lower():
                     continue
                 ctype = part.get_content_type()
                 payload = part.get_payload(decode=True) or b""
-                charset = part.get_content_charset() or 'utf-8'
+                charset = part.get_content_charset() or "utf-8"
                 try:
-                    text = payload.decode(charset, errors='replace')
+                    text = payload.decode(charset, errors="replace")
                 except Exception:
-                    text = payload.decode('utf-8', errors='replace')
-                if ctype == 'text/plain' and plain is None:
+                    text = payload.decode("utf-8", errors="replace")
+                if ctype == "text/plain" and plain is None:
                     plain = text
-                elif ctype == 'text/html' and html_raw is None:
+                elif ctype == "text/html" and html_raw is None:
                     html_raw = html_module.unescape(text)
         else:
             ctype = msg.get_content_type()
             payload = msg.get_payload(decode=True) or b""
-            charset = msg.get_content_charset() or 'utf-8'
+            charset = msg.get_content_charset() or "utf-8"
             try:
-                text = payload.decode(charset, errors='replace')
+                text = payload.decode(charset, errors="replace")
             except Exception:
-                text = payload.decode('utf-8', errors='replace')
-            if ctype == 'text/plain':
+                text = payload.decode("utf-8", errors="replace")
+            if ctype == "text/plain":
                 plain = text
-            elif ctype == 'text/html':
+            elif ctype == "text/html":
                 html_raw = html_module.unescape(text)
         # Provide a plain-text fallback by stripping HTML if no explicit text/plain part
         fallback = self._strip_html(html_raw) if (plain is None and html_raw) else None
         body_text = (plain or fallback or "").strip()
         return body_text, html_raw
-
 
     async def _html_to_markdown_async(self, html: str) -> str:
         """Convert HTML to Markdown using markdownify if available; fallback to plain text.
@@ -323,6 +350,7 @@ class EmailChannelListener:
         try:
             # Import inside function to avoid hard dependency at import time
             import markdownify  # type: ignore
+
             return markdownify.markdownify(html, heading_style="ATX")
         except Exception:
             # Fallback: naive strip of tags
@@ -331,7 +359,6 @@ class EmailChannelListener:
     def _strip_html(self, s: str) -> str:
         return re.sub(r"<[^>]+>", "", s)
 
-
     async def _mark_seen(self, p: _PlatformEntry, uid: str) -> None:
         conn = await self._get_imap_conn(p)
         if not conn:
@@ -339,8 +366,8 @@ class EmailChannelListener:
         try:
             # Select writable mailbox for flag updates
             typ, _ = await asyncio.to_thread(conn.select, p.cfg.mailbox, False)
-            if typ == 'OK':
-                await asyncio.to_thread(conn.uid, 'store', uid, '+FLAGS', '(\\Seen)')
+            if typ == "OK":
+                await asyncio.to_thread(conn.uid, "store", uid, "+FLAGS", "(\\Seen)")
         except Exception as e:
             print(f"[EMAIL] Mark seen failed for {p.id}: {type(e).__name__}")
 
@@ -367,17 +394,21 @@ class EmailChannelListener:
                 return []
             # Ensure mailbox selected (read-only) for fetching
             typ, _ = await asyncio.to_thread(conn.select, p.cfg.mailbox, True)
-            if typ != 'OK':
+            if typ != "OK":
                 print(f"[EMAIL] Select mailbox failed for {p.id}")
                 return []
 
             # Apply lookback window: only fetch emails SINCE a given date
             lookback_days = max(0, int(getattr(p.cfg, "fetch_lookback_days", 3) or 3))
             since_dt = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-            since_date = since_dt.strftime('%d-%b-%Y')
-            print(f"[EMAIL] IMAP search criteria: UNSEEN SINCE {since_date} (lookback_days={lookback_days})")
-            typ, data = await asyncio.to_thread(conn.uid, 'search', None, 'UNSEEN', 'SINCE', since_date)
-            if typ != 'OK' or not data or not data[0]:
+            since_date = since_dt.strftime("%d-%b-%Y")
+            print(
+                f"[EMAIL] IMAP search criteria: UNSEEN SINCE {since_date} (lookback_days={lookback_days})"
+            )
+            typ, data = await asyncio.to_thread(
+                conn.uid, "search", None, "UNSEEN", "SINCE", since_date
+            )
+            if typ != "OK" or not data or not data[0]:
                 return []
             all_uids = data[0].split()
             if not all_uids:
@@ -387,41 +418,52 @@ class EmailChannelListener:
             # Newest first: reverse UID ordering (UIDs generally increase over time)
             limit = max(1, int(getattr(p.cfg, "max_emails_per_poll", 10) or 10))
             uids = (all_uids[::-1])[:limit]
-            print(f"[EMAIL] Unread={total_unread}, processing={len(uids)} (newest first) for platform {p.id}")
+            print(
+                f"[EMAIL] Unread={total_unread}, processing={len(uids)} (newest first) for platform {p.id}"
+            )
             results: list[dict] = []
 
             for uid in uids:
                 try:
-                    typ, fetch_data = await asyncio.to_thread(conn.uid, 'fetch', uid, '(RFC822)')
-                    if typ != 'OK' or not fetch_data:
+                    typ, fetch_data = await asyncio.to_thread(
+                        conn.uid, "fetch", uid, "(RFC822)"
+                    )
+                    if typ != "OK" or not fetch_data:
                         continue
                     raw_bytes = None
                     for part in fetch_data:
-                        if isinstance(part, tuple) and isinstance(part[1], (bytes, bytearray)):
+                        if isinstance(part, tuple) and isinstance(
+                            part[1], (bytes, bytearray)
+                        ):
                             raw_bytes = part[1]
                             break
                     if not raw_bytes:
                         continue
                     msg = message_from_bytes(raw_bytes, policy=policy.default)
-                    message_id = self._decode_header_value(msg.get('Message-ID') or msg.get('Message-Id'))
-                    from_ = self._decode_header_value(msg.get('From'))
-                    subject = self._decode_header_value(msg.get('Subject'))
-                    date = self._decode_header_value(msg.get('Date'))
+                    message_id = self._decode_header_value(
+                        msg.get("Message-ID") or msg.get("Message-Id")
+                    )
+                    from_ = self._decode_header_value(msg.get("From"))
+                    subject = self._decode_header_value(msg.get("Subject"))
+                    date = self._decode_header_value(msg.get("Date"))
                     body_text, body_html = self._extract_text_from_message(msg)
                     uid_str = uid.decode() if isinstance(uid, bytes) else str(uid)
                     # Collect raw headers as a dict
                     headers_dict = {k: str(v) for k, v in msg.items()}
                     if body_html:
                         headers_dict["__body_html__"] = body_html
-                    results.append({
-                        "Message-ID": message_id or uid_str,  # fallback to stable UID
-                        "From": from_ or "",
-                        "Subject": subject or "",
-                        "Body": body_text or "",
-                        "Date": date or "",
-                        "imap_uid": uid_str,
-                        "Headers": headers_dict,
-                    })
+                    results.append(
+                        {
+                            "Message-ID": message_id
+                            or uid_str,  # fallback to stable UID
+                            "From": from_ or "",
+                            "Subject": subject or "",
+                            "Body": body_text or "",
+                            "Date": date or "",
+                            "imap_uid": uid_str,
+                            "Headers": headers_dict,
+                        }
+                    )
                 except Exception as e:
                     print(f"[EMAIL] Fetch/parse failed for {p.id}: {type(e).__name__}")
                     continue
@@ -446,7 +488,9 @@ class EmailChannelListener:
         sender_name, sender_email = parseaddr(from_header)
         sender_email = (sender_email or "unknown@example.com").strip().lower()
         if not sender_name:
-            sender_name = sender_email.split("@")[0] if "@" in sender_email else sender_email
+            sender_name = (
+                sender_email.split("@")[0] if "@" in sender_email else sender_email
+            )
 
         # Parse received_at from Date header if available
         received_at: datetime | None = None
@@ -494,7 +538,6 @@ class EmailChannelListener:
                 print(f"[EMAIL] Store raw email failed for {p.id}: {type(e).__name__}")
                 # Do not mark SEEN so it can be retried in a future cycle
 
-
     async def _consumer_loop(self) -> None:
         """Continuously process pending/eligible emails from the inbox table."""
         while not self._stop_event.is_set():
@@ -504,7 +547,9 @@ class EmailChannelListener:
                     try:
                         await self._process_pending_for_platform(p)
                     except Exception as e:
-                        print(f"[EMAIL] Consumer error for platform {p.id}: {type(e).__name__}")
+                        print(
+                            f"[EMAIL] Consumer error for platform {p.id}: {type(e).__name__}"
+                        )
             except Exception as e:
                 print(f"[EMAIL] Consumer supervisor error: {type(e).__name__}")
             await asyncio.sleep(2)
@@ -530,7 +575,9 @@ class EmailChannelListener:
                 try:
                     # Prepare mapped raw payload
                     from_addr = rec.from_address
-                    sender_name = rec.from_name or (from_addr.split("@")[0] if "@" in from_addr else from_addr)
+                    sender_name = rec.from_name or (
+                        from_addr.split("@")[0] if "@" in from_addr else from_addr
+                    )
 
                     # If we captured HTML body in raw_headers, convert to Markdown for chat
                     html_body = None
@@ -573,15 +620,19 @@ class EmailChannelListener:
                                 nickname=sender_name,
                             )
                         except Exception as e:
-                            print(f"[EMAIL] Visitor registration failed for {p.id}: {type(e).__name__}")
+                            print(
+                                f"[EMAIL] Visitor registration failed for {p.id}: {type(e).__name__}"
+                            )
 
                     # Normalize and dispatch
-                    msg: NormalizedMessage = await self._normalizer.normalize(mapped_raw)
+                    msg: NormalizedMessage = await self._normalizer.normalize(
+                        mapped_raw
+                    )
                     reply_text = await process_message(
                         msg=msg,
                         db=db,
                         tgo_api_client=self._tgo_api_client,
-                        sse_manager=self._sse_manager
+                        sse_manager=self._sse_manager,
                     )
 
                     # Success

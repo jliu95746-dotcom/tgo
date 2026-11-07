@@ -8,4 +8,3 @@ router = APIRouter()
 @router.get("/health", responses={500: {"model": ErrorResponse}})
 async def health() -> dict:
     return {"status": "ok"}
-

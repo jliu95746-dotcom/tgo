@@ -4,6 +4,7 @@ Revision ID: add_feishu_inbox
 Revises: add_wecom_inbox_source_type
 Create Date: 2025-12-21
 """
+
 from __future__ import annotations
 
 from alembic import op
@@ -11,46 +12,82 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = 'add_feishu_inbox'
-down_revision = 'add_wecom_inbox_source_type'
+revision = "add_feishu_inbox"
+down_revision = "add_wecom_inbox_source_type"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
     op.create_table(
-        'pt_feishu_inbox',
-        sa.Column('id', sa.UUID(), nullable=False),
-        sa.Column('platform_id', sa.UUID(), nullable=False),
-        sa.Column('message_id', sa.String(length=255), nullable=False),
-        sa.Column('from_user', sa.String(length=255), nullable=False),
-        sa.Column('from_user_type', sa.String(length=20), server_default='open_id', nullable=False),
-        sa.Column('chat_id', sa.String(length=255), nullable=True),
-        sa.Column('chat_type', sa.String(length=20), server_default='p2p', nullable=False),
-        sa.Column('msg_type', sa.String(length=50), nullable=False),
-        sa.Column('content', sa.Text(), nullable=True),
-        sa.Column('ai_reply', sa.Text(), nullable=True),
-        sa.Column('raw_payload', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column('received_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('fetched_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('processed_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('status', sa.String(length=20), server_default='pending', nullable=False),
-        sa.Column('error_message', sa.Text(), nullable=True),
-        sa.Column('retry_count', sa.Integer(), server_default='0', nullable=False),
-        sa.ForeignKeyConstraint(['platform_id'], ['pt_platforms.id'], ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('platform_id', 'message_id', name='uq_feishu_inbox_platform_message')
+        "pt_feishu_inbox",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("platform_id", sa.UUID(), nullable=False),
+        sa.Column("message_id", sa.String(length=255), nullable=False),
+        sa.Column("from_user", sa.String(length=255), nullable=False),
+        sa.Column(
+            "from_user_type",
+            sa.String(length=20),
+            server_default="open_id",
+            nullable=False,
+        ),
+        sa.Column("chat_id", sa.String(length=255), nullable=True),
+        sa.Column(
+            "chat_type", sa.String(length=20), server_default="p2p", nullable=False
+        ),
+        sa.Column("msg_type", sa.String(length=50), nullable=False),
+        sa.Column("content", sa.Text(), nullable=True),
+        sa.Column("ai_reply", sa.Text(), nullable=True),
+        sa.Column(
+            "raw_payload", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
+        sa.Column("received_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "fetched_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column("processed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "status", sa.String(length=20), server_default="pending", nullable=False
+        ),
+        sa.Column("error_message", sa.Text(), nullable=True),
+        sa.Column("retry_count", sa.Integer(), server_default="0", nullable=False),
+        sa.ForeignKeyConstraint(
+            ["platform_id"], ["pt_platforms.id"], ondelete="CASCADE"
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "platform_id", "message_id", name="uq_feishu_inbox_platform_message"
+        ),
     )
-    op.create_index('ix_pt_feishu_inbox_platform_id', 'pt_feishu_inbox', ['platform_id'], unique=False)
-    op.create_index('ix_pt_feishu_inbox_chat_id', 'pt_feishu_inbox', ['chat_id'], unique=False)
-    op.create_index('ix_feishu_inbox_platform_status', 'pt_feishu_inbox', ['platform_id', 'status'], unique=False)
-    op.create_index('ix_feishu_inbox_status_fetched', 'pt_feishu_inbox', ['status', 'fetched_at'], unique=False)
+    op.create_index(
+        "ix_pt_feishu_inbox_platform_id",
+        "pt_feishu_inbox",
+        ["platform_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_pt_feishu_inbox_chat_id", "pt_feishu_inbox", ["chat_id"], unique=False
+    )
+    op.create_index(
+        "ix_feishu_inbox_platform_status",
+        "pt_feishu_inbox",
+        ["platform_id", "status"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_feishu_inbox_status_fetched",
+        "pt_feishu_inbox",
+        ["status", "fetched_at"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
-    op.drop_index('ix_feishu_inbox_status_fetched', table_name='pt_feishu_inbox')
-    op.drop_index('ix_feishu_inbox_platform_status', table_name='pt_feishu_inbox')
-    op.drop_index('ix_pt_feishu_inbox_chat_id', table_name='pt_feishu_inbox')
-    op.drop_index('ix_pt_feishu_inbox_platform_id', table_name='pt_feishu_inbox')
-    op.drop_table('pt_feishu_inbox')
-
+    op.drop_index("ix_feishu_inbox_status_fetched", table_name="pt_feishu_inbox")
+    op.drop_index("ix_feishu_inbox_platform_status", table_name="pt_feishu_inbox")
+    op.drop_index("ix_pt_feishu_inbox_chat_id", table_name="pt_feishu_inbox")
+    op.drop_index("ix_pt_feishu_inbox_platform_id", table_name="pt_feishu_inbox")
+    op.drop_table("pt_feishu_inbox")

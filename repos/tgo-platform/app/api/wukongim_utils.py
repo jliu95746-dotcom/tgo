@@ -5,7 +5,9 @@ from typing import Any
 import httpx
 
 
-async def wukongim_send_message(platform_config: dict, to_uid: str, message_content: str) -> dict[str, Any]:
+async def wukongim_send_message(
+    platform_config: dict, to_uid: str, message_content: str
+) -> dict[str, Any]:
     """Send a message to a WuKongIM user.
 
     Expected platform_config keys (one of):
@@ -46,4 +48,3 @@ async def wukongim_send_message(platform_config: dict, to_uid: str, message_cont
             if data.get("code") in (0, "0"):
                 return data
         raise RuntimeError(f"WuKongIM send error: {data}")
-

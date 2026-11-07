@@ -151,20 +151,22 @@ async def slack_download_file(
     except Exception as e:
         logger.error("[SLACK] Failed to download file: %s", type(e).__name__)
         raise
+
+
 async def slack_get_dm_channel(
     bot_token: str,
     user_id: str,
 ) -> str:
     """
     Open a DM channel with a user and return the channel ID.
-    
+
     Slack's files_upload_v2 and other methods often require a real channel ID
     (starting with D, C, G) rather than a user ID (starting with U).
-    
+
     Args:
         bot_token: Slack Bot Token
         user_id: Slack User ID
-        
+
     Returns:
         Channel ID (starting with D...)
     """
@@ -174,8 +176,8 @@ async def slack_get_dm_channel(
         channel_id = response.data.get("channel", {}).get("id")
         if not channel_id:
             logger.error("[SLACK] Failed to resolve DM channel")
-            return user_id # Fallback
+            return user_id  # Fallback
         return channel_id
     except SlackApiError as e:
         logger.error("[SLACK] Failed to open DM: %s", type(e).__name__)
-        return user_id # Fallback
+        return user_id  # Fallback

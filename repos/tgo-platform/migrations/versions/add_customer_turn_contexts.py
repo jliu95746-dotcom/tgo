@@ -1,4 +1,5 @@
 """Retain encrypted routing for durable customer-turn delivery."""
+
 from alembic import op
 import sqlalchemy as sa
 

@@ -84,15 +84,23 @@ class WuKongIMChannelListener:
         async with self._session_factory() as session:
             rows = (
                 await session.execute(
-                    select(Platform.id, Platform.project_id, Platform.api_key, Platform.config)
-                    .where(Platform.is_active.is_(True), Platform.type == "website")
+                    select(
+                        Platform.id,
+                        Platform.project_id,
+                        Platform.api_key,
+                        Platform.config,
+                    ).where(Platform.is_active.is_(True), Platform.type == "website")
                 )
             ).all()
         platforms: list[_PlatformEntry] = []
         for pid, project_id, api_key, cfg_dict in rows:
             try:
                 cfg = WuKongIMPlatformConfig(**(cfg_dict or {}))
-                platforms.append(_PlatformEntry(id=pid, project_id=project_id, api_key=api_key, cfg=cfg))
+                platforms.append(
+                    _PlatformEntry(
+                        id=pid, project_id=project_id, api_key=api_key, cfg=cfg
+                    )
+                )
             except Exception as e:
                 print(f"[WUKONGIM] Skip platform {pid}: invalid config: {e}")
         return platforms
@@ -106,7 +114,9 @@ class WuKongIMChannelListener:
                         await self._process_pending_for_platform(p)
                     except Exception as e:
                         print(f"[WUKONGIM] Consumer error for platform {p.id}: {e}")
-                interval = platforms[0].cfg.consumer_poll_interval_seconds if platforms else 5
+                interval = (
+                    platforms[0].cfg.consumer_poll_interval_seconds if platforms else 5
+                )
                 await asyncio.sleep(max(1, int(interval)))
             except Exception as e:
                 print(f"[WUKONGIM] Consumer supervisor error: {e}")
@@ -137,7 +147,9 @@ class WuKongIMChannelListener:
                             decoded_bytes = base64.b64decode(content, validate=True)
                             reenc = base64.b64encode(decoded_bytes).decode().rstrip("=")
                             if reenc == (content.strip().rstrip("=")):
-                                content = decoded_bytes.decode("utf-8", errors="replace")
+                                content = decoded_bytes.decode(
+                                    "utf-8", errors="replace"
+                                )
                         except Exception:
                             pass
 
@@ -162,7 +174,9 @@ class WuKongIMChannelListener:
 
                     # WuKongIM: no visitor registration; from_uid is the visitor id
 
-                    msg: NormalizedMessage = await self._normalizer.normalize(mapped_raw)
+                    msg: NormalizedMessage = await self._normalizer.normalize(
+                        mapped_raw
+                    )
                     reply_text = await process_message(
                         msg=msg,
                         db=db,
@@ -181,4 +195,3 @@ class WuKongIMChannelListener:
                         max_retry_attempts=max_retries,
                     )
                     await db.commit()
-

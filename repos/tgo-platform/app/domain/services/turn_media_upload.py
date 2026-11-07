@@ -76,8 +76,9 @@ class TurnMediaUpload:
             if item is None:
                 return None
             row, platform = item
-            row.media_lease_id, row.media_lease_until = uuid4(), now + timedelta(
-                seconds=90
+            row.media_lease_id, row.media_lease_until = (
+                uuid4(),
+                now + timedelta(seconds=90),
             )
             result = MediaUpload(
                 platform.id,

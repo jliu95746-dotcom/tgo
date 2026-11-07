@@ -6,6 +6,7 @@ This module provides helper functions for:
 
 Docs: https://open.dingtalk.com/document/orgapp/receive-message
 """
+
 from __future__ import annotations
 
 import base64
@@ -54,9 +55,7 @@ def dingtalk_compute_signature(timestamp: str, app_secret: str) -> str:
     """
     string_to_sign = f"{timestamp}\n{app_secret}"
     hmac_code = hmac.new(
-        app_secret.encode("utf-8"),
-        string_to_sign.encode("utf-8"),
-        hashlib.sha256
+        app_secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256
     ).digest()
     return base64.b64encode(hmac_code).decode("utf-8")
 
@@ -121,7 +120,9 @@ async def dingtalk_send_webhook(
 
     logging.info("[DINGTALK] Sending via session webhook")
 
-    async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
+    async with httpx.AsyncClient(
+        timeout=timeout or settings.request_timeout_seconds
+    ) as client:
         resp = await _dingtalk_response(client.post(session_webhook, json=payload))
         data = resp.json()
 
@@ -209,4 +210,3 @@ async def dingtalk_send_markdown(
         at=at_config,
         timeout=timeout,
     )
-

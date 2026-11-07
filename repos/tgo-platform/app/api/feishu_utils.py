@@ -8,6 +8,7 @@ This module provides helper functions for:
 
 Docs: https://open.feishu.cn/document/server-docs/im-v1/message/reply
 """
+
 from __future__ import annotations
 
 import base64
@@ -41,7 +42,9 @@ async def get_redis_client():
     if not aioredis or not settings.redis_url:
         return None
     try:
-        _redis_client = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
+        _redis_client = aioredis.from_url(
+            settings.redis_url, encoding="utf-8", decode_responses=True
+        )
         await _redis_client.ping()
         return _redis_client
     except Exception as e:  # pragma: no cover
@@ -94,7 +97,9 @@ def feishu_decrypt_message(encrypt_b64: str, encrypt_key: str) -> Optional[str]:
         encrypted_data = ciphertext[16:]
 
         # Decrypt using AES-256-CBC
-        cipher = Cipher(algorithms.AES(aes_key), modes.CBC(iv), backend=default_backend())
+        cipher = Cipher(
+            algorithms.AES(aes_key), modes.CBC(iv), backend=default_backend()
+        )
         decryptor = cipher.decryptor()
         padded_plain = decryptor.update(encrypted_data) + decryptor.finalize()
 
@@ -156,7 +161,9 @@ async def feishu_get_tenant_access_token(
         "app_secret": app_secret,
     }
 
-    async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
+    async with httpx.AsyncClient(
+        timeout=timeout or settings.request_timeout_seconds
+    ) as client:
         resp = await client.post(url, json=payload)
         resp.raise_for_status()
         data = resp.json()
@@ -221,7 +228,9 @@ async def feishu_reply_message(
 
     logging.debug("[FEISHU] Reply request started")
 
-    async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
+    async with httpx.AsyncClient(
+        timeout=timeout or settings.request_timeout_seconds
+    ) as client:
         resp = await client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
         data = resp.json()
@@ -272,7 +281,7 @@ def feishu_clean_message_text(text: str) -> str:
     # Remove @mentions (e.g., @Name or @_user_1 followed by a space)
     # Use regex that matches @ at the start of string or after a space
     # to avoid accidentally matching email addresses.
-    cleaned = re.sub(r'(^|\s)@[^\s]+\s*', r'\1', text)
+    cleaned = re.sub(r"(^|\s)@[^\s]+\s*", r"\1", text)
 
     return cleaned.strip()
 
@@ -312,7 +321,9 @@ async def feishu_get_user_info(
         }
         params = {"user_id_type": "open_id"}
 
-        async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            timeout=timeout or settings.request_timeout_seconds
+        ) as client:
             resp = await client.get(url, headers=headers, params=params)
 
             # Handle non-2xx responses
@@ -328,7 +339,9 @@ async def feishu_get_user_info(
                     else:
                         logging.debug("[FEISHU] Get user info API returned an error")
                 except Exception:
-                    logging.debug("[FEISHU] Get user info failed with status %s", resp.status_code)
+                    logging.debug(
+                        "[FEISHU] Get user info failed with status %s", resp.status_code
+                    )
                 return None, None
 
             data = resp.json()
@@ -339,7 +352,11 @@ async def feishu_get_user_info(
 
             user = data.get("data", {}).get("user", {})
             name = user.get("name") or user.get("en_name") or None
-            avatar_url = user.get("avatar", {}).get("avatar_origin") or user.get("avatar", {}).get("avatar_72") or None
+            avatar_url = (
+                user.get("avatar", {}).get("avatar_origin")
+                or user.get("avatar", {}).get("avatar_72")
+                or None
+            )
 
             logging.debug("[FEISHU] Got user info")
             return name, avatar_url
@@ -349,7 +366,9 @@ async def feishu_get_user_info(
         return None, None
 
 
-def feishu_extract_sender_info_from_event(event_data: dict) -> tuple[str | None, str | None]:
+def feishu_extract_sender_info_from_event(
+    event_data: dict,
+) -> tuple[str | None, str | None]:
     """Extract sender name from Feishu event payload.
 
     The event may contain sender info depending on event type.
@@ -417,7 +436,9 @@ async def feishu_send_message(
         "content": json.dumps(content, ensure_ascii=False),
     }
 
-    async with httpx.AsyncClient(timeout=timeout or settings.request_timeout_seconds) as client:
+    async with httpx.AsyncClient(
+        timeout=timeout or settings.request_timeout_seconds
+    ) as client:
         resp = await client.post(url, headers=headers, params=params, json=payload)
         resp.raise_for_status()
         data = resp.json()
@@ -426,4 +447,3 @@ async def feishu_send_message(
             raise RuntimeError(f"Feishu send message failed: {data}")
 
         return data
-

@@ -5,6 +5,7 @@ This module implements a polling-based approach for Telegram messages:
 - Suitable for local development or servers without public HTTPS endpoints
 - Automatically deletes webhook when starting and uses polling mode
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,12 +35,12 @@ logger = logging.getLogger(__name__)
 class TelegramPlatformConfig(BaseModel):
     """Per-platform Telegram Bot configuration stored in Platform.config when type='telegram'."""
 
-    bot_token: str = ""                    # Bot token from @BotFather
-    webhook_secret: str | None = None      # Optional secret_token for webhook verification
+    bot_token: str = ""  # Bot token from @BotFather
+    webhook_secret: str | None = None  # Optional secret_token for webhook verification
 
     # Polling configuration
-    polling_interval_seconds: int = 1      # How often to poll getUpdates
-    polling_timeout_seconds: int = 30      # Long polling timeout (Telegram recommends 30+)
+    polling_interval_seconds: int = 1  # How often to poll getUpdates
+    polling_timeout_seconds: int = 30  # Long polling timeout (Telegram recommends 30+)
     processing_batch_size: int = 10
     max_retry_attempts: int = 3
 
@@ -101,8 +102,12 @@ class TelegramChannelListener:
         async with self._session_factory() as session:
             rows = (
                 await session.execute(
-                    select(Platform.id, Platform.project_id, Platform.api_key, Platform.config)
-                    .where(Platform.is_active.is_(True), Platform.type == "telegram")
+                    select(
+                        Platform.id,
+                        Platform.project_id,
+                        Platform.api_key,
+                        Platform.config,
+                    ).where(Platform.is_active.is_(True), Platform.type == "telegram")
                 )
             ).all()
         platforms: list[_PlatformEntry] = []
@@ -114,13 +119,15 @@ class TelegramChannelListener:
                     continue
                 # Get last_update_id from memory or start at 0
                 last_id = self._platform_offsets.get(pid, 0)
-                platforms.append(_PlatformEntry(
-                    id=pid,
-                    project_id=project_id,
-                    api_key=api_key,
-                    cfg=cfg,
-                    last_update_id=last_id,
-                ))
+                platforms.append(
+                    _PlatformEntry(
+                        id=pid,
+                        project_id=project_id,
+                        api_key=api_key,
+                        cfg=cfg,
+                        last_update_id=last_id,
+                    )
+                )
             except Exception as e:
                 logger.error("Telegram platform config invalid: %s", type(e).__name__)
         return platforms
@@ -150,12 +157,12 @@ class TelegramChannelListener:
             "timeout": timeout,
             "allowed_updates": ["message", "edited_message"],
         }
-        
+
         try:
             async with httpx.AsyncClient(timeout=timeout + 10) as client:
                 resp = await client.get(url, params=params)
                 result = resp.json()
-                
+
                 if result.get("ok"):
                     return result.get("result", [])
                 else:
@@ -173,24 +180,24 @@ class TelegramChannelListener:
         message = update.get("message") or update.get("edited_message")
         if not message:
             return None
-        
+
         from_user = message.get("from", {})
         chat = message.get("chat", {})
-        
+
         # Get message content (text, caption, or type indicator)
         content = ""
         msg_type = "text"
-        
+
         if "text" in message:
             content = message["text"]
-            msg_type = 1 # TEXT
+            msg_type = 1  # TEXT
         elif "photo" in message:
             # Picking the largest photo
             photos = message.get("photo", [])
             if photos:
                 largest = photos[-1]
                 content = message.get("caption") or "[Photo]"
-                msg_type = 2 # IMAGE
+                msg_type = 2  # IMAGE
                 file_id = largest.get("file_id")
             else:
                 content = "[Photo]"
@@ -198,29 +205,35 @@ class TelegramChannelListener:
                 file_id = None
         elif "document" in message:
             content = message.get("caption", "[Document]")
-            msg_type = 3 # FILE
+            msg_type = 3  # FILE
         elif "sticker" in message:
             content = message.get("sticker", {}).get("emoji", "[Sticker]")
             msg_type = 1
         elif "voice" in message:
             content = "[Voice message]"
-            msg_type = 4 # VOICE
+            msg_type = 4  # VOICE
         elif "video" in message:
             content = message.get("caption", "[Video]")
-            msg_type = 5 # VIDEO
+            msg_type = 5  # VIDEO
         else:
             content = "[Unsupported message type]"
             msg_type = 1
-        
+
         return {
             "update_id": update.get("update_id"),
             "message_id": message.get("message_id"),
             "from_user": str(from_user.get("id", "")),
             "from_username": from_user.get("username"),
-            "from_display_name": " ".join(filter(None, [
-                from_user.get("first_name"),
-                from_user.get("last_name"),
-            ])) or from_user.get("username"),
+            "from_display_name": " ".join(
+                filter(
+                    None,
+                    [
+                        from_user.get("first_name"),
+                        from_user.get("last_name"),
+                    ],
+                )
+            )
+            or from_user.get("username"),
             "chat_id": str(chat.get("id", "")),
             "chat_type": chat.get("type", "private"),
             "content": content,
@@ -256,7 +269,9 @@ class TelegramChannelListener:
         await session.flush()
         return record
 
-    def _build_mapped_message(self, platform: _PlatformEntry, msg_data: dict[str, Any]) -> dict[str, Any]:
+    def _build_mapped_message(
+        self, platform: _PlatformEntry, msg_data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Build the NormalizedMessage-like raw dict for downstream normalization."""
         telegram_ctx: dict[str, Any] = {
             "chat_id": msg_data["chat_id"],
@@ -290,13 +305,17 @@ class TelegramChannelListener:
         msg_data: dict[str, Any],
     ) -> tuple[Any | None, str | None, str | None]:
         """Visitor retrieval/registration with cache-first approach."""
-        display_name: str | None = msg_data.get("from_display_name") or msg_data.get("from_username")
+        display_name: str | None = msg_data.get("from_display_name") or msg_data.get(
+            "from_username"
+        )
         avatar_url: str | None = None
         visitor = None
 
         # Check cache first
         try:
-            cache_key = self._visitor_service.make_cache_key(str(platform.project_id), "telegram", msg_data["from_user"])
+            cache_key = self._visitor_service.make_cache_key(
+                str(platform.project_id), "telegram", msg_data["from_user"]
+            )
             cached = await self._visitor_service.get_cached(cache_key)
             if cached:
                 display_name = cached.nickname or cached.name or display_name
@@ -317,7 +336,9 @@ class TelegramChannelListener:
                     avatar_url=avatar_url,
                 )
             except Exception as e:
-                logger.error("Telegram visitor registration failed: %s", type(e).__name__)
+                logger.error(
+                    "Telegram visitor registration failed: %s", type(e).__name__
+                )
 
         return visitor, display_name, avatar_url
 
@@ -330,63 +351,87 @@ class TelegramChannelListener:
         msg_data = self._extract_message_data(update)
         if not msg_data:
             return
-        
+
         logger.debug("Telegram customer message received")
 
         async with self._session_factory() as db:
             try:
                 # 1) Get/register visitor FIRST to get the official UUID from tgo-api
-                visitor, display_name, avatar_url = await self._get_or_register_visitor(platform, msg_data)
-                
+                visitor, display_name, avatar_url = await self._get_or_register_visitor(
+                    platform, msg_data
+                )
+
                 # 2) If it's an image, download from Telegram and upload to tgo-api
                 if msg_data["msg_type"] == 2 and msg_data.get("file_id") and visitor:
                     try:
                         # a) Get file path from Telegram
-                        file_info = await telegram_get_file(platform.cfg.bot_token, msg_data["file_id"])
+                        file_info = await telegram_get_file(
+                            platform.cfg.bot_token, msg_data["file_id"]
+                        )
                         if file_info.get("ok"):
                             file_path = file_info["result"].get("file_path")
                             if file_path:
                                 # b) Download file bytes
-                                file_bytes = await telegram_download_file(platform.cfg.bot_token, file_path)
-                                
+                                file_bytes = await telegram_download_file(
+                                    platform.cfg.bot_token, file_path
+                                )
+
                                 # c) Upload to tgo-api using the real visitor.channel_id
                                 upload_url = f"{settings.api_base_url.rstrip('/')}/v1/chat/upload"
                                 channel_id = visitor.channel_id or f"{visitor.id}-vtr"
-                                
+
                                 logger.debug("Telegram customer image upload started")
                                 async with httpx.AsyncClient(timeout=60) as client:
-                                    files = {"file": ("image.jpg", file_bytes, "image/jpeg")}
+                                    files = {
+                                        "file": ("image.jpg", file_bytes, "image/jpeg")
+                                    }
                                     data = {
                                         "channel_id": channel_id,
                                         "channel_type": 251,  # CHANNEL_TYPE_CUSTOMER_SERVICE
                                         "platform_api_key": platform.api_key or "",
                                     }
-                                    resp = await client.post(upload_url, data=data, files=files)
+                                    resp = await client.post(
+                                        upload_url, data=data, files=files
+                                    )
                                     if resp.status_code == 200:
                                         upload_result = resp.json()
                                         # Use "file_url" from ChatFileUploadResponse
-                                        new_url = upload_result.get("file_url") or upload_result.get("url")
+                                        new_url = upload_result.get(
+                                            "file_url"
+                                        ) or upload_result.get("url")
                                         if new_url:
                                             msg_data["content"] = new_url
-                                            logger.debug("Telegram customer image uploaded")
+                                            logger.debug(
+                                                "Telegram customer image uploaded"
+                                            )
                                         else:
-                                            logger.warning("Telegram image upload response missing URL")
+                                            logger.warning(
+                                                "Telegram image upload response missing URL"
+                                            )
                                     else:
-                                        logger.warning("Telegram image upload failed: status=%s", resp.status_code)
+                                        logger.warning(
+                                            "Telegram image upload failed: status=%s",
+                                            resp.status_code,
+                                        )
                     except Exception as e:
-                        logger.error("Telegram image transfer failed: %s", type(e).__name__)
+                        logger.error(
+                            "Telegram image transfer failed: %s", type(e).__name__
+                        )
                 # Store to inbox for audit
                 record = await self._store_to_inbox(db, platform, msg_data)
-                
+
                 # Build mapped message
                 mapped_raw = self._build_mapped_message(platform, msg_data)
-                
+
                 # 3) Normalize and process
                 if display_name or avatar_url:
                     extra = mapped_raw.get("extra") or {}
-                    extra["visitor_profile"] = {"nickname": display_name, "avatar_url": avatar_url}
+                    extra["visitor_profile"] = {
+                        "nickname": display_name,
+                        "avatar_url": avatar_url,
+                    }
                     mapped_raw["extra"] = extra
-                
+
                 # Normalize and process
                 msg: NormalizedMessage = await self._normalizer.normalize(mapped_raw)
                 reply_text = await process_message(
@@ -395,15 +440,15 @@ class TelegramChannelListener:
                     tgo_api_client=self._tgo_api_client,
                     sse_manager=self._sse_manager,
                 )
-                
+
                 # Mark as completed
                 record.ai_reply = reply_text
                 record.status = "completed"
                 record.processed_at = datetime.now(timezone.utc)
                 await db.commit()
-                
+
                 logger.debug("Telegram reply processing completed")
-                
+
             except Exception as e:
                 logger.error("Telegram message processing failed: %s", type(e).__name__)
                 await db.rollback()
@@ -412,58 +457,58 @@ class TelegramChannelListener:
         """Poll a single platform for new messages. Returns new offset."""
         offset = platform.last_update_id + 1 if platform.last_update_id else 0
         timeout = platform.cfg.polling_timeout_seconds
-        
+
         updates = await self._get_updates(platform.cfg.bot_token, offset, timeout)
-        
+
         new_offset = platform.last_update_id
         for update in updates:
             update_id = update.get("update_id", 0)
             if update_id > new_offset:
                 new_offset = update_id
-            
+
             try:
                 await self._process_update(platform, update)
             except Exception as e:
                 logger.error("Telegram update failed: %s", type(e).__name__)
-        
+
         return new_offset
 
     async def _consumer_loop(self) -> None:
         """Main consumer loop - polls all active Telegram platforms."""
         logger.info("Telegram consumer polling started")
-        
+
         # Initial load and delete webhooks
         platforms = await self._load_active_telegram_platforms()
         for p in platforms:
             await self._delete_webhook_if_exists(p.cfg.bot_token)
-        
+
         while not self._stop_event.is_set():
             try:
                 platforms = await self._load_active_telegram_platforms()
-                
+
                 if not platforms:
                     await asyncio.sleep(5)
                     continue
-                
+
                 # Poll each platform concurrently
                 tasks = []
                 for p in platforms:
                     tasks.append(self._poll_platform(p))
-                
+
                 if tasks:
                     results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
+
                     # Update offsets
                     for i, p in enumerate(platforms):
                         if isinstance(results[i], int):
                             self._platform_offsets[p.id] = results[i]
-                
+
                 # Short sleep between polling cycles
                 interval = platforms[0].cfg.polling_interval_seconds if platforms else 1
                 await asyncio.sleep(max(0.5, interval))
-                
+
             except Exception as e:
                 logger.error("Telegram consumer loop failed: %s", type(e).__name__)
                 await asyncio.sleep(5)
-        
+
         logger.info("Telegram consumer polling stopped")

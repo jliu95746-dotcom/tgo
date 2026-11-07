@@ -1,4 +1,5 @@
 """Vision Agent adapter for platforms that use UI automation (WeChat Personal, etc.)."""
+
 from __future__ import annotations
 
 import logging

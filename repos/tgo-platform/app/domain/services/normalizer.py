@@ -18,4 +18,3 @@ class DefaultMessageNormalizer(MessageNormalizer):
 
 
 normalizer = DefaultMessageNormalizer()
-

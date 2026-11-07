@@ -186,7 +186,8 @@ async def test_media_preparation_failure_enters_notice_queue_without_sending(
         SimpleNamespace(
             id="platform-id",
             cfg=SimpleNamespace(
-                processing_batch_size=1, max_retry_attempts=0,
+                processing_batch_size=1,
+                max_retry_attempts=0,
                 native_handoff_enabled=False,
             ),
         )

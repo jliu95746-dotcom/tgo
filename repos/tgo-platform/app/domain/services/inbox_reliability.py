@@ -46,22 +46,24 @@ async def claim_inbox_batch(
         ),
     )
     records = (
-        await session.execute(
-            select(model)
-            .where(model.platform_id == platform_id, eligible)
-            .order_by(model.fetched_at.asc())
-            .with_for_update(skip_locked=True)
-            .limit(max(1, batch_size))
+        (
+            await session.execute(
+                select(model)
+                .where(model.platform_id == platform_id, eligible)
+                .order_by(model.fetched_at.asc())
+                .with_for_update(skip_locked=True)
+                .limit(max(1, batch_size))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     lease_window = max(10, lease_seconds)
     for position, record in enumerate(records, start=1):
         record.status = "processing"
         record.processing_started_at = now
-        record.lease_expires_at = now + timedelta(
-            seconds=lease_window * position
-        )
+        record.lease_expires_at = now + timedelta(seconds=lease_window * position)
         record.next_attempt_at = None
         record.error_message = None
     if records:

@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import smtplib
 from email.message import EmailMessage
-from typing import Optional
 import asyncio
 
 from app.domain.entities import StreamEvent
@@ -40,7 +39,9 @@ class EmailAdapter(BasePlatformAdapter):
         self.from_addr = from_addr or smtp_username
         self.subject = subject or ""
 
-    async def send_incremental(self, ev: StreamEvent) -> None:  # pragma: no cover - not used
+    async def send_incremental(
+        self, ev: StreamEvent
+    ) -> None:  # pragma: no cover - not used
         # Email adapter does not support streaming output; ignore incremental events
         return
 
@@ -52,7 +53,9 @@ class EmailAdapter(BasePlatformAdapter):
         """
         if not self.to_addr:
             # No recipient; nothing to do
-            logging.warning("No recipient email address provided; skipping email output.")
+            logging.warning(
+                "No recipient email address provided; skipping email output."
+            )
             return
         text_md = content.get("text") or ""
 
@@ -70,7 +73,13 @@ class EmailAdapter(BasePlatformAdapter):
             msg.add_alternative(html_body, subtype="html")
 
         # Avoid dumping full message content in stdout; keep debug concise
-        logging.debug("Preparing to send email via SMTP host=%s port=%s tls=%s to=%s", self.smtp_host, self.smtp_port, self.smtp_use_tls, self.to_addr)
+        logging.debug(
+            "Preparing to send email via SMTP host=%s port=%s tls=%s to=%s",
+            self.smtp_host,
+            self.smtp_port,
+            self.smtp_use_tls,
+            self.to_addr,
+        )
 
         # Robust connection with retries and proper TLS/SSL handling
         attempts = 1 if content.get("delivery_fenced") else 2
@@ -80,7 +89,9 @@ class EmailAdapter(BasePlatformAdapter):
             try:
                 # Use implicit SSL for port 465 regardless of smtp_use_tls flag
                 if self.smtp_port == 465:
-                    client = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=30)
+                    client = smtplib.SMTP_SSL(
+                        self.smtp_host, self.smtp_port, timeout=30
+                    )
                 else:
                     client = smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30)
                     client.ehlo()
@@ -91,7 +102,9 @@ class EmailAdapter(BasePlatformAdapter):
                                 client.starttls()
                                 client.ehlo()
                             else:
-                                logging.warning("SMTP server does not advertise STARTTLS; continuing without TLS")
+                                logging.warning(
+                                    "SMTP server does not advertise STARTTLS; continuing without TLS"
+                                )
                         except Exception as e:
                             logging.warning("STARTTLS negotiation failed: %s", e)
                             raise
@@ -101,7 +114,11 @@ class EmailAdapter(BasePlatformAdapter):
                     try:
                         client.login(self.smtp_username, self.smtp_password)
                     except smtplib.SMTPAuthenticationError as e:
-                        logging.error("SMTP authentication failed: code=%s msg=%s", getattr(e, 'smtp_code', None), getattr(e, 'smtp_error', None))
+                        logging.error(
+                            "SMTP authentication failed: code=%s msg=%s",
+                            getattr(e, "smtp_code", None),
+                            getattr(e, "smtp_error", None),
+                        )
                         raise
 
                 # Send email
@@ -109,8 +126,13 @@ class EmailAdapter(BasePlatformAdapter):
                 if rejected:
                     raise RuntimeError("SMTP recipient was rejected")
                 import hashlib
-                self.delivery_receipt = "smtp:accepted:" + hashlib.sha256(msg.as_bytes()).hexdigest()
-                logging.info("Email sent to %s with subject '%s'", self.to_addr, self.subject)
+
+                self.delivery_receipt = (
+                    "smtp:accepted:" + hashlib.sha256(msg.as_bytes()).hexdigest()
+                )
+                logging.info(
+                    "Email sent to %s with subject '%s'", self.to_addr, self.subject
+                )
                 # Cleanup and return on success
                 try:
                     client.quit()
@@ -119,7 +141,9 @@ class EmailAdapter(BasePlatformAdapter):
                 return
             except Exception as e:
                 last_err = e
-                logging.warning("Attempt %d/%d to send email failed: %s", attempt, attempts, e)
+                logging.warning(
+                    "Attempt %d/%d to send email failed: %s", attempt, attempts, e
+                )
                 # Ensure socket closed before retry
                 try:
                     if client:
@@ -130,7 +154,9 @@ class EmailAdapter(BasePlatformAdapter):
                     await asyncio.sleep(1.5)
 
         # If we reached here, all attempts failed
-        raise RuntimeError(f"Failed to send email after {attempts} attempts: {last_err}")
+        raise RuntimeError(
+            f"Failed to send email after {attempts} attempts: {last_err}"
+        )
 
     def _markdown_to_html(self, markdown_text: str) -> str:
         """Convert Markdown to HTML using markdown2 if available; fallback to minimal formatting."""
@@ -139,18 +165,23 @@ class EmailAdapter(BasePlatformAdapter):
         # Try markdown2 first
         try:
             import markdown2  # type: ignore
+
             return markdown2.markdown(markdown_text)
         except Exception:
             pass
         # Try Python-Markdown next if installed under 'markdown'
         try:
             import markdown  # type: ignore
+
             return markdown.markdown(markdown_text)
         except Exception:
             pass
         # Fallback: replace double newlines with paragraph breaks and single newlines with <br>
-        esc = markdown_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        esc = (
+            markdown_text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
         paras = [p.strip() for p in esc.split("\n\n")]
         html_paras = [p.replace("\n", "<br>\n") for p in paras]
         return "\n\n".join(f"<p>{p}</p>" for p in html_paras)
-

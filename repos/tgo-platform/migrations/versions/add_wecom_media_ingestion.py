@@ -25,7 +25,9 @@ def upgrade() -> None:
         sa.Column("inbox_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("source_media_id", sa.String(length=255), nullable=False),
         sa.Column("media_type", sa.String(length=20), nullable=False),
-        sa.Column("status", sa.String(length=20), server_default="pending", nullable=False),
+        sa.Column(
+            "status", sa.String(length=20), server_default="pending", nullable=False
+        ),
         sa.Column("storage_provider", sa.String(length=50), nullable=True),
         sa.Column("object_key", sa.Text(), nullable=True),
         sa.Column("original_filename", sa.String(length=255), nullable=True),
@@ -93,8 +95,12 @@ def upgrade() -> None:
         "pt_media_processing_jobs",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("media_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("job_type", sa.String(length=20), server_default="download", nullable=False),
-        sa.Column("status", sa.String(length=20), server_default="pending", nullable=False),
+        sa.Column(
+            "job_type", sa.String(length=20), server_default="download", nullable=False
+        ),
+        sa.Column(
+            "status", sa.String(length=20), server_default="pending", nullable=False
+        ),
         sa.Column("retry_count", sa.Integer(), server_default="0", nullable=False),
         sa.Column("max_attempts", sa.Integer(), server_default="3", nullable=False),
         sa.Column("claim_token", sa.String(length=64), nullable=True),

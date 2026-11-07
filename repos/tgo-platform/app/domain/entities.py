@@ -10,15 +10,15 @@ class NormalizedMessage(BaseModel):
     # New platform identification fields
     platform_api_key: str
     platform_type: str  # e.g., "email", "wecom", "website"
-    platform_id: str    # UUID string of Platform record
+    platform_id: str  # UUID string of Platform record
     extra: dict | None = None
-
 
 
 class VisitorInfo(BaseModel):
     """Visitor representation returned by TGO API.
     Extra fields are allowed to accommodate API growth without breaking.
     """
+
     model_config = ConfigDict(extra="allow")
 
     # Core identity
@@ -62,6 +62,7 @@ class VisitorInfo(BaseModel):
     channel_id: str | None = None
     channel_type: int | None = None
 
+
 class ChatCompletionRequest(BaseModel):
     api_key: str
     message: str
@@ -84,4 +85,3 @@ class ChatCompletionRequest(BaseModel):
 class StreamEvent(BaseModel):
     event: str  # connected/event/error/disconnected
     payload: dict | None = None
-

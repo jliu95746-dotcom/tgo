@@ -63,8 +63,7 @@ def upgrade() -> None:
             ["next_attempt_at"],
         )
         op.execute(
-            f"UPDATE {table_name} SET status = 'pending' "
-            "WHERE status = 'processing'"
+            f"UPDATE {table_name} SET status = 'pending' WHERE status = 'processing'"
         )
 
 

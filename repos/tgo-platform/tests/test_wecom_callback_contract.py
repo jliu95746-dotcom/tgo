@@ -54,7 +54,9 @@ def make_platform() -> SimpleNamespace:
     )
 
 
-def make_signed_request(xml: str, *, timestamp: str = "1710000000", nonce: str = "nonce") -> FakeRequest:
+def make_signed_request(
+    xml: str, *, timestamp: str = "1710000000", nonce: str = "nonce"
+) -> FakeRequest:
     signature = callbacks.compute_msg_signature("callback-token", timestamp, nonce)
     return FakeRequest(
         xml,
@@ -92,7 +94,9 @@ async def test_kf_event_is_durably_queued_without_waiting_for_remote_sync(
     session = FakeSession()
     platform = make_platform()
     platform.config = {
-        **platform.config, "kf_secret": "kf-secret", "app_secret": "",
+        **platform.config,
+        "kf_secret": "kf-secret",
+        "app_secret": "",
     }
 
     response = await asyncio.wait_for(
@@ -143,7 +147,9 @@ async def test_distinct_kf_callbacks_do_not_share_a_deduplication_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_kf_event_does_not_enqueue_sync_job(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_non_kf_event_does_not_enqueue_sync_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     sync_calls = 0
 
     async def record_sync(**_: object) -> None:
@@ -254,7 +260,9 @@ async def test_callback_rejects_missing_timestamp_or_nonce() -> None:
     xml = "<xml><MsgType>text</MsgType><MsgId>message-1</MsgId></xml>"
     request = make_signed_request(xml, timestamp="", nonce="")
 
-    response = await callbacks._handle_wecom_webhook(make_platform(), request, FakeSession())
+    response = await callbacks._handle_wecom_webhook(
+        make_platform(), request, FakeSession()
+    )
 
     assert response.status_code == 400
 

@@ -140,7 +140,10 @@ async def test_failed_stream_never_sends_partial_reply(
         ),
         StreamEvent(
             event="workflow_failed",
-            payload={"event_type": "workflow_failed", "data": {"error": "model failed"}},
+            payload={
+                "event_type": "workflow_failed",
+                "data": {"error": "model failed"},
+            },
         ),
     ]
 
@@ -361,15 +364,24 @@ async def test_internal_colleague_reply_is_not_labeled_as_customer_ai(
         msg=message,
         db=FakeSession(),
         tgo_api_client=FakeTgoApiClient(),
-        sse_manager=FakeSSEManager([
-            StreamEvent(event="agent_content_chunk", payload={
-                "event_type": "agent_content_chunk",
-                "data": {"data": {"content_chunk": "内部答复"}},
-            }),
-            StreamEvent(event="workflow_completed", payload={
-                "event_type": "workflow_completed", "data": {},
-            }),
-        ]),
+        sse_manager=FakeSSEManager(
+            [
+                StreamEvent(
+                    event="agent_content_chunk",
+                    payload={
+                        "event_type": "agent_content_chunk",
+                        "data": {"data": {"content_chunk": "内部答复"}},
+                    },
+                ),
+                StreamEvent(
+                    event="workflow_completed",
+                    payload={
+                        "event_type": "workflow_completed",
+                        "data": {},
+                    },
+                ),
+            ]
+        ),
     )
     assert reply == "内部答复"
     assert adapter.final_payloads == [{"text": "内部答复"}]
@@ -389,15 +401,20 @@ async def test_explicit_handoff_confirms_to_wecom_customer_once(
         msg=make_message(),
         db=FakeSession(),
         tgo_api_client=FakeTgoApiClient(),
-        sse_manager=FakeSSEManager([
-            StreamEvent(event="human_handoff", payload={
-                "event_type": "human_handoff",
-                "data": {
-                    "routing_reason": "explicit_customer_request",
-                    "handoff": {"status": "pending"},
-                },
-            }),
-        ]),
+        sse_manager=FakeSSEManager(
+            [
+                StreamEvent(
+                    event="human_handoff",
+                    payload={
+                        "event_type": "human_handoff",
+                        "data": {
+                            "routing_reason": "explicit_customer_request",
+                            "handoff": {"status": "pending"},
+                        },
+                    },
+                ),
+            ]
+        ),
     )
     assert reply == "已收到转人工请求，请稍候。"
     assert adapter.final_payloads == [{"text": reply}]

@@ -1,4 +1,5 @@
 """A public platform key cannot substitute for the channel service identity."""
+
 import json
 
 import httpx
@@ -12,9 +13,13 @@ from app.infra.http import HttpxTgoApiClient
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("configured", [True, False])
-async def test_channel_chat_proof_is_required_and_only_sent_in_its_header(monkeypatch, configured):
+async def test_channel_chat_proof_is_required_and_only_sent_in_its_header(
+    monkeypatch, configured
+):
     token = "owned-peer-private-fixture"
-    monkeypatch.setattr(settings, "saas_internal_token", SecretStr(token) if configured else None)
+    monkeypatch.setattr(
+        settings, "saas_internal_token", SecretStr(token) if configured else None
+    )
     captured = []
 
     def respond(request):
@@ -23,8 +28,12 @@ async def test_channel_chat_proof_is_required_and_only_sent_in_its_header(monkey
 
     client = HttpxTgoApiClient("https://owned.invalid")
     await client.aclose()
-    client._client = httpx.AsyncClient(base_url="https://owned.invalid", transport=httpx.MockTransport(respond))
-    request = ChatCompletionRequest(api_key="public-key", message="你好", from_uid="owned-platform-person")
+    client._client = httpx.AsyncClient(
+        base_url="https://owned.invalid", transport=httpx.MockTransport(respond)
+    )
+    request = ChatCompletionRequest(
+        api_key="public-key", message="你好", from_uid="owned-platform-person"
+    )
     try:
         if configured:
             result = [frame async for frame in client.chat_completion(request)]

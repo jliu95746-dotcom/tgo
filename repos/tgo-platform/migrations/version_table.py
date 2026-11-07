@@ -21,7 +21,6 @@ def ensure_platform_version_table_capacity(connection: Connection) -> None:
     )
     connection.execute(
         text(
-            "ALTER TABLE pt_alembic_version "
-            "ALTER COLUMN version_num TYPE VARCHAR(128)"
+            "ALTER TABLE pt_alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)"
         )
     )

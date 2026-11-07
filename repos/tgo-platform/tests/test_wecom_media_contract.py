@@ -51,9 +51,7 @@ def test_extracts_typed_media_reference(msgtype: str, supported: bool) -> None:
 
 def test_supported_media_without_media_id_returns_no_reference() -> None:
     assert (
-        wecom_utils._extract_kf_media_reference(
-            {"msgtype": "image", "image": {}}
-        )
+        wecom_utils._extract_kf_media_reference({"msgtype": "image", "image": {}})
         is None
     )
 
@@ -90,7 +88,11 @@ async def test_supported_media_creates_inbox_media_and_job_atomically() -> None:
     assert media.inbox_id == inbox.id
     assert job.media_id == media.id
     assert session.events == [
-        "WeComInbox", "MessageMedia", "flush", "MediaProcessingJob", "commit",
+        "WeComInbox",
+        "MessageMedia",
+        "flush",
+        "MediaProcessingJob",
+        "commit",
     ]
 
 

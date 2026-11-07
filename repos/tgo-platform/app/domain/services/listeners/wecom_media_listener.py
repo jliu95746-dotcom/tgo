@@ -168,7 +168,8 @@ class WeComMediaListener:
             )
             corp_id = str(platform_config.get("corp_id") or "").strip()
             app_secret = resolve_wecom_kf_secret(
-                platform_config.get("kf_secret"), platform_config.get("app_secret"),
+                platform_config.get("kf_secret"),
+                platform_config.get("app_secret"),
             )
             previous_staging_object_key = job.staging_object_key
             claim_token = uuid.uuid4().hex
@@ -543,7 +544,9 @@ class WeComMediaListener:
     ) -> None:
         # Provider messages may contain URL query credentials or customer data.
         # Keep only a bounded diagnostic code in all three persisted rows.
-        safe_code = code if re.fullmatch(r"[a-z][a-z0-9_-]{0,79}", code) else "processing_error"
+        safe_code = (
+            code if re.fullmatch(r"[a-z][a-z0-9_-]{0,79}", code) else "processing_error"
+        )
         retry_count = claimed.retry_count + 1
         dead = not retryable or retry_count >= claimed.max_attempts
         now = datetime.now(timezone.utc)
@@ -594,6 +597,7 @@ class WeComMediaListener:
             )
             if dead:
                 from app.domain.services.wecom_turn_capture import capture_inbox
+
                 record = await session.get(WeComInbox, claimed.inbox_id)
                 if record is not None:
                     await capture_inbox(session, record)

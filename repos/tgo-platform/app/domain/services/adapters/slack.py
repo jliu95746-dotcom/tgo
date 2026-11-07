@@ -2,6 +2,7 @@
 
 Sends messages to Slack using the Web API chat.postMessage endpoint.
 """
+
 from __future__ import annotations
 import logging
 

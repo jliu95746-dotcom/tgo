@@ -66,7 +66,11 @@ async def test_wecom_media_request_keeps_file_and_source_identity(
 
     class FakeEvents:
         async def stream_events(self, _frames: object):
-            yield type("Event", (), {"event": "human_handoff", "payload": {"event_type": "human_handoff"}})()
+            yield type(
+                "Event",
+                (),
+                {"event": "human_handoff", "payload": {"event_type": "human_handoff"}},
+            )()
 
     class FakeSession:
         async def scalar(self, _query: object):
@@ -80,10 +84,17 @@ async def test_wecom_media_request_keeps_file_and_source_identity(
 
     monkeypatch.setattr(dispatcher, "select_adapter_for_target", fake_adapter)
     message = NormalizedMessage(
-        source="wecom", from_uid="customer", content="/v1/chat/files/" + str(uuid4()),
-        platform_api_key="platform-key", platform_type="wecom",
+        source="wecom",
+        from_uid="customer",
+        content="/v1/chat/files/" + str(uuid4()),
+        platform_api_key="platform-key",
+        platform_type="wecom",
         platform_id=str(uuid4()),
-        extra={"msg_type": 2, "message_id": "source-message", "media_file_id": str(uuid4())},
+        extra={
+            "msg_type": 2,
+            "message_id": "source-message",
+            "media_file_id": str(uuid4()),
+        },
     )
     await dispatcher.process_message(message, FakeSession(), FakeClient(), FakeEvents())
     request = requests[0]
@@ -101,8 +112,10 @@ async def test_downloaded_media_reuses_uploaded_file_after_retry() -> None:
     visitor_id = uuid4()
     uploaded_file_id = uuid4()
     media = SimpleNamespace(
-        object_key="wecom/media.enc", sha256=hashlib.sha256(content).hexdigest(),
-        media_type="image", mime_type="image/png",
+        object_key="wecom/media.enc",
+        sha256=hashlib.sha256(content).hexdigest(),
+        media_type="image",
+        mime_type="image/png",
     )
 
     class FakeSession:
@@ -140,11 +153,19 @@ async def test_downloaded_media_reuses_uploaded_file_after_retry() -> None:
     platform = SimpleNamespace(id=platform_id, api_key="platform-key")
     first = {"extra": {}}
     await listener._prepare_media_message(
-        session, platform, record, visitor_id, first,
+        session,
+        platform,
+        record,
+        visitor_id,
+        first,
     )
     second = {"extra": {}}
     await listener._prepare_media_message(
-        session, platform, record, visitor_id, second,
+        session,
+        platform,
+        record,
+        visitor_id,
+        second,
     )
 
     assert session.commits == 1

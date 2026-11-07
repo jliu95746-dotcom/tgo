@@ -2,10 +2,15 @@
 
 Sends messages to Feishu using the Reply API.
 """
+
 from __future__ import annotations
 
 from app.domain.entities import StreamEvent
-from app.domain.services.adapters.base import BasePlatformAdapter, provider_receipt, DeliveryRejected
+from app.domain.services.adapters.base import (
+    BasePlatformAdapter,
+    provider_receipt,
+    DeliveryRejected,
+)
 from app.core.config import settings
 
 from app.api.feishu_utils import feishu_get_tenant_access_token, feishu_reply_text

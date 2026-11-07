@@ -22,8 +22,16 @@ class PreparedMedia:
 async def _run_ffmpeg(content: bytes, *arguments: str) -> bytes:
     try:
         process = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-            "-i", "pipe:0", "-fs", str(MAX_CHAT_MEDIA_BYTES), *arguments,
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-i",
+            "pipe:0",
+            "-fs",
+            str(MAX_CHAT_MEDIA_BYTES),
+            *arguments,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -109,7 +117,9 @@ class WeComMediaBridge:
             files={"file": (prepared.filename, prepared.content, prepared.mime_type)},
         )
         if response.status_code != 200:
-            raise RuntimeError(f"Chat media upload failed with HTTP {response.status_code}")
+            raise RuntimeError(
+                f"Chat media upload failed with HTTP {response.status_code}"
+            )
         try:
             return UUID(response.json()["file_id"])
         except (KeyError, TypeError, ValueError) as exc:

@@ -53,12 +53,18 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create shared clients
-    app.state.tgo_api_client = HttpxTgoApiClient(settings.api_base_url, timeout=settings.request_timeout_seconds)
+    app.state.tgo_api_client = HttpxTgoApiClient(
+        settings.api_base_url, timeout=settings.request_timeout_seconds
+    )
     app.state.sse_manager = DefaultSSEManager()
     from app.domain.services.turn_registration import TurnRegistration
-    app.state.turn_registration = TurnRegistration(SessionLocal, app.state.tgo_api_client)
+
+    app.state.turn_registration = TurnRegistration(
+        SessionLocal, app.state.tgo_api_client
+    )
     await app.state.turn_registration.start()
     from app.domain.services.turn_media_upload import TurnMediaUpload
+
     app.state.turn_media_upload = TurnMediaUpload(SessionLocal)
     await app.state.turn_media_upload.start()
 
@@ -96,9 +102,7 @@ async def lifespan(app: FastAPI):
                 validate=True,
             )
         except ValueError as exc:
-            raise RuntimeError(
-                "MEDIA_ENCRYPTION_KEY must be valid base64"
-            ) from exc
+            raise RuntimeError("MEDIA_ENCRYPTION_KEY must be valid base64") from exc
         media_storage = EncryptedLocalMediaStorage(
             root=media_storage_path,
             encryption_key=encryption_key,
@@ -169,14 +173,27 @@ async def lifespan(app: FastAPI):
         await app.state.media_cleanup_listener.start()
     if app.state.wecom_media_listener is not None:
         await app.state.wecom_media_listener.start()
-    app.state.email_listener_task = asyncio.create_task(app.state.email_listener.start())
-    app.state.wukongim_listener_task = asyncio.create_task(app.state.wukongim_listener.start())
-    app.state.feishu_listener_task = asyncio.create_task(app.state.feishu_listener.start())
-    app.state.dingtalk_listener_task = asyncio.create_task(app.state.dingtalk_listener.start())
-    app.state.telegram_listener_task = asyncio.create_task(app.state.telegram_listener.start())
-    app.state.wecom_listener_task = asyncio.create_task(app.state.wecom_listener.start())
-    app.state.slack_listener_task = asyncio.create_task(app.state.slack_listener.start())
-
+    app.state.email_listener_task = asyncio.create_task(
+        app.state.email_listener.start()
+    )
+    app.state.wukongim_listener_task = asyncio.create_task(
+        app.state.wukongim_listener.start()
+    )
+    app.state.feishu_listener_task = asyncio.create_task(
+        app.state.feishu_listener.start()
+    )
+    app.state.dingtalk_listener_task = asyncio.create_task(
+        app.state.dingtalk_listener.start()
+    )
+    app.state.telegram_listener_task = asyncio.create_task(
+        app.state.telegram_listener.start()
+    )
+    app.state.wecom_listener_task = asyncio.create_task(
+        app.state.wecom_listener.start()
+    )
+    app.state.slack_listener_task = asyncio.create_task(
+        app.state.slack_listener.start()
+    )
 
     try:
         yield
@@ -218,11 +235,13 @@ async def lifespan(app: FastAPI):
         await app.state.turn_registration.stop()
         await app.state.tgo_api_client.aclose()
 
+
 app = FastAPI(lifespan=lifespan, docs_url="/v1/docs", redoc_url="/v1/redoc")
 app.state.callback_metrics = CallbackMetrics()
 
 # Register global exception handlers and request ID middleware
 register_exception_handlers(app)
+
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
@@ -252,9 +271,6 @@ async def observe_platform_callback(request: Request, call_next):
             status_code=status_code,
             duration_seconds=perf_counter() - started_at,
         )
-
-
-
 
 
 app.include_router(health.router, tags=["health"])

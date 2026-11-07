@@ -76,7 +76,9 @@ async def test_sync_stores_only_customer_messages_and_advances_cursor(
     ) -> None:
         persisted_cursors.append("cursor-2")
 
-    monkeypatch.setattr(wecom_utils, "wecom_get_access_token", lambda *_: _async_value("access-token"))
+    monkeypatch.setattr(
+        wecom_utils, "wecom_get_access_token", lambda *_: _async_value("access-token")
+    )
     monkeypatch.setattr(wecom_utils, "get_wecom_sync_cursor", fake_get_cursor)
     monkeypatch.setattr(wecom_utils, "persist_wecom_sync_cursor", fake_persist_cursor)
     monkeypatch.setattr(wecom_utils, "wecom_kf_sync_msg", fake_sync)
@@ -127,7 +129,9 @@ async def test_sync_does_not_advance_cursor_when_message_storage_fails(
     async def fake_persist_cursor(*_: object, **__: object) -> None:
         persisted_cursors.append("cursor-2")
 
-    monkeypatch.setattr(wecom_utils, "wecom_get_access_token", lambda *_: _async_value("access-token"))
+    monkeypatch.setattr(
+        wecom_utils, "wecom_get_access_token", lambda *_: _async_value("access-token")
+    )
     monkeypatch.setattr(wecom_utils, "get_wecom_sync_cursor", fake_get_cursor)
     monkeypatch.setattr(wecom_utils, "persist_wecom_sync_cursor", fake_persist_cursor)
     monkeypatch.setattr(wecom_utils, "wecom_kf_sync_msg", fake_sync)
@@ -155,13 +159,19 @@ async def test_sync_keeps_valid_text_with_malformed_optional_timestamp(
 
     async def fake_sync(*_: object, **__: object) -> dict[str, object]:
         return {
-            "errcode": 0, "next_cursor": "after-message", "has_more": 0,
-            "msg_list": [{
-                "msgid": "text-with-bad-time", "origin": 3,
-                "external_userid": "external-user",
-                "send_time": "not-a-timestamp", "msgtype": "text",
-                "text": {"content": "请问售后政策"},
-            }],
+            "errcode": 0,
+            "next_cursor": "after-message",
+            "has_more": 0,
+            "msg_list": [
+                {
+                    "msgid": "text-with-bad-time",
+                    "origin": 3,
+                    "external_userid": "external-user",
+                    "send_time": "not-a-timestamp",
+                    "msgtype": "text",
+                    "text": {"content": "请问售后政策"},
+                }
+            ],
         }
 
     async def fake_store(_: object, **kwargs: object) -> wecom_utils.InboxStoreResult:
@@ -175,7 +185,8 @@ async def test_sync_keeps_valid_text_with_malformed_optional_timestamp(
         persisted.append(str(args[4]))
 
     monkeypatch.setattr(
-        wecom_utils, "wecom_get_access_token",
+        wecom_utils,
+        "wecom_get_access_token",
         lambda *_: _async_value("access-token"),
     )
     monkeypatch.setattr(wecom_utils, "get_wecom_sync_cursor", fake_cursor)
@@ -184,9 +195,12 @@ async def test_sync_keeps_valid_text_with_malformed_optional_timestamp(
     monkeypatch.setattr(wecom_utils, "try_store_wecom_inbox", fake_store)
 
     await wecom_utils.sync_kf_messages(
-        corp_id="corp-id", app_secret="app-secret",
-        event_token="event-token", open_kf_id="wk-test",
-        platform_id=uuid4(), db=FakeSession(),
+        corp_id="corp-id",
+        app_secret="app-secret",
+        event_token="event-token",
+        open_kf_id="wk-test",
+        platform_id=uuid4(),
+        db=FakeSession(),
     )
     assert len(stored) == 1
     assert stored[0]["content"] == "请问售后政策"
@@ -205,14 +219,17 @@ async def test_sync_rejects_unknown_origin_before_advancing_cursor(
     unclassified: dict[str, object] = {
         "msgid": "needs-classification",
         "external_userid": "external-user",
-        "msgtype": "text", "text": {"content": "客户问题"},
+        "msgtype": "text",
+        "text": {"content": "客户问题"},
     }
     if origin is not _MISSING:
         unclassified["origin"] = origin
 
     async def fake_sync(*_: object, **__: object) -> dict[str, object]:
         return {
-            "errcode": 0, "next_cursor": "after-page", "has_more": 0,
+            "errcode": 0,
+            "next_cursor": "after-page",
+            "has_more": 0,
             "msg_list": [unclassified],
         }
 
@@ -227,7 +244,8 @@ async def test_sync_rejects_unknown_origin_before_advancing_cursor(
         persisted.append(str(args[4]))
 
     monkeypatch.setattr(
-        wecom_utils, "wecom_get_access_token",
+        wecom_utils,
+        "wecom_get_access_token",
         lambda *_: _async_value("access-token"),
     )
     monkeypatch.setattr(wecom_utils, "get_wecom_sync_cursor", fake_cursor)
@@ -237,9 +255,12 @@ async def test_sync_rejects_unknown_origin_before_advancing_cursor(
 
     with pytest.raises(RuntimeError, match="invalid origin"):
         await wecom_utils.sync_kf_messages(
-            corp_id="corp-id", app_secret="app-secret",
-            event_token="event-token", open_kf_id="wk-test",
-            platform_id=uuid4(), db=FakeSession(),
+            corp_id="corp-id",
+            app_secret="app-secret",
+            event_token="event-token",
+            open_kf_id="wk-test",
+            platform_id=uuid4(),
+            db=FakeSession(),
         )
     assert stored_ids == []
     assert persisted == []
@@ -578,7 +599,9 @@ async def test_sync_requeues_when_page_budget_is_exhausted(
     async def fake_persist_cursor(*_: object, **__: object) -> None:
         persisted_cursors.append("cursor-2")
 
-    monkeypatch.setattr(wecom_utils, "wecom_get_access_token", lambda *_: _async_value("access-token"))
+    monkeypatch.setattr(
+        wecom_utils, "wecom_get_access_token", lambda *_: _async_value("access-token")
+    )
     monkeypatch.setattr(wecom_utils, "get_wecom_sync_cursor", fake_get_cursor)
     monkeypatch.setattr(wecom_utils, "persist_wecom_sync_cursor", fake_persist_cursor)
     monkeypatch.setattr(wecom_utils, "wecom_kf_sync_msg", fake_sync)
