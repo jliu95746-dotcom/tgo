@@ -23,6 +23,7 @@ from app.core.security import (
     require_permission,
 )
 from app.models import Staff, Tag
+from app.schemas.base import PaginationMetadata
 from app.schemas import (
     TagCreate,
     TagListParams,
@@ -83,13 +84,13 @@ async def list_tags(
 
     return TagListResponse(
         data=tag_responses,
-        pagination={
-            "total": total,
-            "limit": params.limit,
-            "offset": params.offset,
-            "has_next": params.offset + params.limit < total,
-            "has_prev": params.offset > 0,
-        },
+        pagination=PaginationMetadata(
+            total=total,
+            limit=params.limit,
+            offset=params.offset,
+            has_next=params.offset + params.limit < total,
+            has_prev=params.offset > 0,
+        ),
     )
 
 

@@ -183,7 +183,7 @@ async def list_agents(
     project_and_api_key: AuthenticatedProject = Depends(
         get_authenticated_project
     ),
-) -> AgentListResponse:
+) -> JSONResponse:
     """List agents from AI service.
 
     Returns raw JSON to tolerate upstream schema changes while preserving docs.
@@ -352,7 +352,7 @@ async def get_agent(
     project_and_api_key: AuthenticatedProject = Depends(
         get_authenticated_project
     ),
-) -> AgentWithDetailsResponse:
+) -> JSONResponse:
     """Get agent from AI service with schema-validated response.
 
     Unknown extra fields from the AI service are safely ignored

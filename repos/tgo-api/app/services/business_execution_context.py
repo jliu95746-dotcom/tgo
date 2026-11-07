@@ -79,7 +79,7 @@ class BusinessExecutionContextService:
             .execution_options(populate_existing=True)
         )
         return (
-            cast(str, resolve_service_mode(row, cast(Visitor, visitor)))
+            resolve_service_mode(row, cast(Visitor, visitor))
             if row is not None
             else "manual"
         )

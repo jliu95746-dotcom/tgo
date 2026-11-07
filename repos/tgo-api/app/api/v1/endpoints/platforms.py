@@ -20,6 +20,7 @@ from app.core.logging import get_logger
 from app.core.security import generate_api_key, require_permission
 from app.models import Platform, PlatformTypeDefinition, Project, Staff
 from app.schemas.public_platform import PublicPlatformResponse
+from app.schemas.base import PaginationMetadata
 from app.services.public_platform import public_platform_response
 from app.services.platform_agent_binding import require_platform_agent
 from app.services.platform_knowledge import platform_knowledge_availability
@@ -244,13 +245,13 @@ async def list_platforms(
 
     return PlatformListResponse(
         data=platform_responses,
-        pagination={
-            "total": total,
-            "limit": params.limit,
-            "offset": params.offset,
-            "has_next": params.offset + params.limit < total,
-            "has_prev": params.offset > 0,
-        }
+        pagination=PaginationMetadata(
+            total=total,
+            limit=params.limit,
+            offset=params.offset,
+            has_next=params.offset + params.limit < total,
+            has_prev=params.offset > 0,
+        ),
     )
 
 

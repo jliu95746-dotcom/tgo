@@ -33,9 +33,7 @@ async def history(
     result = await rag_client.knowledge_version_request(
         'GET', f'/{kind}/{reference}', str(user.project_id)
     )
-    return cast(
-        VersionHistoryResponse, VersionHistoryResponse.model_validate(result)
-    )
+    return VersionHistoryResponse.model_validate(result)
 
 
 @router.post('/{kind}/{reference}', response_model=VersionResponse)
@@ -52,7 +50,7 @@ async def change(
     result = await rag_client.knowledge_version_request(
         'POST', f'/{kind}/{reference}', str(user.project_id), payload
     )
-    return cast(VersionResponse, VersionResponse.model_validate(result))
+    return VersionResponse.model_validate(result)
 
 
 @router.post(
@@ -71,7 +69,7 @@ async def transition(
         str(user.project_id),
         {'actor': user.username},
     )
-    return cast(VersionResponse, VersionResponse.model_validate(result))
+    return VersionResponse.model_validate(result)
 
 
 @router.post(
@@ -89,9 +87,7 @@ async def disable(
         str(user.project_id),
         {'actor': user.username},
     )
-    return cast(
-        VersionHistoryResponse, VersionHistoryResponse.model_validate(result)
-    )
+    return VersionHistoryResponse.model_validate(result)
 
 
 @router.post(
@@ -110,10 +106,7 @@ async def cleanup(
         str(user.project_id),
         data.model_dump(mode='json'),
     )
-    return cast(
-        VersionMaintenanceResponse,
-        VersionMaintenanceResponse.model_validate(result),
-    )
+    return VersionMaintenanceResponse.model_validate(result)
 
 
 @router.post(
@@ -131,9 +124,7 @@ async def enable(
         str(user.project_id),
         {'actor': user.username},
     )
-    return cast(
-        VersionHistoryResponse, VersionHistoryResponse.model_validate(result)
-    )
+    return VersionHistoryResponse.model_validate(result)
 
 
 @router.post('/file/{reference}/upload')

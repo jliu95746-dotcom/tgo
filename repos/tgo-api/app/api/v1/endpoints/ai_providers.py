@@ -27,6 +27,7 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.core.security import get_current_active_user
 from app.models import AIProvider, AIModel, Staff
+from app.schemas.base import PaginationMetadata
 from app.schemas import (
     AIProviderCreate,
     AIProviderListParams,
@@ -215,7 +216,7 @@ async def get_provider_remote_models(
     ),
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> RemoteModelListResponse:
     """Fetch available models from the provider's remote API using stored credentials."""
     item = (
         db.query(AIProvider)
@@ -355,13 +356,13 @@ async def list_ai_providers(
     data = [_to_response(x, model_type) for x in items]
     return AIProviderListResponse(
         data=data,
-        pagination={
-            "total": total,
-            "limit": params.limit,
-            "offset": params.offset,
-            "has_next": params.offset + params.limit < total,
-            "has_prev": params.offset > 0,
-        },
+        pagination=PaginationMetadata(
+            total=total,
+            limit=params.limit,
+            offset=params.offset,
+            has_next=params.offset + params.limit < total,
+            has_prev=params.offset > 0,
+        ),
     )
 
 

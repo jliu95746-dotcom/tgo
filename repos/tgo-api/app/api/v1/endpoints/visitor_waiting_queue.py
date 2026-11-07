@@ -17,6 +17,7 @@ from app.models import (
     WaitingStatus,
     AssignmentSource,
 )
+from app.schemas.base import PaginationMetadata
 from app.schemas.visitor_waiting_queue import (
     WaitingQueueListResponse,
     WaitingQueueDetailResponse,
@@ -180,13 +181,13 @@ async def list_waiting_queue(
 
     return WaitingQueueListResponse(
         items=items,
-        pagination={
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "has_next": offset + limit < total,
-            "has_prev": offset > 0,
-        },
+        pagination=PaginationMetadata(
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_next=offset + limit < total,
+            has_prev=offset > 0,
+        ),
     )
 
 
@@ -235,13 +236,13 @@ async def list_waiting_only(
 
     return WaitingQueueListResponse(
         items=items,
-        pagination={
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "has_next": offset + limit < total,
-            "has_prev": offset > 0,
-        },
+        pagination=PaginationMetadata(
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_next=offset + limit < total,
+            has_prev=offset > 0,
+        ),
     )
 
 

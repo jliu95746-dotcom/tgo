@@ -1,6 +1,6 @@
 """AI Model management endpoints."""
 
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_active_user
 from app.models import AIModel, AIProvider, Staff
+from app.schemas.base import PaginationMetadata
 from app.schemas.ai_model import (
     AIModelWithProvider,
     AIModelWithProviderListResponse,
@@ -28,7 +29,7 @@ async def list_ai_models(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
-) -> Any:
+) -> AIModelWithProviderListResponse:
     """List AI models with provider info.
     
     This endpoint returns a flat list of models available in the current project,
@@ -88,11 +89,11 @@ async def list_ai_models(
     # Return as dict to be handled by FastAPI's jsonable_encoder
     return AIModelWithProviderListResponse(
         data=data,
-        pagination={
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "has_next": offset + limit < total,
-            "has_prev": offset > 0,
-        },
+        pagination=PaginationMetadata(
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_next=offset + limit < total,
+            has_prev=offset > 0,
+        ),
     )

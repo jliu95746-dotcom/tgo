@@ -62,7 +62,7 @@ async def probe_model(
     payload: ProviderModelProbe,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> ModelProbeResult:
     connection = resolve_connection(db, current_user.project_id, payload)
     async with httpx.AsyncClient(timeout=25, follow_redirects=False) as client:
         return await run_model_probe(connection, payload, client)
@@ -73,7 +73,7 @@ async def preview_models(
     payload: ProviderConnectionDraft,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_active_user),
-):
+) -> RemoteModelListResponse:
     from app.api.v1.endpoints.ai_providers import (
         _build_test_request,
         _parse_remote_models,
@@ -85,6 +85,7 @@ async def preview_models(
         api_base_url=connection.base,
         config=connection.config,
     )
+    headers: dict[str, str]
     if connection.provider == 'ollama':
         url = connection.base.removesuffix('/v1') + '/api/tags'
         method, headers = 'GET', {}

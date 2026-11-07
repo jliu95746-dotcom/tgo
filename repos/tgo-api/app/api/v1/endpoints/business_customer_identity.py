@@ -1,7 +1,6 @@
 """Only merchant-signed assertions create sessions; admin requests manage policy."""
 
 from uuid import UUID
-from typing import cast
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
@@ -89,10 +88,7 @@ def list_bindings(
     actor: Staff = Depends(require_admin()),
     service: BusinessCustomerIdentityService = Depends(get_service),
 ) -> list[CustomerIdentityBindingView]:
-    return cast(
-        list[CustomerIdentityBindingView],
-        service.list_bindings(actor.project_id, connection_id, limit),
-    )
+    return service.list_bindings(actor.project_id, connection_id, limit)
 
 
 @router.post(

@@ -15,6 +15,7 @@ from app.schemas.platform_models import (
     PlatformModelRuntime,
     StoredPlatformModel,
 )
+from app.schemas.shared_models import ModelPurpose
 from app.utils.crypto import decrypt_str, encrypt_str
 
 POLICY_KEY = "saas_platform_model"
@@ -138,10 +139,11 @@ def runtime_model(db: Session) -> PlatformModelRuntime | None:
     from app.services.shared_models import stored_shared_models
 
     shared = stored_shared_models(db)
-    media = (
+    media_purposes: tuple[ModelPurpose, ...] = ("asr", "ocr", "vlm")
+    media: dict[str, str] | None = (
         {
             purpose: shared.defaults[purpose].model_id
-            for purpose in ("asr", "ocr", "vlm")
+            for purpose in media_purposes
         }
         if shared
         else None
