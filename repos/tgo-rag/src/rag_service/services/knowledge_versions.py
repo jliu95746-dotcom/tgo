@@ -11,7 +11,7 @@ from typing import TypeAlias
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from ..models import Collection, File, FileDocument, QAPair, WebsitePage
 from ..models.knowledge_versions import (
@@ -65,6 +65,28 @@ def validate_snapshot(snapshot: VersionSnapshot) -> None:
             or not any(chunk.embedding)
         ):
             raise ValueError("新版正文或向量无效，原生效版本未改变。")
+
+
+def publishable_snapshot(
+    version: KnowledgeVersion, source: KnowledgeVersionSource
+) -> VersionSnapshot:
+    """Reject broken persisted data before any publication-side mutations."""
+    try:
+        snapshot = VersionSnapshot.model_validate(version.snapshot)
+        validate_snapshot(snapshot)
+    except ValueError:
+        raise VersionConflict("该版本内容不完整或无效，未切换生效版本。请重新提交资料。") from None
+    if source.source_kind == "qa":
+        if len(snapshot.chunks) != 1:
+            raise VersionConflict("问答版本必须包含一条完整答案。")
+        if (
+            not snapshot.content.question
+            or not snapshot.content.answer
+            or not snapshot.content.question.strip()
+            or not snapshot.content.answer.strip()
+        ):
+            raise VersionConflict("问答内容不完整，未切换版本。")
+    return snapshot
 
 
 async def owned_parent(
@@ -348,7 +370,14 @@ async def create_change(
 
 
 def version_response(version: KnowledgeVersion) -> VersionResponse:
-    snapshot = VersionSnapshot.model_validate(version.snapshot)
+    error = version.error
+    try:
+        snapshot = VersionSnapshot.model_validate(version.snapshot)
+    except ValidationError:
+        # A history read must neither rewrite the persisted state nor expose
+        # invalid snapshot values through Pydantic's diagnostic messages.
+        snapshot = VersionSnapshot()
+        error = "该版本记录不完整，暂时无法读取内容。请重新提交资料或联系管理员。"
     return VersionResponse(
         id=version.id,
         number=version.number,
@@ -357,7 +386,7 @@ def version_response(version: KnowledgeVersion) -> VersionResponse:
         published_by=version.published_by,
         published_at=version.published_at,
         created_at=version.created_at,
-        error=version.error,
+        error=error,
         restored_from=version.restored_from,
         content=snapshot.content,
         preview="\n\n".join(chunk.content for chunk in snapshot.chunks)[:8000],

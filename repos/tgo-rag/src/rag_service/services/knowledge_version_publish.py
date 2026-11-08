@@ -23,7 +23,6 @@ from ..schemas.knowledge_governance import (
 from ..schemas.knowledge_versions import (
     SourceKind,
     VersionMaintenanceResponse,
-    VersionSnapshot,
 )
 from .knowledge_governance import KnowledgeGovernanceService
 from .knowledge_versions import (
@@ -31,7 +30,7 @@ from .knowledge_versions import (
     VersionConflict,
     VersionNotFound,
     owned_parent,
-    validate_snapshot,
+    publishable_snapshot,
 )
 
 _SOURCE_KIND_ADAPTER: TypeAdapter[SourceKind] = TypeAdapter(SourceKind)
@@ -99,10 +98,7 @@ async def publish(
         return version
     if version.state not in {"ready", "pending_review"}:
         raise VersionConflict("只有处理成功的草稿或待审核版本才能生效。")
-    snapshot = VersionSnapshot.model_validate(version.snapshot)
-    validate_snapshot(snapshot)
-    if source.source_kind == "qa" and len(snapshot.chunks) != 1:
-        raise VersionConflict("问答版本必须包含一条完整答案。")
+    snapshot = publishable_snapshot(version, source)
     if isinstance(parent, QAPair):
         from ..schemas.qa import compute_question_hash
 
@@ -356,6 +352,7 @@ async def restore(
     previous, source, _ = await locked_version(db, project, version_id)
     if previous.state != "retired":
         raise VersionConflict("只能恢复保留完整内容的历史生效版本。")
+    publishable_snapshot(previous, source)
     pending = (
         await db.execute(
             select(KnowledgeVersion.id).where(

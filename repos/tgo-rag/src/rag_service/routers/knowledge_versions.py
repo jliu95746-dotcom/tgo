@@ -20,7 +20,8 @@ from ..schemas.knowledge_versions import (
 )
 from ..services.knowledge_version_publish import cleanup_history, locked_version, publish, restore
 from ..services.knowledge_versions import (
-    VersionConflict, VersionNotFound, create_change, ensure_source, history, version_response,
+    VersionConflict, VersionNotFound, create_change, ensure_source, history,
+    publishable_snapshot, version_response,
 )
 
 router = APIRouter()
@@ -70,12 +71,15 @@ async def transition(version_id: UUID, operation: Literal['publish', 'restore', 
         elif operation == 'restore':
             version = await restore(db, project_id, version_id, data.actor)
         else:
-            version, _, _ = await locked_version(db, project_id, version_id)
+            version, source, _ = await locked_version(
+                db, project_id, version_id
+            )
             if version.state not in {'ready', 'pending_review', 'failed', 'processing'}:
                 raise VersionConflict('当前版本不能执行此操作。')
             if operation == 'submit':
                 if version.state != 'ready':
                     raise VersionConflict('只有处理成功的草稿可以提交审核。')
+                publishable_snapshot(version, source)
                 version.state = 'pending_review'
             else:
                 # Invalidates any in-flight worker via state + attempt identity.
@@ -142,7 +146,12 @@ async def cleanup(kind: SourceKind, reference: UUID, data: VersionMaintenanceReq
             KnowledgeVersion.source_id == source.id,
             KnowledgeVersion.number.in_(preview.removable_numbers),
         ))).scalars().all()
-        paths = {str(snapshot['storage_path']) for snapshot in candidates if snapshot.get('storage_path')}
+        paths: set[str] = set()
+        for snapshot in candidates:
+            if isinstance(snapshot, dict):
+                path = snapshot.get('storage_path')
+                if isinstance(path, str) and path:
+                    paths.add(path)
         result = await cleanup_history(db, source, data.retention, data.confirm)
         removable = await detach_unused_blobs(db, source, paths) if data.confirm else []
         await db.commit()
