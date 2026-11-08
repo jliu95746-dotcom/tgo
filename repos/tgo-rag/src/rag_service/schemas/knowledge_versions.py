@@ -1,35 +1,46 @@
-"""Version contracts. Embeddings stay internal and never enter public responses."""
+"""
+Version contracts. Embeddings stay internal and never enter public responses.
+"""
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SourceKind = Literal['file', 'qa', 'website']
-VersionAction = Literal['save', 'submit', 'publish']
-VersionState = Literal['processing', 'ready', 'pending_review', 'published', 'retired', 'failed', 'unchanged']
+SourceKind = Literal["file", "qa", "website"]
+VersionAction = Literal["save", "submit", "publish"]
+VersionState = Literal[
+    "processing",
+    "ready",
+    "pending_review",
+    "published",
+    "retired",
+    "failed",
+    "unchanged",
+]
 
 
 class VersionInput(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    question: str | None = Field(None, min_length=1)
-    answer: str | None = Field(None, min_length=1)
+    model_config = ConfigDict(extra="forbid")
+    question: str | None = Field(default=None, min_length=1)
+    answer: str | None = Field(default=None, min_length=1)
     category: str | None = None
     subcategory: str | None = None
     tags: list[str] | None = None
-    priority: int | None = Field(None, ge=0, le=100)
+    priority: int | None = Field(default=None, ge=0, le=100)
     replacement_file_id: UUID | None = None
 
 
 class VersionChangeRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra="forbid")
     content: VersionInput = Field(default_factory=VersionInput)
-    action: VersionAction = 'save'
+    action: VersionAction = "save"
     actor: str = Field(min_length=1, max_length=255)
 
 
 class VersionActorRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra="forbid")
     actor: str = Field(min_length=1, max_length=255)
 
 
@@ -37,7 +48,7 @@ class VersionChunk(BaseModel):
     content: str
     title: str | None = None
     token_count: int = 0
-    content_type: str = 'paragraph'
+    content_type: str = "paragraph"
     embedding: list[float]
     embedding_model: str
 
@@ -78,7 +89,7 @@ class VersionHistoryResponse(BaseModel):
 
 
 class VersionMaintenanceRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra="forbid")
     retention: int = Field(10, ge=2, le=100)
     confirm: bool = False
     expected_numbers: list[int] | None = None
