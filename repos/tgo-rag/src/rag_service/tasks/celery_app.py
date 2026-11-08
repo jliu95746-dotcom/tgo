@@ -52,6 +52,7 @@ celery_app.conf.task_routes = {
     "crawl_page_task": {"queue": "celery"},  # Single page crawl task
     "process_qa_pair_task": {"queue": "celery"},  # Default queue for QA tasks
     "process_qa_pairs_batch_task": {"queue": "celery"},
+    "cleanup_knowledge_version_artifacts": {"queue": "celery"},
 }
 
 # Task rate limits
@@ -71,6 +72,12 @@ celery_app.conf.task_annotations = {
 
 # Beat schedule for periodic tasks
 celery_app.conf.beat_schedule = {
+    "cleanup-knowledge-version-artifacts": {
+        "task": "cleanup_knowledge_version_artifacts",
+        "schedule": float(
+            settings.knowledge_version_cleanup_interval_seconds
+        ),
+    },
     "cleanup-failed-tasks": {
         "task": "src.rag_service.tasks.maintenance.cleanup_failed_tasks",
         "schedule": 3600.0,  # Every hour

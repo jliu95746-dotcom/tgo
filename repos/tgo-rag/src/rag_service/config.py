@@ -104,6 +104,18 @@ class Settings(BaseSettings):
     upload_dir: str = Field(
         default="uploads", description="Upload directory path"
     )
+    knowledge_version_cleanup_interval_seconds: int = Field(
+        default=600,
+        ge=60,
+        le=86400,
+        description="Website version artifact cleanup interval in seconds",
+    )
+    knowledge_version_cleanup_batch_size: int = Field(
+        default=100,
+        ge=1,
+        le=1000,
+        description="Maximum website version artifact directories per cleanup",
+    )
     allowed_file_types: List[str] = Field(
         default=[
             "application/pdf",

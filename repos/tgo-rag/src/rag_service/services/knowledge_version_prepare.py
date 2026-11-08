@@ -1,14 +1,12 @@
 """Prepare revisions without writing any searchable document."""
 
 import asyncio
-from pathlib import Path
 from urllib.parse import urlparse
 from uuid import UUID
 
 from langchain_core.documents import Document
 from sqlalchemy import select
 
-from ..config import get_settings
 from ..database import get_db_session
 from ..models import Collection, File, WebsitePage
 from ..models.knowledge_versions import (
@@ -19,6 +17,8 @@ from ..logging_config import get_logger
 from ..schemas.knowledge_versions import VersionChunk, VersionSnapshot
 from .embedding import get_embedding_service_for_project
 from .knowledge_version_publish import locked_version, publish
+from .knowledge_version_artifacts import WebsiteArtifact, website_artifact
+from .knowledge_version_artifact_cleanup import cleanup_artifact
 from .knowledge_versions import (
     VersionConflict,
     snapshot_digest,
@@ -149,14 +149,12 @@ async def prepare_snapshot(
             if not page or not page.content_markdown.strip():
                 raise VersionConflict("网站没有返回可用正文，原内容未改变。")
             documents = [Document(page_content=page.content_markdown)]
-            path = Path(get_settings().upload_dir) / f"version-{attempt}.md"
             snapshot.website_markdown, snapshot.website_title = (
                 page.content_markdown,
                 page.title,
             )
-            snapshot.filename, snapshot.storage_path = (
-                page.title or "网站资料"
-            ) + ".md", str(path)
+            snapshot.filename = (page.title or "网站资料") + ".md"
+            snapshot.storage_path = None
             snapshot.file_size, snapshot.content_type = (
                 len(page.content_markdown.encode()),
                 "text/markdown",
@@ -202,16 +200,6 @@ async def prepare_snapshot(
             snapshot
         )
     if not unchanged:
-        if kind == "website":
-            assert (
-                snapshot.storage_path is not None
-                and snapshot.website_markdown is not None
-            )
-            await asyncio.to_thread(
-                Path(snapshot.storage_path).write_text,
-                snapshot.website_markdown,
-                encoding="utf-8",
-            )
         service = await get_embedding_service_for_project(project)
         vectors = await service.generate_embeddings_batch(contents)
         if len(vectors) != len(contents):
@@ -229,6 +217,7 @@ async def prepare_snapshot(
 async def process_revision(
     project: UUID, version_id: UUID, attempt: UUID
 ) -> str:
+    artifact: WebsiteArtifact | None = None
     try:
         snapshot = await prepare_snapshot(project, version_id, attempt)
         async with get_db_session() as db:
@@ -257,6 +246,15 @@ async def process_revision(
                 ).model_dump(mode="json")
             else:
                 validate_snapshot(snapshot)
+                if source.source_kind == "website":
+                    if not snapshot.website_markdown:
+                        raise VersionConflict("网站正文不可用，原内容未改变。")
+                    artifact = website_artifact(source, version_id, attempt)
+                    # This function runs only in the Celery task. Keep the
+                    # write under the source lock, so cancellation cannot
+                    # leave a background thread writing after rollback.
+                    artifact.write(snapshot.website_markdown)
+                    snapshot.storage_path = str(artifact.path)
                 version.snapshot, version.digest = (
                     snapshot.model_dump(mode="json"),
                     digest,
@@ -301,3 +299,18 @@ async def process_revision(
                 failed_version.error = safe_version_failure(error)
                 await db.commit()
         return "failed"
+    finally:
+        if artifact is not None and artifact.created:
+            try:
+                async with get_db_session() as db:
+                    await cleanup_artifact(
+                        db, artifact.directory, artifact.receipt
+                    )
+            except Exception as error:
+                # A periodic worker retries the durable receipt. An unknown
+                # commit result must never cause an unconditional unlink.
+                logger.warning(
+                    "Knowledge version artifact cleanup deferred",
+                    version_id=str(version_id),
+                    error_type=safe_exception_chain(error),
+                )
