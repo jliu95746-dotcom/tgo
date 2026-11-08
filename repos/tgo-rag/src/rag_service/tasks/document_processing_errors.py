@@ -1,7 +1,8 @@
 """
 Document processing error handling module.
 
-This module provides error handling utilities for document processing tasks including:
+This module provides error handling utilities for document processing tasks
+including:
 - Custom exception classes for different processing stages
 - Processing step enumeration for error context
 - Error handling utilities and recovery mechanisms
@@ -14,7 +15,7 @@ Key Components:
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Optional, TypedDict
 from uuid import UUID
 
 from sqlalchemy import select
@@ -29,6 +30,7 @@ logger = get_logger(__name__)
 
 class ProcessingStep(Enum):
     """Enumeration of document processing steps for error tracking."""
+
     LOADING_FILE = "loading_file"
     EXTRACTING_CONTENT = "extracting_content"
     CHUNKING_DOCUMENTS = "chunking_documents"
@@ -39,6 +41,7 @@ class ProcessingStep(Enum):
 
 class ProcessingStatus(Enum):
     """Document processing status enumeration."""
+
     PENDING = "pending"
     PROCESSING = "processing"
     CHUNKING_DOCUMENTS = "chunking_documents"
@@ -48,27 +51,35 @@ class ProcessingStatus(Enum):
     ARCHIVED = "archived"
 
 
+class ProcessingErrorDetails(TypedDict):
+    error_type: str
+    message: str
+    file_id: str
+    step: str
+    original_exception: str | None
+
+
 class DocumentProcessingError(Exception):
     """
     Custom exception for document processing errors.
-    
+
     Provides detailed error information including:
     - File ID for error tracking
     - Processing step where error occurred
     - Original exception for debugging
     - Structured error context
     """
-    
+
     def __init__(
         self,
         message: str,
         file_id: str,
         step: ProcessingStep,
-        original_exception: Optional[Exception] = None
-    ):
+        original_exception: Optional[Exception] = None,
+    ) -> None:
         """
         Initialize document processing error.
-        
+
         Args:
             message: Human-readable error message
             file_id: ID of the file being processed
@@ -80,24 +91,33 @@ class DocumentProcessingError(Exception):
         self.file_id = file_id
         self.step = step
         self.original_exception = original_exception
-    
+
     def __str__(self) -> str:
         """Return formatted error message."""
-        return f"DocumentProcessingError in {self.step.value} for file {self.file_id}: {self.message}"
-    
-    def to_dict(self) -> dict:
+        return (
+            f"DocumentProcessingError in {self.step.value} for file"
+            f" {self.file_id}: {self.message}"
+        )
+
+    def to_dict(self) -> ProcessingErrorDetails:
         """Convert error to dictionary for structured logging."""
         return {
             "error_type": "DocumentProcessingError",
             "message": self.message,
             "file_id": self.file_id,
             "step": self.step.value,
-            "original_exception": str(self.original_exception) if self.original_exception else None
+            "original_exception": (
+                str(self.original_exception)
+                if self.original_exception
+                else None
+            ),
         }
 
 
 def safe_processing_failure(error: Exception) -> str:
-    """Describe the failed step without exposing provider or database secrets."""
+    """
+    Describe the failed step without exposing provider or database secrets.
+    """
     if "No active embedding configuration" in str(error):
         return "尚未配置可用的向量模型，请在模型设置中配置后重试。"
     if isinstance(error, DocumentProcessingError):
@@ -117,11 +137,11 @@ async def _handle_processing_error(
     file_uuid: UUID,
     file_id: str,
     processing_error: Exception,
-    step: ProcessingStep
+    step: ProcessingStep,
 ) -> None:
     """
     Handle processing errors by updating file status and logging.
-    
+
     Args:
         file_uuid: UUID of the file being processed
         file_id: String ID of the file for logging
@@ -135,11 +155,15 @@ async def _handle_processing_error(
             "file_uuid": str(file_uuid),
             "step": step.value,
             "error_type": type(processing_error).__name__,
-            "error_message": str(processing_error)
+            "error_message": str(processing_error),
         }
-        
-        logger.error(f"Document processing failed for file {file_id}: {processing_error}", extra=error_context)
-        
+
+        logger.error(
+            f"Document processing failed for file {file_id}:"
+            f" {processing_error}",
+            extra=error_context,
+        )
+
         # Update file status to failed
         async with get_db_session() as db:
             try:
@@ -148,21 +172,28 @@ async def _handle_processing_error(
                     select(File).where(File.id == file_uuid)
                 )
                 file_record = result.scalar_one_or_none()
-                
+
                 if file_record:
                     file_record.status = ProcessingStatus.FAILED.value
                     file_record.error_message = str(processing_error)
                     await db.commit()
-                    logger.info(f"Updated file status to failed for file {file_id}")
+                    logger.info(
+                        f"Updated file status to failed for file {file_id}"
+                    )
                 else:
-                    logger.warning(f"File record not found for UUID {file_uuid}")
-                    
+                    logger.warning(
+                        f"File record not found for UUID {file_uuid}"
+                    )
+
             except SQLAlchemyError as db_error:
                 await db.rollback()
-                logger.error(f"Failed to update file status for {file_id}: {db_error}")
-                
+                logger.error(
+                    f"Failed to update file status for {file_id}: {db_error}"
+                )
+
     except Exception as e:
-        # Log the error handling failure, but don't raise to avoid masking original error
+        # Log the error handling failure, but don't raise to avoid masking
+        # original error
         logger.error(f"Error handling failed for file {file_id}: {e}")
 
 
@@ -170,17 +201,17 @@ def create_processing_error(
     message: str,
     file_id: str,
     step: ProcessingStep,
-    original_exception: Optional[Exception] = None
+    original_exception: Optional[Exception] = None,
 ) -> DocumentProcessingError:
     """
     Create a DocumentProcessingError with proper context.
-    
+
     Args:
         message: Error message
         file_id: File ID for context
         step: Processing step where error occurred
         original_exception: Original exception if available
-        
+
     Returns:
         DocumentProcessingError instance
     """
@@ -188,14 +219,16 @@ def create_processing_error(
         message=message,
         file_id=file_id,
         step=step,
-        original_exception=original_exception
+        original_exception=original_exception,
     )
 
 
-def log_processing_step(file_id: str, step: ProcessingStep, message: str) -> None:
+def log_processing_step(
+    file_id: str, step: ProcessingStep, message: str
+) -> None:
     """
     Log a processing step with structured context.
-    
+
     Args:
         file_id: File ID for context
         step: Current processing step
@@ -206,15 +239,20 @@ def log_processing_step(file_id: str, step: ProcessingStep, message: str) -> Non
         extra={
             "file_id": file_id,
             "step": step.value,
-            "step_message": message
-        }
+            "step_message": message,
+        },
     )
 
 
-def log_processing_success(file_id: str, processing_time: float, document_count: int, total_tokens: int) -> None:
+def log_processing_success(
+    file_id: str,
+    processing_time: float,
+    document_count: int,
+    total_tokens: int,
+) -> None:
     """
     Log successful processing completion with metrics.
-    
+
     Args:
         file_id: File ID for context
         processing_time: Total processing time in seconds
@@ -228,6 +266,6 @@ def log_processing_success(file_id: str, processing_time: float, document_count:
             "processing_time": processing_time,
             "document_count": document_count,
             "total_tokens": total_tokens,
-            "status": "completed"
-        }
+            "status": "completed",
+        },
     )

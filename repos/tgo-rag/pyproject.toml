@@ -53,6 +53,7 @@ structlog = "^23.2.0"
 python-dotenv = "^1.0.0"
 flower = "^2.0.1"
 colorama = "^0.4.6"
+pdfminer-six = "20260107"
 
 [tool.poetry.group.dev.dependencies]
 # Testing
